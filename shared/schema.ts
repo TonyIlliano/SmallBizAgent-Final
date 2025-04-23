@@ -105,6 +105,11 @@ export const appointments = pgTable("appointments", {
   endDate: timestamp("end_date").notNull(),
   status: text("status").default("scheduled"), // scheduled, confirmed, completed, cancelled
   notes: text("notes"),
+  // Calendar integration fields
+  googleCalendarEventId: text("google_calendar_event_id"),
+  microsoftCalendarEventId: text("microsoft_calendar_event_id"),
+  appleCalendarEventId: text("apple_calendar_event_id"),
+  lastSyncedAt: timestamp("last_synced_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -183,6 +188,23 @@ export const callLogs = pgTable("call_logs", {
   callTime: timestamp("call_time").defaultNow(),
 });
 
+// Calendar Integrations
+export const calendarIntegrations = pgTable("calendar_integrations", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  provider: text("provider").notNull(), // google, microsoft, apple
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  expiresAt: timestamp("expires_at"),
+  data: text("data"), // Additional provider-specific data as JSON
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    businessProviderUnique: unique("business_provider_unique").on(table.businessId, table.provider),
+  }
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true });
 export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true, updatedAt: true });
@@ -196,6 +218,7 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true,
 export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({ id: true });
 export const insertReceptionistConfigSchema = createInsertSchema(receptionistConfig).omit({ id: true, updatedAt: true });
 export const insertCallLogSchema = createInsertSchema(callLogs).omit({ id: true });
+export const insertCalendarIntegrationSchema = createInsertSchema(calendarIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -233,3 +256,6 @@ export type InsertReceptionistConfig = z.infer<typeof insertReceptionistConfigSc
 
 export type CallLog = typeof callLogs.$inferSelect;
 export type InsertCallLog = z.infer<typeof insertCallLogSchema>;
+
+export type CalendarIntegration = typeof calendarIntegrations.$inferSelect;
+export type InsertCalendarIntegration = z.infer<typeof insertCalendarIntegrationSchema>;
