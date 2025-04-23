@@ -112,7 +112,7 @@ router.post("/quotes", async (req, res) => {
       amount: validatedData.amount,
       tax: validatedData.tax,
       total: validatedData.total,
-      validUntil: validatedData.validUntil || null,
+      validUntil: validatedData.validUntil ? validatedData.validUntil.toISOString().split('T')[0] : null,
       notes: validatedData.notes || null,
     };
 
@@ -200,7 +200,7 @@ router.patch("/quotes/:id", async (req, res) => {
       amount: validatedData.amount,
       tax: validatedData.tax,
       total: validatedData.total,
-      validUntil: validatedData.validUntil || null,
+      validUntil: validatedData.validUntil ? validatedData.validUntil.toISOString().split('T')[0] : null,
       notes: validatedData.notes || null,
     };
 
@@ -313,6 +313,7 @@ router.post("/quotes/:id/convert", async (req, res) => {
     }
 
     // Convert the quote to an invoice
+    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Due in 30 days
     const invoiceData = {
       businessId,
       customerId: existingQuote.customerId,
@@ -321,7 +322,7 @@ router.post("/quotes/:id/convert", async (req, res) => {
       amount: existingQuote.amount,
       tax: existingQuote.tax,
       total: existingQuote.total,
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Due in 30 days
+      dueDate: dueDate.toISOString().split('T')[0], // Format as 'YYYY-MM-DD'
       status: "pending",
     };
 

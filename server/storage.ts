@@ -594,32 +594,134 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Quotes
-  async getQuotes(businessId: number, params?: {
-    status?: string,
-    customerId?: number
-  }): Promise<Quote[]> {
-    let query = db.select().from(quotes)
-      .where(eq(quotes.businessId, businessId));
+  async getAllQuotes(businessId: number, filters?: {
+    status?: string;
+    search?: string;
+    customerId?: number;
+    jobId?: number;
+    fromDate?: Date;
+    toDate?: Date;
+  }): Promise<any[]> {
+    // Start with a base query
+    let query = db.select({
+      quote: quotes,
+      customerFirstName: customers.firstName,
+      customerLastName: customers.lastName,
+      customerEmail: customers.email,
+      customerPhone: customers.phone,
+      jobTitle: jobs.title
+    })
+    .from(quotes)
+    .leftJoin(customers, eq(quotes.customerId, customers.id))
+    .leftJoin(jobs, eq(quotes.jobId, jobs.id))
+    .where(eq(quotes.businessId, businessId));
     
-    if (params?.status) {
-      query = query.where(eq(quotes.status, params.status));
+    // Apply filters
+    if (filters?.status) {
+      query = query.where(eq(quotes.status, filters.status));
     }
     
-    if (params?.customerId) {
-      query = query.where(eq(quotes.customerId, params.customerId));
+    if (filters?.customerId) {
+      query = query.where(eq(quotes.customerId, filters.customerId));
     }
     
-    return query;
+    if (filters?.jobId) {
+      query = query.where(eq(quotes.jobId, filters.jobId));
+    }
+    
+    if (filters?.fromDate) {
+      query = query.where(db.sql`${quotes.createdAt} >= ${filters.fromDate}`);
+    }
+    
+    if (filters?.toDate) {
+      query = query.where(db.sql`${quotes.createdAt} <= ${filters.toDate}`);
+    }
+    
+    if (filters?.search) {
+      query = query.where(
+        or(
+          ilike(quotes.quoteNumber, `%${filters.search}%`),
+          ilike(customers.firstName, `%${filters.search}%`),
+          ilike(customers.lastName, `%${filters.search}%`),
+          ilike(customers.email, `%${filters.search}%`),
+          ilike(customers.phone, `%${filters.search}%`),
+          ilike(jobs.title, `%${filters.search}%`)
+        )
+      );
+    }
+    
+    // Order by most recent first
+    query = query.orderBy(desc(quotes.createdAt));
+    
+    // Execute the query
+    const results = await query;
+    
+    // Format the results for the frontend
+    return results.map(row => ({
+      id: row.quote.id,
+      quoteNumber: row.quote.quoteNumber,
+      customerId: row.quote.customerId,
+      customerName: row.customerFirstName && row.customerLastName 
+        ? `${row.customerFirstName} ${row.customerLastName}` 
+        : 'Unknown Customer',
+      customerEmail: row.customerEmail,
+      customerPhone: row.customerPhone,
+      jobId: row.quote.jobId,
+      jobTitle: row.jobTitle,
+      amount: row.quote.amount,
+      tax: row.quote.tax,
+      total: row.quote.total,
+      status: row.quote.status,
+      validUntil: row.quote.validUntil,
+      createdAt: row.quote.createdAt,
+      updatedAt: row.quote.updatedAt,
+      convertedToInvoiceId: row.quote.convertedToInvoiceId
+    }));
   }
 
-  async getQuote(id: number): Promise<Quote | undefined> {
-    const [quote] = await db.select().from(quotes).where(eq(quotes.id, id));
-    return quote;
+  async getQuoteById(id: number, businessId: number): Promise<any> {
+    // Fetch the quote
+    const [quoteRow] = await db.select()
+      .from(quotes)
+      .where(and(
+        eq(quotes.id, id),
+        eq(quotes.businessId, businessId)
+      ));
+    
+    if (!quoteRow) {
+      return null;
+    }
+    
+    // Fetch the customer
+    const [customer] = await db.select()
+      .from(customers)
+      .where(eq(customers.id, quoteRow.customerId));
+    
+    // Fetch job if exists
+    let job = null;
+    if (quoteRow.jobId) {
+      const [jobRow] = await db.select()
+        .from(jobs)
+        .where(eq(jobs.id, quoteRow.jobId));
+      job = jobRow;
+    }
+    
+    // Fetch quote items
+    const items = await this.getQuoteItems(id);
+    
+    // Format the result
+    return {
+      ...quoteRow,
+      customer,
+      job,
+      items
+    };
   }
 
   async createQuote(quote: InsertQuote): Promise<Quote> {
     const [newQuote] = await db.insert(quotes).values({
       ...quote,
+      status: quote.status || 'pending',
       createdAt: new Date(),
       updatedAt: new Date()
     }).returning();
@@ -627,9 +729,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateQuote(id: number, quote: Partial<Quote>): Promise<Quote> {
+    // Handle Date object to string conversion for validUntil
+    let quoteData = { ...quote };
+    if (quote.validUntil instanceof Date) {
+      quoteData.validUntil = quote.validUntil.toISOString();
+    }
+    
     const [updatedQuote] = await db.update(quotes)
       .set({
-        ...quote,
+        ...quoteData,
+        updatedAt: new Date()
+      })
+      .where(eq(quotes.id, id))
+      .returning();
+    return updatedQuote;
+  }
+
+  async updateQuoteStatus(id: number, status: string): Promise<Quote> {
+    const [updatedQuote] = await db.update(quotes)
+      .set({
+        status,
         updatedAt: new Date()
       })
       .where(eq(quotes.id, id))
@@ -639,7 +758,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteQuote(id: number): Promise<void> {
     // First delete all quote items
-    await db.delete(quoteItems).where(eq(quoteItems.quoteId, id));
+    await this.deleteQuoteItems(id);
     // Then delete the quote
     await db.delete(quotes).where(eq(quotes.id, id));
   }
@@ -655,40 +774,34 @@ export class DatabaseStorage implements IStorage {
     return newItem;
   }
 
-  async updateQuoteItem(id: number, item: Partial<QuoteItem>): Promise<QuoteItem> {
-    const [updatedItem] = await db.update(quoteItems)
-      .set(item)
-      .where(eq(quoteItems.id, id))
-      .returning();
-    return updatedItem;
+  async deleteQuoteItems(quoteId: number): Promise<void> {
+    await db.delete(quoteItems).where(eq(quoteItems.quoteId, quoteId));
   }
 
-  async deleteQuoteItem(id: number): Promise<void> {
-    await db.delete(quoteItems).where(eq(quoteItems.id, id));
-  }
-
-  // Quote Conversion
+  // Method for converting a quote to an invoice
   async convertQuoteToInvoice(quoteId: number): Promise<Invoice> {
-    // Get the quote with all its items
-    const quote = await this.getQuote(quoteId);
-    if (!quote) {
+    // Get the quote details
+    const [quoteData] = await db.select().from(quotes).where(eq(quotes.id, quoteId));
+    if (!quoteData) {
       throw new Error('Quote not found');
     }
     
+    // Get the quote items
     const quoteItems = await this.getQuoteItems(quoteId);
     
     // Create a new invoice based on the quote
+    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Due in 30 days
     const invoice = await this.createInvoice({
-      businessId: quote.businessId,
-      customerId: quote.customerId,
-      jobId: quote.jobId,
+      businessId: quoteData.businessId,
+      customerId: quoteData.customerId,
+      jobId: quoteData.jobId,
       invoiceNumber: `INV-${Date.now()}`, // Generate a new invoice number
-      amount: quote.amount,
-      tax: quote.tax,
-      total: quote.total,
+      amount: quoteData.amount,
+      tax: quoteData.tax || 0,
+      total: quoteData.total,
       status: 'pending',
-      notes: `Converted from Quote #${quote.quoteNumber}\n${quote.notes || ''}`.trim(),
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Due in 30 days
+      notes: `Converted from Quote #${quoteData.quoteNumber}\n${quoteData.notes || ''}`.trim(),
+      dueDate: dueDate.toISOString().split('T')[0], // Format as 'YYYY-MM-DD'
     });
     
     // Create invoice items from quote items
