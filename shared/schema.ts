@@ -220,6 +220,34 @@ export const calendarIntegrations = pgTable("calendar_integrations", {
   }
 });
 
+// Quotes
+export const quotes = pgTable("quotes", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  jobId: integer("job_id"),
+  quoteNumber: text("quote_number").notNull(),
+  amount: real("amount").notNull(),
+  tax: real("tax"),
+  total: real("total").notNull(),
+  validUntil: date("valid_until"), // Date until which the quote is valid
+  status: text("status").default("pending"), // pending, accepted, declined, expired, converted
+  notes: text("notes"),
+  convertedToInvoiceId: integer("converted_to_invoice_id"), // Reference to the invoice if this quote was converted
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Quote items
+export const quoteItems = pgTable("quote_items", {
+  id: serial("id").primaryKey(),
+  quoteId: integer("quote_id").notNull(),
+  description: text("description").notNull(),
+  quantity: integer("quantity").default(1),
+  unitPrice: real("unit_price").notNull(),
+  amount: real("amount").notNull(),
+});
+
 // Subscription Plans
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: serial("id").primaryKey(),
@@ -251,6 +279,8 @@ export const insertReceptionistConfigSchema = createInsertSchema(receptionistCon
 export const insertCallLogSchema = createInsertSchema(callLogs).omit({ id: true });
 export const insertCalendarIntegrationSchema = createInsertSchema(calendarIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertQuoteItemSchema = createInsertSchema(quoteItems).omit({ id: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -294,3 +324,9 @@ export type InsertCalendarIntegration = z.infer<typeof insertCalendarIntegration
 
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema>;
+
+export type Quote = typeof quotes.$inferSelect;
+export type InsertQuote = z.infer<typeof insertQuoteSchema>;
+
+export type QuoteItem = typeof quoteItems.$inferSelect;
+export type InsertQuoteItem = z.infer<typeof insertQuoteItemSchema>;
