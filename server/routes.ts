@@ -1157,6 +1157,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =================== ADMIN PHONE NUMBER MANAGEMENT ===================
+  // Get available phone numbers in an area code
+  app.get("/api/admin/phone-numbers/available", isAdmin, async (req: Request, res: Response) => {
+    try {
+      // Extract area code from query
+      const areaCode = req.query.areaCode as string;
+      if (!areaCode || areaCode.length !== 3) {
+        return res.status(400).json({ 
+          error: "Invalid area code. Please provide a 3-digit area code."
+        });
+      }
+
+      // Check if Twilio is configured
+      if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+        return res.status(503).json({
+          error: "Twilio is not configured. Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN"
+        });
+      }
+
+      // Search for available phone numbers
+      const phoneNumbers = await twilioProvisioningService.searchAvailablePhoneNumbers(areaCode);
+      res.json({ phoneNumbers });
+    } catch (error) {
+      console.error("Error searching for available phone numbers:", error);
+      res.status(500).json({ 
+        error: "Error searching for available phone numbers",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Provision a specific phone number for a business
+  app.post("/api/admin/phone-numbers/provision", isAdmin, async (req: Request, res: Response) => {
+    try {
+      const { businessId, phoneNumber } = req.body;
+      
+      if (!businessId || !phoneNumber) {
+        return res.status(400).json({
+          error: "Missing required fields. Please provide businessId and phoneNumber"
+        });
+      }
+
+      // Get business to confirm it exists
+      const business = await storage.getBusiness(businessId);
+      if (!business) {
+        return res.status(404).json({ error: "Business not found" });
+      }
+
+      // Skip validation for format/etc as Twilio will handle that
+
+      // Check if Twilio is configured
+      if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+        return res.status(503).json({
+          error: "Twilio is not configured. Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN"
+        });
+      }
+
+      // Purchase the phone number
+      const result = await twilioProvisioningService.provisionSpecificPhoneNumber(
+        businessId, 
+        phoneNumber
+      );
+
+      // Return the result
+      res.json({
+        success: true,
+        business: businessId,
+        phoneNumber: result.phoneNumber,
+        sid: result.sid,
+        message: "Phone number provisioned successfully"
+      });
+    } catch (error) {
+      console.error("Error provisioning phone number:", error);
+      res.status(500).json({
+        error: "Error provisioning phone number",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Release a phone number (admin only)
+  app.delete("/api/admin/phone-numbers/:businessId", isAdmin, async (req: Request, res: Response) => {
+    try {
+      const businessId = parseInt(req.params.businessId);
+      
+      // Get business to confirm it exists
+      const business = await storage.getBusiness(businessId);
+      if (!business) {
+        return res.status(404).json({ error: "Business not found" });
+      }
+
+      // Check if business has a phone number
+      if (!business.twilioPhoneNumber) {
+        return res.status(400).json({ 
+          error: "This business does not have a provisioned phone number"
+        });
+      }
+
+      // Check if Twilio is configured
+      if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+        return res.status(503).json({
+          error: "Twilio is not configured. Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN"
+        });
+      }
+
+      // Release the phone number
+      await twilioProvisioningService.releasePhoneNumber(businessId);
+
+      // Return success
+      res.json({
+        success: true,
+        message: "Phone number released successfully",
+        business: businessId
+      });
+    } catch (error) {
+      console.error("Error releasing phone number:", error);
+      res.status(500).json({
+        error: "Error releasing phone number",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Get phone numbers for all businesses
+  app.get("/api/admin/phone-numbers", isAdmin, async (req: Request, res: Response) => {
+    try {
+      // Get all businesses
+      const businesses = await storage.getAllBusinesses();
+      
+      // Extract phone number information
+      const phoneNumbers = businesses.map(business => ({
+        businessId: business.id,
+        businessName: business.name,
+        phoneNumber: business.twilioPhoneNumber,
+        phoneNumberSid: business.twilioPhoneNumberSid,
+        dateProvisioned: business.twilioDateProvisioned,
+        status: business.twilioPhoneNumber ? "active" : "not provisioned"
+      }));
+
+      res.json({ phoneNumbers });
+    } catch (error) {
+      console.error("Error fetching business phone numbers:", error);
+      res.status(500).json({
+        error: "Error fetching business phone numbers",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
