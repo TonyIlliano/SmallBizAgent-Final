@@ -1,19 +1,21 @@
 import {
-  User, InsertUser,
-  Business, InsertBusiness,
-  BusinessHours, InsertBusinessHours,
-  Service, InsertService,
-  Customer, InsertCustomer,
-  Staff, InsertStaff,
-  Appointment, InsertAppointment,
-  Job, InsertJob,
-  Invoice, InsertInvoice,
-  InvoiceItem, InsertInvoiceItem,
-  ReceptionistConfig, InsertReceptionistConfig,
-  CallLog, InsertCallLog
+  User, InsertUser, users,
+  Business, InsertBusiness, businesses,
+  BusinessHours, InsertBusinessHours, businessHours,
+  Service, InsertService, services,
+  Customer, InsertCustomer, customers,
+  Staff, InsertStaff, staff,
+  Appointment, InsertAppointment, appointments,
+  Job, InsertJob, jobs,
+  Invoice, InsertInvoice, invoices,
+  InvoiceItem, InsertInvoiceItem, invoiceItems,
+  ReceptionistConfig, InsertReceptionistConfig, receptionistConfig,
+  CallLog, InsertCallLog, callLogs
 } from "@shared/schema";
 import session from "express-session";
-import memoryStoreFactory from "memorystore";
+import connectPg from "connect-pg-simple";
+import { eq, and } from "drizzle-orm";
+import { db, pool } from "./db";
 
 // Storage interface for all operations
 export interface IStorage {
@@ -116,304 +118,217 @@ export interface IStorage {
   updateCallLog(id: number, log: Partial<CallLog>): Promise<CallLog>;
 }
 
-// In-memory storage implementation
-export class MemStorage implements IStorage {
+// Database storage implementation
+export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
   
-  private users: Map<number, User>;
-  private businesses: Map<number, Business>;
-  private businessHours: Map<number, BusinessHours>;
-  private services: Map<number, Service>;
-  private customers: Map<number, Customer>;
-  private staff: Map<number, Staff>;
-  private appointments: Map<number, Appointment>;
-  private jobs: Map<number, Job>;
-  private invoices: Map<number, Invoice>;
-  private invoiceItems: Map<number, InvoiceItem>;
-  private receptionistConfigs: Map<number, ReceptionistConfig>;
-  private callLogs: Map<number, CallLog>;
-  
-  // Auto-increment IDs
-  private userId = 1;
-  private businessId = 1;
-  private businessHoursId = 1;
-  private serviceId = 1;
-  private customerId = 1;
-  private staffId = 1;
-  private appointmentId = 1;
-  private jobId = 1;
-  private invoiceId = 1;
-  private invoiceItemId = 1;
-  private receptionistConfigId = 1;
-  private callLogId = 1;
-  
   constructor() {
-    // Create a memory store for sessions
-    const MemoryStore = memoryStoreFactory(session);
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000 // Prune expired entries every 24h
+    // Create a PostgreSQL session store
+    const PostgresStore = connectPg(session);
+    this.sessionStore = new PostgresStore({
+      pool,
+      tableName: 'session', 
+      createTableIfMissing: true
     });
-    
-    this.users = new Map();
-    this.businesses = new Map();
-    this.businessHours = new Map();
-    this.services = new Map();
-    this.customers = new Map();
-    this.staff = new Map();
-    this.appointments = new Map();
-    this.jobs = new Map();
-    this.invoices = new Map();
-    this.invoiceItems = new Map();
-    this.receptionistConfigs = new Map();
-    this.callLogs = new Map();
-    
-    // Add demo data
-    this.initializeDemoData();
   }
   
   // User methods
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values())
-      .find(user => user.username.toLowerCase() === username.toLowerCase());
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.users.values())
-      .find(user => user.email.toLowerCase() === email.toLowerCase());
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
   }
 
   async createUser(user: InsertUser): Promise<User> {
-    const id = this.userId++;
-    const newUser: User = {
+    const [newUser] = await db.insert(users).values({
       ...user,
-      id,
-      role: user.role ?? null,
-      businessId: user.businessId ?? null,
-      active: user.active ?? null,
-      lastLogin: null,
       createdAt: new Date(),
       updatedAt: new Date()
-    };
-    this.users.set(id, newUser);
+    }).returning();
     return newUser;
   }
 
   async updateUser(id: number, user: Partial<User>): Promise<User> {
-    const existing = this.users.get(id);
-    if (!existing) {
-      throw new Error(`User with ID ${id} not found`);
-    }
-    
-    const updated: User = {
-      ...existing,
-      ...user,
-      updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    const [updatedUser] = await db.update(users)
+      .set({
+        ...user,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return updatedUser;
   }
 
   async updateUserLastLogin(id: number): Promise<User> {
-    const existing = this.users.get(id);
-    if (!existing) {
-      throw new Error(`User with ID ${id} not found`);
-    }
-    
-    const updated: User = {
-      ...existing,
-      lastLogin: new Date(),
-      updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    const [updatedUser] = await db.update(users)
+      .set({
+        lastLogin: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return updatedUser;
   }
 
-  // Businesses
+  // Business methods
   async getBusiness(id: number): Promise<Business | undefined> {
-    return this.businesses.get(id);
+    const [business] = await db.select().from(businesses).where(eq(businesses.id, id));
+    return business;
   }
 
   async createBusiness(business: InsertBusiness): Promise<Business> {
-    const id = this.businessId++;
-    const newBusiness: Business = { 
-      ...business, 
-      id, 
-      createdAt: new Date(), 
-      updatedAt: new Date() 
-    };
-    this.businesses.set(id, newBusiness);
+    const [newBusiness] = await db.insert(businesses).values({
+      ...business,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
     return newBusiness;
   }
 
   async updateBusiness(id: number, business: Partial<Business>): Promise<Business> {
-    const existing = this.businesses.get(id);
-    if (!existing) {
-      throw new Error(`Business with ID ${id} not found`);
-    }
-    
-    const updated: Business = { 
-      ...existing, 
-      ...business, 
-      updatedAt: new Date() 
-    };
-    this.businesses.set(id, updated);
-    return updated;
+    const [updatedBusiness] = await db.update(businesses)
+      .set({
+        ...business,
+        updatedAt: new Date()
+      })
+      .where(eq(businesses.id, id))
+      .returning();
+    return updatedBusiness;
   }
 
   // Business Hours
   async getBusinessHours(businessId: number): Promise<BusinessHours[]> {
-    return Array.from(this.businessHours.values())
-      .filter(hours => hours.businessId === businessId);
+    return db.select().from(businessHours)
+      .where(eq(businessHours.businessId, businessId));
   }
 
   async createBusinessHours(hours: InsertBusinessHours): Promise<BusinessHours> {
-    const id = this.businessHoursId++;
-    const newHours: BusinessHours = { ...hours, id };
-    this.businessHours.set(id, newHours);
+    const [newHours] = await db.insert(businessHours).values(hours).returning();
     return newHours;
   }
 
   async updateBusinessHours(id: number, hours: Partial<BusinessHours>): Promise<BusinessHours> {
-    const existing = this.businessHours.get(id);
-    if (!existing) {
-      throw new Error(`Business hours with ID ${id} not found`);
-    }
-    
-    const updated: BusinessHours = { ...existing, ...hours };
-    this.businessHours.set(id, updated);
-    return updated;
+    const [updatedHours] = await db.update(businessHours)
+      .set(hours)
+      .where(eq(businessHours.id, id))
+      .returning();
+    return updatedHours;
   }
 
   // Services
   async getServices(businessId: number): Promise<Service[]> {
-    return Array.from(this.services.values())
-      .filter(service => service.businessId === businessId);
+    return db.select().from(services)
+      .where(eq(services.businessId, businessId));
   }
 
   async getService(id: number): Promise<Service | undefined> {
-    return this.services.get(id);
+    const [service] = await db.select().from(services).where(eq(services.id, id));
+    return service;
   }
 
   async createService(service: InsertService): Promise<Service> {
-    const id = this.serviceId++;
-    const newService: Service = { ...service, id };
-    this.services.set(id, newService);
+    const [newService] = await db.insert(services).values(service).returning();
     return newService;
   }
 
   async updateService(id: number, service: Partial<Service>): Promise<Service> {
-    const existing = this.services.get(id);
-    if (!existing) {
-      throw new Error(`Service with ID ${id} not found`);
-    }
-    
-    const updated: Service = { ...existing, ...service };
-    this.services.set(id, updated);
-    return updated;
+    const [updatedService] = await db.update(services)
+      .set(service)
+      .where(eq(services.id, id))
+      .returning();
+    return updatedService;
   }
 
   async deleteService(id: number): Promise<void> {
-    if (!this.services.has(id)) {
-      throw new Error(`Service with ID ${id} not found`);
-    }
-    this.services.delete(id);
+    await db.delete(services).where(eq(services.id, id));
   }
 
   // Customers
   async getCustomers(businessId: number): Promise<Customer[]> {
-    return Array.from(this.customers.values())
-      .filter(customer => customer.businessId === businessId);
+    return db.select().from(customers)
+      .where(eq(customers.businessId, businessId));
   }
 
   async getCustomer(id: number): Promise<Customer | undefined> {
-    return this.customers.get(id);
+    const [customer] = await db.select().from(customers).where(eq(customers.id, id));
+    return customer;
   }
 
   async getCustomerByPhone(phone: string, businessId: number): Promise<Customer | undefined> {
-    return Array.from(this.customers.values())
-      .find(customer => customer.phone === phone && customer.businessId === businessId);
+    const [customer] = await db.select().from(customers)
+      .where(and(
+        eq(customers.phone, phone),
+        eq(customers.businessId, businessId)
+      ));
+    return customer;
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
-    const id = this.customerId++;
-    const newCustomer: Customer = { 
-      ...customer, 
-      id, 
-      createdAt: new Date(), 
-      updatedAt: new Date() 
-    };
-    this.customers.set(id, newCustomer);
+    const [newCustomer] = await db.insert(customers).values({
+      ...customer,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
     return newCustomer;
   }
 
   async updateCustomer(id: number, customer: Partial<Customer>): Promise<Customer> {
-    const existing = this.customers.get(id);
-    if (!existing) {
-      throw new Error(`Customer with ID ${id} not found`);
-    }
-    
-    const updated: Customer = { 
-      ...existing, 
-      ...customer, 
-      updatedAt: new Date() 
-    };
-    this.customers.set(id, updated);
-    return updated;
+    const [updatedCustomer] = await db.update(customers)
+      .set({
+        ...customer,
+        updatedAt: new Date()
+      })
+      .where(eq(customers.id, id))
+      .returning();
+    return updatedCustomer;
   }
 
   async deleteCustomer(id: number): Promise<void> {
-    if (!this.customers.has(id)) {
-      throw new Error(`Customer with ID ${id} not found`);
-    }
-    this.customers.delete(id);
+    await db.delete(customers).where(eq(customers.id, id));
   }
 
   // Staff
   async getStaff(businessId: number): Promise<Staff[]> {
-    return Array.from(this.staff.values())
-      .filter(member => member.businessId === businessId);
+    return db.select().from(staff)
+      .where(eq(staff.businessId, businessId));
   }
 
   async getStaffMember(id: number): Promise<Staff | undefined> {
-    return this.staff.get(id);
+    const [staffMember] = await db.select().from(staff).where(eq(staff.id, id));
+    return staffMember;
   }
 
-  async createStaffMember(staff: InsertStaff): Promise<Staff> {
-    const id = this.staffId++;
-    const newStaffMember: Staff = { 
-      ...staff, 
-      id, 
-      createdAt: new Date(), 
-      updatedAt: new Date() 
-    };
-    this.staff.set(id, newStaffMember);
-    return newStaffMember;
+  async createStaffMember(staffMember: InsertStaff): Promise<Staff> {
+    const [newStaff] = await db.insert(staff).values({
+      ...staffMember,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
+    return newStaff;
   }
 
-  async updateStaffMember(id: number, staff: Partial<Staff>): Promise<Staff> {
-    const existing = this.staff.get(id);
-    if (!existing) {
-      throw new Error(`Staff member with ID ${id} not found`);
-    }
-    
-    const updated: Staff = { 
-      ...existing, 
-      ...staff, 
-      updatedAt: new Date() 
-    };
-    this.staff.set(id, updated);
-    return updated;
+  async updateStaffMember(id: number, staffMember: Partial<Staff>): Promise<Staff> {
+    const [updatedStaff] = await db.update(staff)
+      .set({
+        ...staffMember,
+        updatedAt: new Date()
+      })
+      .where(eq(staff.id, id))
+      .returning();
+    return updatedStaff;
   }
 
   async deleteStaffMember(id: number): Promise<void> {
-    if (!this.staff.has(id)) {
-      throw new Error(`Staff member with ID ${id} not found`);
-    }
-    this.staff.delete(id);
+    await db.delete(staff).where(eq(staff.id, id));
   }
 
   // Appointments
@@ -423,74 +338,47 @@ export class MemStorage implements IStorage {
     customerId?: number,
     staffId?: number
   }): Promise<Appointment[]> {
-    let appointments = Array.from(this.appointments.values())
-      .filter(appointment => appointment.businessId === businessId);
+    let query = db.select().from(appointments)
+      .where(eq(appointments.businessId, businessId));
     
-    if (params) {
-      if (params.startDate) {
-        appointments = appointments.filter(a => 
-          new Date(a.startDate) >= new Date(params.startDate as Date)
-        );
-      }
-      
-      if (params.endDate) {
-        appointments = appointments.filter(a => 
-          new Date(a.startDate) <= new Date(params.endDate as Date)
-        );
-      }
-      
-      if (params.customerId) {
-        appointments = appointments.filter(a => 
-          a.customerId === params.customerId
-        );
-      }
-      
-      if (params.staffId) {
-        appointments = appointments.filter(a => 
-          a.staffId === params.staffId
-        );
-      }
+    if (params?.customerId) {
+      query = query.where(eq(appointments.customerId, params.customerId));
     }
     
-    return appointments;
+    if (params?.staffId) {
+      query = query.where(eq(appointments.staffId, params.staffId));
+    }
+    
+    return query;
   }
 
   async getAppointment(id: number): Promise<Appointment | undefined> {
-    return this.appointments.get(id);
+    const [appointment] = await db.select().from(appointments).where(eq(appointments.id, id));
+    return appointment;
   }
 
   async createAppointment(appointment: InsertAppointment): Promise<Appointment> {
-    const id = this.appointmentId++;
-    const newAppointment: Appointment = { 
-      ...appointment, 
-      id, 
-      createdAt: new Date(), 
-      updatedAt: new Date() 
-    };
-    this.appointments.set(id, newAppointment);
+    const [newAppointment] = await db.insert(appointments).values({
+      ...appointment,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
     return newAppointment;
   }
 
   async updateAppointment(id: number, appointment: Partial<Appointment>): Promise<Appointment> {
-    const existing = this.appointments.get(id);
-    if (!existing) {
-      throw new Error(`Appointment with ID ${id} not found`);
-    }
-    
-    const updated: Appointment = { 
-      ...existing, 
-      ...appointment, 
-      updatedAt: new Date() 
-    };
-    this.appointments.set(id, updated);
-    return updated;
+    const [updatedAppointment] = await db.update(appointments)
+      .set({
+        ...appointment,
+        updatedAt: new Date()
+      })
+      .where(eq(appointments.id, id))
+      .returning();
+    return updatedAppointment;
   }
 
   async deleteAppointment(id: number): Promise<void> {
-    if (!this.appointments.has(id)) {
-      throw new Error(`Appointment with ID ${id} not found`);
-    }
-    this.appointments.delete(id);
+    await db.delete(appointments).where(eq(appointments.id, id));
   }
 
   // Jobs
@@ -499,62 +387,47 @@ export class MemStorage implements IStorage {
     customerId?: number,
     staffId?: number
   }): Promise<Job[]> {
-    let jobs = Array.from(this.jobs.values())
-      .filter(job => job.businessId === businessId);
+    let query = db.select().from(jobs)
+      .where(eq(jobs.businessId, businessId));
     
-    if (params) {
-      if (params.status) {
-        jobs = jobs.filter(j => j.status === params.status);
-      }
-      
-      if (params.customerId) {
-        jobs = jobs.filter(j => j.customerId === params.customerId);
-      }
-      
-      if (params.staffId) {
-        jobs = jobs.filter(j => j.staffId === params.staffId);
-      }
+    if (params?.status) {
+      query = query.where(eq(jobs.status, params.status));
     }
     
-    return jobs;
+    if (params?.customerId) {
+      query = query.where(eq(jobs.customerId, params.customerId));
+    }
+    
+    return query;
   }
 
   async getJob(id: number): Promise<Job | undefined> {
-    return this.jobs.get(id);
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, id));
+    return job;
   }
 
   async createJob(job: InsertJob): Promise<Job> {
-    const id = this.jobId++;
-    const newJob: Job = { 
-      ...job, 
-      id, 
-      createdAt: new Date(), 
-      updatedAt: new Date() 
-    };
-    this.jobs.set(id, newJob);
+    const [newJob] = await db.insert(jobs).values({
+      ...job,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
     return newJob;
   }
 
   async updateJob(id: number, job: Partial<Job>): Promise<Job> {
-    const existing = this.jobs.get(id);
-    if (!existing) {
-      throw new Error(`Job with ID ${id} not found`);
-    }
-    
-    const updated: Job = { 
-      ...existing, 
-      ...job, 
-      updatedAt: new Date() 
-    };
-    this.jobs.set(id, updated);
-    return updated;
+    const [updatedJob] = await db.update(jobs)
+      .set({
+        ...job,
+        updatedAt: new Date()
+      })
+      .where(eq(jobs.id, id))
+      .returning();
+    return updatedJob;
   }
 
   async deleteJob(id: number): Promise<void> {
-    if (!this.jobs.has(id)) {
-      throw new Error(`Job with ID ${id} not found`);
-    }
-    this.jobs.delete(id);
+    await db.delete(jobs).where(eq(jobs.id, id));
   }
 
   // Invoices
@@ -562,121 +435,96 @@ export class MemStorage implements IStorage {
     status?: string,
     customerId?: number
   }): Promise<Invoice[]> {
-    let invoices = Array.from(this.invoices.values())
-      .filter(invoice => invoice.businessId === businessId);
+    let query = db.select().from(invoices)
+      .where(eq(invoices.businessId, businessId));
     
-    if (params) {
-      if (params.status) {
-        invoices = invoices.filter(i => i.status === params.status);
-      }
-      
-      if (params.customerId) {
-        invoices = invoices.filter(i => i.customerId === params.customerId);
-      }
+    if (params?.status) {
+      query = query.where(eq(invoices.status, params.status));
     }
     
-    return invoices;
+    if (params?.customerId) {
+      query = query.where(eq(invoices.customerId, params.customerId));
+    }
+    
+    return query;
   }
 
   async getInvoice(id: number): Promise<Invoice | undefined> {
-    return this.invoices.get(id);
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, id));
+    return invoice;
   }
 
   async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
-    const id = this.invoiceId++;
-    const newInvoice: Invoice = { 
-      ...invoice, 
-      id, 
-      createdAt: new Date(), 
-      updatedAt: new Date() 
-    };
-    this.invoices.set(id, newInvoice);
+    const [newInvoice] = await db.insert(invoices).values({
+      ...invoice,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
     return newInvoice;
   }
 
   async updateInvoice(id: number, invoice: Partial<Invoice>): Promise<Invoice> {
-    const existing = this.invoices.get(id);
-    if (!existing) {
-      throw new Error(`Invoice with ID ${id} not found`);
-    }
-    
-    const updated: Invoice = { 
-      ...existing, 
-      ...invoice, 
-      updatedAt: new Date() 
-    };
-    this.invoices.set(id, updated);
-    return updated;
+    const [updatedInvoice] = await db.update(invoices)
+      .set({
+        ...invoice,
+        updatedAt: new Date()
+      })
+      .where(eq(invoices.id, id))
+      .returning();
+    return updatedInvoice;
   }
 
   async deleteInvoice(id: number): Promise<void> {
-    if (!this.invoices.has(id)) {
-      throw new Error(`Invoice with ID ${id} not found`);
-    }
-    this.invoices.delete(id);
+    await db.delete(invoices).where(eq(invoices.id, id));
   }
 
   // Invoice Items
   async getInvoiceItems(invoiceId: number): Promise<InvoiceItem[]> {
-    return Array.from(this.invoiceItems.values())
-      .filter(item => item.invoiceId === invoiceId);
+    return db.select().from(invoiceItems)
+      .where(eq(invoiceItems.invoiceId, invoiceId));
   }
 
   async createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem> {
-    const id = this.invoiceItemId++;
-    const newItem: InvoiceItem = { ...item, id };
-    this.invoiceItems.set(id, newItem);
+    const [newItem] = await db.insert(invoiceItems).values(item).returning();
     return newItem;
   }
 
   async updateInvoiceItem(id: number, item: Partial<InvoiceItem>): Promise<InvoiceItem> {
-    const existing = this.invoiceItems.get(id);
-    if (!existing) {
-      throw new Error(`Invoice item with ID ${id} not found`);
-    }
-    
-    const updated: InvoiceItem = { ...existing, ...item };
-    this.invoiceItems.set(id, updated);
-    return updated;
+    const [updatedItem] = await db.update(invoiceItems)
+      .set(item)
+      .where(eq(invoiceItems.id, id))
+      .returning();
+    return updatedItem;
   }
 
   async deleteInvoiceItem(id: number): Promise<void> {
-    if (!this.invoiceItems.has(id)) {
-      throw new Error(`Invoice item with ID ${id} not found`);
-    }
-    this.invoiceItems.delete(id);
+    await db.delete(invoiceItems).where(eq(invoiceItems.id, id));
   }
 
   // Virtual Receptionist Configuration
   async getReceptionistConfig(businessId: number): Promise<ReceptionistConfig | undefined> {
-    return Array.from(this.receptionistConfigs.values())
-      .find(config => config.businessId === businessId);
+    const [config] = await db.select().from(receptionistConfig)
+      .where(eq(receptionistConfig.businessId, businessId));
+    return config;
   }
 
   async createReceptionistConfig(config: InsertReceptionistConfig): Promise<ReceptionistConfig> {
-    const id = this.receptionistConfigId++;
-    const newConfig: ReceptionistConfig = { 
-      ...config, 
-      id, 
-      updatedAt: new Date() 
-    };
-    this.receptionistConfigs.set(id, newConfig);
+    const [newConfig] = await db.insert(receptionistConfig).values({
+      ...config,
+      updatedAt: new Date()
+    }).returning();
     return newConfig;
   }
 
   async updateReceptionistConfig(id: number, config: Partial<ReceptionistConfig>): Promise<ReceptionistConfig> {
-    const existing = this.receptionistConfigs.get(id);
-    if (!existing) {
-      throw new Error(`Receptionist config with ID ${id} not found`);
-    }
-    
-    const updated: ReceptionistConfig = { 
-      ...existing, 
-      ...config, 
-      updatedAt: new Date() 
-    };
-    this.receptionistConfigs.set(id, updated);
-    return updated;
+    const [updatedConfig] = await db.update(receptionistConfig)
+      .set({
+        ...config,
+        updatedAt: new Date()
+      })
+      .where(eq(receptionistConfig.id, id))
+      .returning();
+    return updatedConfig;
   }
 
   // Call Logs
@@ -686,372 +534,38 @@ export class MemStorage implements IStorage {
     isEmergency?: boolean,
     status?: string
   }): Promise<CallLog[]> {
-    let logs = Array.from(this.callLogs.values())
-      .filter(log => log.businessId === businessId);
+    let query = db.select().from(callLogs)
+      .where(eq(callLogs.businessId, businessId));
     
-    if (params) {
-      if (params.startDate) {
-        logs = logs.filter(l => 
-          new Date(l.callTime) >= new Date(params.startDate as Date)
-        );
-      }
-      
-      if (params.endDate) {
-        logs = logs.filter(l => 
-          new Date(l.callTime) <= new Date(params.endDate as Date)
-        );
-      }
-      
-      if (params.isEmergency !== undefined) {
-        logs = logs.filter(l => l.isEmergency === params.isEmergency);
-      }
-      
-      if (params.status) {
-        logs = logs.filter(l => l.status === params.status);
-      }
+    if (params?.status) {
+      query = query.where(eq(callLogs.status, params.status));
     }
     
-    return logs;
+    if (params?.isEmergency !== undefined) {
+      query = query.where(eq(callLogs.isEmergency, params.isEmergency));
+    }
+    
+    return query;
   }
 
   async getCallLog(id: number): Promise<CallLog | undefined> {
-    return this.callLogs.get(id);
+    const [log] = await db.select().from(callLogs).where(eq(callLogs.id, id));
+    return log;
   }
 
   async createCallLog(log: InsertCallLog): Promise<CallLog> {
-    const id = this.callLogId++;
-    const newLog: CallLog = { ...log, id };
-    this.callLogs.set(id, newLog);
+    const [newLog] = await db.insert(callLogs).values(log).returning();
     return newLog;
   }
 
   async updateCallLog(id: number, log: Partial<CallLog>): Promise<CallLog> {
-    const existing = this.callLogs.get(id);
-    if (!existing) {
-      throw new Error(`Call log with ID ${id} not found`);
-    }
-    
-    const updated: CallLog = { ...existing, ...log };
-    this.callLogs.set(id, updated);
-    return updated;
-  }
-
-  // Demo data initialization
-  private initializeDemoData() {
-    // Create a demo user with hashed password (admin123)
-    const user: User = {
-      id: this.userId++,
-      username: "admin",
-      email: "admin@example.com",
-      password: "$2a$10$vQH7YgdLfGVJfDHYNVgId.XGEnYbrJ6rxVI1Bbc03iVStsxIreccS", // hashed "admin123"
-      role: "admin",
-      businessId: 1,
-      active: true,
-      lastLogin: null,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    this.users.set(user.id, user);
-    
-    // Create a sample business
-    const business: Business = {
-      id: this.businessId++,
-      name: "Precision Auto Repair",
-      address: "123 Main St",
-      city: "Anytown",
-      state: "CA",
-      zip: "12345",
-      phone: "555-123-4567",
-      email: "info@precisionauto.example",
-      website: "https://precisionauto.example",
-      logoUrl: null,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    this.businesses.set(business.id, business);
-
-    // Business hours
-    const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-    days.forEach(day => {
-      const hours: BusinessHours = {
-        id: this.businessHoursId++,
-        businessId: business.id,
-        day,
-        open: day !== "sunday" ? (day === "saturday" ? "10:00" : "09:00") : null,
-        close: day !== "sunday" ? (day === "saturday" ? "15:00" : "17:00") : null,
-        isClosed: day === "sunday"
-      };
-      this.businessHours.set(hours.id, hours);
-    });
-
-    // Services
-    const services = [
-      { name: "Oil Change", description: "Regular oil change service", price: 49.95, duration: 30 },
-      { name: "Brake Replacement", description: "Front or rear brake replacement", price: 299.95, duration: 120 },
-      { name: "A/C Repair", description: "Air conditioning system repair", price: 249.95, duration: 180 },
-      { name: "Tire Rotation", description: "Rotate and balance tires", price: 59.95, duration: 45 }
-    ];
-    
-    services.forEach(svc => {
-      const service: Service = {
-        id: this.serviceId++,
-        businessId: business.id,
-        name: svc.name,
-        description: svc.description,
-        price: svc.price,
-        duration: svc.duration,
-        active: true
-      };
-      this.services.set(service.id, service);
-    });
-
-    // Staff
-    const staffMembers = [
-      { firstName: "Mike", lastName: "Thompson", role: "Senior Technician" },
-      { firstName: "Sarah", lastName: "King", role: "Technician" },
-      { firstName: "Alex", lastName: "Rodriguez", role: "Junior Technician" }
-    ];
-    
-    staffMembers.forEach(member => {
-      const staff: Staff = {
-        id: this.staffId++,
-        businessId: business.id,
-        firstName: member.firstName,
-        lastName: member.lastName,
-        email: `${member.firstName.toLowerCase()}@precisionauto.example`,
-        phone: "555-123-4567",
-        role: member.role,
-        active: true,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      this.staff.set(staff.id, staff);
-    });
-
-    // Customers
-    const customers = [
-      { firstName: "James", lastName: "Wilson", phone: "555-111-2222", vehicle: "Toyota Camry" },
-      { firstName: "Robert", lastName: "Johnson", phone: "555-222-3333", vehicle: "Honda Accord" },
-      { firstName: "Susan", lastName: "Miller", phone: "555-333-4444", vehicle: "Ford Escape" },
-      { firstName: "Michael", lastName: "Brown", phone: "555-444-5555", vehicle: "Chevy Malibu" }
-    ];
-    
-    customers.forEach(c => {
-      const customer: Customer = {
-        id: this.customerId++,
-        businessId: business.id,
-        firstName: c.firstName,
-        lastName: c.lastName,
-        email: `${c.firstName.toLowerCase()}.${c.lastName.toLowerCase()}@example.com`,
-        phone: c.phone,
-        address: "456 Oak St",
-        city: "Anytown",
-        state: "CA",
-        zip: "12345",
-        notes: `Customer drives a ${c.vehicle}`,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      this.customers.set(customer.id, customer);
-    });
-
-    // Today's date and appointments
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // Appointments
-    const appointments = [
-      { 
-        customer: 1, 
-        service: 1, 
-        staff: 3, 
-        startTime: new Date(today.getTime() + 8.5 * 60 * 60 * 1000), // 8:30 AM
-        status: "confirmed" 
-      },
-      { 
-        customer: 2, 
-        service: 2, 
-        staff: 1, 
-        startTime: new Date(today.getTime() + 10 * 60 * 60 * 1000), // 10:00 AM
-        status: "confirmed" 
-      },
-      { 
-        customer: 3, 
-        service: 3, 
-        staff: 2, 
-        startTime: new Date(today.getTime() + 13.5 * 60 * 60 * 1000), // 1:30 PM
-        status: "pending" 
-      },
-      { 
-        customer: 4, 
-        service: 4, 
-        staff: 1, 
-        startTime: new Date(today.getTime() + 15.75 * 60 * 60 * 1000), // 3:45 PM
-        status: "confirmed" 
-      }
-    ];
-    
-    appointments.forEach(a => {
-      const service = this.services.get(a.service);
-      const endTime = new Date(a.startTime.getTime() + (service?.duration || 60) * 60 * 1000);
-      
-      const appointment: Appointment = {
-        id: this.appointmentId++,
-        businessId: business.id,
-        customerId: a.customer,
-        staffId: a.staff,
-        serviceId: a.service,
-        startDate: a.startTime,
-        endDate: endTime,
-        status: a.status,
-        notes: null,
-        createdAt: new Date(today.getTime() - 24 * 60 * 60 * 1000), // yesterday
-        updatedAt: new Date(today.getTime() - 24 * 60 * 60 * 1000)
-      };
-      this.appointments.set(appointment.id, appointment);
-    });
-
-    // Jobs
-    const jobs = [
-      { 
-        customer: 1, 
-        staff: 3, 
-        title: "Oil Change + Inspection", 
-        status: "in_progress", 
-        estimatedCompletion: new Date(today.getTime() + 9.5 * 60 * 60 * 1000) // 9:30 AM
-      },
-      { 
-        customer: 2, 
-        staff: 1, 
-        title: "Brake Replacement", 
-        status: "in_progress", 
-        estimatedCompletion: new Date(today.getTime() + 11.5 * 60 * 60 * 1000) // 11:30 AM 
-      },
-      { 
-        customer: 3, 
-        staff: 2, 
-        title: "A/C System Repair", 
-        status: "waiting_parts", 
-        estimatedCompletion: new Date(today.getTime() + 15 * 60 * 60 * 1000) // 3:00 PM
-      }
-    ];
-    
-    jobs.forEach((j, index) => {
-      const job: Job = {
-        id: this.jobId++,
-        businessId: business.id,
-        customerId: j.customer,
-        appointmentId: index + 1,
-        staffId: j.staff,
-        title: j.title,
-        description: `Job #${7829 + index}`,
-        scheduledDate: today,
-        status: j.status,
-        estimatedCompletion: j.estimatedCompletion,
-        notes: null,
-        createdAt: new Date(today.getTime() - 24 * 60 * 60 * 1000), // yesterday
-        updatedAt: new Date(today.getTime() - 24 * 60 * 60 * 1000)
-      };
-      this.jobs.set(job.id, job);
-    });
-
-    // Invoices
-    const invoices = [
-      { customer: 1, job: 1, amount: 89.95, status: "paid", invoiceNumber: "INV-2023-078" },
-      { customer: 3, job: 3, amount: 325.00, status: "pending", invoiceNumber: "INV-2023-077" },
-      { customer: 4, job: null, amount: 65.00, status: "paid", invoiceNumber: "INV-2023-076" }
-    ];
-    
-    invoices.forEach(inv => {
-      const invoice: Invoice = {
-        id: this.invoiceId++,
-        businessId: business.id,
-        customerId: inv.customer,
-        jobId: inv.job,
-        invoiceNumber: inv.invoiceNumber,
-        amount: inv.amount,
-        tax: inv.amount * 0.08,
-        total: inv.amount * 1.08,
-        dueDate: new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000), // 14 days from today
-        status: inv.status,
-        stripePaymentIntentId: inv.status === "paid" ? `pi_${Math.random().toString(36).substring(2, 15)}` : null,
-        createdAt: new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
-        updatedAt: new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000)
-      };
-      this.invoices.set(invoice.id, invoice);
-    });
-
-    // Invoice items
-    invoices.forEach((inv, index) => {
-      const item: InvoiceItem = {
-        id: this.invoiceItemId++,
-        invoiceId: index + 1,
-        description: inv.job ? this.jobs.get(inv.job)?.title || "Service" : "Tire Rotation",
-        quantity: 1,
-        unitPrice: inv.amount,
-        amount: inv.amount
-      };
-      this.invoiceItems.set(item.id, item);
-    });
-
-    // Receptionist config
-    const receptionistConfig: ReceptionistConfig = {
-      id: this.receptionistConfigId++,
-      businessId: business.id,
-      greeting: "Thank you for calling Precision Auto Repair. How may I help you today?",
-      afterHoursMessage: "I'm sorry, our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff. Otherwise, I'd be happy to schedule an appointment for you.",
-      emergencyKeywords: ["emergency", "urgent", "immediately", "critical", "asap"],
-      voicemailEnabled: true,
-      callRecordingEnabled: false,
-      transcriptionEnabled: true,
-      maxCallLengthMinutes: 15,
-      transferPhoneNumbers: ["555-555-5555"],
-      updatedAt: new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
-    };
-    this.receptionistConfigs.set(receptionistConfig.id, receptionistConfig);
-
-    // Call logs
-    const callLogs = [
-      { 
-        callerId: "555-123-4567", 
-        transcript: "Appointment Scheduled - Brake service requested for tomorrow", 
-        intentDetected: "appointment", 
-        status: "answered",
-        time: new Date(today.getTime() - 0.1 * 24 * 60 * 60 * 1000) // today, 8:45 AM
-      },
-      { 
-        callerId: "555-987-6543", 
-        transcript: "Inquiry - Asked about availability for AC service next week", 
-        intentDetected: "inquiry", 
-        status: "answered",
-        time: new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000) // yesterday, 2:30 PM
-      },
-      { 
-        callerId: "555-789-0123", 
-        transcript: "Missed Call - No message left", 
-        intentDetected: "unknown", 
-        status: "missed",
-        time: new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000) // yesterday, 9:15 AM
-      }
-    ];
-    
-    callLogs.forEach(log => {
-      const callLog: CallLog = {
-        id: this.callLogId++,
-        businessId: business.id,
-        callerId: log.callerId,
-        callerName: null,
-        transcript: log.transcript,
-        intentDetected: log.intentDetected,
-        isEmergency: false,
-        callDuration: Math.floor(Math.random() * 300) + 30, // 30-330 seconds
-        recordingUrl: null,
-        status: log.status,
-        callTime: log.time
-      };
-      this.callLogs.set(callLog.id, callLog);
-    });
+    const [updatedLog] = await db.update(callLogs)
+      .set(log)
+      .where(eq(callLogs.id, id))
+      .returning();
+    return updatedLog;
   }
 }
 
-export const storage = new MemStorage();
+// Export an instance of DatabaseStorage for use in the application
+export const storage = new DatabaseStorage();
