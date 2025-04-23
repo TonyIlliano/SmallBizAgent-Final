@@ -1,9 +1,22 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { Home, Users, Calendar, Briefcase, FileText, MessageSquare, Settings, LogOut } from "lucide-react";
+import { 
+  Home, 
+  Users, 
+  Calendar, 
+  Briefcase, 
+  FileText, 
+  MessageSquare, 
+  Settings, 
+  LogOut,
+  Shield,
+  Phone,
+  LineChart
+} from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: Home },
@@ -13,6 +26,11 @@ const navItems = [
   { path: "/invoices", label: "Invoices", icon: FileText },
   { path: "/receptionist", label: "Virtual Receptionist", icon: MessageSquare },
   { path: "/settings", label: "Settings", icon: Settings },
+];
+
+const adminNavItems = [
+  { path: "/admin", label: "Admin Dashboard", icon: Shield },
+  { path: "/admin/phone-management", label: "Phone Management", icon: Phone },
 ];
 
 export function Sidebar() {
@@ -80,6 +98,35 @@ export function Sidebar() {
             <span className="md:hidden lg:inline">{item.label}</span>
           </Link>
         ))}
+        
+        {/* Admin Navigation Links - only shown to admin users */}
+        {user?.role === 'admin' && (
+          <>
+            <div className="pt-3 pb-1">
+              <Separator />
+              <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase md:hidden lg:block">
+                Admin
+              </p>
+              <Separator className="md:block lg:hidden" />
+            </div>
+            
+            {adminNavItems.map((item) => (
+              <Link
+                key={item.path}
+                href={item.path}
+                className={cn(
+                  "flex items-center px-4 py-2 text-sm font-medium rounded-md",
+                  location === item.path || location.startsWith(item.path + '/')
+                    ? "bg-red-50 text-red-700"
+                    : "text-gray-700 hover:bg-gray-100"
+                )}
+              >
+                <item.icon className="h-5 w-5 mr-2 md:mr-0 lg:mr-2" />
+                <span className="md:hidden lg:inline">{item.label}</span>
+              </Link>
+            ))}
+          </>
+        )}
       </nav>
 
       {/* Profile Section */}

@@ -21,6 +21,7 @@ import PhoneManagement from "@/pages/admin/phone-management";
 import { SidebarProvider } from "./context/SidebarContext";
 import { AuthProvider } from "./hooks/use-auth";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import { ProtectedAdminRoute } from "./components/auth/ProtectedAdminRoute";
 
 function Router() {
   return (
@@ -38,8 +39,8 @@ function Router() {
       <ProtectedRoute path="/settings" component={Settings} />
       
       {/* Admin routes */}
-      <ProtectedRoute path="/admin" component={AdminDashboard} />
-      <ProtectedRoute path="/admin/phone-management" component={PhoneManagement} />
+      <ProtectedAdminRoute path="/admin" component={AdminDashboard} />
+      <ProtectedAdminRoute path="/admin/phone-management" component={PhoneManagement} />
       
       {/* Public routes */}
       <Route path="/auth" component={AuthPage} />
