@@ -1320,6 +1320,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register subscription routes
   app.use('/api/subscription', subscriptionRoutes);
 
+  // Register quote routes
+  app.use('/api', quoteRoutes);
+
   // Serve calendar files from public directory
   app.use('/calendar', express.static('public/calendar'));
   
