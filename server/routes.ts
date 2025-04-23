@@ -44,6 +44,7 @@ import twilioService from "./services/twilioService";
 import businessProvisioningService from "./services/businessProvisioningService";
 import twilioProvisioningService from "./services/twilioProvisioningService";
 import calendarRoutes from "./routes/calendarRoutes";
+import quickbooksRoutes from "./routes/quickbooksRoutes";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
@@ -1310,6 +1311,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register calendar routes
   app.use('/api/calendar', calendarRoutes);
+
+  // Register QuickBooks integration routes
+  app.use('/api/quickbooks', quickbooksRoutes);
 
   // Serve calendar files from public directory
   app.use('/calendar', express.static('public/calendar'));
