@@ -1,197 +1,292 @@
-import ical from 'ical-generator';
-import * as fs from 'fs';
-import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
-import { businesses, calendarIntegrations } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+import { calendarIntegrations } from '@shared/schema';
+import { eq, and } from 'drizzle-orm';
+import type { Appointment } from '@shared/schema';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
+
+// Ensure calendar directories exist
+const PUBLIC_DIR = path.join(__dirname, '../../public');
+const CALENDAR_DIR = path.join(PUBLIC_DIR, 'calendar');
+const SUBSCRIPTION_DIR = path.join(CALENDAR_DIR, 'subscriptions');
+const EVENTS_DIR = path.join(CALENDAR_DIR, 'events');
+
+// Create directories if they don't exist
+if (!fs.existsSync(PUBLIC_DIR)) {
+  fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+}
+if (!fs.existsSync(CALENDAR_DIR)) {
+  fs.mkdirSync(CALENDAR_DIR, { recursive: true });
+}
+if (!fs.existsSync(SUBSCRIPTION_DIR)) {
+  fs.mkdirSync(SUBSCRIPTION_DIR, { recursive: true });
+}
+if (!fs.existsSync(EVENTS_DIR)) {
+  fs.mkdirSync(EVENTS_DIR, { recursive: true });
+}
 
 export class AppleCalendarService {
-  /**
-   * Generate iCalendar .ics file for Apple Calendar
-   */
-  async generateICS(businessId: number, appointment: any): Promise<string> {
-    const business = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  // Get the subscription URL for Apple Calendar
+  getSubscriptionUrl(businessId: number): string {
+    // Generate a unique filename for the business subscription
+    const filename = this.getBusinessFilename(businessId);
     
-    if (!business.length) {
-      throw new Error('Business not found');
-    }
-
-    const calendar = ical({ name: 'SmallBizAgent Appointments' });
-    
-    const event = calendar.createEvent({
-      id: appointment.appleCalendarEventId || uuidv4(),
-      start: new Date(appointment.startDate),
-      end: new Date(appointment.endDate),
-      summary: `Appointment: ${appointment.title || 'New Appointment'}`,
-      description: appointment.notes || '',
-      location: business[0].address || '',
-    });
-
-    const filename = `appointment_${businessId}_${appointment.id}.ics`;
-    const filepath = path.join(__dirname, '../../public/calendar', filename);
-    
-    // Ensure directory exists
-    const dir = path.dirname(filepath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    // Create an empty subscription file if it doesn't exist
+    const filePath = path.join(SUBSCRIPTION_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, this.generateEmptyCalendar(businessId));
     }
     
-    // Write ics file
-    fs.writeFileSync(filepath, calendar.toString());
+    // Return the URL
+    return `/calendar/subscriptions/${filename}`;
+  }
+
+  // Check if Apple Calendar is connected for a business
+  async isConnected(businessId: number): Promise<boolean> {
+    const filename = this.getBusinessFilename(businessId);
+    const filePath = path.join(SUBSCRIPTION_DIR, filename);
+    return fs.existsSync(filePath);
+  }
+
+  // Generate an empty iCalendar file
+  private generateEmptyCalendar(businessId: number): string {
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+/g, '');
     
-    return filename;
+    return [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//SmallBizAgent//Calendar//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      `X-WR-CALNAME:Business Calendar ${businessId}`,
+      'X-WR-TIMEZONE:UTC',
+      `X-WR-CALDESC:Appointment calendar for business ${businessId}`,
+      'END:VCALENDAR'
+    ].join('\r\n');
   }
 
-  /**
-   * Get public URL for the .ics file
-   */
-  getICSUrl(filename: string): string {
-    const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
-    return `${baseUrl}/calendar/${filename}`;
+  // Generate a unique filename for a business
+  private getBusinessFilename(businessId: number): string {
+    return `business_${businessId}_calendar.ics`;
   }
 
-  /**
-   * Create or update calendar entry in Apple Calendar via iCalendar file
-   */
-  async syncAppointment(businessId: number, appointment: any): Promise<string | null> {
+  // Generate a unique filename for an event
+  private getEventFilename(businessId: number, appointmentId: number): string {
+    return `business_${businessId}_event_${appointmentId}.ics`;
+  }
+
+  // Sync an appointment with Apple Calendar
+  async syncAppointment(businessId: number, appointment: Appointment): Promise<string | null> {
     try {
-      // Generate unique ID for Apple Calendar event if not exists
-      if (!appointment.appleCalendarEventId) {
-        appointment.appleCalendarEventId = uuidv4();
+      // Check if we have an integration record
+      let integration = await db.select()
+        .from(calendarIntegrations)
+        .where(
+          and(
+            eq(calendarIntegrations.businessId, businessId),
+            eq(calendarIntegrations.provider, 'apple')
+          )
+        )
+        .limit(1);
+
+      // Generate a unique filename
+      const eventFilename = this.getEventFilename(businessId, appointment.id);
+      const eventId = crypto.randomBytes(16).toString('hex');
+      
+      // Create or update the integration record
+      if (integration.length > 0) {
+        // Update existing integration data
+        const data = JSON.parse(integration[0].data || '{}');
+        data.events = data.events || {};
+        data.events[appointment.id] = {
+          filename: eventFilename,
+          eventId: eventId
+        };
+        
+        await db.update(calendarIntegrations)
+          .set({
+            data: JSON.stringify(data),
+            updatedAt: new Date()
+          })
+          .where(eq(calendarIntegrations.id, integration[0].id));
+      } else {
+        // Create new integration record
+        const data = {
+          filename: this.getBusinessFilename(businessId),
+          events: {
+            [appointment.id]: {
+              filename: eventFilename,
+              eventId: eventId
+            }
+          }
+        };
+        
+        await db.insert(calendarIntegrations)
+          .values({
+            businessId,
+            provider: 'apple',
+            data: JSON.stringify(data),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
       }
+
+      // Generate the ics file content
+      const icsContent = this.generateEventICS(eventId, appointment);
       
-      // Generate .ics file
-      const filename = await this.generateICS(businessId, appointment);
+      // Write the file
+      const eventPath = path.join(EVENTS_DIR, eventFilename);
+      fs.writeFileSync(eventPath, icsContent);
       
-      // Store the file reference in database
-      await db.insert(calendarIntegrations).values({
-        businessId,
-        provider: 'apple',
-        accessToken: '',
-        refreshToken: '',
-        expiresAt: null,
-        data: JSON.stringify({ 
-          eventId: appointment.appleCalendarEventId,
-          filename,
-          appointmentId: appointment.id
-        }),
-      }).onConflictDoUpdate({
-        target: [calendarIntegrations.businessId, calendarIntegrations.provider],
-        set: {
-          data: JSON.stringify({ 
-            eventId: appointment.appleCalendarEventId,
-            filename,
-            appointmentId: appointment.id
-          }),
-        }
-      });
+      // Update the subscription file
+      this.updateSubscriptionFile(businessId);
       
-      return appointment.appleCalendarEventId;
+      return eventId;
     } catch (error) {
-      console.error('Error creating Apple Calendar .ics file:', error);
+      console.error('Error syncing appointment to Apple Calendar:', error);
       return null;
     }
   }
 
-  /**
-   * Remove .ics file for a deleted appointment
-   */
-  async deleteAppointment(businessId: number, appleCalendarEventId: string): Promise<boolean> {
+  // Delete an appointment from Apple Calendar
+  async deleteAppointment(businessId: number, eventId: string): Promise<boolean> {
     try {
-      if (!appleCalendarEventId) return false;
-      
-      // Get the integration data
+      // Find the integration record
       const integration = await db.select()
         .from(calendarIntegrations)
-        .where(eq(calendarIntegrations.businessId, businessId))
-        .where(eq(calendarIntegrations.provider, 'apple'))
+        .where(
+          and(
+            eq(calendarIntegrations.businessId, businessId),
+            eq(calendarIntegrations.provider, 'apple')
+          )
+        )
         .limit(1);
-        
-      if (!integration.length) return false;
       
+      if (!integration.length) {
+        return false;
+      }
+      
+      // Parse the data
       const data = JSON.parse(integration[0].data || '{}');
+      let eventFound = false;
+      let filename = '';
       
-      // Delete the .ics file if it exists
-      if (data.filename) {
-        const filepath = path.join(__dirname, '../../public/calendar', data.filename);
-        if (fs.existsSync(filepath)) {
-          fs.unlinkSync(filepath);
+      // Find the event
+      for (const [appointmentId, event] of Object.entries(data.events || {})) {
+        if (event.eventId === eventId) {
+          eventFound = true;
+          filename = event.filename;
+          // Remove the event from the data
+          delete data.events[appointmentId];
+          break;
         }
       }
       
-      // Update integration data to remove the appointment reference
+      if (!eventFound) {
+        return false;
+      }
+      
+      // Update the integration record
       await db.update(calendarIntegrations)
         .set({
-          data: JSON.stringify({ 
-            ...data,
-            appointmentId: null, 
-            deleted: true,
-            deletedAt: new Date().toISOString()
-          }),
+          data: JSON.stringify(data),
+          updatedAt: new Date()
         })
-        .where(eq(calendarIntegrations.businessId, businessId))
-        .where(eq(calendarIntegrations.provider, 'apple'));
+        .where(eq(calendarIntegrations.id, integration[0].id));
+      
+      // Delete the event file
+      const eventPath = path.join(EVENTS_DIR, filename);
+      if (fs.existsSync(eventPath)) {
+        fs.unlinkSync(eventPath);
+      }
+      
+      // Update the subscription file
+      this.updateSubscriptionFile(businessId);
       
       return true;
     } catch (error) {
-      console.error('Error deleting Apple Calendar event:', error);
+      console.error('Error deleting appointment from Apple Calendar:', error);
       return false;
     }
   }
 
-  /**
-   * Check if Apple Calendar integration is available
-   * (Apple Calendar doesn't require OAuth authentication)
-   */
-  async isConnected(businessId: number): Promise<boolean> {
-    return true; // Always available since it just generates .ics files
+  // Get download URL for .ics file
+  getICSUrl(filename: string): string {
+    return `/calendar/events/${filename}`;
   }
 
-  /**
-   * Get subscription URL for Apple Calendar
-   */
-  async getSubscriptionUrl(businessId: number): Promise<string | null> {
+  // Generate an iCalendar event file
+  private generateEventICS(eventId: string, appointment: Appointment): string {
+    const startDate = new Date(appointment.startTime);
+    const endDate = new Date(appointment.endTime);
+    
+    const startTimestamp = startDate.toISOString().replace(/[-:]/g, '').replace(/\.\d+/g, '');
+    const endTimestamp = endDate.toISOString().replace(/[-:]/g, '').replace(/\.\d+/g, '');
+    const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/g, '');
+    
+    return [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//SmallBizAgent//Calendar//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:${eventId}`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${startTimestamp}`,
+      `DTEND:${endTimestamp}`,
+      `SUMMARY:${appointment.title || 'Appointment'}`,
+      `DESCRIPTION:${appointment.notes || ''}`,
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+  }
+
+  // Update the subscription file with all events
+  private updateSubscriptionFile(businessId: number): void {
     try {
-      // Create a calendar for all business appointments
-      const business = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+      // Get the subscription filename
+      const filename = this.getBusinessFilename(businessId);
+      const filePath = path.join(SUBSCRIPTION_DIR, filename);
       
-      if (!business.length) {
-        throw new Error('Business not found');
-      }
+      // Get all event files for this business
+      const eventFiles = fs.readdirSync(EVENTS_DIR)
+        .filter(file => file.startsWith(`business_${businessId}_event_`));
       
-      // Generate a unique ID for the business calendar if not exists
-      let integration = await db.select()
-        .from(calendarIntegrations)
-        .where(eq(calendarIntegrations.businessId, businessId))
-        .where(eq(calendarIntegrations.provider, 'apple_subscription'))
-        .limit(1);
+      // Create the calendar header
+      let calendarContent = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//SmallBizAgent//Calendar//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        `X-WR-CALNAME:Business Calendar ${businessId}`,
+        'X-WR-TIMEZONE:UTC',
+        `X-WR-CALDESC:Appointment calendar for business ${businessId}`
+      ].join('\r\n');
+      
+      // Add all events
+      for (const eventFile of eventFiles) {
+        const eventPath = path.join(EVENTS_DIR, eventFile);
+        const eventContent = fs.readFileSync(eventPath, 'utf8');
         
-      let subscriptionId: string;
-      
-      if (!integration.length) {
-        subscriptionId = uuidv4();
-        await db.insert(calendarIntegrations).values({
-          businessId,
-          provider: 'apple_subscription',
-          accessToken: '',
-          refreshToken: '',
-          expiresAt: null,
-          data: JSON.stringify({ subscriptionId }),
-        });
-      } else {
-        const data = JSON.parse(integration[0].data || '{}');
-        subscriptionId = data.subscriptionId || uuidv4();
+        // Extract the VEVENT section
+        const eventSection = eventContent.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/);
+        
+        if (eventSection) {
+          calendarContent += '\r\n' + eventSection[0];
+        }
       }
       
-      const filename = `business_${businessId}_${subscriptionId}.ics`;
+      // Add the calendar footer
+      calendarContent += '\r\nEND:VCALENDAR';
       
-      // Return the URL to the subscription calendar
-      const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
-      return `${baseUrl}/calendar/subscriptions/${filename}`;
+      // Write the updated subscription file
+      fs.writeFileSync(filePath, calendarContent);
     } catch (error) {
-      console.error('Error generating Apple Calendar subscription URL:', error);
-      return null;
+      console.error('Error updating subscription file:', error);
     }
   }
 }
