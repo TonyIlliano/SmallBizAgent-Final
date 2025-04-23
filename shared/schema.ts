@@ -38,6 +38,11 @@ export const businesses = pgTable("businesses", {
   twilioPhoneNumberSid: text("twilio_phone_number_sid"),
   twilioPhoneNumberStatus: text("twilio_phone_number_status"),
   twilioDateProvisioned: timestamp("twilio_date_provisioned"),
+  // QuickBooks integration information
+  quickbooksRealmId: text("quickbooks_realm_id"),
+  quickbooksAccessToken: text("quickbooks_access_token"),
+  quickbooksRefreshToken: text("quickbooks_refresh_token"),
+  quickbooksTokenExpiry: timestamp("quickbooks_token_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
