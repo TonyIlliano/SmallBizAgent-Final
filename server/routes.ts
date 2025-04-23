@@ -33,6 +33,8 @@ const twilioClient = twilio(
 // AWS Lex setup
 import lexService from "./services/lexService";
 import twilioService from "./services/twilioService";
+import businessProvisioningService from "./services/businessProvisioningService";
+import twilioProvisioningService from "./services/twilioProvisioningService";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
@@ -59,7 +61,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertBusinessSchema.parse(req.body);
       const business = await storage.createBusiness(validatedData);
-      res.status(201).json(business);
+      
+      // Automatically provision business resources
+      try {
+        // Get area code from request if available
+        const preferredAreaCode = req.body.areaCode || req.body.zipCode?.substring(0, 3);
+        
+        // Provision business in background, don't wait for completion
+        // This prevents the API from blocking if Twilio is slow
+        businessProvisioningService.provisionBusiness(business.id, { 
+          preferredAreaCode,
+          // Skip Twilio if credentials aren't available
+          skipTwilioProvisioning: !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN 
+        }).catch(provisionError => {
+          console.error(`Error provisioning business ${business.id}:`, provisionError);
+        });
+        
+        res.status(201).json({
+          ...business,
+          provisioning: "started",
+          message: "Business created. Resources are being provisioned in the background."
+        });
+      } catch (provisionError) {
+        // Even if provisioning fails, still return created business
+        console.error("Failed to start business provisioning:", provisionError);
+        res.status(201).json({
+          ...business,
+          provisioning: "failed",
+          message: "Business created but resource provisioning failed to start."
+        });
+      }
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ errors: error.format() });
@@ -79,6 +110,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ errors: error.format() });
       }
       res.status(500).json({ message: "Error updating business" });
+    }
+  });
+  
+  // Endpoint to manually provision a business (useful for businesses created before this feature)
+  app.post("/api/business/:id/provision", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = parseInt(req.params.id);
+      
+      // Check if business exists
+      const business = await storage.getBusiness(businessId);
+      if (!business) {
+        return res.status(404).json({ message: "Business not found" });
+      }
+      
+      // Check if user is authorized to access this business
+      // Admin users can provision any business
+      if (!isAdmin(req) && !belongsToBusiness(req, businessId)) {
+        return res.status(403).json({ message: "Unauthorized to provision this business" });
+      }
+      
+      // Extract options from request
+      const preferredAreaCode = req.body.areaCode || business.zip?.substring(0, 3);
+      const skipTwilioProvisioning = req.body.skipTwilioProvisioning || 
+        !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN;
+      
+      // Start provisioning in the background
+      businessProvisioningService.provisionBusiness(businessId, {
+        preferredAreaCode,
+        skipTwilioProvisioning
+      }).then(result => {
+        console.log(`Provisioning completed for business ${businessId}:`, result);
+      }).catch(error => {
+        console.error(`Error provisioning business ${businessId}:`, error);
+      });
+      
+      res.json({
+        business: businessId,
+        provisioning: "started",
+        message: "Business provisioning started"
+      });
+    } catch (error) {
+      console.error("Error in business provisioning endpoint:", error);
+      res.status(500).json({ message: "Error starting business provisioning" });
     }
   });
 
