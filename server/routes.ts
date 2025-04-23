@@ -46,6 +46,7 @@ import twilioProvisioningService from "./services/twilioProvisioningService";
 import calendarRoutes from "./routes/calendarRoutes";
 import quickbooksRoutes from "./routes/quickbooksRoutes";
 import subscriptionRoutes from "./routes/subscriptionRoutes";
+import quoteRoutes from "./routes/quoteRoutes";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
