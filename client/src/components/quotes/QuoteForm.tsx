@@ -173,8 +173,8 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
     const values = form.getValues();
     const items = values.items || [];
     const subtotal = items.reduce((acc, item) => {
-      const quantity = typeof item.quantity === 'number' ? item.quantity : 0;
-      const unitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : 0;
+      const quantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity as any) || 0;
+      const unitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : parseFloat(item.unitPrice as any) || 0;
       return acc + quantity * unitPrice;
     }, 0);
     
