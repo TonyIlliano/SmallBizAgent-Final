@@ -7,6 +7,7 @@ import { PageLayout } from "@/components/layout/PageLayout";
 import { apiRequest } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
+import QuickBooksIntegration from "@/components/quickbooks/QuickBooksIntegration";
 
 import {
   Form,
@@ -305,7 +306,7 @@ export default function Settings() {
             <TabsTrigger value="profile">Business Profile</TabsTrigger>
             <TabsTrigger value="hours">Business Hours</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
-            <TabsTrigger value="calendar">Calendar</TabsTrigger>
+            <TabsTrigger value="integrations">Integrations</TabsTrigger>
           </TabsList>
           
           <TabsContent value="profile" className="space-y-4">
