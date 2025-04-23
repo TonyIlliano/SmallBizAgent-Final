@@ -121,23 +121,24 @@ export interface IStorage {
   updateCallLog(id: number, log: Partial<CallLog>): Promise<CallLog>;
 
   // Quotes
-  getQuotes(businessId: number, params?: {
-    status?: string,
-    customerId?: number
-  }): Promise<Quote[]>;
-  getQuote(id: number): Promise<Quote | undefined>;
+  getAllQuotes(businessId: number, filters?: {
+    status?: string;
+    search?: string;
+    customerId?: number;
+    jobId?: number;
+    fromDate?: Date;
+    toDate?: Date;
+  }): Promise<any[]>;
+  getQuoteById(id: number, businessId: number): Promise<any>;
   createQuote(quote: InsertQuote): Promise<Quote>;
   updateQuote(id: number, quote: Partial<Quote>): Promise<Quote>;
+  updateQuoteStatus(id: number, status: string): Promise<Quote>;
   deleteQuote(id: number): Promise<void>;
   
   // Quote Items
   getQuoteItems(quoteId: number): Promise<QuoteItem[]>;
   createQuoteItem(item: InsertQuoteItem): Promise<QuoteItem>;
-  updateQuoteItem(id: number, item: Partial<QuoteItem>): Promise<QuoteItem>;
-  deleteQuoteItem(id: number): Promise<void>;
-  
-  // Quote Conversion
-  convertQuoteToInvoice(quoteId: number): Promise<Invoice>;
+  deleteQuoteItems(quoteId: number): Promise<void>;
 }
 
 // Database storage implementation

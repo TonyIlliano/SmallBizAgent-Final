@@ -1,84 +1,84 @@
+import { useRoute, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useLocation } from "wouter";
 import { QuoteForm } from "@/components/quotes/QuoteForm";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Loader2 } from "lucide-react";
 
-export default function EditQuotePage() {
-  const { id } = useParams<{ id: string }>();
+export default function EditQuote() {
+  const [match, params] = useRoute("/quotes/:id/edit");
   const [, navigate] = useLocation();
-  const quoteId = parseInt(id);
+  const quoteId = params?.id ? parseInt(params.id) : 0;
 
-  const { data: quote, isLoading, isError } = useQuery({
+  const { data: quote, isLoading, error } = useQuery({
     queryKey: ["/api/quotes", quoteId],
     queryFn: async () => {
       const res = await fetch(`/api/quotes/${quoteId}`);
       if (!res.ok) throw new Error("Failed to fetch quote");
       return res.json();
     },
+    enabled: !!quoteId,
   });
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-6 flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex justify-center items-center h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  if (isError || !quote) {
+  if (error || !quote) {
     return (
       <div className="container mx-auto py-6">
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-          <p>Error loading quote. It may have been deleted or you don't have permission to view it.</p>
-          <button
-            className="text-red-600 hover:text-red-800 underline mt-2"
-            onClick={() => navigate("/quotes")}
-          >
-            Return to Quotes
-          </button>
+        <div className="text-center">
+          <h1 className="text-2xl font-bold">Quote not found</h1>
+          <p className="text-muted-foreground mt-2">
+            The quote you're looking for doesn't exist or you don't have
+            permission to view it.
+          </p>
+          <Button onClick={() => navigate("/quotes")} className="mt-4">
+            Back to Quotes
+          </Button>
         </div>
       </div>
     );
   }
 
-  // If quote is already converted, don't allow editing
+  // If the quote was already converted to an invoice, redirect to view the quote instead of editing
   if (quote.status === "converted") {
-    return (
-      <div className="container mx-auto py-6">
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded">
-          <p>This quote has already been converted to an invoice and cannot be edited.</p>
-          <button
-            className="text-yellow-600 hover:text-yellow-800 underline mt-2"
-            onClick={() => navigate("/quotes")}
-          >
-            Return to Quotes
-          </button>
-        </div>
-      </div>
-    );
+    navigate(`/quotes/${quoteId}`);
+    return null;
   }
-
-  // Transform items to match form format
-  const formattedItems = quote.items.map((item: any) => ({
-    ...item,
-    quantity: String(item.quantity),
-    unitPrice: String(item.unitPrice),
-  }));
-
-  const defaultValues = {
-    ...quote,
-    items: formattedItems,
-  };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div>
+    <div className="container mx-auto py-6">
+      <div className="mb-6">
+        <Button variant="outline" onClick={() => navigate(`/quotes/${quoteId}`)}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Quote
+        </Button>
+      </div>
+      <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">Edit Quote</h1>
-        <p className="text-muted-foreground">
-          Update the details for Quote #{quote.quoteNumber}
+        <p className="text-muted-foreground mt-2">
+          Update the quote details below.
         </p>
       </div>
-
-      <QuoteForm defaultValues={defaultValues} quoteId={quoteId} />
+      <QuoteForm
+        defaultValues={{
+          customerId: quote.customerId,
+          jobId: quote.jobId,
+          quoteNumber: quote.quoteNumber,
+          items: quote.items.map((item: any) => ({
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+          })),
+          validUntil: quote.validUntil ? new Date(quote.validUntil) : null,
+          notes: quote.notes,
+        }}
+        quoteId={quoteId}
+      />
     </div>
   );
 }
