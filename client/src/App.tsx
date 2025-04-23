@@ -15,6 +15,9 @@ import CreateInvoice from "@/pages/invoices/create";
 import Receptionist from "@/pages/receptionist/index";
 import Settings from "@/pages/settings";
 import AuthPage from "@/pages/auth/index";
+// Admin pages
+import AdminDashboard from "@/pages/admin/index";
+import PhoneManagement from "@/pages/admin/phone-management";
 import { SidebarProvider } from "./context/SidebarContext";
 import { AuthProvider } from "./hooks/use-auth";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
@@ -22,6 +25,7 @@ import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 function Router() {
   return (
     <Switch>
+      {/* Regular user routes */}
       <ProtectedRoute path="/" component={Dashboard} />
       <ProtectedRoute path="/customers" component={Customers} />
       <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
@@ -32,6 +36,12 @@ function Router() {
       <ProtectedRoute path="/invoices/create" component={CreateInvoice} />
       <ProtectedRoute path="/receptionist" component={Receptionist} />
       <ProtectedRoute path="/settings" component={Settings} />
+      
+      {/* Admin routes */}
+      <ProtectedRoute path="/admin" component={AdminDashboard} />
+      <ProtectedRoute path="/admin/phone-management" component={PhoneManagement} />
+      
+      {/* Public routes */}
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
