@@ -47,6 +47,7 @@ import calendarRoutes from "./routes/calendarRoutes";
 import quickbooksRoutes from "./routes/quickbooksRoutes";
 import subscriptionRoutes from "./routes/subscriptionRoutes";
 import quoteRoutes from "./routes/quoteRoutes";
+import customerRoutes from "./routes/customerRoutes";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
@@ -1322,6 +1323,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register quote routes
   app.use('/api', quoteRoutes);
+  
+  // Register customer routes
+  app.use('/api', customerRoutes);
 
   // Serve calendar files from public directory
   app.use('/calendar', express.static('public/calendar'));

@@ -61,7 +61,13 @@ export function CreateCustomerDialog({ onCreate }: { onCreate: (customer: any) =
   const onSubmit = async (data: CustomerFormValues) => {
     setIsSubmitting(true);
     try {
-      const response = await apiRequest("POST", "/api/customers", data);
+      // Use a default businessId of 1 for demo purposes
+      // In a real app, this would come from the authenticated user's context
+      const customerData = {
+        ...data,
+        businessId: 1 // Default business ID for demo
+      };
+      const response = await apiRequest("POST", "/api/customers", customerData);
       const customer = await response.json();
       
       // Invalidate the customers query to refresh the list
