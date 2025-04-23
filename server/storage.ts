@@ -10,7 +10,9 @@ import {
   Invoice, InsertInvoice, invoices,
   InvoiceItem, InsertInvoiceItem, invoiceItems,
   ReceptionistConfig, InsertReceptionistConfig, receptionistConfig,
-  CallLog, InsertCallLog, callLogs
+  CallLog, InsertCallLog, callLogs,
+  Quote, InsertQuote, quotes,
+  QuoteItem, InsertQuoteItem, quoteItems
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -117,6 +119,25 @@ export interface IStorage {
   getCallLog(id: number): Promise<CallLog | undefined>;
   createCallLog(log: InsertCallLog): Promise<CallLog>;
   updateCallLog(id: number, log: Partial<CallLog>): Promise<CallLog>;
+
+  // Quotes
+  getQuotes(businessId: number, params?: {
+    status?: string,
+    customerId?: number
+  }): Promise<Quote[]>;
+  getQuote(id: number): Promise<Quote | undefined>;
+  createQuote(quote: InsertQuote): Promise<Quote>;
+  updateQuote(id: number, quote: Partial<Quote>): Promise<Quote>;
+  deleteQuote(id: number): Promise<void>;
+  
+  // Quote Items
+  getQuoteItems(quoteId: number): Promise<QuoteItem[]>;
+  createQuoteItem(item: InsertQuoteItem): Promise<QuoteItem>;
+  updateQuoteItem(id: number, item: Partial<QuoteItem>): Promise<QuoteItem>;
+  deleteQuoteItem(id: number): Promise<void>;
+  
+  // Quote Conversion
+  convertQuoteToInvoice(quoteId: number): Promise<Invoice>;
 }
 
 // Database storage implementation
@@ -569,6 +590,124 @@ export class DatabaseStorage implements IStorage {
       .where(eq(callLogs.id, id))
       .returning();
     return updatedLog;
+  }
+
+  // Quotes
+  async getQuotes(businessId: number, params?: {
+    status?: string,
+    customerId?: number
+  }): Promise<Quote[]> {
+    let query = db.select().from(quotes)
+      .where(eq(quotes.businessId, businessId));
+    
+    if (params?.status) {
+      query = query.where(eq(quotes.status, params.status));
+    }
+    
+    if (params?.customerId) {
+      query = query.where(eq(quotes.customerId, params.customerId));
+    }
+    
+    return query;
+  }
+
+  async getQuote(id: number): Promise<Quote | undefined> {
+    const [quote] = await db.select().from(quotes).where(eq(quotes.id, id));
+    return quote;
+  }
+
+  async createQuote(quote: InsertQuote): Promise<Quote> {
+    const [newQuote] = await db.insert(quotes).values({
+      ...quote,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
+    return newQuote;
+  }
+
+  async updateQuote(id: number, quote: Partial<Quote>): Promise<Quote> {
+    const [updatedQuote] = await db.update(quotes)
+      .set({
+        ...quote,
+        updatedAt: new Date()
+      })
+      .where(eq(quotes.id, id))
+      .returning();
+    return updatedQuote;
+  }
+
+  async deleteQuote(id: number): Promise<void> {
+    // First delete all quote items
+    await db.delete(quoteItems).where(eq(quoteItems.quoteId, id));
+    // Then delete the quote
+    await db.delete(quotes).where(eq(quotes.id, id));
+  }
+
+  // Quote Items
+  async getQuoteItems(quoteId: number): Promise<QuoteItem[]> {
+    return db.select().from(quoteItems)
+      .where(eq(quoteItems.quoteId, quoteId));
+  }
+
+  async createQuoteItem(item: InsertQuoteItem): Promise<QuoteItem> {
+    const [newItem] = await db.insert(quoteItems).values(item).returning();
+    return newItem;
+  }
+
+  async updateQuoteItem(id: number, item: Partial<QuoteItem>): Promise<QuoteItem> {
+    const [updatedItem] = await db.update(quoteItems)
+      .set(item)
+      .where(eq(quoteItems.id, id))
+      .returning();
+    return updatedItem;
+  }
+
+  async deleteQuoteItem(id: number): Promise<void> {
+    await db.delete(quoteItems).where(eq(quoteItems.id, id));
+  }
+
+  // Quote Conversion
+  async convertQuoteToInvoice(quoteId: number): Promise<Invoice> {
+    // Get the quote with all its items
+    const quote = await this.getQuote(quoteId);
+    if (!quote) {
+      throw new Error('Quote not found');
+    }
+    
+    const quoteItems = await this.getQuoteItems(quoteId);
+    
+    // Create a new invoice based on the quote
+    const invoice = await this.createInvoice({
+      businessId: quote.businessId,
+      customerId: quote.customerId,
+      jobId: quote.jobId,
+      invoiceNumber: `INV-${Date.now()}`, // Generate a new invoice number
+      amount: quote.amount,
+      tax: quote.tax,
+      total: quote.total,
+      status: 'pending',
+      notes: `Converted from Quote #${quote.quoteNumber}\n${quote.notes || ''}`.trim(),
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Due in 30 days
+    });
+    
+    // Create invoice items from quote items
+    for (const item of quoteItems) {
+      await this.createInvoiceItem({
+        invoiceId: invoice.id,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        amount: item.amount,
+      });
+    }
+    
+    // Mark the quote as converted
+    await this.updateQuote(quoteId, {
+      status: 'converted',
+      convertedToInvoiceId: invoice.id,
+    });
+    
+    return invoice;
   }
 }
 
