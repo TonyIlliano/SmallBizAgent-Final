@@ -1,8 +1,6 @@
 import { storage } from '../storage';
-import { createAppointmentSafely, findAvailableTimeSlots, isTimeSlotAvailable } from './appointmentService';
-import { createCallLog } from './callLogService';
+import * as appointmentService from './appointmentService';
 import { InsertAppointment, InsertCallLog } from '@shared/schema';
-import { db } from '../db';
 
 // Define response types
 interface VirtualReceptionistResponse {
@@ -43,11 +41,11 @@ export async function processAppointmentRequest(
     // If we have a specific date/time request, try to book it directly
     if (appointmentData.startDate && appointmentData.endDate) {
       // Check if the requested time slot is available
-      const isAvailable = await isTimeSlotAvailable(
+      const isAvailable = await appointmentService.isTimeSlotAvailable(
         businessId,
         appointmentData.startDate,
         appointmentData.endDate,
-        appointmentData.staffId
+        appointmentData.staffId || undefined
       );
 
       if (!isAvailable) {
@@ -59,12 +57,12 @@ export async function processAppointmentRequest(
         endOfDay.setHours(23, 59, 59, 999);
         
         // Find alternative slots on the same day
-        const alternativeSlots = await findAvailableTimeSlots(
+        const alternativeSlots = await appointmentService.findAvailableTimeSlots(
           businessId,
           startOfDay,
           endOfDay,
-          appointmentData.serviceId,
-          appointmentData.staffId
+          appointmentData.serviceId || undefined,
+          appointmentData.staffId || undefined
         );
         
         return {
@@ -76,8 +74,7 @@ export async function processAppointmentRequest(
       }
 
       // If we have all required data, try to create the appointment
-      if (appointmentData.businessId && appointmentData.customerId &&
-          appointmentData.startDate && appointmentData.endDate) {
+      if (appointmentData.startDate && appointmentData.endDate) {
             
         // Create a full appointment object
         const fullAppointmentData: InsertAppointment = {
@@ -87,12 +84,12 @@ export async function processAppointmentRequest(
           endDate: appointmentData.endDate,
           status: 'scheduled',
           notes: `Booked by virtual receptionist${appointmentData.notes ? ': ' + appointmentData.notes : ''}`,
-          staffId: appointmentData.staffId,
-          serviceId: appointmentData.serviceId
+          staffId: appointmentData.staffId || undefined,
+          serviceId: appointmentData.serviceId || undefined
         };
 
         // Attempt to create the appointment
-        const result = await createAppointmentSafely(fullAppointmentData);
+        const result = await appointmentService.createAppointmentSafely(fullAppointmentData);
         
         if (result.success && result.appointment) {
           // Log the successful appointment creation
@@ -119,12 +116,12 @@ export async function processAppointmentRequest(
     const endDate = new Date();
     endDate.setDate(endDate.getDate() + 7);
     
-    const availableSlots = await findAvailableTimeSlots(
+    const availableSlots = await appointmentService.findAvailableTimeSlots(
       businessId,
       startDate,
       endDate,
-      appointmentData.serviceId,
-      appointmentData.staffId
+      appointmentData.serviceId || undefined,
+      appointmentData.staffId || undefined
     );
     
     if (availableSlots.length === 0) {
@@ -173,7 +170,7 @@ async function logAppointmentCreation(
     if (customer) {
       const callLog: InsertCallLog = {
         businessId,
-        callerId: customer.phone,
+        callerId: customer.phone || '',
         callerName: `${customer.firstName} ${customer.lastName}`,
         transcript: conversationContext.transcript || "Appointment scheduling conversation",
         intentDetected: "appointment",
@@ -183,7 +180,7 @@ async function logAppointmentCreation(
         callTime: new Date()
       };
       
-      await createCallLog(callLog, { appointmentId });
+      await storage.createCallLog(callLog);
     }
   } catch (error) {
     console.error('Error logging appointment creation:', error);
@@ -216,29 +213,35 @@ export async function processCall(callData: any): Promise<VirtualReceptionistRes
     const businessHours = await storage.getBusinessHours(businessId);
     const todaysHours = businessHours.find(h => h.day.toLowerCase() === day.toLowerCase());
     
-    const isBusinessHours = todaysHours && !todaysHours.isClosed && 
-                           todaysHours.open && todaysHours.close &&
-                           time >= todaysHours.open && time <= todaysHours.close;
+    // Check if current time is within business hours
+    let isBusinessHours = false;
+    if (todaysHours && !todaysHours.isClosed && todaysHours.open && todaysHours.close) {
+      isBusinessHours = time >= todaysHours.open && time <= todaysHours.close;
+    }
     
     // Emergency detection with severity levels
     let isEmergency = false;
     let emergencySeverity = 0;
-    let emergencyKeywords: string[] = [];
+    let matchedKeywords: string[] = [];
     
     if (config.emergencyKeywords) {
-      const emergencyConfig = JSON.parse(config.emergencyKeywords as string);
-      emergencyKeywords = Array.isArray(emergencyConfig) ? emergencyConfig : [];
-      
-      const textLowercase = text.toLowerCase();
-      
-      // Check for emergency keywords
-      const matchedKeywords = emergencyKeywords.filter(keyword => 
-        textLowercase.includes(keyword.toLowerCase())
-      );
-      
-      if (matchedKeywords.length > 0) {
-        isEmergency = true;
-        emergencySeverity = 3; // High severity for direct matches
+      try {
+        const emergencyConfig = JSON.parse(config.emergencyKeywords as string);
+        const emergencyKeywords: string[] = Array.isArray(emergencyConfig) ? emergencyConfig : [];
+        
+        const textLowercase = text.toLowerCase();
+        
+        // Check for emergency keywords
+        matchedKeywords = emergencyKeywords.filter((keyword: string) => 
+          textLowercase.includes(keyword.toLowerCase())
+        );
+        
+        if (matchedKeywords.length > 0) {
+          isEmergency = true;
+          emergencySeverity = 3; // High severity for direct matches
+        }
+      } catch (error) {
+        console.error('Error parsing emergency keywords:', error);
       }
     }
     
@@ -289,23 +292,25 @@ export async function processCall(callData: any): Promise<VirtualReceptionistRes
     // Determine action and response based on intent and business hours
     let action = '';
     let response = '';
-    let responseParams = {};
+    let responseParams: Record<string, any> = {};
     
     if (detectedIntent === 'emergency') {
       action = 'transfer_emergency';
       response = `${greeting}I understand this is an emergency situation. I'll connect you with our on-call staff immediately.`;
-      responseParams = { emergencySeverity };
+      responseParams = { emergencySeverity, matchedKeywords };
     } else if (!isBusinessHours) {
       // After hours handling
+      const afterHoursMessage = config.afterHoursMessage || 'Our office is currently closed.';
+      
       if (detectedIntent === 'appointment') {
         action = 'schedule_appointment';
-        response = `${greeting}${config.afterHoursMessage || 'Our office is currently closed.'} I can help you schedule an appointment for when we're open.`;
+        response = `${greeting}${afterHoursMessage} I can help you schedule an appointment for when we're open.`;
       } else if (config.voicemailEnabled) {
         action = 'take_voicemail';
-        response = `${greeting}${config.afterHoursMessage || 'Our office is currently closed.'} Would you like to leave a voicemail?`;
+        response = `${greeting}${afterHoursMessage} Would you like to leave a voicemail?`;
       } else {
         action = 'provide_info';
-        response = `${greeting}${config.afterHoursMessage || 'Our office is currently closed.'} I'd be happy to provide information about our services or take a message.`;
+        response = `${greeting}${afterHoursMessage} I'd be happy to provide information about our services or take a message.`;
       }
     } else {
       // During business hours
@@ -374,7 +379,7 @@ export async function processCall(callData: any): Promise<VirtualReceptionistRes
     // Return a fallback response
     return {
       action: 'handle_error',
-      response: "I apologize, but I'm experiencing a technical issue. Please try again later or leave a message.",
+      response: "I apologize, but I am experiencing a technical issue. Please try again later or leave a message.",
       intent: 'error',
       confidence: 1.0,
       isEmergency: false,
@@ -406,18 +411,4 @@ function formatTime(time24: string): string {
 function capitalizeFirstLetter(str: string): string {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-// Create an auxiliary service to handle call log creation
-export async function createCallLog(
-  logData: InsertCallLog, 
-  additionalData?: { appointmentId?: number }
-) {
-  try {
-    const callLog = await storage.createCallLog(logData);
-    return callLog;
-  } catch (error) {
-    console.error('Error creating call log:', error);
-    throw error;
-  }
 }
