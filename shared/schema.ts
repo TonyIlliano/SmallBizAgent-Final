@@ -46,9 +46,11 @@ export const businesses = pgTable("businesses", {
   // Subscription information
   subscriptionStatus: text("subscription_status").default("inactive"),
   subscriptionPlanId: text("subscription_plan_id"),
+  stripePlanId: integer("stripe_plan_id"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   subscriptionStartDate: timestamp("subscription_start_date"),
+  subscriptionPeriodEnd: timestamp("subscription_period_end"),
   subscriptionEndDate: timestamp("subscription_end_date"),
   trialEndsAt: timestamp("trial_ends_at"),
   createdAt: timestamp("created_at").defaultNow(),

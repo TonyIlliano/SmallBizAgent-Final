@@ -3,7 +3,6 @@ import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
-import subscriptionRoutes from "./routes/subscriptionRoutes";
 import {
   insertBusinessSchema,
   insertBusinessHoursSchema,
