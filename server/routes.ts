@@ -27,6 +27,10 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN || "auth_token_example"
 );
 
+// AWS Lex setup
+import lexService from "./services/lexService";
+import twilioService from "./services/twilioService";
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set default business ID for demo
   // In a real app, this would come from authentication
@@ -869,35 +873,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if caller is an existing customer
       const customer = await storage.getCustomerByPhone(From, businessId);
       
-      // Create TwiML response
-      const twiml = new twilio.twiml.VoiceResponse();
-      
-      // Start with greeting
-      twiml.say({ voice: 'alice' }, config.greeting);
-      
-      // Record the call if enabled
-      if (config.callRecordingEnabled) {
-        twiml.record({
-          action: `/api/twilio/recording-callback?businessId=${businessId}&callSid=${CallSid}`,
-          maxLength: config.maxCallLengthMinutes * 60,
-          transcribe: config.transcriptionEnabled,
-          transcribeCallback: `/api/twilio/transcription-callback?businessId=${businessId}&callSid=${CallSid}`
-        });
-      } else {
-        // If not recording, gather input for intent detection
-        twiml.gather({
-          input: 'speech',
-          action: `/api/twilio/gather-callback?businessId=${businessId}&callSid=${CallSid}`,
-          speechTimeout: 'auto',
-          speechModel: 'phone_call'
-        });
-      }
-      
       // Create a call log entry
       await storage.createCallLog({
         businessId,
         callerId: From,
-        callerName: customer ? `${customer.firstName} ${customer.lastName}` : null,
+        callerName: customer ? `${customer.firstName} ${customer.lastName}` : "",
         transcript: null,
         intentDetected: null,
         isEmergency: false,
@@ -907,11 +887,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         callTime: new Date()
       });
       
+      // Build the greeting TwiML
+      const gatherCallback = `/api/twilio/gather-callback?businessId=${businessId}&callSid=${CallSid}`;
+      
+      // Use our improved TwiML response with speech hints for better recognition
+      const twimlString = twilioService.createGreetingTwiml(config.greeting || "Hello, thank you for calling. How can I help you today?", gatherCallback);
+      
       res.type('text/xml');
-      res.send(twiml.toString());
+      res.send(twimlString);
     } catch (error) {
       console.error('Error handling incoming call:', error);
-      res.status(500).json({ message: "Error handling incoming call" });
+      
+      // Create a friendly fallback response if there's an error
+      const twiml = new twilio.twiml.VoiceResponse();
+      twiml.say({ voice: 'alice' }, "Thank you for calling. We're experiencing some technical difficulties. Please try again in a few minutes.");
+      twiml.hangup();
+      
+      res.type('text/xml');
+      res.send(twiml.toString());
     }
   });
 
@@ -949,29 +942,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/twilio/transcription-callback", async (req: Request, res: Response) => {
     try {
       const { businessId, callSid } = req.query;
-      const { TranscriptionText } = req.body;
+      const { TranscriptionText, From } = req.body;
+      
+      // Get business info and type for context
+      const business = await storage.getBusiness(parseInt(businessId as string));
+      const businessType = business?.type || 'general';
       
       // Find the call log and update it
       const callLogs = await storage.getCallLogs(parseInt(businessId as string));
-      const callLog = callLogs.find(log => log.callerId === req.body.From);
+      const callLog = callLogs.find(log => log.callerId === From);
       
-      if (callLog) {
-        // Basic intent detection (in a real app, this would be more sophisticated)
-        let intentDetected = 'general';
-        const text = TranscriptionText.toLowerCase();
+      if (callLog && TranscriptionText) {
+        // Use Lex service to analyze the transcription for intent and emergency detection
+        const analysis = lexService.analyzeText(TranscriptionText, businessType);
         
-        if (text.includes('appointment') || text.includes('schedule') || text.includes('book')) {
-          intentDetected = 'appointment';
-        } else if (text.includes('price') || text.includes('cost') || text.includes('how much')) {
-          intentDetected = 'inquiry';
-        } else if (text.includes('emergency') || text.includes('urgent') || text.includes('right away')) {
-          intentDetected = 'emergency';
-        }
-        
+        // Update the call log with enhanced information
         await storage.updateCallLog(callLog.id, {
           transcript: TranscriptionText,
-          intentDetected,
-          isEmergency: intentDetected === 'emergency'
+          intentDetected: analysis.intent,
+          isEmergency: analysis.isEmergency
+        });
+        
+        // Log the analysis for debugging
+        console.log('Transcription analysis:', {
+          transcript: TranscriptionText,
+          intent: analysis.intent,
+          isEmergency: analysis.isEmergency,
+          confidence: analysis.confidence
         });
       }
       
@@ -986,60 +983,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/twilio/gather-callback", async (req: Request, res: Response) => {
     try {
       const { businessId, callSid } = req.query;
-      const { SpeechResult } = req.body;
+      const { SpeechResult, Digits, From } = req.body;
       
-      // Find the call log and update it
+      // Get business info and type for context
+      const business = await storage.getBusiness(parseInt(businessId as string));
+      const businessType = business?.type || 'general';
+      
+      // Find the call log
       const callLogs = await storage.getCallLogs(parseInt(businessId as string));
-      const callLog = callLogs.find(log => log.callerId === req.body.From);
+      const callLog = callLogs.find(log => log.callerId === From);
       
-      // Basic intent detection (in a real app, this would be more sophisticated)
-      let intentDetected = 'general';
-      const text = SpeechResult.toLowerCase();
+      // User input from speech or digits
+      const userInput = SpeechResult || Digits || '';
       
-      if (text.includes('appointment') || text.includes('schedule') || text.includes('book')) {
-        intentDetected = 'appointment';
-      } else if (text.includes('price') || text.includes('cost') || text.includes('how much')) {
-        intentDetected = 'inquiry';
-      } else if (text.includes('emergency') || text.includes('urgent') || text.includes('right away')) {
-        intentDetected = 'emergency';
-      }
+      // Process input with Lex service
+      const lexResponse = await lexService.sendVoiceInput(
+        From || 'anonymous-caller', 
+        userInput, 
+        callSid as string || `session-${Date.now()}`,
+        businessType
+      );
       
+      // Update call log with transcript and detected intent
       if (callLog) {
         await storage.updateCallLog(callLog.id, {
-          transcript: SpeechResult,
-          intentDetected,
-          isEmergency: intentDetected === 'emergency'
+          transcript: userInput,
+          intentDetected: lexResponse.intentName || 'general',
+          isEmergency: lexResponse.isEmergency || false
         });
       }
       
-      // Respond based on intent
+      // Generate TwiML response based on Lex response
       const twiml = new twilio.twiml.VoiceResponse();
       
-      if (intentDetected === 'appointment') {
-        twiml.say({ voice: 'alice' }, "I'd be happy to help you schedule an appointment. Let me check our availability.");
-        // In a real app, this would integrate with the appointment scheduling system
-        twiml.say({ voice: 'alice' }, "We have openings tomorrow at 10 AM and 2 PM. Would either of those work for you?");
-        twiml.gather({
-          input: 'speech',
-          action: `/api/twilio/appointment-callback?businessId=${businessId}&callSid=${callSid}`,
-          speechTimeout: 'auto'
-        });
-      } else if (intentDetected === 'emergency') {
-        twiml.say({ voice: 'alice' }, "I understand this is an emergency. Let me connect you with our on-call staff right away.");
-        // In a real app, this would initiate a call transfer
+      if (lexResponse.isEmergency) {
+        // Handle emergency case
+        twiml.say({ voice: 'alice' }, lexResponse.message || "I understand this is an emergency. Let me connect you with our on-call staff right away.");
+        
+        // Get emergency contact number from business config
         const config = await storage.getReceptionistConfig(parseInt(businessId as string));
         if (config && config.transferPhoneNumbers && config.transferPhoneNumbers.length > 0) {
           twiml.dial({}, config.transferPhoneNumbers[0]);
         } else {
           twiml.say({ voice: 'alice' }, "I'm sorry, but I'm having trouble connecting you. Please call our emergency line directly at 555-123-4567.");
         }
-      } else {
-        twiml.say({ voice: 'alice' }, "Thank you for your message. A member of our team will get back to you as soon as possible.");
-        twiml.say({ voice: 'alice' }, "Is there anything else I can help you with today?");
+      } else if (lexResponse.intentName === 'appointment') {
+        // Handle appointment scheduling intent
+        twiml.say({ voice: 'alice' }, lexResponse.message || "I'd be happy to help you schedule an appointment. Let me check our availability.");
+        
+        // In a real app, this would integrate with the appointment scheduling system
+        twiml.say({ voice: 'alice' }, "We have openings tomorrow at 10 AM and 2 PM. Would either of those work for you?");
+        
         twiml.gather({
-          input: 'speech',
+          input: 'speech dtmf',
+          action: `/api/twilio/appointment-callback?businessId=${businessId}&callSid=${callSid}`,
+          speechTimeout: 'auto',
+          speechModel: 'phone_call'
+        });
+      } else if (lexResponse.dialogState === 'Fulfilled' || lexResponse.dialogState === 'ReadyForFulfillment') {
+        // Intent fulfilled, provide the response and ask if they need anything else
+        twiml.say({ voice: 'alice' }, lexResponse.message || "I've processed your request. Is there anything else I can help you with?");
+        
+        twiml.gather({
+          input: 'speech dtmf',
           action: `/api/twilio/general-callback?businessId=${businessId}&callSid=${callSid}`,
-          speechTimeout: 'auto'
+          speechTimeout: 'auto',
+          speechModel: 'phone_call'
+        });
+      } else {
+        // Intent not fulfilled, continue the conversation
+        twiml.say({ voice: 'alice' }, lexResponse.message || "How else can I assist you today?");
+        
+        twiml.gather({
+          input: 'speech dtmf',
+          action: `/api/twilio/gather-callback?businessId=${businessId}&callSid=${callSid}`,
+          speechTimeout: 'auto',
+          speechModel: 'phone_call'
         });
       }
       

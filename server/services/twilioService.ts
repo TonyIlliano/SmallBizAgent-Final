@@ -9,7 +9,7 @@
  */
 
 import twilio from 'twilio';
-import { VoiceResponse } from 'twilio/lib/twiml/VoiceResponse';
+const { VoiceResponse } = twilio.twiml;
 
 // Initialize Twilio client with environment variables or default test values
 const accountSid = process.env.TWILIO_ACCOUNT_SID || 'AC_test_example';
@@ -78,10 +78,11 @@ export function createGreetingTwiml(greeting: string, gatherCallback: string) {
   
   // Gather speech input
   twiml.gather({
-    input: 'speech',
+    input: 'speech dtmf',
     action: gatherCallback,
     speechTimeout: 'auto',
-    speechModel: 'phone_call'
+    speechModel: 'phone_call',
+    hints: 'appointment, emergency, services, hours, pricing, location'
   });
   
   return twiml.toString();
