@@ -1,4 +1,5 @@
 import {
+  User, InsertUser,
   Business, InsertBusiness,
   BusinessHours, InsertBusinessHours,
   Service, InsertService,
@@ -11,9 +12,22 @@ import {
   ReceptionistConfig, InsertReceptionistConfig,
   CallLog, InsertCallLog
 } from "@shared/schema";
+import session from "express-session";
+import memoryStoreFactory from "memorystore";
 
 // Storage interface for all operations
 export interface IStorage {
+  // Session store for authentication
+  sessionStore: session.Store;
+  
+  // Users
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, user: Partial<User>): Promise<User>;
+  updateUserLastLogin(id: number): Promise<User>;
+  
   // Business
   getBusiness(id: number): Promise<Business | undefined>;
   createBusiness(business: InsertBusiness): Promise<Business>;
@@ -104,6 +118,9 @@ export interface IStorage {
 
 // In-memory storage implementation
 export class MemStorage implements IStorage {
+  sessionStore: session.Store;
+  
+  private users: Map<number, User>;
   private businesses: Map<number, Business>;
   private businessHours: Map<number, BusinessHours>;
   private services: Map<number, Service>;
@@ -117,6 +134,7 @@ export class MemStorage implements IStorage {
   private callLogs: Map<number, CallLog>;
   
   // Auto-increment IDs
+  private userId = 1;
   private businessId = 1;
   private businessHoursId = 1;
   private serviceId = 1;
@@ -130,6 +148,13 @@ export class MemStorage implements IStorage {
   private callLogId = 1;
   
   constructor() {
+    // Create a memory store for sessions
+    const MemoryStore = memoryStoreFactory(session);
+    this.sessionStore = new MemoryStore({
+      checkPeriod: 86400000 // Prune expired entries every 24h
+    });
+    
+    this.users = new Map();
     this.businesses = new Map();
     this.businessHours = new Map();
     this.services = new Map();
@@ -144,6 +169,67 @@ export class MemStorage implements IStorage {
     
     // Add demo data
     this.initializeDemoData();
+  }
+  
+  // User methods
+  async getUser(id: number): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return Array.from(this.users.values())
+      .find(user => user.username.toLowerCase() === username.toLowerCase());
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values())
+      .find(user => user.email.toLowerCase() === email.toLowerCase());
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const id = this.userId++;
+    const newUser: User = {
+      ...user,
+      id,
+      role: user.role ?? null,
+      businessId: user.businessId ?? null,
+      active: user.active ?? null,
+      lastLogin: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.users.set(id, newUser);
+    return newUser;
+  }
+
+  async updateUser(id: number, user: Partial<User>): Promise<User> {
+    const existing = this.users.get(id);
+    if (!existing) {
+      throw new Error(`User with ID ${id} not found`);
+    }
+    
+    const updated: User = {
+      ...existing,
+      ...user,
+      updatedAt: new Date()
+    };
+    this.users.set(id, updated);
+    return updated;
+  }
+
+  async updateUserLastLogin(id: number): Promise<User> {
+    const existing = this.users.get(id);
+    if (!existing) {
+      throw new Error(`User with ID ${id} not found`);
+    }
+    
+    const updated: User = {
+      ...existing,
+      lastLogin: new Date(),
+      updatedAt: new Date()
+    };
+    this.users.set(id, updated);
+    return updated;
   }
 
   // Businesses
@@ -652,6 +738,21 @@ export class MemStorage implements IStorage {
 
   // Demo data initialization
   private initializeDemoData() {
+    // Create a demo user with hashed password (admin123)
+    const user: User = {
+      id: this.userId++,
+      username: "admin",
+      email: "admin@example.com",
+      password: "$2a$10$vQH7YgdLfGVJfDHYNVgId.XGEnYbrJ6rxVI1Bbc03iVStsxIreccS", // hashed "admin123"
+      role: "admin",
+      businessId: 1,
+      active: true,
+      lastLogin: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.users.set(user.id, user);
+    
     // Create a sample business
     const business: Business = {
       id: this.businessId++,

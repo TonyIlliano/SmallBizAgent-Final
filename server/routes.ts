@@ -16,6 +16,9 @@ import {
   insertCallLogSchema
 } from "@shared/schema";
 
+// Setup authentication
+import { setupAuth, isAuthenticated, isAdmin, belongsToBusiness } from "./auth";
+
 // Stripe setup
 import Stripe from "stripe";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_example");
@@ -32,8 +35,11 @@ import lexService from "./services/lexService";
 import twilioService from "./services/twilioService";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Set up authentication
+  setupAuth(app);
+  
   // Set default business ID for demo
-  // In a real app, this would come from authentication
+  // This will be used for non-authenticated routes during development
   const DEFAULT_BUSINESS_ID = 1;
 
   // =================== BUSINESS API ===================
