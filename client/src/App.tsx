@@ -14,6 +14,7 @@ import Invoices from "@/pages/invoices/index";
 import CreateInvoice from "@/pages/invoices/create";
 import Receptionist from "@/pages/receptionist/index";
 import Settings from "@/pages/settings";
+import CalendarSettings from "@/pages/settings/calendar";
 import AuthPage from "@/pages/auth/index";
 // Admin pages
 import AdminDashboard from "@/pages/admin/index";
@@ -37,6 +38,7 @@ function Router() {
       <ProtectedRoute path="/invoices/create" component={CreateInvoice} />
       <ProtectedRoute path="/receptionist" component={Receptionist} />
       <ProtectedRoute path="/settings" component={Settings} />
+      <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />
       
       {/* Admin routes */}
       <ProtectedAdminRoute path="/admin" component={AdminDashboard} />
