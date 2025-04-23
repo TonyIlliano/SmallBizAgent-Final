@@ -209,7 +209,7 @@ export async function processCall(callData: any): Promise<VirtualReceptionistRes
     
     // Check business hours
     const now = new Date();
-    const day = now.toLocaleDateString('en-US', { weekday: 'lowercase' });
+    const day = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
     
     // Get business hours for today
@@ -294,7 +294,7 @@ export async function processCall(callData: any): Promise<VirtualReceptionistRes
     if (detectedIntent === 'emergency') {
       action = 'transfer_emergency';
       response = `${greeting}I understand this is an emergency situation. I'll connect you with our on-call staff immediately.`;
-      responseParams = { emergencySeverity, matchedKeywords };
+      responseParams = { emergencySeverity };
     } else if (!isBusinessHours) {
       // After hours handling
       if (detectedIntent === 'appointment') {
@@ -374,7 +374,7 @@ export async function processCall(callData: any): Promise<VirtualReceptionistRes
     // Return a fallback response
     return {
       action: 'handle_error',
-      response: 'I apologize, but I'm experiencing a technical issue. Please try again later or leave a message.',
+      response: "I apologize, but I'm experiencing a technical issue. Please try again later or leave a message.",
       intent: 'error',
       confidence: 1.0,
       isEmergency: false,

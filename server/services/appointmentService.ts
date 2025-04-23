@@ -1,6 +1,6 @@
 import { storage } from '../storage';
 import { appointments, services, staff, InsertAppointment } from '@shared/schema';
-import { and, between, eq, gte, lte, or } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db';
 
 /**
@@ -20,45 +20,32 @@ export async function isTimeSlotAvailable(
   serviceId?: number
 ): Promise<boolean> {
   try {
-    // Create a query to check for conflicts
-    let query = db.select()
-      .from(appointments)
-      .where(
-        and(
-          eq(appointments.businessId, businessId),
-          eq(appointments.status, 'scheduled'),
-          or(
-            // Case 1: New appointment's start time falls within an existing appointment
-            and(
-              gte(startDate, appointments.startDate),
-              lte(startDate, appointments.endDate)
-            ),
-            // Case 2: New appointment's end time falls within an existing appointment
-            and(
-              gte(endDate, appointments.startDate),
-              lte(endDate, appointments.endDate)
-            ),
-            // Case 3: New appointment completely encompasses an existing appointment
-            and(
-              lte(startDate, appointments.startDate),
-              gte(endDate, appointments.endDate)
-            )
-          )
-        )
-      );
-
-    // Add staff filter if provided
-    if (staffId) {
-      query = query.where(eq(appointments.staffId, staffId));
-    }
-
-    // Add service filter if needed in the future
-    // Currently not adding it as the appointments schema doesn't use it directly for conflicts
-
-    // Execute the query
-    const conflictingAppointments = await query;
-
-    // If no conflicts found, the time slot is available
+    // Format dates for SQL query
+    const startIso = startDate.toISOString();
+    const endIso = endDate.toISOString();
+    
+    // Use a simpler approach - check for overlapping appointments directly through storage
+    const existingAppointments = await storage.getAppointments(businessId);
+    
+    // Filter out appointments that would conflict
+    const conflictingAppointments = existingAppointments.filter(appointment => {
+      // Skip non-scheduled appointments
+      if (appointment.status !== 'scheduled') return false;
+      
+      // Skip appointments with different staff if staff ID is provided
+      if (staffId && appointment.staffId !== staffId) return false;
+      
+      // Check for time overlap
+      const appointmentStart = appointment.startDate;
+      const appointmentEnd = appointment.endDate;
+      
+      // Time ranges overlap if start of one is before end of other and end of one is after start of other
+      const overlap = startDate < appointmentEnd && endDate > appointmentStart;
+      
+      return overlap;
+    });
+    
+    // If no conflicts are found, the time slot is available
     return conflictingAppointments.length === 0;
   } catch (error) {
     console.error('Error checking time slot availability:', error);
