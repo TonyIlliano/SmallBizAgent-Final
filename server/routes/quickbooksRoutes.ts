@@ -34,6 +34,21 @@ router.get('/status', async (req, res) => {
   }
 });
 
+// Check if QuickBooks is configured in the environment
+router.get('/check-config', async (req, res) => {
+  try {
+    const configured = isQuickBooksConfigured();
+    res.json({ 
+      configured,
+      clientIdExists: !!process.env.QUICKBOOKS_CLIENT_ID,
+      clientSecretExists: !!process.env.QUICKBOOKS_CLIENT_SECRET
+    });
+  } catch (error) {
+    console.error('Error checking QuickBooks configuration:', error);
+    res.status(500).json({ error: 'Failed to check QuickBooks configuration' });
+  }
+});
+
 // Generate authorization URL
 router.get('/authorize', isAuthenticated, async (req, res) => {
   try {

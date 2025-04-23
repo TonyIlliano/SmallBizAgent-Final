@@ -110,7 +110,7 @@ export async function getQuickBooksTokens(businessId: number): Promise<any> {
       realmId: business.quickbooksRealmId,
       accessToken: business.quickbooksAccessToken,
       refreshToken: business.quickbooksRefreshToken,
-      tokenType: business.quickbooksTokenType,
+      tokenType: 'bearer', // Default token type is 'bearer'
       expiresAt: business.quickbooksTokenExpiry,
     };
   } catch (error) {
@@ -190,7 +190,6 @@ export async function disconnectQuickBooks(businessId: number): Promise<void> {
         quickbooksRealmId: null,
         quickbooksAccessToken: null,
         quickbooksRefreshToken: null,
-        quickbooksTokenType: null,
         quickbooksTokenExpiry: null,
       })
       .where(eq(businesses.id, businessId));
@@ -338,7 +337,7 @@ export async function recordPayment(businessId: number, payment: any): Promise<a
     const qbo = await getQuickBooksClient(businessId);
     
     // Create payment
-    const newPayment = {
+    const newPayment: any = {
       CustomerRef: { value: payment.customerId },
       TotalAmt: payment.amount,
       PaymentMethodRef: { value: payment.paymentMethod || 'CreditCard' },
