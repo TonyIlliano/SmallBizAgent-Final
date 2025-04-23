@@ -1,7 +1,9 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { Home, Users, Calendar, Briefcase, FileText, MessageSquare, Settings } from "lucide-react";
+import { Home, Users, Calendar, Briefcase, FileText, MessageSquare, Settings, LogOut } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
+import { useAuth } from "@/hooks/use-auth";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: Home },
@@ -16,6 +18,13 @@ const navItems = [
 export function Sidebar() {
   const [location] = useLocation();
   const { isSidebarOpen, toggleSidebar } = useSidebar();
+  const { user, logoutMutation } = useAuth();
+  
+  // Get user initials for avatar
+  const getInitials = () => {
+    if (!user) return '';
+    return user.username.substring(0, 2).toUpperCase();
+  };
 
   return (
     <aside
@@ -77,12 +86,25 @@ export function Sidebar() {
       <div className="border-t border-gray-200 p-4 mt-auto">
         <div className="flex items-center">
           <div className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-semibold">
-            JS
+            {getInitials()}
           </div>
-          <div className="ml-3 md:hidden lg:block">
-            <p className="text-sm font-medium text-gray-700">John Smith</p>
-            <p className="text-xs font-medium text-gray-500">Precision Auto Repair</p>
+          <div className="ml-3 md:hidden lg:block flex-grow">
+            <p className="text-sm font-medium text-gray-700">{user?.username}</p>
+            <p className="text-xs font-medium text-gray-500">{user?.email}</p>
           </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="ml-auto p-0 h-8 w-8 rounded-full"
+            onClick={() => logoutMutation.mutate()}
+            disabled={logoutMutation.isPending}
+          >
+            {logoutMutation.isPending ? (
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            ) : (
+              <LogOut className="h-4 w-4 text-gray-500" />
+            )}
+          </Button>
         </div>
       </div>
     </aside>
