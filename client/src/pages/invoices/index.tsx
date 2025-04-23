@@ -94,6 +94,19 @@ export default function Invoices() {
       accessorKey: "actions",
       cell: (invoice: any) => (
         <div className="flex items-center space-x-2">
+          {(invoice.status === 'pending' || invoice.status === 'overdue') && (
+            <Button 
+              variant="default"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                // Navigate to payment page
+                navigate(`/invoices/pay/${invoice.id}`);
+              }}
+            >
+              Pay Now
+            </Button>
+          )}
           <Button 
             variant="ghost" 
             size="icon"

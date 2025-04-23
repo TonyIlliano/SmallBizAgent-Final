@@ -12,6 +12,7 @@ import Jobs from "@/pages/jobs/index";
 import JobDetail from "@/pages/jobs/[id]";
 import Invoices from "@/pages/invoices/index";
 import CreateInvoice from "@/pages/invoices/create";
+import InvoicePayment from "@/pages/invoices/pay";
 import Receptionist from "@/pages/receptionist/index";
 import Settings from "@/pages/settings";
 import CalendarSettings from "@/pages/settings/calendar";
@@ -36,6 +37,7 @@ function Router() {
       <ProtectedRoute path="/jobs/:id" component={JobDetail} />
       <ProtectedRoute path="/invoices" component={Invoices} />
       <ProtectedRoute path="/invoices/create" component={CreateInvoice} />
+      <ProtectedRoute path="/invoices/pay/:invoiceId" component={InvoicePayment} />
       <ProtectedRoute path="/receptionist" component={Receptionist} />
       <ProtectedRoute path="/settings" component={Settings} />
       <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />
