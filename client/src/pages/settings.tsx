@@ -6,6 +6,7 @@ import { z } from "zod";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { apiRequest } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
 
 import {
   Form,
@@ -646,18 +647,7 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="py-4 text-center">
-                  <p className="mb-4">
-                    Manage your calendar integrations, connect with external 
-                    calendar services, and configure appointment synchronization.
-                  </p>
-                  <Button 
-                    onClick={() => window.location.href = '/settings/calendar'}
-                    className="mx-auto"
-                  >
-                    Go to Calendar Settings
-                  </Button>
-                </div>
+                <CalendarIntegration businessId={1} />
               </CardContent>
             </Card>
           </TabsContent>
