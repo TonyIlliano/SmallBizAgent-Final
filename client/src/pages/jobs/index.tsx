@@ -148,7 +148,7 @@ export default function Jobs() {
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Jobs</SelectItem>
+                <SelectItem value="all">All Jobs</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
                 <SelectItem value="waiting_parts">Waiting Parts</SelectItem>

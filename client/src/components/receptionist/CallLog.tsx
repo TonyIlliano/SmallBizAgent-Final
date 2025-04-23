@@ -235,7 +235,7 @@ export function CallLog({ businessId = 1 }) {
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All statuses</SelectItem>
+                <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="answered">Answered</SelectItem>
                 <SelectItem value="missed">Missed</SelectItem>
                 <SelectItem value="voicemail">Voicemail</SelectItem>
@@ -253,7 +253,7 @@ export function CallLog({ businessId = 1 }) {
                 <SelectValue placeholder="All calls" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All calls</SelectItem>
+                <SelectItem value="all">All calls</SelectItem>
                 <SelectItem value="true">Emergency only</SelectItem>
                 <SelectItem value="false">Non-emergency only</SelectItem>
               </SelectContent>
