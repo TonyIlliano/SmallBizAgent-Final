@@ -15,6 +15,7 @@ import CreateInvoice from "@/pages/invoices/create";
 import InvoicePayment from "@/pages/invoices/pay";
 import Payment from "@/pages/payment";
 import SubscriptionSuccess from "@/pages/subscription-success";
+import OnboardingSubscription from "@/pages/onboarding/subscription";
 import Receptionist from "@/pages/receptionist/index";
 import Settings from "@/pages/settings";
 import CalendarSettings from "@/pages/settings/calendar";
@@ -42,6 +43,7 @@ function Router() {
       <ProtectedRoute path="/invoices/pay/:invoiceId" component={InvoicePayment} />
       <ProtectedRoute path="/payment" component={Payment} />
       <ProtectedRoute path="/subscription-success" component={SubscriptionSuccess} />
+      <ProtectedRoute path="/onboarding/subscription" component={OnboardingSubscription} />
       <ProtectedRoute path="/receptionist" component={Receptionist} />
       <ProtectedRoute path="/settings" component={Settings} />
       <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />

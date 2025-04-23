@@ -62,7 +62,12 @@ export default function AuthPage() {
 
   const onRegisterSubmit = (values: RegisterFormValues) => {
     const { confirmPassword, ...userData } = values;
-    registerMutation.mutate(userData);
+    registerMutation.mutate(userData, {
+      onSuccess: () => {
+        // Redirect to subscription selection page after successful registration
+        window.location.href = '/onboarding/subscription';
+      }
+    });
   };
 
   return (
