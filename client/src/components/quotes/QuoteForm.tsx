@@ -92,10 +92,25 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
 
   const createQuoteMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/quotes", data);
+      // Make sure we send businessId with the data for the demo
+      const quoteData = {
+        ...data,
+        businessId: 1 // Default business ID for demo
+      };
+      
+      console.log("Creating quote with data:", quoteData);
+      
+      const res = await apiRequest("POST", "/api/quotes", quoteData);
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create quote");
+        const errorText = await res.text();
+        let errorMessage;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error || errorJson.message || "Failed to create quote";
+        } catch (e) {
+          errorMessage = errorText || "Failed to create quote";
+        }
+        throw new Error(errorMessage);
       }
       return res.json();
     },
@@ -118,10 +133,25 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
 
   const updateQuoteMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("PATCH", `/api/quotes/${quoteId}`, data);
+      // Make sure we send businessId with the data for the demo
+      const quoteData = {
+        ...data,
+        businessId: 1 // Default business ID for demo
+      };
+      
+      console.log("Updating quote with data:", quoteData);
+      
+      const res = await apiRequest("PATCH", `/api/quotes/${quoteId}`, quoteData);
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to update quote");
+        const errorText = await res.text();
+        let errorMessage;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error || errorJson.message || "Failed to update quote";
+        } catch (e) {
+          errorMessage = errorText || "Failed to update quote";
+        }
+        throw new Error(errorMessage);
       }
       return res.json();
     },
@@ -143,8 +173,13 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
     },
   });
 
+  // Update form schema to allow initial 0 customerId for the form
+  const formSchema = quoteSchema.extend({
+    customerId: z.number().gte(0, "Customer is required"),
+  });
+  
   const form = useForm<QuoteFormValues>({
-    resolver: zodResolver(quoteSchema),
+    resolver: zodResolver(formSchema),
     defaultValues: {
       customerId: defaultValues?.customerId || 0,
       jobId: defaultValues?.jobId || null,
@@ -179,19 +214,40 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
     const items = watchedItems || [];
     
     // Calculate subtotal from items
-    const subtotal = items.reduce((acc, item) => {
-      const quantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity as any) || 0;
-      const unitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : parseFloat(item.unitPrice as any) || 0;
-      return acc + quantity * unitPrice;
-    }, 0);
+    const recalculateTotal = () => {
+      const subtotal = items.reduce((acc, item) => {
+        // Ensure we're working with numbers by using parseFloat
+        const quantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity as any) || 0;
+        const unitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : parseFloat(item.unitPrice as any) || 0;
+        return acc + quantity * unitPrice;
+      }, 0);
+      
+      const tax = subtotal * 0.0; // No tax by default for quotes
+      const total = subtotal + tax;
+      
+      setSummary({ subtotal, tax, total });
+    };
     
-    const tax = subtotal * 0.0; // No tax by default for quotes
-    const total = subtotal + tax;
+    // Calculate immediately
+    recalculateTotal();
     
-    setSummary({ subtotal, tax, total });
+    // Also set up a small delay to catch any typing updates
+    const timer = setTimeout(recalculateTotal, 100);
+    
+    return () => clearTimeout(timer);
   }, [watchedItems]);
 
   const onSubmit = (data: QuoteFormValues) => {
+    // Verify that a customer has been selected before submission
+    if (data.customerId === 0) {
+      toast({
+        title: "Customer Required",
+        description: "Please select a customer for this quote",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     // Calculate the amounts for each item and the total
     const itemsWithAmount = data.items.map((item) => ({
       ...item,
@@ -205,6 +261,8 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
       tax: summary.tax,
       total: summary.total,
     };
+
+    console.log("Submitting data:", submitData);
 
     if (isEditing) {
       updateQuoteMutation.mutate(submitData);
