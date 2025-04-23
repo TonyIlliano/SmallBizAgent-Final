@@ -11,7 +11,8 @@ import {
   LogOut,
   Shield,
   Phone,
-  LineChart
+  LineChart,
+  Receipt
 } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -23,6 +24,7 @@ const navItems = [
   { path: "/customers", label: "Customers", icon: Users },
   { path: "/appointments", label: "Appointments", icon: Calendar },
   { path: "/jobs", label: "Jobs", icon: Briefcase },
+  { path: "/quotes", label: "Quotes", icon: Receipt },
   { path: "/invoices", label: "Invoices", icon: FileText },
   { path: "/receptionist", label: "Virtual Receptionist", icon: MessageSquare },
   { path: "/settings", label: "Settings", icon: Settings },

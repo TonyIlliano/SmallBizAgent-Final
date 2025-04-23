@@ -13,6 +13,10 @@ import JobDetail from "@/pages/jobs/[id]";
 import Invoices from "@/pages/invoices/index";
 import CreateInvoice from "@/pages/invoices/create";
 import InvoicePayment from "@/pages/invoices/pay";
+import Quotes from "@/pages/quotes/index";
+import CreateQuote from "@/pages/quotes/create";
+import QuoteDetail from "@/pages/quotes/[id]/index";
+import EditQuote from "@/pages/quotes/[id]/edit";
 import Payment from "@/pages/payment";
 import SubscriptionSuccess from "@/pages/subscription-success";
 import OnboardingSubscription from "@/pages/onboarding/subscription";
@@ -41,6 +45,10 @@ function Router() {
       <ProtectedRoute path="/invoices" component={Invoices} />
       <ProtectedRoute path="/invoices/create" component={CreateInvoice} />
       <ProtectedRoute path="/invoices/pay/:invoiceId" component={InvoicePayment} />
+      <ProtectedRoute path="/quotes" component={Quotes} />
+      <ProtectedRoute path="/quotes/create" component={CreateQuote} />
+      <ProtectedRoute path="/quotes/:id" component={QuoteDetail} />
+      <ProtectedRoute path="/quotes/:id/edit" component={EditQuote} />
       <ProtectedRoute path="/payment" component={Payment} />
       <ProtectedRoute path="/subscription-success" component={SubscriptionSuccess} />
       <ProtectedRoute path="/onboarding/subscription" component={OnboardingSubscription} />
