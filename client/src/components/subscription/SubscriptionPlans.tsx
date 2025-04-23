@@ -146,7 +146,7 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
 
   // If active subscription, show current plan info
   if (subscriptionStatus?.status === 'active') {
-    const currentPlan = plans?.find(p => p.id.toString() === subscriptionStatus.planId);
+    const currentPlan = plans?.find((p: any) => p.id.toString() === subscriptionStatus.planId);
     return (
       <div className="space-y-6">
         <div className="bg-green-50 border border-green-200 rounded-md p-4 flex items-start">
@@ -204,7 +204,7 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
 
   // If canceled but not expired
   if (subscriptionStatus?.status === 'active' && subscriptionStatus?.cancelAtPeriodEnd) {
-    const currentPlan = plans?.find(p => p.id.toString() === subscriptionStatus.planId);
+    const currentPlan = plans?.find((p: any) => p.id.toString() === subscriptionStatus.planId);
     return (
       <div className="space-y-6">
         <div className="bg-amber-50 border border-amber-200 rounded-md p-4 flex items-start">

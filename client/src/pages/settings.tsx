@@ -8,6 +8,7 @@ import { apiRequest } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
 import QuickBooksIntegration from "@/components/quickbooks/QuickBooksIntegration";
+import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
 
 import {
   Form,
@@ -675,6 +676,26 @@ export default function Settings() {
                     </div>
                   </TabsContent>
                 </Tabs>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="subscription" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Subscription Management</CardTitle>
+                <CardDescription>
+                  Manage your SmallBizAgent subscription plan
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingBusiness ? (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin w-8 h-8 border-4 border-primary rounded-full border-t-transparent"></div>
+                  </div>
+                ) : (
+                  business && <SubscriptionPlans businessId={business.id} />
+                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -141,7 +141,6 @@ export function SubscribeSuccessPage() {
     toast({
       title: 'Subscription Activated',
       description: 'Your subscription has been successfully activated',
-      variant: 'success',
     });
   }, [toast]);
 
