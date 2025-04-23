@@ -16,7 +16,7 @@ import {
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
 import { db, pool } from "./db";
 
 // Storage interface for all operations
