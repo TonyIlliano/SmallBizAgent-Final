@@ -259,7 +259,7 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
                     <Select
                       value={field.value ? field.value.toString() : ""}
                       onValueChange={(value) => 
-                        field.onChange(value ? parseInt(value) : null)
+                        field.onChange(value && value !== "0" ? parseInt(value) : null)
                       }
                       disabled={isPending}
                     >
@@ -269,7 +269,7 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="0">None</SelectItem>
                         {jobs?.map((job: any) => (
                           <SelectItem key={job.id} value={job.id.toString()}>
                             {job.title || `Job #${job.id}`}
