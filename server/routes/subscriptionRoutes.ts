@@ -1,176 +1,130 @@
-import { Router } from 'express';
-import { stripe, subscriptionService } from '../services/subscriptionService';
-import { isAuthenticated, isAdmin } from '../middleware/auth';
-import { seedSubscriptionPlans } from '../migrations/add_subscription_plans';
+import { Router, Request, Response } from 'express';
+import Stripe from 'stripe';
+import { z } from 'zod';
+import { subscriptionService } from '../services/subscriptionService';
 
+// Create subscription router
 const router = Router();
 
-/**
- * Get all subscription plans
- */
-router.get('/plans', async (req, res) => {
+// Initialize Stripe for webhook handling
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error('Missing STRIPE_SECRET_KEY environment variable');
+}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: '2023-10-16',
+});
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+// Define schemas for validation
+const createSubscriptionSchema = z.object({
+  businessId: z.number(),
+  planId: z.number(),
+});
+
+// Middleware for checking authentication
+const isAuthenticated = (req: Request, res: Response, next: Function) => {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ error: 'Not authenticated' });
+};
+
+// Get all subscription plans
+router.get('/plans', async (req: Request, res: Response) => {
   try {
-    const plans = await subscriptionService.getSubscriptionPlans();
+    const plans = await subscriptionService.getPlans();
     res.json(plans);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching subscription plans:', error);
-    res.status(500).json({ error: 'Failed to fetch subscription plans' });
+    res.status(500).json({ error: error.message });
   }
 });
 
-/**
- * Get subscription status for a business
- */
-router.get('/status/:businessId', isAuthenticated, async (req, res) => {
+// Get subscription status for a business
+router.get('/status/:businessId', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const status = await subscriptionService.getSubscriptionStatus(businessId);
     res.json(status);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching subscription status:', error);
-    res.status(500).json({ error: 'Failed to fetch subscription status' });
+    res.status(500).json({ error: error.message });
   }
 });
 
-/**
- * Create a subscription checkout session
- */
-router.post('/create-subscription', isAuthenticated, async (req, res) => {
+// Create a subscription
+router.post('/create-subscription', isAuthenticated, async (req: Request, res: Response) => {
   try {
-    const { businessId, planId } = req.body;
-    
-    if (!businessId || !planId) {
-      return res.status(400).json({ error: 'Business ID and Plan ID are required' });
+    const validationResult = createSubscriptionSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({ error: validationResult.error });
     }
-
-    const session = await subscriptionService.createSubscriptionSession(
-      parseInt(businessId),
-      parseInt(planId)
-    );
-
-    res.json(session);
+    
+    const { businessId, planId } = validationResult.data;
+    const subscription = await subscriptionService.createSubscription(businessId, planId);
+    res.json(subscription);
   } catch (error: any) {
     console.error('Error creating subscription:', error);
-    res.status(500).json({ error: error.message || 'Failed to create subscription' });
+    res.status(500).json({ error: error.message });
   }
 });
 
-/**
- * Cancel a subscription
- */
-router.post('/cancel/:businessId', isAuthenticated, async (req, res) => {
+// Cancel a subscription
+router.post('/cancel/:businessId', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const result = await subscriptionService.cancelSubscription(businessId);
     res.json(result);
   } catch (error: any) {
-    console.error('Error cancelling subscription:', error);
-    res.status(500).json({ error: error.message || 'Failed to cancel subscription' });
+    console.error('Error canceling subscription:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
-/**
- * Resume a canceled subscription
- */
-router.post('/resume/:businessId', isAuthenticated, async (req, res) => {
+// Resume a subscription
+router.post('/resume/:businessId', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const result = await subscriptionService.resumeSubscription(businessId);
     res.json(result);
   } catch (error: any) {
     console.error('Error resuming subscription:', error);
-    res.status(500).json({ error: error.message || 'Failed to resume subscription' });
+    res.status(500).json({ error: error.message });
   }
 });
 
-/**
- * ADMIN: Manually seed subscription plans
- */
-router.post('/seed-plans', isAdmin, async (req, res) => {
-  try {
-    await seedSubscriptionPlans();
-    res.json({ success: true, message: 'Subscription plans seeded successfully' });
-  } catch (error) {
-    console.error('Error seeding subscription plans:', error);
-    res.status(500).json({ error: 'Failed to seed subscription plans' });
-  }
-});
-
-/**
- * ADMIN: Create a new subscription plan
- */
-router.post('/plans', isAdmin, async (req, res) => {
-  try {
-    const plan = await subscriptionService.createSubscriptionPlan(req.body);
-    res.status(201).json(plan);
-  } catch (error: any) {
-    console.error('Error creating subscription plan:', error);
-    res.status(500).json({ error: error.message || 'Failed to create subscription plan' });
-  }
-});
-
-/**
- * ADMIN: Update a subscription plan
- */
-router.put('/plans/:id', isAdmin, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const plan = await subscriptionService.updateSubscriptionPlan(id, req.body);
-    res.json(plan);
-  } catch (error: any) {
-    console.error('Error updating subscription plan:', error);
-    res.status(500).json({ error: error.message || 'Failed to update subscription plan' });
-  }
-});
-
-/**
- * Stripe webhook endpoint
- */
-router.post('/webhook', async (req, res) => {
-  const sig = req.headers['stripe-signature'] as string;
-
-  if (!process.env.STRIPE_WEBHOOK_SECRET) {
-    return res.status(500).json({ error: 'Stripe webhook secret is not configured' });
-  }
-
-  let event;
+// Stripe webhook handler
+router.post('/webhook', async (req: Request, res: Response) => {
+  let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err: any) {
-    console.error(`Webhook Error: ${err.message}`);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+    if (endpointSecret) {
+      // Get the signature sent by Stripe
+      const signature = req.headers['stripe-signature'] as string;
+      if (!signature) {
+        return res.status(400).json({ error: 'Missing Stripe signature' });
+      }
 
-  // Handle the event
-  switch (event.type) {
-    case 'customer.subscription.updated':
-    case 'customer.subscription.created':
-      const subscription = event.data.object;
-      await subscriptionService.handleSubscriptionUpdated(
-        subscription.id,
-        subscription.status
+      // Verify the event
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        signature,
+        endpointSecret
       );
-      break;
+    } else {
+      // If no webhook secret for verification, just parse the event
+      event = req.body;
+    }
+
+    // Handle the event
+    await subscriptionService.handleWebhookEvent(event);
     
-    case 'customer.subscription.deleted':
-      const canceledSubscription = event.data.object;
-      await subscriptionService.handleSubscriptionUpdated(
-        canceledSubscription.id,
-        'canceled'
-      );
-      break;
-      
-    default:
-      console.log(`Unhandled event type ${event.type}`);
+    // Return a 200 to acknowledge receipt of the event
+    res.json({ received: true });
+  } catch (error: any) {
+    console.error('Webhook Error:', error.message);
+    res.status(400).json({ error: `Webhook Error: ${error.message}` });
   }
-
-  // Return a 200 response to acknowledge receipt of the event
-  res.json({ received: true });
 });
 
 export default router;
