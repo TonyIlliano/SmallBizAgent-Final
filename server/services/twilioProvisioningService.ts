@@ -35,9 +35,11 @@ export async function provisionPhoneNumber(business: Business, areaCode?: string
     let availableNumbers;
     if (areaCode) {
       try {
+        // The API expects areaCode as a numeric value
+        const numericAreaCode = parseInt(areaCode);
         availableNumbers = await client.availablePhoneNumbers('US')
           .local
-          .list({ areaCode, limit: 1 });
+          .list({ areaCode: numericAreaCode, limit: 1 });
       } catch (error) {
         console.warn(`No numbers available in area code ${areaCode}, falling back to general search`);
       }
