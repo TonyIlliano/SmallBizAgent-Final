@@ -5,6 +5,11 @@ import type { Appointment } from '@shared/schema';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+
+// Get current file path in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Ensure calendar directories exist
 const PUBLIC_DIR = path.join(__dirname, '../../public');
@@ -175,9 +180,11 @@ export class AppleCalendarService {
       
       // Find the event
       for (const [appointmentId, event] of Object.entries(data.events || {})) {
-        if (event.eventId === eventId) {
+        // Type assertion for the event object
+        const typedEvent = event as { eventId: string; filename: string };
+        if (typedEvent.eventId === eventId) {
           eventFound = true;
-          filename = event.filename;
+          filename = typedEvent.filename;
           // Remove the event from the data
           delete data.events[appointmentId];
           break;
@@ -219,12 +226,15 @@ export class AppleCalendarService {
 
   // Generate an iCalendar event file
   private generateEventICS(eventId: string, appointment: Appointment): string {
-    const startDate = new Date(appointment.startTime);
-    const endDate = new Date(appointment.endTime);
+    const startDate = new Date(appointment.startDate);
+    const endDate = new Date(appointment.endDate);
     
     const startTimestamp = startDate.toISOString().replace(/[-:]/g, '').replace(/\.\d+/g, '');
     const endTimestamp = endDate.toISOString().replace(/[-:]/g, '').replace(/\.\d+/g, '');
     const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/g, '');
+    
+    // Generate a title for the appointment based on associated service
+    const serviceTitle = appointment.serviceId ? `Appointment #${appointment.id}` : 'Appointment';
     
     return [
       'BEGIN:VCALENDAR',
@@ -237,7 +247,7 @@ export class AppleCalendarService {
       `DTSTAMP:${now}`,
       `DTSTART:${startTimestamp}`,
       `DTEND:${endTimestamp}`,
-      `SUMMARY:${appointment.title || 'Appointment'}`,
+      `SUMMARY:${serviceTitle}`,
       `DESCRIPTION:${appointment.notes || ''}`,
       'END:VEVENT',
       'END:VCALENDAR'

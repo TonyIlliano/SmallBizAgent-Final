@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { CalendarService } from '../services/calendarService';
-import { isAuthenticated, belongsToBusiness } from '../middleware/auth';
+import { isAuthenticated, belongsToBusiness, checkIsAdmin, checkBelongsToBusiness } from '../auth';
 
 const router = Router();
 const calendarService = new CalendarService();

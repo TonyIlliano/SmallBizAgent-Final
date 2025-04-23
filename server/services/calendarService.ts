@@ -6,6 +6,11 @@ import { MicrosoftCalendarService } from './microsoftCalendarService';
 import { AppleCalendarService } from './appleCalendarService';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+// Get current file path in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Ensure calendar directories exist
 const PUBLIC_DIR = path.join(__dirname, '../../public');
