@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool } from '../db';
 import { migrate as calendarMigration } from './add_calendar_integration';
+import { migrate as subscriptionPlansMigration } from './add_subscription_plans';
 
 // Get the directory name for ES modules (replacement for __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -81,7 +82,12 @@ async function runMigrations() {
     // Run TypeScript migrations
     try {
       // Run calendar integration migration
+      console.log('Running calendar integration migration...');
       await calendarMigration();
+      
+      // Run subscription plans migration
+      console.log('Running subscription plans migration...');
+      await subscriptionPlansMigration();
     } catch (error) {
       console.error('Failed to apply TypeScript migrations:', error);
       throw error;

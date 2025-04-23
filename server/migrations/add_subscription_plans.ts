@@ -1,93 +1,122 @@
-import { db } from '../db';
-import { subscriptionPlans } from '@shared/schema';
+import { pool } from '../db';
 
 /**
- * Migration script to add subscription plans to the database.
- * This adds the monthly ($120) and annual ($1,200) subscription plans.
+ * Seed subscription plans in the database
  */
-async function addSubscriptionPlans() {
-  console.log('Adding subscription plans...');
-  
-  // Check if plans already exist
-  const existingPlans = await db.select().from(subscriptionPlans);
-  if (existingPlans.length > 0) {
-    console.log('Subscription plans already exist, skipping');
-    return;
-  }
-  
-  // Add monthly plan
-  const monthlyFeatures = [
-    'Unlimited customers',
-    'Unlimited jobs and invoices',
-    'Virtual receptionist',
-    'Calendar integration',
-    'QuickBooks integration',
-    'Appointment scheduling',
-    'Email notifications',
-    'Phone call logs',
-    'Basic analytics'
-  ];
-  
-  // Add yearly plan
-  const yearlyFeatures = [
-    'All features from monthly plan',
-    'Priority support',
-    'Advanced analytics',
-    'Custom report generation',
-    'Bulk customer import',
-    'Customer portal access',
-    'White-label emails',
-    'API access'
-  ];
-  
-  // Insert plans
-  await db.insert(subscriptionPlans).values([
-    {
-      name: 'Monthly',
-      description: 'Monthly subscription plan for small businesses',
-      price: 120,
-      interval: 'monthly',
-      features: monthlyFeatures,
-      active: true,
-      sortOrder: 1,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    },
-    {
-      name: 'Annual',
-      description: 'Annual subscription plan with 17% savings',
-      price: 1200,
-      interval: 'yearly',
-      features: yearlyFeatures,
-      active: true,
-      sortOrder: 2,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-  ]);
-  
-  console.log('Subscription plans added successfully');
-}
-
-// Run the migration
 export async function migrate() {
   try {
-    await addSubscriptionPlans();
+    // Check if migration has been applied
+    const { rows: migrations } = await pool.query(
+      'SELECT name FROM migrations WHERE name = $1',
+      ['add_subscription_plans']
+    );
+    
+    if (migrations.length > 0) {
+      console.log('Migration add_subscription_plans already applied, skipping');
+      return;
+    }
+    
+    console.log('Applying subscription plans migration...');
+    
+    // Begin transaction
+    await pool.query('BEGIN');
+    
+    try {
+      // Check if any subscription plans already exist
+      const { rows: existingPlans } = await pool.query(
+        'SELECT COUNT(*) FROM subscription_plans'
+      );
+      
+      if (Number(existingPlans[0].count) === 0) {
+        // Insert monthly plan
+        await pool.query(`
+          INSERT INTO subscription_plans (
+            name, 
+            description, 
+            price, 
+            interval, 
+            features, 
+            active, 
+            sort_order
+          ) VALUES (
+            'Monthly Plan', 
+            'Professional plan with all features, billed monthly', 
+            120, 
+            'monthly', 
+            $1, 
+            true, 
+            10
+          )
+        `, [JSON.stringify([
+          'Virtual receptionist with AI capabilities',
+          'Unlimited customers and jobs',
+          'Invoice creation and management',
+          'Calendar integration',
+          'Appointment scheduling',
+          'QuickBooks integration',
+          'Email and SMS notifications',
+          'Customer portal access',
+          'Standard analytics and reporting'
+        ])]);
+        
+        // Insert annual plan
+        await pool.query(`
+          INSERT INTO subscription_plans (
+            name, 
+            description, 
+            price, 
+            interval, 
+            features, 
+            active, 
+            sort_order
+          ) VALUES (
+            'Annual Plan', 
+            'Professional plan with all features, billed annually (save 16.7%)', 
+            1200, 
+            'annual', 
+            $1, 
+            true, 
+            20
+          )
+        `, [JSON.stringify([
+          'Virtual receptionist with AI capabilities',
+          'Unlimited customers and jobs',
+          'Invoice creation and management',
+          'Calendar integration',
+          'Appointment scheduling',
+          'QuickBooks integration',
+          'Email and SMS notifications',
+          'Customer portal access',
+          'Advanced analytics and reporting',
+          'Priority support',
+          'Custom virtual receptionist training'
+        ])]);
+        
+        console.log('Added subscription plans');
+      } else {
+        console.log('Subscription plans already exist, skipping insertion');
+      }
+      
+      // Record the migration
+      await pool.query(
+        'INSERT INTO migrations (name) VALUES ($1)',
+        ['add_subscription_plans']
+      );
+      
+      // Commit transaction
+      await pool.query('COMMIT');
+      console.log('Successfully applied subscription plans migration');
+    } catch (error) {
+      // Rollback on error
+      await pool.query('ROLLBACK');
+      console.error('Failed to apply subscription plans migration:', error);
+      throw error;
+    }
   } catch (error) {
-    console.error('Error adding subscription plans:', error);
+    console.error('Error in subscription plans migration:', error);
     throw error;
   }
 }
 
-// Allow running directly
-if (require.main === module) {
-  migrate()
-    .then(() => {
-      console.log('Subscription plans migration completed successfully');
-      process.exit(0);
-    })
-    .catch((error) => {
-      console.error('Subscription plans migration failed:', error);
-      process.exit(1);
-    });
-}
+// ES modules don't have a direct equivalent to require.main === module
+// This file will only be imported, not run directly
