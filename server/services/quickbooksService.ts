@@ -86,7 +86,6 @@ async function saveTokens(businessId: number, tokenData: any): Promise<void> {
         quickbooksRealmId: tokenData.realmId,
         quickbooksAccessToken: tokenData.accessToken,
         quickbooksRefreshToken: tokenData.refreshToken,
-        quickbooksTokenType: tokenData.tokenType,
         quickbooksTokenExpiry: tokenData.expiresAt,
       })
       .where(eq(businesses.id, businessId));
