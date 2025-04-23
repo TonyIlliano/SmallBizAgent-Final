@@ -1,6 +1,25 @@
-import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, date } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, date, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// Users
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  email: text("email").notNull(),
+  password: text("password").notNull(),
+  role: text("role").default("user"), // admin, user, staff
+  businessId: integer("business_id"),
+  active: boolean("active").default(true),
+  lastLogin: timestamp("last_login"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    emailIdx: unique("email_idx").on(table.email),
+    usernameIdx: unique("username_idx").on(table.username),
+  }
+});
 
 // Business Profile
 export const businesses = pgTable("businesses", {
@@ -160,6 +179,7 @@ export const callLogs = pgTable("call_logs", {
 });
 
 // Insert schemas
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true });
 export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBusinessHoursSchema = createInsertSchema(businessHours).omit({ id: true });
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
@@ -173,6 +193,9 @@ export const insertReceptionistConfigSchema = createInsertSchema(receptionistCon
 export const insertCallLogSchema = createInsertSchema(callLogs).omit({ id: true });
 
 // Types
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
 export type Business = typeof businesses.$inferSelect;
 export type InsertBusiness = z.infer<typeof insertBusinessSchema>;
 
