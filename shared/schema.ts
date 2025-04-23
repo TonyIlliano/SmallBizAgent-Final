@@ -33,6 +33,11 @@ export const businesses = pgTable("businesses", {
   email: text("email").notNull(),
   website: text("website"),
   logoUrl: text("logo_url"),
+  // Twilio phone number information
+  twilioPhoneNumber: text("twilio_phone_number"),
+  twilioPhoneNumberSid: text("twilio_phone_number_sid"),
+  twilioPhoneNumberStatus: text("twilio_phone_number_status"),
+  twilioDateProvisioned: timestamp("twilio_date_provisioned"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
