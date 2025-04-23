@@ -300,10 +300,11 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 mb-6">
+          <TabsList className="grid w-full grid-cols-4 mb-6">
             <TabsTrigger value="profile">Business Profile</TabsTrigger>
             <TabsTrigger value="hours">Business Hours</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
+            <TabsTrigger value="calendar">Calendar</TabsTrigger>
           </TabsList>
           
           <TabsContent value="profile" className="space-y-4">
@@ -632,6 +633,31 @@ export default function Settings() {
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="calendar" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Calendar Integrations</CardTitle>
+                <CardDescription>
+                  Connect your calendars and manage appointment synchronization
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="py-4 text-center">
+                  <p className="mb-4">
+                    Manage your calendar integrations, connect with external 
+                    calendar services, and configure appointment synchronization.
+                  </p>
+                  <Button 
+                    onClick={() => window.location.href = '/settings/calendar'}
+                    className="mx-auto"
+                  >
+                    Go to Calendar Settings
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
