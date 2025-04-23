@@ -43,6 +43,14 @@ export const businesses = pgTable("businesses", {
   quickbooksAccessToken: text("quickbooks_access_token"),
   quickbooksRefreshToken: text("quickbooks_refresh_token"),
   quickbooksTokenExpiry: timestamp("quickbooks_token_expiry"),
+  // Subscription information
+  subscriptionStatus: text("subscription_status").default("inactive"),
+  subscriptionPlanId: text("subscription_plan_id"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  subscriptionStartDate: timestamp("subscription_start_date"),
+  subscriptionEndDate: timestamp("subscription_end_date"),
+  trialEndsAt: timestamp("trial_ends_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -210,6 +218,22 @@ export const calendarIntegrations = pgTable("calendar_integrations", {
   }
 });
 
+// Subscription Plans
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  price: real("price").notNull(),
+  interval: text("interval").notNull(), // monthly, yearly
+  features: jsonb("features"), // Array of features included in this plan
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id"),
+  active: boolean("active").default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true });
 export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true, updatedAt: true });
@@ -224,6 +248,7 @@ export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({ i
 export const insertReceptionistConfigSchema = createInsertSchema(receptionistConfig).omit({ id: true, updatedAt: true });
 export const insertCallLogSchema = createInsertSchema(callLogs).omit({ id: true });
 export const insertCalendarIntegrationSchema = createInsertSchema(calendarIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -264,3 +289,6 @@ export type InsertCallLog = z.infer<typeof insertCallLogSchema>;
 
 export type CalendarIntegration = typeof calendarIntegrations.$inferSelect;
 export type InsertCalendarIntegration = z.infer<typeof insertCalendarIntegrationSchema>;
+
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema>;
