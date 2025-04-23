@@ -64,7 +64,7 @@ export function CallLog({ businessId = 1 }) {
   };
 
   // Fetch call logs with filters
-  const { data: calls, isLoading } = useQuery({
+  const { data: calls = [], isLoading } = useQuery({
     queryKey: ['/api/call-logs', buildQueryParams()],
   });
 

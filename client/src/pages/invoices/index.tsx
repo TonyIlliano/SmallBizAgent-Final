@@ -26,7 +26,7 @@ export default function Invoices() {
   }
   
   // Fetch invoices
-  const { data: invoices, isLoading } = useQuery({
+  const { data: invoices = [], isLoading } = useQuery({
     queryKey: ['/api/invoices', queryParams],
   });
   

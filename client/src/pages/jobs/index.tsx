@@ -26,7 +26,7 @@ export default function Jobs() {
   }
   
   // Fetch jobs
-  const { data: jobs, isLoading } = useQuery({
+  const { data: jobs = [], isLoading } = useQuery({
     queryKey: ['/api/jobs', queryParams],
   });
   

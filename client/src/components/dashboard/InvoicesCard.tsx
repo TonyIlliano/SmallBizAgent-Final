@@ -12,7 +12,7 @@ interface InvoicesCardProps {
 }
 
 export function InvoicesCard({ businessId = 1, limit = 3 }: InvoicesCardProps) {
-  const { data: invoices, isLoading } = useQuery({
+  const { data: invoices = [], isLoading } = useQuery({
     queryKey: ['/api/invoices', { businessId }],
   });
 
@@ -84,10 +84,8 @@ export function InvoicesCard({ businessId = 1, limit = 3 }: InvoicesCardProps) {
       </CardContent>
       <CardFooter className="bg-gray-50 px-4 py-4 sm:px-6 border-t border-gray-200">
         <div className="flex justify-between w-full">
-          <Link href="/invoices">
-            <a className="text-sm font-medium text-primary-600 hover:text-primary-700">
-              View all invoices →
-            </a>
+          <Link href="/invoices" className="text-sm font-medium text-primary-600 hover:text-primary-700">
+            View all invoices →
           </Link>
           <Link href="/invoices/create">
             <Button size="sm">Create Invoice</Button>
