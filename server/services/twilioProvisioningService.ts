@@ -88,24 +88,50 @@ export async function provisionPhoneNumber(business: Business, areaCode?: string
 }
 
 /**
- * Release a phone number when a business cancels
+ * Release a phone number for a business
  * 
- * @param phoneNumberSid The Twilio SID of the phone number to release
+ * @param businessId The ID of the business
  * @returns Success status
  */
-export async function releasePhoneNumber(phoneNumberSid: string) {
+export async function releasePhoneNumber(businessId: number) {
   try {
     // Validate Twilio credentials
     if (!accountSid || !authToken) {
       throw new Error('Twilio credentials not configured');
     }
 
+    // Get business details to find the phone number SID
+    const db = await import('../db');
+    const { eq } = await import('drizzle-orm');
+    const { businesses } = await import('@shared/schema');
+    
+    const [business] = await db.db.select().from(businesses).where(eq(businesses.id, businessId));
+    
+    if (!business) {
+      throw new Error(`Business ID ${businessId} not found`);
+    }
+
+    // Check if business has a phone number
+    if (!business.twilioPhoneNumberSid) {
+      throw new Error(`Business ID ${businessId} does not have a provisioned phone number`);
+    }
+
     // Release the phone number
-    await client.incomingPhoneNumbers(phoneNumberSid).remove();
+    await client.incomingPhoneNumbers(business.twilioPhoneNumberSid).remove();
+
+    // Update the business record to remove the phone number
+    await db.db.update(businesses)
+      .set({
+        twilioPhoneNumber: null,
+        twilioPhoneNumberSid: null,
+        updatedAt: new Date()
+      })
+      .where(eq(businesses.id, businessId));
 
     return {
       success: true,
       message: 'Phone number released successfully',
+      businessId,
       dateReleased: new Date().toISOString()
     };
   } catch (error) {
@@ -190,9 +216,119 @@ export async function listPhoneNumbers() {
   }
 }
 
+/**
+ * Search for available phone numbers in a specific area code
+ * 
+ * @param areaCode The area code to search for (3 digits)
+ * @returns List of available phone numbers
+ */
+export async function searchAvailablePhoneNumbers(areaCode: string) {
+  try {
+    // Validate Twilio credentials
+    if (!accountSid || !authToken) {
+      throw new Error('Twilio credentials not configured');
+    }
+
+    // Validate area code
+    if (!areaCode || areaCode.length !== 3 || !/^\d{3}$/.test(areaCode)) {
+      throw new Error('Invalid area code format. Must be 3 digits.');
+    }
+
+    // The API expects areaCode as a numeric value
+    const numericAreaCode = parseInt(areaCode);
+    
+    // Search for available phone numbers in the area code
+    const availableNumbers = await client.availablePhoneNumbers('US')
+      .local
+      .list({ areaCode: numericAreaCode, limit: 10 });
+
+    // Return formatted list of available numbers
+    return availableNumbers.map(number => ({
+      phoneNumber: number.phoneNumber,
+      friendlyName: number.friendlyName,
+      locality: number.locality,
+      region: number.region,
+      isoCountry: number.isoCountry,
+      capabilities: number.capabilities
+    }));
+  } catch (error) {
+    console.error('Error searching for available phone numbers:', error);
+    throw error;
+  }
+}
+
+/**
+ * Provision a specific phone number for a business
+ * 
+ * @param businessId The ID of the business
+ * @param phoneNumber The specific phone number to provision (in E.164 format)
+ * @returns The provisioned phone number details
+ */
+export async function provisionSpecificPhoneNumber(businessId: number, phoneNumber: string) {
+  try {
+    // Validate Twilio credentials
+    if (!accountSid || !authToken) {
+      throw new Error('Twilio credentials not configured');
+    }
+
+    // Get business details
+    const db = await import('../db');
+    const { eq } = await import('drizzle-orm');
+    const { businesses } = await import('@shared/schema');
+    
+    const [business] = await db.db.select().from(businesses).where(eq(businesses.id, businessId));
+    
+    if (!business) {
+      throw new Error(`Business ID ${businessId} not found`);
+    }
+
+    // Purchase the specific phone number
+    const purchasedNumber = await client.incomingPhoneNumbers
+      .create({
+        phoneNumber,
+        friendlyName: `${business.name} - SmallBizAgent`,
+        // Set the voice URL to your webhook endpoint
+        voiceUrl: `${baseWebhookUrl}/api/twilio/incoming-call?businessId=${business.id}`,
+        // Optional: Set SMS URL if you want to handle SMS
+        smsUrl: `${baseWebhookUrl}/api/twilio/sms?businessId=${business.id}`,
+      });
+
+    // Create a friendly name for the phone number with business details
+    await client.incomingPhoneNumbers(purchasedNumber.sid)
+      .update({
+        friendlyName: `${business.name} - ID: ${business.id} - SmallBizAgent`
+      });
+
+    // Update the business record with the new phone number
+    await db.db.update(businesses)
+      .set({
+        twilioPhoneNumber: purchasedNumber.phoneNumber,
+        twilioPhoneNumberSid: purchasedNumber.sid,
+        twilioDateProvisioned: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(businesses.id, businessId));
+
+    // Return the details
+    return {
+      phoneNumberSid: purchasedNumber.sid,
+      phoneNumber: purchasedNumber.phoneNumber,
+      formattedPhoneNumber: purchasedNumber.friendlyName,
+      dateProvisioned: new Date().toISOString(),
+      businessId: business.id,
+      sid: purchasedNumber.sid
+    };
+  } catch (error) {
+    console.error('Error provisioning specific phone number:', error);
+    throw error;
+  }
+}
+
 export default {
   provisionPhoneNumber,
   releasePhoneNumber,
   updatePhoneNumberWebhooks,
-  listPhoneNumbers
+  listPhoneNumbers,
+  searchAvailablePhoneNumbers,
+  provisionSpecificPhoneNumber
 };
