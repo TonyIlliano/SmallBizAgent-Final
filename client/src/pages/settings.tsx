@@ -639,16 +639,41 @@ export default function Settings() {
             </Card>
           </TabsContent>
           
-          <TabsContent value="calendar" className="space-y-4">
+          <TabsContent value="integrations" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Calendar Integrations</CardTitle>
+                <CardTitle>Integrations</CardTitle>
                 <CardDescription>
-                  Connect your calendars and manage appointment synchronization
+                  Connect external services to enhance your business management
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <CalendarIntegration businessId={1} />
+                <Tabs defaultValue="calendar">
+                  <TabsList className="mb-4">
+                    <TabsTrigger value="calendar">Calendar</TabsTrigger>
+                    <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="calendar">
+                    <div className="mb-6">
+                      <h3 className="text-lg font-medium mb-2">Calendar Integrations</h3>
+                      <p className="text-muted-foreground mb-4">
+                        Sync appointments with your preferred calendar service
+                      </p>
+                      <CalendarIntegration businessId={1} />
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="quickbooks">
+                    <div className="mb-6">
+                      <h3 className="text-lg font-medium mb-2">QuickBooks Integration</h3>
+                      <p className="text-muted-foreground mb-4">
+                        Connect with QuickBooks to sync invoices, customers, and payments
+                      </p>
+                      <QuickBooksIntegration businessId={1} />
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           </TabsContent>
