@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { CalendarService } from '../services/calendarService';
-import { isAuthenticated, belongsToBusiness, checkIsAdmin, checkBelongsToBusiness } from '../auth';
+import { isAuthenticated } from '../auth';
 
 const router = Router();
 const calendarService = new CalendarService();
 
 // Get calendar integration statuses for a business
-router.get('/status/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
+router.get('/status/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const status = await calendarService.getIntegrationStatus(businessId);
@@ -17,7 +17,7 @@ router.get('/status/:businessId', isAuthenticated, belongsToBusiness, async (req
 });
 
 // Get auth URLs for calendar integrations
-router.get('/auth-urls/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
+router.get('/auth-urls/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const urls = calendarService.getAuthUrls(businessId);
@@ -104,7 +104,7 @@ router.get('/microsoft/callback', async (req, res) => {
 });
 
 // Get Apple Calendar subscription URL
-router.get('/apple/subscription/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
+router.get('/apple/subscription/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const url = await calendarService.getAppleCalendarUrl(businessId);
@@ -156,7 +156,7 @@ router.delete('/appointment/:appointmentId', isAuthenticated, async (req, res) =
 });
 
 // Disconnect a calendar integration
-router.delete('/:businessId/:provider', isAuthenticated, belongsToBusiness, async (req, res) => {
+router.delete('/:businessId/:provider', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const { provider } = req.params;

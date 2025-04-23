@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool } from '../db';
+import { migrate as calendarMigration } from './add_calendar_integration';
 
 // Get the directory name for ES modules (replacement for __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -14,19 +15,6 @@ async function runMigrations() {
   try {
     console.log('Running database migrations...');
     
-    // Get all SQL files in the migrations directory
-    const migrationsDir = path.join(__dirname);
-    const migrationFiles = fs.readdirSync(migrationsDir)
-      .filter(file => file.endsWith('.sql'))
-      .sort(); // Sort to ensure they run in order
-    
-    if (migrationFiles.length === 0) {
-      console.log('No migration files found');
-      return;
-    }
-    
-    console.log(`Found ${migrationFiles.length} migration files`);
-    
     // Create migrations table if it doesn't exist
     await pool.query(`
       CREATE TABLE IF NOT EXISTS migrations (
@@ -36,46 +24,67 @@ async function runMigrations() {
       );
     `);
     
-    // Get already applied migrations
-    const { rows: appliedMigrations } = await pool.query(
-      'SELECT name FROM migrations'
-    );
-    const appliedMigrationNames = appliedMigrations.map(m => m.name);
+    // Get all SQL files in the migrations directory
+    const migrationsDir = path.join(__dirname);
+    const migrationFiles = fs.readdirSync(migrationsDir)
+      .filter(file => file.endsWith('.sql'))
+      .sort(); // Sort to ensure they run in order
     
-    // Run each migration that hasn't been applied yet
-    for (const file of migrationFiles) {
-      if (appliedMigrationNames.includes(file)) {
-        console.log(`Migration ${file} already applied, skipping`);
-        continue;
-      }
+    if (migrationFiles.length === 0) {
+      console.log('No SQL migration files found');
+    } else {
+      console.log(`Found ${migrationFiles.length} SQL migration files`);
       
-      const filePath = path.join(migrationsDir, file);
-      const sql = fs.readFileSync(filePath, 'utf8');
+      // Get already applied migrations
+      const { rows: appliedMigrations } = await pool.query(
+        'SELECT name FROM migrations'
+      );
+      const appliedMigrationNames = appliedMigrations.map(m => m.name);
       
-      console.log(`Applying migration: ${file}`);
-      
-      // Begin transaction
-      await pool.query('BEGIN');
-      
-      try {
-        // Run the migration
-        await pool.query(sql);
+      // Run each migration that hasn't been applied yet
+      for (const file of migrationFiles) {
+        if (appliedMigrationNames.includes(file)) {
+          console.log(`Migration ${file} already applied, skipping`);
+          continue;
+        }
         
-        // Record the migration
-        await pool.query(
-          'INSERT INTO migrations (name) VALUES ($1)',
-          [file]
-        );
+        const filePath = path.join(migrationsDir, file);
+        const sql = fs.readFileSync(filePath, 'utf8');
         
-        // Commit transaction
-        await pool.query('COMMIT');
-        console.log(`Successfully applied migration: ${file}`);
-      } catch (error) {
-        // Rollback on error
-        await pool.query('ROLLBACK');
-        console.error(`Failed to apply migration ${file}:`, error);
-        throw error;
+        console.log(`Applying migration: ${file}`);
+        
+        // Begin transaction
+        await pool.query('BEGIN');
+        
+        try {
+          // Run the migration
+          await pool.query(sql);
+          
+          // Record the migration
+          await pool.query(
+            'INSERT INTO migrations (name) VALUES ($1)',
+            [file]
+          );
+          
+          // Commit transaction
+          await pool.query('COMMIT');
+          console.log(`Successfully applied migration: ${file}`);
+        } catch (error) {
+          // Rollback on error
+          await pool.query('ROLLBACK');
+          console.error(`Failed to apply migration ${file}:`, error);
+          throw error;
+        }
       }
+    }
+    
+    // Run TypeScript migrations
+    try {
+      // Run calendar integration migration
+      await calendarMigration();
+    } catch (error) {
+      console.error('Failed to apply TypeScript migrations:', error);
+      throw error;
     }
     
     console.log('All migrations applied successfully');
