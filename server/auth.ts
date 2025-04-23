@@ -185,23 +185,31 @@ export function isAuthenticated(req: Request, res: Response, next: NextFunction)
   res.status(401).json({ error: "Not authenticated" });
 }
 
+// Check if user is admin (utility function)
+export function checkIsAdmin(req: Request): boolean {
+  return req.isAuthenticated() && req.user && req.user.role === "admin";
+}
+
 // Middleware to check for admin role
 export function isAdmin(req: Request, res: Response, next: NextFunction) {
-  if (req.isAuthenticated() && req.user && req.user.role === "admin") {
+  if (checkIsAdmin(req)) {
     return next();
   }
   res.status(403).json({ error: "Not authorized" });
+}
+
+// Utility function to check if user belongs to a business
+export function checkBelongsToBusiness(req: Request, businessId: number): boolean {
+  return req.isAuthenticated() && 
+         req.user && 
+         (req.user.businessId === businessId || req.user.role === "admin");
 }
 
 // Middleware to check if user belongs to a business
 export function belongsToBusiness(req: Request, res: Response, next: NextFunction) {
   const businessId = parseInt(req.params.businessId || req.query.businessId as string || "0");
   
-  if (
-    req.isAuthenticated() && 
-    req.user && 
-    (req.user.businessId === businessId || req.user.role === "admin")
-  ) {
+  if (checkBelongsToBusiness(req, businessId)) {
     return next();
   }
   res.status(403).json({ error: "Not authorized for this business" });

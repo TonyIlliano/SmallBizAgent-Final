@@ -17,7 +17,14 @@ import {
 } from "@shared/schema";
 
 // Setup authentication
-import { setupAuth, isAuthenticated, isAdmin, belongsToBusiness } from "./auth";
+import { 
+  setupAuth, 
+  isAuthenticated, 
+  isAdmin, 
+  belongsToBusiness, 
+  checkIsAdmin, 
+  checkBelongsToBusiness 
+} from "./auth";
 
 // Stripe setup
 import Stripe from "stripe";
@@ -126,7 +133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check if user is authorized to access this business
       // Admin users can provision any business
-      if (!isAdmin(req) && !belongsToBusiness(req, businessId)) {
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
         return res.status(403).json({ message: "Unauthorized to provision this business" });
       }
       
