@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
+import { CreateCustomerDialog } from "@/components/customers/CreateCustomerDialog";
 
 import {
   Form,
@@ -168,10 +169,16 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
     total: 0,
   });
 
+  // Watch for changes in items for real-time calculation
+  const watchedItems = form.watch("items");
+  
   // Update summary whenever items change
   useEffect(() => {
-    const values = form.getValues();
-    const items = values.items || [];
+    if (!watchedItems) return;
+    
+    const items = watchedItems || [];
+    
+    // Calculate subtotal from items
     const subtotal = items.reduce((acc, item) => {
       const quantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity as any) || 0;
       const unitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : parseFloat(item.unitPrice as any) || 0;
@@ -182,7 +189,7 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
     const total = subtotal + tax;
     
     setSummary({ subtotal, tax, total });
-  }, [form.watch("items")]);
+  }, [watchedItems]);
 
   const onSubmit = (data: QuoteFormValues) => {
     // Calculate the amounts for each item and the total
@@ -227,24 +234,33 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Customer</FormLabel>
-                    <Select
-                      value={field.value ? field.value.toString() : ""}
-                      onValueChange={(value) => field.onChange(parseInt(value))}
-                      disabled={isPending}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a customer" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {customers?.map((customer: any) => (
-                          <SelectItem key={customer.id} value={customer.id.toString()}>
-                            {customer.firstName} {customer.lastName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="space-y-2">
+                      <Select
+                        value={field.value ? field.value.toString() : ""}
+                        onValueChange={(value) => field.onChange(parseInt(value))}
+                        disabled={isPending}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a customer" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {customers?.map((customer: any) => (
+                            <SelectItem key={customer.id} value={customer.id.toString()}>
+                              {customer.firstName} {customer.lastName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex justify-end">
+                        <CreateCustomerDialog 
+                          onCreate={(customer: any) => {
+                            form.setValue("customerId", customer.id);
+                          }} 
+                        />
+                      </div>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
