@@ -14,21 +14,25 @@ import Invoices from "@/pages/invoices/index";
 import CreateInvoice from "@/pages/invoices/create";
 import Receptionist from "@/pages/receptionist/index";
 import Settings from "@/pages/settings";
+import AuthPage from "@/pages/auth/index";
 import { SidebarProvider } from "./context/SidebarContext";
+import { AuthProvider } from "./hooks/use-auth";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/customers" component={Customers} />
-      <Route path="/customers/:id" component={CustomerDetail} />
-      <Route path="/appointments" component={Appointments} />
-      <Route path="/jobs" component={Jobs} />
-      <Route path="/jobs/:id" component={JobDetail} />
-      <Route path="/invoices" component={Invoices} />
-      <Route path="/invoices/create" component={CreateInvoice} />
-      <Route path="/receptionist" component={Receptionist} />
-      <Route path="/settings" component={Settings} />
+      <ProtectedRoute path="/" component={Dashboard} />
+      <ProtectedRoute path="/customers" component={Customers} />
+      <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
+      <ProtectedRoute path="/appointments" component={Appointments} />
+      <ProtectedRoute path="/jobs" component={Jobs} />
+      <ProtectedRoute path="/jobs/:id" component={JobDetail} />
+      <ProtectedRoute path="/invoices" component={Invoices} />
+      <ProtectedRoute path="/invoices/create" component={CreateInvoice} />
+      <ProtectedRoute path="/receptionist" component={Receptionist} />
+      <ProtectedRoute path="/settings" component={Settings} />
+      <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -38,10 +42,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <SidebarProvider>
-          <Toaster />
-          <Router />
-        </SidebarProvider>
+        <AuthProvider>
+          <SidebarProvider>
+            <Toaster />
+            <Router />
+          </SidebarProvider>
+        </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
