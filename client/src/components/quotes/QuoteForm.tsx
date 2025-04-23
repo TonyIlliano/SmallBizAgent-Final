@@ -45,8 +45,8 @@ import { Textarea } from "@/components/ui/textarea";
 
 const quoteItemSchema = z.object({
   description: z.string().min(1, "Description is required"),
-  quantity: z.string().transform((val) => parseFloat(val) || 1),
-  unitPrice: z.string().transform((val) => parseFloat(val) || 0),
+  quantity: z.coerce.number().min(1, "Quantity must be at least 1"),
+  unitPrice: z.coerce.number().min(0, "Unit price cannot be negative"),
 });
 
 const quoteSchema = z.object({
@@ -149,7 +149,7 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
       jobId: defaultValues?.jobId || null,
       quoteNumber: defaultValues?.quoteNumber || `QUO-${Date.now()}`,
       items: defaultValues?.items || [
-        { description: "", quantity: "1", unitPrice: "0" },
+        { description: "", quantity: 1, unitPrice: 0 },
       ],
       validUntil: defaultValues?.validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
       notes: defaultValues?.notes || "",
@@ -173,8 +173,8 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
     const values = form.getValues();
     const items = values.items || [];
     const subtotal = items.reduce((acc, item) => {
-      const quantity = parseFloat(item.quantity as unknown as string) || 0;
-      const unitPrice = parseFloat(item.unitPrice as unknown as string) || 0;
+      const quantity = typeof item.quantity === 'number' ? item.quantity : 0;
+      const unitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : 0;
       return acc + quantity * unitPrice;
     }, 0);
     
@@ -207,7 +207,7 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
   };
 
   const addItem = () => {
-    append({ description: "", quantity: "1", unitPrice: "0" });
+    append({ description: "", quantity: 1, unitPrice: 0 });
   };
 
   const isPending = createQuoteMutation.isPending || updateQuoteMutation.isPending;
