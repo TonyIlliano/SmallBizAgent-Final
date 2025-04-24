@@ -277,7 +277,10 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
       total: summary.total,
     };
 
+    // Add more detailed logging to see the exact data types
     console.log("Submitting data:", submitData);
+    console.log("validUntil type:", typeof submitData.validUntil);
+    console.log("validUntil value:", submitData.validUntil);
 
     if (isEditing) {
       updateQuoteMutation.mutate(submitData);
