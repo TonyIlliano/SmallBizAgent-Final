@@ -96,28 +96,42 @@ router.post("/quotes", async (req, res) => {
       amount: z.number().min(0, "Amount must be at least 0"),
       tax: z.number().default(0),
       total: z.number().min(0, "Total must be at least 0"),
-      // Accept any input for validUntil date and convert to string format (YYYY-MM-DD) needed by the schema
-      validUntil: z.any().optional().nullable().transform(val => {
+      // Accept a string, date, or null for validUntil field
+      validUntil: z.union([
+        z.string(),
+        z.date(),
+        z.null()
+      ]).optional().transform(val => {
+        console.log("DEBUG validUntil input:", val, typeof val);
+        
+        // Handle null/undefined/empty
+        if (val === null || val === undefined || val === '') {
+          return null;
+        }
+        
         try {
-          // Debug input type
-          console.log("DEBUG validUntil input:", val, typeof val);
-          
-          // Handle null/undefined/empty
-          if (val === null || val === undefined || val === '') {
-            return null;
-          }
-          
-          // If it's already a string in the correct format, return it directly
+          // Already in correct string format
           if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
             return val;
           }
           
-          // Try to convert to date
-          const date = typeof val === 'string' ? new Date(val) : val;
+          // Handle Date object
+          if (val instanceof Date) {
+            return val.toISOString().split('T')[0];
+          }
           
-          // Validate the date
-          if (date instanceof Date && !isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+          // Try to convert other string formats
+          if (typeof val === 'string') {
+            const date = new Date(val);
+            if (!isNaN(date.getTime())) {
+              return date.toISOString().split('T')[0];
+            }
+          }
+          
+          // If it's something else, try best effort to convert
+          const date = new Date(val as any);
+          if (!isNaN(date.getTime())) {
+            return date.toISOString().split('T')[0];
           }
           
           return null;
@@ -214,28 +228,42 @@ router.patch("/quotes/:id", async (req, res) => {
       amount: z.number().min(0, "Amount must be at least 0"),
       tax: z.number().default(0),
       total: z.number().min(0, "Total must be at least 0"),
-      // Accept any input for validUntil date and convert to string format (YYYY-MM-DD) needed by the schema
-      validUntil: z.any().optional().nullable().transform(val => {
+      // Accept a string, date, or null for validUntil field
+      validUntil: z.union([
+        z.string(),
+        z.date(),
+        z.null()
+      ]).optional().transform(val => {
+        console.log("DEBUG validUntil update input:", val, typeof val);
+        
+        // Handle null/undefined/empty
+        if (val === null || val === undefined || val === '') {
+          return null;
+        }
+        
         try {
-          // Debug input type
-          console.log("DEBUG validUntil update input:", val, typeof val);
-          
-          // Handle null/undefined/empty
-          if (val === null || val === undefined || val === '') {
-            return null;
-          }
-          
-          // If it's already a string in the correct format, return it directly
+          // Already in correct string format
           if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
             return val;
           }
           
-          // Try to convert to date
-          const date = typeof val === 'string' ? new Date(val) : val;
+          // Handle Date object
+          if (val instanceof Date) {
+            return val.toISOString().split('T')[0];
+          }
           
-          // Validate the date
-          if (date instanceof Date && !isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+          // Try to convert other string formats
+          if (typeof val === 'string') {
+            const date = new Date(val);
+            if (!isNaN(date.getTime())) {
+              return date.toISOString().split('T')[0];
+            }
+          }
+          
+          // If it's something else, try best effort to convert
+          const date = new Date(val as any);
+          if (!isNaN(date.getTime())) {
+            return date.toISOString().split('T')[0];
           }
           
           return null;

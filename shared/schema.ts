@@ -230,7 +230,7 @@ export const quotes = pgTable("quotes", {
   amount: real("amount").notNull(),
   tax: real("tax"),
   total: real("total").notNull(),
-  validUntil: date("valid_until"), // Date until which the quote is valid
+  validUntil: text("valid_until"), // Store date as string in YYYY-MM-DD format
   status: text("status").default("pending"), // pending, accepted, declined, expired, converted
   notes: text("notes"),
   convertedToInvoiceId: integer("converted_to_invoice_id"), // Reference to the invoice if this quote was converted
