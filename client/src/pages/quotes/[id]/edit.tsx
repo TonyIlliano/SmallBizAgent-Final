@@ -74,7 +74,7 @@ export default function EditQuote() {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
           })),
-          validUntil: quote.validUntil ? new Date(quote.validUntil) : null,
+          validUntil: quote.validUntil || null,
           notes: quote.notes,
         }}
         quoteId={quoteId}

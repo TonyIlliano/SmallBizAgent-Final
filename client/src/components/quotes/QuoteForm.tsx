@@ -55,7 +55,32 @@ const quoteSchema = z.object({
   jobId: z.number().optional().nullable(),
   quoteNumber: z.string().min(1, "Quote number is required"),
   items: z.array(quoteItemSchema).min(1, "At least one item is required"),
-  validUntil: z.date().optional().nullable(),
+  validUntil: z.union([z.string(), z.date(), z.null()]).optional().transform(val => {
+    // Handle null/undefined
+    if (val === null || val === undefined) {
+      return null;
+    }
+    
+    // For Date objects, convert to YYYY-MM-DD format
+    if (val instanceof Date) {
+      return val.toISOString().split('T')[0];
+    }
+    
+    // If it's already a valid date string, return it
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+      return val;
+    }
+    
+    // Try to convert string to date
+    if (typeof val === 'string') {
+      const date = new Date(val);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    }
+    
+    return null;
+  }),
   notes: z.string().optional().nullable(),
 });
 
@@ -187,7 +212,7 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
       items: defaultValues?.items || [
         { description: "", quantity: 1, unitPrice: 0 },
       ],
-      validUntil: defaultValues?.validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+      validUntil: defaultValues?.validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now as YYYY-MM-DD
       notes: defaultValues?.notes || "",
     },
   });
@@ -445,7 +470,9 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
                             disabled={isPending}
                           >
                             {field.value ? (
-                              formatDate(field.value)
+                              typeof field.value === 'string' 
+                                ? formatDate(new Date(field.value)) 
+                                : formatDate(field.value)
                             ) : (
                               <span>Pick a date</span>
                             )}
@@ -456,8 +483,15 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
                       <PopoverContent className="w-auto p-0" align="start">
                         <Calendar
                           mode="single"
-                          selected={field.value || undefined}
-                          onSelect={field.onChange}
+                          selected={field.value ? (typeof field.value === 'string' ? new Date(field.value) : field.value) : undefined}
+                          onSelect={(date) => {
+                            // Convert the date to a string in YYYY-MM-DD format
+                            if (date) {
+                              field.onChange(date.toISOString().split('T')[0]);
+                            } else {
+                              field.onChange(null);
+                            }
+                          }}
                           disabled={(date) =>
                             date < new Date() || date > new Date(new Date().setFullYear(new Date().getFullYear() + 1))
                           }
