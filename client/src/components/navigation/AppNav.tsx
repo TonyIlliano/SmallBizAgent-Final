@@ -70,13 +70,13 @@ export function AppNav() {
           <nav className="space-y-2">
             {mainNavItems.map((item) => (
               <Link key={item.href} href={item.href}>
-                <a className={cn(
-                  "flex items-center p-3 rounded-md hover:bg-muted transition-colors",
+                <div className={cn(
+                  "flex items-center p-3 rounded-md hover:bg-muted transition-colors cursor-pointer",
                   location === item.href ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground"
                 )}>
                   {item.icon}
                   {item.name}
-                </a>
+                </div>
               </Link>
             ))}
           </nav>
@@ -99,13 +99,13 @@ export function AppNav() {
           <div className="flex-1 flex items-center space-x-4">
             {mainNavItems.map((item) => (
               <Link key={item.href} href={item.href}>
-                <a className={cn(
-                  "flex items-center px-3 py-2 rounded-md hover:bg-muted transition-colors",
+                <div className={cn(
+                  "flex items-center px-3 py-2 rounded-md hover:bg-muted transition-colors cursor-pointer",
                   location === item.href ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground"
                 )}>
                   {item.icon}
                   {item.name}
-                </a>
+                </div>
               </Link>
             ))}
           </div>

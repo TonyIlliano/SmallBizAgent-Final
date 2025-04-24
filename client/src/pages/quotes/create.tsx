@@ -2,6 +2,7 @@ import { useLocation } from "wouter";
 import { QuoteForm } from "@/components/quotes/QuoteForm";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 export default function CreateQuotePage() {
   const [, navigate] = useLocation();

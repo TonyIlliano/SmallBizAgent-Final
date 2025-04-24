@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useState } from "react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -97,6 +98,11 @@ export default function Quotes() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      <Breadcrumb 
+        items={[{ label: "Quotes", href: "/quotes" }]} 
+        className="mb-6"
+      />
+      
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Quotes</h1>
