@@ -261,20 +261,30 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
       amount: item.quantity * item.unitPrice,
     }));
 
-    // Handle the date - the server expects a string in ISO format for the database
-    // So let's convert any date to string ourselves before sending
+    // Handle the date - convert to string format the database needs
     let validUntil = null;
     
     if (data.validUntil) {
-      // Convert to Date object if it's a string
-      const dateObj = typeof data.validUntil === 'string' 
-        ? new Date(data.validUntil) 
-        : data.validUntil;
-      
-      // Format as YYYY-MM-DD
-      validUntil = dateObj.toISOString().split('T')[0];
-      
-      console.log("Converted validUntil:", validUntil);
+      try {
+        // Try to format the date properly
+        let dateStr;
+        
+        // If it's already a string, try to parse it as a date
+        if (typeof data.validUntil === 'string') {
+          const parsed = new Date(data.validUntil);
+          dateStr = parsed.toISOString().split('T')[0];
+        } else {
+          // If it's a Date object (casting to any to avoid TypeScript errors)
+          const dateObj = data.validUntil as any;
+          dateStr = dateObj.toISOString().split('T')[0];
+        }
+        
+        validUntil = dateStr;
+        console.log("Formatted validUntil:", validUntil);
+      } catch (err) {
+        console.error("Error formatting date:", err);
+        validUntil = null;
+      }
     }
     
     // Make sure to use the real-time calculated totals
@@ -288,9 +298,25 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
     };
 
     // Add more detailed logging to see the exact data types
-    console.log("Submitting data:", submitData);
+    console.log("FULL Submitting data:", JSON.stringify(submitData, null, 2));
     console.log("validUntil type:", typeof submitData.validUntil);
     console.log("validUntil value:", submitData.validUntil);
+    
+    // Make sure the date is always a string - should be unnecessary with our changes above
+    // but we'll keep as a safety net, with proper TypeScript handling
+    if (submitData.validUntil && typeof submitData.validUntil !== 'string') {
+      try {
+        // Use any to bypass TypeScript errors
+        const dateObj = submitData.validUntil as any;
+        
+        if (dateObj && typeof dateObj.toISOString === 'function') {
+          submitData.validUntil = dateObj.toISOString().split('T')[0];
+          console.log("Converted Date to string:", submitData.validUntil);
+        }
+      } catch (e) {
+        console.error("Error converting date:", e);
+      }
+    }
 
     if (isEditing) {
       updateQuoteMutation.mutate(submitData);
