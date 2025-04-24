@@ -31,6 +31,7 @@ import { SidebarProvider } from "./context/SidebarContext";
 import { AuthProvider } from "./hooks/use-auth";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { ProtectedAdminRoute } from "./components/auth/ProtectedAdminRoute";
+import { AppNav } from "./components/navigation/AppNav";
 
 function Router() {
   return (
@@ -74,7 +75,10 @@ function App() {
         <AuthProvider>
           <SidebarProvider>
             <Toaster />
-            <Router />
+            <AppNav />
+            <div className="pt-0 md:pt-14">
+              <Router />
+            </div>
           </SidebarProvider>
         </AuthProvider>
       </TooltipProvider>
