@@ -1,157 +1,204 @@
-# Deploying SmallBizAgent to Heroku
+# SmallBizAgent Heroku Deployment Guide
 
-This guide will walk you through deploying the SmallBizAgent application to Heroku.
+This guide will help you successfully deploy SmallBizAgent to Heroku.
 
 ## Prerequisites
 
-- [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) installed
-- Heroku account
-- Git installed
+- [Heroku Account](https://signup.heroku.com/)
+- [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli)
+- [Git](https://git-scm.com/downloads)
 
-## Steps to Deploy
+## Step 1: Export Your Project from Replit
 
-### 1. Prepare Your Application
+1. Download a ZIP of your project from Replit
+2. Extract it on your local machine
+3. Open the project folder in a terminal
 
-Your application is already configured for Heroku deployment with:
-- PostgreSQL database integration
-- Proper environment variable handling
-- Node.js configuration
+## Step 2: Prepare Your Project for Heroku
 
-### 2. Login to Heroku
+### 1. Edit package.json
+
+Add these important configurations to your package.json:
+
+```json
+{
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "dev": "NODE_ENV=development tsx server/index.ts",
+    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "start": "NODE_ENV=production node server.js",
+    "check": "tsc",
+    "db:push": "drizzle-kit push",
+    "heroku-postbuild": "npm run build"
+  }
+}
+```
+
+The critical changes are:
+- Adding the `"engines"` field
+- Changing the `"start"` script to use server.js
+- Adding the `"heroku-postbuild"` script
+
+### 2. Create a .gitignore file
+
+```
+node_modules/
+.DS_Store
+.env
+dist/
+```
+
+## Step 3: Initialize Git Repository
+
+```bash
+git init
+git add .
+git commit -m "Initial commit for Heroku deployment"
+```
+
+## Step 4: Create and Configure Heroku App
+
+### 1. Log in to Heroku
 
 ```bash
 heroku login
 ```
 
-### 3. Create a Heroku App
+### 2. Create a Heroku app
 
 ```bash
-heroku create smallbizagent
+heroku create smallbizagent-your-name
 ```
 
-### 4. Add PostgreSQL Add-on
+### 3. Add PostgreSQL database
 
 ```bash
-heroku addons:create heroku-postgresql:mini
+heroku addons:create heroku-postgresql:hobby-dev
 ```
 
-This will automatically create a DATABASE_URL environment variable.
+### 4. Set environment variables
 
-### 5. Configure Environment Variables
-
-Add any additional environment variables required by your app:
+Replace placeholders with your actual values:
 
 ```bash
-heroku config:set NODE_ENV=production
-heroku config:set SESSION_SECRET=your_session_secret
-```
+# Set session secret
+heroku config:set SESSION_SECRET=$(openssl rand -hex 32)
 
-If you're using Stripe or other external services:
-
-```bash
+# Set Stripe variables
 heroku config:set STRIPE_SECRET_KEY=your_stripe_secret_key
 heroku config:set VITE_STRIPE_PUBLIC_KEY=your_stripe_public_key
+
+# Set QuickBooks variables
+heroku config:set QUICKBOOKS_CLIENT_ID=your_quickbooks_client_id
+heroku config:set QUICKBOOKS_CLIENT_SECRET=your_quickbooks_client_secret
+
+# Set AWS Lex variables
+heroku config:set AWS_ACCESS_KEY_ID=your_aws_access_key
+heroku config:set AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+heroku config:set AWS_REGION=your_aws_region
+heroku config:set AWS_LEX_BOT_NAME=your_lex_bot_name
+heroku config:set AWS_LEX_BOT_ALIAS=your_lex_bot_alias
+
+# Set Twilio variables
+heroku config:set TWILIO_ACCOUNT_SID=your_twilio_account_sid
+heroku config:set TWILIO_AUTH_TOKEN=your_twilio_auth_token
+heroku config:set TWILIO_PHONE_NUMBER=your_twilio_phone_number
 ```
 
-### 6. Add Heroku Git Remote
+## Step 5: Deploy to Heroku
 
 ```bash
-heroku git:remote -a smallbizagent
-```
-
-### 7. Verify the Build Scripts
-
-Your package.json already has the necessary scripts for Heroku:
-
-```json
-"scripts": {
-  "dev": "NODE_ENV=development tsx server/index.ts",
-  "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-  "start": "NODE_ENV=production node dist/index.js",
-  "check": "tsc",
-  "db:push": "drizzle-kit push"
-}
-```
-
-Heroku will automatically run the `build` script during deployment and the `start` script to run your application.
-
-### 8. Create a Procfile
-
-Create a file named `Procfile` in the root directory with the following content:
-
-```
-web: npm start
-```
-
-### 9. Push to Heroku
-
-```bash
-git add .
-git commit -m "Prepare for Heroku deployment"
 git push heroku main
 ```
 
-### 10. Run Database Migrations
+If your Heroku app was created with a different branch than main, use:
+
+```bash
+git push heroku master:main
+```
+
+## Step 6: Run Database Migrations
+
+After deployment, run migrations to set up your database:
 
 ```bash
 heroku run npm run db:push
 ```
 
-### 11. Seed Initial Data (if needed)
-
-The application should automatically seed initial data on startup.
-
-### 12. Open Your App
+## Step 7: Open Your App
 
 ```bash
 heroku open
 ```
 
-## Maintenance
+## Troubleshooting Build Failures
 
-### Viewing Logs
+### 1. Check build logs
 
 ```bash
+heroku builds:info
+```
+
+### 2. View detailed build logs
+
+```bash
+heroku builds:output
+```
+
+### 3. Common issues and solutions:
+
+#### TypeScript errors during build
+- Check for type errors in your code
+- Make sure all dependencies are properly imported
+
+#### Node.js version issues
+- Ensure your engines field in package.json specifies a version that Heroku supports
+
+#### Package not found errors
+- Make sure all dependencies are in package.json, not devDependencies
+
+#### Environment variable issues
+- Double-check that all required environment variables are set
+
+### 4. If all else fails, try this simplified build approach:
+
+Edit your package.json:
+```json
+"build": "vite build",
+"heroku-postbuild": "npm run build"
+```
+
+And modify server.js to use CommonJS syntax if ESM is causing issues.
+
+## Monitoring Your App
+
+```bash
+# View logs in real-time
 heroku logs --tail
+
+# Check app status
+heroku ps
+
+# View environment variables
+heroku config
 ```
 
-### Restarting the App
+## Updating Your App
+
+Make changes locally, commit them, and then:
 
 ```bash
-heroku restart
+git push heroku main
 ```
 
-### Connecting to the Database
+## Backing Up Your Database
 
 ```bash
-heroku pg:psql
-```
-
-## Database Backups
-
-### Creating a Backup
-
-```bash
+# Create a backup
 heroku pg:backups:capture
-```
 
-### Downloading a Backup
-
-```bash
+# Download the latest backup
 heroku pg:backups:download
 ```
-
-## Troubleshooting
-
-If you encounter issues:
-
-1. Check your logs: `heroku logs --tail`
-2. Ensure all environment variables are set: `heroku config`
-3. Verify the database connection: `heroku pg:info`
-4. Check for app crashes: `heroku ps`
-
-## Additional Resources
-
-- [Heroku Node.js Support](https://devcenter.heroku.com/categories/nodejs-support)
-- [Heroku PostgreSQL](https://devcenter.heroku.com/categories/heroku-postgres)
-- [Deploying Node.js Apps on Heroku](https://devcenter.heroku.com/articles/deploying-nodejs)
