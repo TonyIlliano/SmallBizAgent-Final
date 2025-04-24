@@ -96,7 +96,13 @@ router.post("/quotes", async (req, res) => {
       amount: z.number().min(0, "Amount must be at least 0"),
       tax: z.number().default(0),
       total: z.number().min(0, "Total must be at least 0"),
-      validUntil: z.date().nullable().optional(),
+      // Accept date as string or Date object, and convert to Date
+      validUntil: z.union([z.string(), z.date()]).transform(val => {
+        if (typeof val === 'string') {
+          return new Date(val);
+        }
+        return val;
+      }).nullable().optional(),
       notes: z.string().nullable().optional(),
     });
 
@@ -185,7 +191,13 @@ router.patch("/quotes/:id", async (req, res) => {
       amount: z.number().min(0, "Amount must be at least 0"),
       tax: z.number().default(0),
       total: z.number().min(0, "Total must be at least 0"),
-      validUntil: z.date().nullable().optional(),
+      // Accept date as string or Date object, and convert to Date
+      validUntil: z.union([z.string(), z.date()]).transform(val => {
+        if (typeof val === 'string') {
+          return new Date(val);
+        }
+        return val;
+      }).nullable().optional(),
       notes: z.string().nullable().optional(),
     });
 

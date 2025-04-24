@@ -207,35 +207,42 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
   // Watch for changes in items for real-time calculation
   const watchedItems = form.watch("items");
   
-  // Update summary whenever items change
+  // Listen for changes to individual form fields for better reactivity
+  const watchAllFields = form.watch();
+  
+  // Update summary whenever items or other fields change
   useEffect(() => {
     if (!watchedItems) return;
     
     const items = watchedItems || [];
     
     // Calculate subtotal from items
-    const recalculateTotal = () => {
-      const subtotal = items.reduce((acc, item) => {
+    const calculateTotal = () => {
+      let subtotal = 0;
+      
+      // Process each item
+      for (const item of items) {
         // Ensure we're working with numbers by using parseFloat
         const quantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity as any) || 0;
         const unitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : parseFloat(item.unitPrice as any) || 0;
-        return acc + quantity * unitPrice;
-      }, 0);
+        
+        // Add to subtotal
+        subtotal += quantity * unitPrice;
+      }
       
       const tax = subtotal * 0.0; // No tax by default for quotes
       const total = subtotal + tax;
       
+      // Debug log to see the calculated amounts
+      console.log("Calculated values:", { subtotal, tax, total });
+      
+      // Update the summary state
       setSummary({ subtotal, tax, total });
     };
     
-    // Calculate immediately
-    recalculateTotal();
-    
-    // Also set up a small delay to catch any typing updates
-    const timer = setTimeout(recalculateTotal, 100);
-    
-    return () => clearTimeout(timer);
-  }, [watchedItems]);
+    // Run the calculation
+    calculateTotal();
+  }, [watchAllFields]); // Depend on all form fields to ensure we catch all changes
 
   const onSubmit = (data: QuoteFormValues) => {
     // Verify that a customer has been selected before submission
@@ -254,8 +261,16 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
       amount: item.quantity * item.unitPrice,
     }));
 
+    // Parse the date correctly
+    let validUntil = data.validUntil;
+    if (validUntil && typeof validUntil === 'string') {
+      validUntil = new Date(validUntil);
+    }
+    
+    // Make sure to use the real-time calculated totals
     const submitData = {
       ...data,
+      validUntil,
       items: itemsWithAmount,
       amount: summary.subtotal,
       tax: summary.tax,
