@@ -9,6 +9,14 @@ export default function CreateQuotePage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      <Breadcrumb 
+        items={[
+          { label: "Quotes", href: "/quotes" },
+          { label: "Create Quote" }
+        ]} 
+        className="mb-6"
+      />
+      
       <div className="flex items-center">
         <Button variant="outline" onClick={() => navigate("/quotes")} className="mr-4">
           <ArrowLeft className="h-4 w-4 mr-2" />
