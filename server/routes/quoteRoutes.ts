@@ -96,41 +96,8 @@ router.post("/quotes", async (req, res) => {
       amount: z.number().min(0, "Amount must be at least 0"),
       tax: z.number().default(0),
       total: z.number().min(0, "Total must be at least 0"),
-      // Accept any format for validUntil (string, date, or null)
-      validUntil: z.any()
-        .optional()
-        .nullable()
-        .transform(val => {
-          // Handle empty values
-          if (val === null || val === undefined || val === '') {
-            return null;
-          }
-          
-          console.log("Received validUntil:", val, "type:", typeof val);
-          
-          // If it's already a Date object, we can use it
-          if (val instanceof Date) {
-            return val;
-          }
-          
-          // For string dates
-          if (typeof val === 'string') {
-            // Try to parse the string into a Date
-            try {
-              const dateObj = new Date(val);
-              
-              // Check if the date is valid
-              if (!isNaN(dateObj.getTime())) {
-                return dateObj;
-              }
-            } catch (e) {
-              console.error("Error parsing date:", e);
-            }
-          }
-          
-          // Return null for any invalid formats
-          return null;
-        }),
+      // Accept a string for the validUntil date (YYYY-MM-DD format from client)
+      validUntil: z.string().nullable().optional(),
       notes: z.string().nullable().optional(),
     });
 
@@ -146,7 +113,7 @@ router.post("/quotes", async (req, res) => {
       amount: validatedData.amount,
       tax: validatedData.tax,
       total: validatedData.total,
-      validUntil: validatedData.validUntil ? validatedData.validUntil.toISOString().split('T')[0] : null,
+      validUntil: validatedData.validUntil || null,
       notes: validatedData.notes || null,
     };
 
@@ -219,41 +186,8 @@ router.patch("/quotes/:id", async (req, res) => {
       amount: z.number().min(0, "Amount must be at least 0"),
       tax: z.number().default(0),
       total: z.number().min(0, "Total must be at least 0"),
-      // Accept any format for validUntil (string, date, or null)
-      validUntil: z.any()
-        .optional()
-        .nullable()
-        .transform(val => {
-          // Handle empty values
-          if (val === null || val === undefined || val === '') {
-            return null;
-          }
-          
-          console.log("Received validUntil (update):", val, "type:", typeof val);
-          
-          // If it's already a Date object, we can use it
-          if (val instanceof Date) {
-            return val;
-          }
-          
-          // For string dates
-          if (typeof val === 'string') {
-            // Try to parse the string into a Date
-            try {
-              const dateObj = new Date(val);
-              
-              // Check if the date is valid
-              if (!isNaN(dateObj.getTime())) {
-                return dateObj;
-              }
-            } catch (e) {
-              console.error("Error parsing date:", e);
-            }
-          }
-          
-          // Return null for any invalid formats
-          return null;
-        }),
+      // Accept a string for the validUntil date (YYYY-MM-DD format from client)
+      validUntil: z.string().nullable().optional(),
       notes: z.string().nullable().optional(),
     });
 
@@ -268,7 +202,7 @@ router.patch("/quotes/:id", async (req, res) => {
       amount: validatedData.amount,
       tax: validatedData.tax,
       total: validatedData.total,
-      validUntil: validatedData.validUntil ? validatedData.validUntil.toISOString().split('T')[0] : null,
+      validUntil: validatedData.validUntil || null,
       notes: validatedData.notes || null,
     };
 

@@ -261,10 +261,20 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
       amount: item.quantity * item.unitPrice,
     }));
 
-    // Parse the date correctly
-    let validUntil = data.validUntil;
-    if (validUntil && typeof validUntil === 'string') {
-      validUntil = new Date(validUntil);
+    // Handle the date - the server expects a string in ISO format for the database
+    // So let's convert any date to string ourselves before sending
+    let validUntil = null;
+    
+    if (data.validUntil) {
+      // Convert to Date object if it's a string
+      const dateObj = typeof data.validUntil === 'string' 
+        ? new Date(data.validUntil) 
+        : data.validUntil;
+      
+      // Format as YYYY-MM-DD
+      validUntil = dateObj.toISOString().split('T')[0];
+      
+      console.log("Converted validUntil:", validUntil);
     }
     
     // Make sure to use the real-time calculated totals
