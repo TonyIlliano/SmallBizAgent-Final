@@ -279,7 +279,13 @@ export const insertReceptionistConfigSchema = createInsertSchema(receptionistCon
 export const insertCallLogSchema = createInsertSchema(callLogs).omit({ id: true });
 export const insertCalendarIntegrationSchema = createInsertSchema(calendarIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
+// Create and then modify the insert schema to handle the validUntil field properly
+const baseInsertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Create a new schema with properly typed validUntil field
+export const insertQuoteSchema = baseInsertQuoteSchema.extend({
+  validUntil: z.string().nullable().optional(),
+});
 export const insertQuoteItemSchema = createInsertSchema(quoteItems).omit({ id: true });
 
 // Types

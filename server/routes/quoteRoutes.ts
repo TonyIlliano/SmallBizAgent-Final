@@ -82,65 +82,14 @@ router.post("/quotes", async (req, res) => {
       return res.status(400).json({ error: "No business associated with user" });
     }
 
-    // Define the schema for the request body
-    const createQuoteSchema = z.object({
-      customerId: z.number().min(1, "Customer is required"),
-      jobId: z.number().nullable().optional(),
-      quoteNumber: z.string().min(1, "Quote number is required"),
+    // Define the schema for the request body with a clear validUntil type
+    const createQuoteSchema = insertQuoteSchema.extend({
       items: z.array(z.object({
         description: z.string().min(1, "Description is required"),
         quantity: z.number().min(1, "Quantity must be at least 1"),
         unitPrice: z.number().min(0, "Unit price cannot be negative"),
         amount: z.number().optional(),
       })).min(1, "At least one item is required"),
-      amount: z.number().min(0, "Amount must be at least 0"),
-      tax: z.number().default(0),
-      total: z.number().min(0, "Total must be at least 0"),
-      // Accept a string, date, or null for validUntil field
-      validUntil: z.union([
-        z.string(),
-        z.date(),
-        z.null()
-      ]).optional().transform(val => {
-        console.log("DEBUG validUntil input:", val, typeof val);
-        
-        // Handle null/undefined/empty
-        if (val === null || val === undefined || val === '') {
-          return null;
-        }
-        
-        try {
-          // Already in correct string format
-          if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
-            return val;
-          }
-          
-          // Handle Date object
-          if (val instanceof Date) {
-            return val.toISOString().split('T')[0];
-          }
-          
-          // Try to convert other string formats
-          if (typeof val === 'string') {
-            const date = new Date(val);
-            if (!isNaN(date.getTime())) {
-              return date.toISOString().split('T')[0];
-            }
-          }
-          
-          // If it's something else, try best effort to convert
-          const date = new Date(val as any);
-          if (!isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0];
-          }
-          
-          return null;
-        } catch (e) {
-          console.error("Error processing validUntil:", e);
-          return null;
-        }
-      }),
-      notes: z.string().nullable().optional(),
     });
 
     // Validate the request body
@@ -213,11 +162,8 @@ router.patch("/quotes/:id", async (req, res) => {
       return res.status(400).json({ error: "Cannot update a quote that has been converted to an invoice" });
     }
 
-    // Define the schema for the request body
-    const updateQuoteSchema = z.object({
-      customerId: z.number().min(1, "Customer is required"),
-      jobId: z.number().nullable().optional(),
-      quoteNumber: z.string().min(1, "Quote number is required"),
+    // Define the schema for the request body with a clear validUntil type
+    const updateQuoteSchema = insertQuoteSchema.extend({
       items: z.array(z.object({
         id: z.number().optional(), // Existing item ID if updating
         description: z.string().min(1, "Description is required"),
@@ -225,54 +171,6 @@ router.patch("/quotes/:id", async (req, res) => {
         unitPrice: z.number().min(0, "Unit price cannot be negative"),
         amount: z.number().optional(),
       })).min(1, "At least one item is required"),
-      amount: z.number().min(0, "Amount must be at least 0"),
-      tax: z.number().default(0),
-      total: z.number().min(0, "Total must be at least 0"),
-      // Accept a string, date, or null for validUntil field
-      validUntil: z.union([
-        z.string(),
-        z.date(),
-        z.null()
-      ]).optional().transform(val => {
-        console.log("DEBUG validUntil update input:", val, typeof val);
-        
-        // Handle null/undefined/empty
-        if (val === null || val === undefined || val === '') {
-          return null;
-        }
-        
-        try {
-          // Already in correct string format
-          if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
-            return val;
-          }
-          
-          // Handle Date object
-          if (val instanceof Date) {
-            return val.toISOString().split('T')[0];
-          }
-          
-          // Try to convert other string formats
-          if (typeof val === 'string') {
-            const date = new Date(val);
-            if (!isNaN(date.getTime())) {
-              return date.toISOString().split('T')[0];
-            }
-          }
-          
-          // If it's something else, try best effort to convert
-          const date = new Date(val as any);
-          if (!isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0];
-          }
-          
-          return null;
-        } catch (e) {
-          console.error("Error processing validUntil:", e);
-          return null;
-        }
-      }),
-      notes: z.string().nullable().optional(),
     });
 
     // Validate the request body
