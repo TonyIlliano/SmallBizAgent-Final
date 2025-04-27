@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -75,7 +75,8 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [taxRate, setTaxRate] = useState(0.08); // 8% tax rate by default
+  const [taxRate] = useState(0.08); // 8% tax rate by default
+  const initialRender = useRef(true); // Flag to track initial render
 
   // Fetch customers and jobs for dropdowns
   const { data: customers = [] } = useQuery<any[]>({
@@ -130,41 +131,56 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
 
   // Calculate totals whenever items change
   const calculateTotals = () => {
-    const values = form.getValues();
-    const items = values.items || [];
+    // Skip calculation during recursion or initial setup
+    if (initialRender.current) return;
     
-    // Calculate subtotal from items
-    const amount = items.reduce((sum, item) => {
-      const quantity = parseFloat(item.quantity.toString()) || 0;
-      const unitPrice = parseFloat(item.unitPrice.toString()) || 0;
-      return sum + (quantity * unitPrice);
-    }, 0);
-    
-    // Calculate tax
-    const tax = amount * taxRate;
-    
-    // Calculate total
-    const total = amount + tax;
-    
-    // Update form values
-    form.setValue("amount", parseFloat(amount.toFixed(2)));
-    form.setValue("tax", parseFloat(tax.toFixed(2)));
-    form.setValue("total", parseFloat(total.toFixed(2)));
+    try {
+      const values = form.getValues();
+      const items = values.items || [];
+      
+      // Calculate subtotal from items
+      const amount = items.reduce((sum, item) => {
+        const quantity = parseFloat(item.quantity.toString()) || 0;
+        const unitPrice = parseFloat(item.unitPrice.toString()) || 0;
+        return sum + (quantity * unitPrice);
+      }, 0);
+      
+      // Calculate tax
+      const tax = amount * taxRate;
+      
+      // Calculate total
+      const total = amount + tax;
+      
+      // Update form values
+      form.setValue("amount", parseFloat(amount.toFixed(2)), { shouldDirty: true });
+      form.setValue("tax", parseFloat(tax.toFixed(2)), { shouldDirty: true });
+      form.setValue("total", parseFloat(total.toFixed(2)), { shouldDirty: true });
+    } catch (error) {
+      console.error("Error calculating totals:", error);
+    }
   };
 
   // Recalculate when items change
   useEffect(() => {
-    // Watch for changes to the items array
+    // Set up subscription to watch for item changes
     const subscription = form.watch((value, { name }) => {
-      if (name?.startsWith('items')) {
+      if (name && typeof name === 'string' && name.startsWith('items')) {
+        // Only calculate totals when item fields change
         calculateTotals();
       }
     });
     
-    // Initial calculation
-    calculateTotals();
+    // Initial setup
+    setTimeout(() => {
+      // Allow component to fully mount before first calculation
+      initialRender.current = false;
+      calculateTotals();
+    }, 100);
     
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      initialRender.current = true;
+    };
   }, []);
 
   // Convert string IDs to numbers before submitting
