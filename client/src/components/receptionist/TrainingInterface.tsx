@@ -25,10 +25,11 @@ import {
 } from "@/components/ui/alert-dialog";
 
 type Intent = {
+  intentId?: string;
+  intentName?: string;
   name: string;
   description: string;
   sampleUtterances: string[];
-  intentId?: string;
 };
 
 type TrainingStatus = {
@@ -369,16 +370,29 @@ export default function TrainingInterface() {
                       No intents found. Create your first one.
                     </div>
                   ) : (
-                    intents.map((intent: any) => (
-                      <Button
-                        key={intent.intentId || intent.name}
-                        variant={activeIntent?.name === intent.name ? "default" : "outline"}
-                        className="w-full justify-start mb-2"
-                        onClick={() => selectIntent(intent)}
-                      >
-                        {intent.name}
-                      </Button>
-                    ))
+                    intents.map((intent: Intent) => {
+                      // Handle both name and intentName property
+                      const displayName = intent.name || intent.intentName || "Unnamed Intent";
+                      return (
+                        <Button
+                          key={intent.intentId || displayName}
+                          variant={activeIntent?.name === displayName ? "default" : "outline"}
+                          className="w-full justify-start mb-2"
+                          onClick={() => {
+                            // Normalize the intent before setting it as active
+                            const normalizedIntent: Intent = {
+                              ...intent,
+                              name: displayName,
+                              description: intent.description || "",
+                              sampleUtterances: intent.sampleUtterances || []
+                            };
+                            selectIntent(normalizedIntent);
+                          }}
+                        >
+                          {displayName}
+                        </Button>
+                      );
+                    })
                   )}
                 </div>
               )}
