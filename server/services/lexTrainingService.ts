@@ -229,8 +229,9 @@ export async function buildBotLocale() {
       localeId: locale,
       buildStatus: 'IN_PROGRESS'
     };
-  } catch (error: any) {
-    console.error('Error building bot locale:', error);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error building bot locale:', errorMessage);
     throw error;
   }
 }
@@ -246,11 +247,12 @@ export async function getTrainingStatus() {
       lastUpdated: botInfo?.lastUpdatedDateTime || new Date(),
       intents: await listIntents()
     };
-  } catch (error: any) {
-    console.error('Error getting training status:', error);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error getting training status:', errorMessage);
     return {
       status: 'ERROR',
-      error: error.message
+      error: errorMessage
     };
   }
 }

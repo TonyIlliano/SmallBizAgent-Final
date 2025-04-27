@@ -23,11 +23,12 @@ export function registerTrainingRoutes(app: any) {
     try {
       const status = await lexTrainingService.getTrainingStatus();
       res.json(status);
-    } catch (error) {
-      console.error("Error getting training status:", error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error getting training status:", errorMessage);
       res.status(500).json({ 
         message: "Error getting training status", 
-        error: error.message 
+        error: errorMessage 
       });
     }
   });
@@ -42,8 +43,9 @@ export function registerTrainingRoutes(app: any) {
       // Try to get real intents from AWS Lex
       try {
         intents = await lexTrainingService.listIntents();
-      } catch (error) {
-        console.warn("Using simulated intents due to AWS error:", error.message);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.warn("Using simulated intents due to AWS error:", errorMessage);
         intents = null;
       }
       
@@ -53,11 +55,12 @@ export function registerTrainingRoutes(app: any) {
       }
       
       res.json(intents);
-    } catch (error) {
-      console.error("Error listing intents:", error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error listing intents:", errorMessage);
       res.status(500).json({ 
         message: "Error listing intents", 
-        error: error.message 
+        error: errorMessage 
       });
     }
   });
@@ -75,11 +78,12 @@ export function registerTrainingRoutes(app: any) {
       }
       
       res.json(intent);
-    } catch (error) {
-      console.error("Error getting intent:", error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error getting intent:", errorMessage);
       res.status(500).json({ 
         message: "Error getting intent", 
-        error: error.message 
+        error: errorMessage 
       });
     }
   });
@@ -104,10 +108,11 @@ export function registerTrainingRoutes(app: any) {
         });
       }
       
-      console.error("Error creating intent:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error creating intent:", errorMessage);
       res.status(500).json({ 
         message: "Error creating intent", 
-        error: error.message 
+        error: errorMessage 
       });
     }
   });
@@ -134,10 +139,11 @@ export function registerTrainingRoutes(app: any) {
         });
       }
       
-      console.error("Error updating intent:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error updating intent:", errorMessage);
       res.status(500).json({ 
         message: "Error updating intent", 
-        error: error.message 
+        error: errorMessage 
       });
     }
   });
@@ -153,11 +159,12 @@ export function registerTrainingRoutes(app: any) {
       const result = await lexTrainingService.deleteIntent(intentId);
       
       res.json({ message: "Intent deleted successfully", result });
-    } catch (error) {
-      console.error("Error deleting intent:", error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error deleting intent:", errorMessage);
       res.status(500).json({ 
         message: "Error deleting intent", 
-        error: error.message 
+        error: errorMessage 
       });
     }
   });
@@ -174,11 +181,12 @@ export function registerTrainingRoutes(app: any) {
         message: "Bot build initiated successfully", 
         result 
       });
-    } catch (error) {
-      console.error("Error building bot:", error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error building bot:", errorMessage);
       res.status(500).json({ 
         message: "Error building bot", 
-        error: error.message 
+        error: errorMessage 
       });
     }
   });
