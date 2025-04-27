@@ -74,8 +74,14 @@ export default function TrainingInterface() {
   // Create new intent
   const createIntentMutation = useMutation({
     mutationFn: async (intent: Intent) => {
-      const res = await apiRequest("POST", "/api/training/intents", intent);
-      return await res.json();
+      try {
+        const res = await apiRequest("POST", "/api/training/intents", intent);
+        const data = await res.json();
+        return data;
+      } catch (error) {
+        console.error("Error creating intent:", error);
+        throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/training/intents"] });
@@ -86,10 +92,11 @@ export default function TrainingInterface() {
         description: "The intent was created successfully",
       });
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      console.error("Create intent mutation error:", error);
       toast({
         title: "Failed to create intent",
-        description: error.message,
+        description: error?.message || "An unknown error occurred",
         variant: "destructive",
       });
     },
@@ -98,15 +105,21 @@ export default function TrainingInterface() {
   // Update intent
   const updateIntentMutation = useMutation({
     mutationFn: async (intent: Intent) => {
-      if (!intent.intentId) {
-        throw new Error("Intent ID is required for updates");
+      try {
+        if (!intent.intentId) {
+          throw new Error("Intent ID is required for updates");
+        }
+        const res = await apiRequest("PUT", `/api/training/intents/${intent.intentId}`, {
+          name: intent.name,
+          description: intent.description,
+          sampleUtterances: intent.sampleUtterances,
+        });
+        const data = await res.json();
+        return data;
+      } catch (error) {
+        console.error("Error updating intent:", error);
+        throw error;
       }
-      const res = await apiRequest("PUT", `/api/training/intents/${intent.intentId}`, {
-        name: intent.name,
-        description: intent.description,
-        sampleUtterances: intent.sampleUtterances,
-      });
-      return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/training/intents"] });
@@ -116,10 +129,11 @@ export default function TrainingInterface() {
         description: "The intent was updated successfully",
       });
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      console.error("Update intent mutation error:", error);
       toast({
         title: "Failed to update intent",
-        description: error.message,
+        description: error?.message || "An unknown error occurred",
         variant: "destructive",
       });
     },
@@ -128,8 +142,14 @@ export default function TrainingInterface() {
   // Delete intent
   const deleteIntentMutation = useMutation({
     mutationFn: async (intentId: string) => {
-      const res = await apiRequest("DELETE", `/api/training/intents/${intentId}`);
-      return await res.json();
+      try {
+        const res = await apiRequest("DELETE", `/api/training/intents/${intentId}`);
+        const data = await res.json();
+        return data;
+      } catch (error) {
+        console.error("Error deleting intent:", error);
+        throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/training/intents"] });
@@ -139,10 +159,11 @@ export default function TrainingInterface() {
         description: "The intent was deleted successfully",
       });
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      console.error("Delete intent mutation error:", error);
       toast({
         title: "Failed to delete intent",
-        description: error.message,
+        description: error?.message || "An unknown error occurred",
         variant: "destructive",
       });
     },
@@ -151,8 +172,14 @@ export default function TrainingInterface() {
   // Build bot to apply changes
   const buildBotMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/training/build");
-      return await res.json();
+      try {
+        const res = await apiRequest("POST", "/api/training/build");
+        const data = await res.json();
+        return data;
+      } catch (error) {
+        console.error("Error building bot:", error);
+        throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/training/status"] });
@@ -161,10 +188,11 @@ export default function TrainingInterface() {
         description: "The virtual receptionist is being updated with your changes",
       });
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      console.error("Build bot mutation error:", error);
       toast({
         title: "Failed to build bot",
-        description: error.message,
+        description: error?.message || "An unknown error occurred",
         variant: "destructive",
       });
     },
