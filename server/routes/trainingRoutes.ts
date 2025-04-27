@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import * as lexTrainingService from "../services/lexTrainingService";
+import * as lexService from "../services/lexService";
 import { isAuthenticated } from "../auth";
 
 // Define schemas for validation
@@ -186,6 +187,69 @@ export function registerTrainingRoutes(app: any) {
       console.error("Error building bot:", errorMessage);
       res.status(500).json({ 
         message: "Error building bot", 
+        error: errorMessage 
+      });
+    }
+  });
+
+  /**
+   * Test utterance against the trained bot
+   */
+  app.post("/api/training/test", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      // Validate request
+      const testSchema = z.object({
+        utterance: z.string().min(1, "Utterance cannot be empty")
+      });
+      
+      const { utterance } = testSchema.parse(req.body);
+      
+      // Generate a unique user ID and session ID for this test
+      const userId = `test-${req.user?.id || 'user'}-${Date.now()}`;
+      const sessionId = `test-session-${Date.now()}`;
+      
+      // Process the utterance through Lex
+      let response;
+      try {
+        // Try to use the real Lex service
+        response = await lexService.sendTextInput(userId, utterance, sessionId);
+      } catch (error) {
+        // Fallback to simulation if real Lex call fails
+        console.warn("Using simulated response for test:", error);
+        response = null;
+      }
+      
+      // If we couldn't get a real response, use the analyzer
+      if (!response) {
+        const analysis = lexService.analyzeText(utterance);
+        response = {
+          intentName: analysis.intent,
+          confidence: analysis.confidence,
+          dialogState: 'ReadyForFulfillment',
+          message: "This is a simulated response."
+        };
+      }
+      
+      // Format the response for the client
+      res.json({
+        intent: response.intentName || 'Unknown',
+        confidence: typeof response.confidence === 'number' ? response.confidence : 0.5,
+        message: response.message || "",
+        dialogState: response.dialogState || "Unknown",
+        isSimulated: !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          message: "Validation error", 
+          errors: error.format() 
+        });
+      }
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error testing utterance:", errorMessage);
+      res.status(500).json({ 
+        message: "Error testing utterance", 
         error: errorMessage 
       });
     }
