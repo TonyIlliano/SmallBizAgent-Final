@@ -49,7 +49,12 @@ import subscriptionRoutes from "./routes/subscriptionRoutes";
 import quoteRoutes from "./routes/quoteRoutes";
 import customerRoutes from "./routes/customerRoutes";
 
+// Import training routes
+import { registerTrainingRoutes } from './routes/trainingRoutes';
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Register training routes
+  registerTrainingRoutes(app);
   // Set up authentication
   setupAuth(app);
   
