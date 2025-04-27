@@ -53,10 +53,11 @@ import customerRoutes from "./routes/customerRoutes";
 import { registerTrainingRoutes } from './routes/trainingRoutes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Register training routes
-  registerTrainingRoutes(app);
-  // Set up authentication
+  // Set up authentication first
   setupAuth(app);
+  
+  // Register training routes after authentication is set up
+  registerTrainingRoutes(app);
   
   // Set default business ID for demo
   // This will be used for non-authenticated routes during development

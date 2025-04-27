@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Separator } from "@/components/ui/separator";
 import PageTitle from "@/components/PageTitle";
-import AppNav from "@/components/AppNav";
+import { AppNav } from "@/components/navigation/AppNav";
 import TrainingInterface from "@/components/receptionist/TrainingInterface";
 
 export default function TrainingPage() {
