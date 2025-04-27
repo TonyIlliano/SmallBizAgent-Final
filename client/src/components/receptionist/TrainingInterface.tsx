@@ -32,6 +32,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import TemplateSelector from "./TemplateSelector";
 
 type Intent = {
   intentId?: string;
@@ -377,6 +378,8 @@ export default function TrainingInterface() {
           <div className="flex justify-between items-center">
             <h2 className="text-2xl font-bold">Virtual Receptionist Training</h2>
             <div className="flex space-x-2">
+              <TemplateSelector />
+              
               <Button onClick={newIntent} disabled={createIntentMutation.isPending}>
                 <Plus className="h-4 w-4 mr-2" />
                 New Intent
@@ -655,7 +658,88 @@ export default function TrainingInterface() {
         </TabsContent>
 
         <TabsContent value="settings" className="space-y-4">
-          <h2 className="text-2xl font-bold">Settings</h2>
+          <h2 className="text-2xl font-bold">Settings & Help</h2>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Getting Started Guide</CardTitle>
+              <CardDescription>
+                How to set up your virtual receptionist
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <h3 className="text-base font-medium">1. Create Intents for Different Customer Requests</h3>
+                <p className="text-sm text-muted-foreground">
+                  Intents represent the different types of requests your customers might make. Start with the most common requests you receive, such as appointment scheduling, business hours, pricing, and location information.
+                </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <Button variant="outline" size="sm" className="mt-1">
+                    <Plus className="h-3.5 w-3.5 mr-1" /> New Intent
+                  </Button>
+                  <span className="text-sm">or</span>
+                  <Button variant="outline" size="sm" className="mt-1">
+                    Use Template
+                  </Button>
+                  <span className="text-sm text-muted-foreground">(Recommended for beginners)</span>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-base font-medium">2. Add Sample Utterances for Each Intent</h3>
+                <p className="text-sm text-muted-foreground">
+                  Utterances are example phrases that customers might say to express a particular intent. Add 5-10 varied utterances for each intent to help the system recognize different ways customers might phrase their requests.
+                </p>
+                <div className="bg-slate-50 p-3 rounded-md text-sm mt-2 border">
+                  <p className="font-medium text-slate-800 mb-1">Example utterances for "Appointment" intent:</p>
+                  <ul className="list-disc list-inside space-y-1 text-slate-600">
+                    <li>"I need to schedule an appointment"</li>
+                    <li>"I'd like to book a time"</li>
+                    <li>"Do you have any openings this week?"</li>
+                    <li>"When can I come in for a consultation?"</li>
+                    <li>"I need to reschedule my appointment"</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-base font-medium">3. Test Your Virtual Receptionist</h3>
+                <p className="text-sm text-muted-foreground">
+                  Use the "Test Utterances" feature to see how your virtual receptionist interprets different phrases. This helps you identify if your training is working correctly or if you need to add more examples.
+                </p>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="mt-1 flex items-center"
+                  onClick={() => setIsOpenTester(true)}
+                >
+                  <MessageCircle className="h-3.5 w-3.5 mr-1" /> 
+                  Test Utterances
+                </Button>
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-base font-medium">4. Apply Your Changes</h3>
+                <p className="text-sm text-muted-foreground">
+                  After making changes to your intents and utterances, click "Apply Changes" to update your virtual receptionist with the new training. This process may take a few minutes.
+                </p>
+                <Button size="sm" variant="outline" className="mt-1">
+                  <Zap className="h-3.5 w-3.5 mr-1" /> Apply Changes
+                </Button>
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-base font-medium">Best Practices</h3>
+                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                  <li>Include both formal and casual phrasings in your utterances</li>
+                  <li>Use industry-specific templates as a starting point</li>
+                  <li>Add at least 5 varied utterances per intent</li>
+                  <li>Test regularly with different phrasings to improve accuracy</li>
+                  <li>Update training as you identify new patterns in customer requests</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
           
           <Card>
             <CardHeader>

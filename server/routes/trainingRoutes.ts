@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import * as lexTrainingService from "../services/lexTrainingService";
 import * as lexService from "../services/lexService";
+import * as intentTemplateService from "../services/intentTemplateService";
 import { isAuthenticated } from "../auth";
 
 // Define schemas for validation
@@ -250,6 +251,105 @@ export function registerTrainingRoutes(app: any) {
       console.error("Error testing utterance:", errorMessage);
       res.status(500).json({ 
         message: "Error testing utterance", 
+        error: errorMessage 
+      });
+    }
+  });
+
+  /**
+   * Get available intent templates for a specific industry
+   */
+  app.get("/api/training/templates/:industry", isAuthenticated, (req: Request, res: Response) => {
+    try {
+      const industry = req.params.industry;
+      const templates = intentTemplateService.getAllIntentTemplates(industry);
+      res.json(templates);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error getting intent templates:", errorMessage);
+      res.status(500).json({ 
+        message: "Error getting intent templates", 
+        error: errorMessage 
+      });
+    }
+  });
+
+  /**
+   * Get all common intent templates
+   */
+  app.get("/api/training/templates/common", isAuthenticated, (req: Request, res: Response) => {
+    try {
+      const templates = intentTemplateService.getCommonIntents();
+      res.json(templates);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error getting common intent templates:", errorMessage);
+      res.status(500).json({ 
+        message: "Error getting common intent templates", 
+        error: errorMessage 
+      });
+    }
+  });
+
+  /**
+   * Get all available industry types
+   */
+  app.get("/api/training/templates/industries", isAuthenticated, (req: Request, res: Response) => {
+    try {
+      const industries = intentTemplateService.getAvailableIndustryTypes();
+      res.json(industries);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error getting industry types:", errorMessage);
+      res.status(500).json({ 
+        message: "Error getting industry types", 
+        error: errorMessage 
+      });
+    }
+  });
+
+  /**
+   * Apply a template to create a new intent
+   */
+  app.post("/api/training/templates/apply", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      // Validate request
+      const applyTemplateSchema = z.object({
+        templateId: z.string(),
+        industry: z.string()
+      });
+      
+      const { templateId, industry } = applyTemplateSchema.parse(req.body);
+      
+      // Get the templates for the industry
+      const templates = intentTemplateService.getAllIntentTemplates(industry);
+      
+      // Find the specific template
+      const template = templates.find(t => t.id === templateId);
+      
+      if (!template) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      // Convert to bot intent format
+      const botIntent = intentTemplateService.templateToBotIntent(template);
+      
+      // Create the intent
+      const result = await lexTrainingService.createIntent(botIntent);
+      
+      res.status(201).json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          message: "Validation error", 
+          errors: error.format() 
+        });
+      }
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error applying template:", errorMessage);
+      res.status(500).json({ 
+        message: "Error applying template", 
         error: errorMessage 
       });
     }
