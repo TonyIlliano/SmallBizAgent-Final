@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { ReceptionistConfig } from "@/components/receptionist/ReceptionistConfig";
 import { CallLog } from "@/components/receptionist/CallLog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Phone, Settings, MessageSquare, Info } from "lucide-react";
+import { Phone, Settings, MessageSquare, Info, BookOpen, ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function Receptionist() {
   const [activeTab, setActiveTab] = useState("calls");
@@ -68,9 +70,10 @@ export default function Receptionist() {
         </Card>
         
         <Tabs defaultValue="calls" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
             <TabsTrigger value="calls">Call History</TabsTrigger>
             <TabsTrigger value="settings">Configuration</TabsTrigger>
+            <TabsTrigger value="training">Training</TabsTrigger>
           </TabsList>
           
           <TabsContent value="calls" className="space-y-4">
@@ -79,6 +82,40 @@ export default function Receptionist() {
           
           <TabsContent value="settings" className="space-y-4">
             <ReceptionistConfig businessId={1} />
+          </TabsContent>
+          
+          <TabsContent value="training" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-start">
+                  <BookOpen className="h-5 w-5 text-purple-500 mr-2 mt-0.5" />
+                  <div>
+                    <CardTitle>Virtual Receptionist Training</CardTitle>
+                    <CardDescription>
+                      Train your virtual receptionist to better understand your business and respond more effectively to customer calls
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p>
+                    Our AI-powered virtual receptionist can learn your specific business terminology, 
+                    services, and common customer inquiries. The more you train it, the better it 
+                    becomes at handling your calls.
+                  </p>
+                  
+                  <div className="flex justify-center mt-4">
+                    <Link href="/receptionist/training">
+                      <Button className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700">
+                        Go to Training Interface
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
