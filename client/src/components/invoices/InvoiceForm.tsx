@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -129,7 +129,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
   });
 
   // Calculate totals whenever items change
-  const calculateTotals = () => {
+  const calculateTotals = useCallback(() => {
     const values = form.getValues();
     const items = values.items || [];
     
@@ -150,13 +150,22 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
     form.setValue("amount", parseFloat(amount.toFixed(2)));
     form.setValue("tax", parseFloat(tax.toFixed(2)));
     form.setValue("total", parseFloat(total.toFixed(2)));
-  };
+  }, [form, taxRate]);
 
   // Recalculate when items change
   useEffect(() => {
-    const subscription = form.watch(() => calculateTotals());
+    // Watch for changes to the items array
+    const subscription = form.watch((value, { name }) => {
+      if (name?.startsWith('items')) {
+        calculateTotals();
+      }
+    });
+    
+    // Initial calculation
+    calculateTotals();
+    
     return () => subscription.unsubscribe();
-  }, [form.watch]);
+  }, [calculateTotals]);
 
   // Convert string IDs to numbers before submitting
   const prepareDataForSubmission = (data: InvoiceFormData) => {
