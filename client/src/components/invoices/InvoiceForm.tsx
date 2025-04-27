@@ -78,23 +78,23 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
   const [taxRate, setTaxRate] = useState(0.08); // 8% tax rate by default
 
   // Fetch customers and jobs for dropdowns
-  const { data: customers } = useQuery({
+  const { data: customers = [] } = useQuery<any[]>({
     queryKey: ['/api/customers', { businessId: 1 }],
   });
 
-  const { data: jobs } = useQuery({
+  const { data: jobs = [] } = useQuery<any[]>({
     queryKey: ['/api/jobs', { businessId: 1 }],
   });
   
   // Fetch invoice items if editing
-  const { data: invoiceItems } = useQuery({
+  const { data: invoiceItems = [] } = useQuery<any[]>({
     queryKey: ['/api/invoice-items', invoice?.id],
     enabled: isEdit && !!invoice?.id,
   });
 
   // Generate default values
   const generateDefaultItems = () => {
-    if (isEdit && invoiceItems) {
+    if (isEdit && invoiceItems && invoiceItems.length > 0) {
       return invoiceItems.map((item: any) => ({
         description: item.description,
         quantity: item.quantity.toString(),
@@ -164,7 +164,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
     const invoiceData = {
       ...data,
       customerId: parseInt(data.customerId),
-      jobId: data.jobId ? parseInt(data.jobId) : undefined,
+      jobId: data.jobId && data.jobId !== "0" ? parseInt(data.jobId) : undefined,
     };
     
     // Prepare the items data separately
@@ -312,7 +312,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="0">None</SelectItem>
                         {jobs?.map((job: any) => (
                           <SelectItem 
                             key={job.id} 
@@ -491,7 +491,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => append({ description: "", quantity: "1", unitPrice: "0" })}
+                  onClick={() => append({ description: "", quantity: "1", unitPrice: "0" } as any)}
                   className="mt-2"
                 >
                   <Plus className="h-4 w-4 mr-2" />
