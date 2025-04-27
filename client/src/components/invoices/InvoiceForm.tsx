@@ -10,7 +10,6 @@ import { useLocation } from "wouter";
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -30,7 +29,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardFooter,
 } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -42,6 +40,7 @@ import { cn, formatCurrency, formatDate, generateInvoiceNumber } from "@/lib/uti
 import { CalendarIcon, Plus, Trash } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
+// Define schemas
 const invoiceItemSchema = z.object({
   description: z.string().min(1, "Description is required"),
   quantity: z.string().transform((val) => parseFloat(val) || 1),
@@ -66,36 +65,41 @@ const invoiceSchema = z.object({
 type InvoiceFormData = z.infer<typeof invoiceSchema>;
 
 interface InvoiceFormProps {
-  invoice?: any; // Use the Invoice type from schema.ts
+  invoice?: any;
   isEdit?: boolean;
 }
 
 export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
+  // Hooks
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
+  
+  // State
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [taxRate] = useState(0.08); // 8% tax rate by default
-  const initialRender = useRef(true); // Flag to track initial render
-
-  // Fetch customers and jobs for dropdowns
+  const [subtotal, setSubtotal] = useState(0);
+  const [tax, setTax] = useState(0);
+  const [total, setTotal] = useState(0);
+  const isCalculating = useRef(false);
+  const TAX_RATE = 0.08; // 8% tax rate
+  
+  // Fetch data
   const { data: customers = [] } = useQuery<any[]>({
-    queryKey: ['/api/customers', { businessId: 1 }],
+    queryKey: ['/api/customers'],
   });
 
   const { data: jobs = [] } = useQuery<any[]>({
-    queryKey: ['/api/jobs', { businessId: 1 }],
+    queryKey: ['/api/jobs'],
   });
   
-  // Fetch invoice items if editing
   const { data: invoiceItems = [] } = useQuery<any[]>({
     queryKey: ['/api/invoice-items', invoice?.id],
     enabled: isEdit && !!invoice?.id,
   });
 
-  // Generate default values
+  // Helper to generate default items
   const generateDefaultItems = () => {
-    if (isEdit && invoiceItems && invoiceItems.length > 0) {
+    if (isEdit && invoiceItems.length > 0) {
       return invoiceItems.map((item: any) => ({
         description: item.description,
         quantity: item.quantity.toString(),
@@ -105,6 +109,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
     return [{ description: "", quantity: "1", unitPrice: "0" }];
   };
 
+  // Form setup
   const form = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceSchema),
     defaultValues: {
@@ -123,76 +128,93 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
     },
   });
 
-  // Items field array for dynamic items
+  // Field array for dynamic items
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "items",
   });
 
-  // Calculate totals whenever items change
+  // Calculate totals
   const calculateTotals = () => {
-    // Skip calculation during recursion or initial setup
-    if (initialRender.current) return;
+    if (isCalculating.current) return;
     
     try {
+      isCalculating.current = true;
+      
+      // Get current form values
       const values = form.getValues();
       const items = values.items || [];
       
-      // Calculate subtotal from items
-      const amount = items.reduce((sum, item) => {
+      // Calculate subtotal
+      const calculatedSubtotal = items.reduce((sum, item) => {
         const quantity = parseFloat(item.quantity.toString()) || 0;
         const unitPrice = parseFloat(item.unitPrice.toString()) || 0;
         return sum + (quantity * unitPrice);
       }, 0);
       
-      // Calculate tax
-      const tax = amount * taxRate;
+      // Calculate tax and total
+      const calculatedTax = calculatedSubtotal * TAX_RATE;
+      const calculatedTotal = calculatedSubtotal + calculatedTax;
       
-      // Calculate total
-      const total = amount + tax;
+      // Update state (not form values directly)
+      setSubtotal(parseFloat(calculatedSubtotal.toFixed(2)));
+      setTax(parseFloat(calculatedTax.toFixed(2)));
+      setTotal(parseFloat(calculatedTotal.toFixed(2)));
       
-      // Update form values
-      form.setValue("amount", parseFloat(amount.toFixed(2)), { shouldDirty: true });
-      form.setValue("tax", parseFloat(tax.toFixed(2)), { shouldDirty: true });
-      form.setValue("total", parseFloat(total.toFixed(2)), { shouldDirty: true });
+      // Silently update form values without causing a re-render loop
+      form.setValue("amount", parseFloat(calculatedSubtotal.toFixed(2)), { 
+        shouldDirty: true,
+        shouldTouch: false,
+        shouldValidate: false 
+      });
+      
+      form.setValue("tax", parseFloat(calculatedTax.toFixed(2)), { 
+        shouldDirty: true,
+        shouldTouch: false,
+        shouldValidate: false 
+      });
+      
+      form.setValue("total", parseFloat(calculatedTotal.toFixed(2)), { 
+        shouldDirty: true,
+        shouldTouch: false,
+        shouldValidate: false 
+      });
     } catch (error) {
       console.error("Error calculating totals:", error);
+    } finally {
+      isCalculating.current = false;
     }
   };
 
-  // Recalculate when items change
+  // Watch for item changes
   useEffect(() => {
-    // Set up subscription to watch for item changes
-    const subscription = form.watch((value, { name }) => {
-      if (name && typeof name === 'string' && name.startsWith('items')) {
-        // Only calculate totals when item fields change
-        calculateTotals();
+    // Create a single form watcher for all fields
+    const subscription = form.watch((values, { name }) => {
+      // Only recalculate if an item-related field changed
+      if (name && name.startsWith('items')) {
+        // Use a timeout to avoid excessive calculations
+        setTimeout(() => {
+          if (!isCalculating.current) {
+            calculateTotals();
+          }
+        }, 100);
       }
     });
     
-    // Initial setup
-    setTimeout(() => {
-      // Allow component to fully mount before first calculation
-      initialRender.current = false;
-      calculateTotals();
-    }, 100);
+    // Initial calculation
+    calculateTotals();
     
-    return () => {
-      subscription.unsubscribe();
-      initialRender.current = true;
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Convert string IDs to numbers before submitting
+  // Prepare data for submission
   const prepareDataForSubmission = (data: InvoiceFormData) => {
-    // Prepare the invoice data
     const invoiceData = {
       ...data,
       customerId: parseInt(data.customerId),
-      jobId: data.jobId && data.jobId !== "0" ? parseInt(data.jobId) : undefined,
+      jobId: data.jobId && data.jobId !== "0" ? parseInt(data.jobId) : null,
     };
     
-    // Prepare the items data separately
     const itemsData = data.items.map(item => ({
       description: item.description,
       quantity: parseFloat(item.quantity.toString()),
@@ -203,6 +225,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
     return { invoice: invoiceData, items: itemsData };
   };
 
+  // API mutations
   const createMutation = useMutation({
     mutationFn: (data: any) => {
       return apiRequest("POST", "/api/invoices", {
@@ -253,20 +276,43 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
     },
   });
 
+  // Handle form submission
   const onSubmit = async (data: InvoiceFormData) => {
     setIsSubmitting(true);
     try {
+      // Before submitting, make sure totals are up to date
+      data.amount = subtotal;
+      data.tax = tax;
+      data.total = total;
+      
       const { invoice: invoiceData, items } = prepareDataForSubmission(data);
       if (isEdit) {
         await updateMutation.mutateAsync({ invoice: invoiceData, items });
       } else {
         await createMutation.mutateAsync({ invoice: invoiceData, items });
       }
+    } catch (error) {
+      console.error("Error submitting form:", error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Handler for adding new item
+  const handleAddItem = () => {
+    append({ description: "", quantity: "1", unitPrice: "0" });
+  };
+
+  // Handler for removing an item
+  const handleRemoveItem = (index: number) => {
+    if (fields.length > 1) {
+      remove(index);
+      // Recalculate after a brief delay to ensure the form has updated
+      setTimeout(calculateTotals, 100);
+    }
+  };
+
+  // Render the form
   return (
     <Card>
       <CardHeader>
@@ -276,6 +322,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              {/* Invoice Number */}
               <FormField
                 control={form.control}
                 name="invoiceNumber"
@@ -290,6 +337,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                 )}
               />
               
+              {/* Customer */}
               <FormField
                 control={form.control}
                 name="customerId"
@@ -321,6 +369,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                 )}
               />
               
+              {/* Job */}
               <FormField
                 control={form.control}
                 name="jobId"
@@ -353,6 +402,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                 )}
               />
               
+              {/* Due Date */}
               <FormField
                 control={form.control}
                 name="dueDate"
@@ -392,6 +442,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                 )}
               />
               
+              {/* Status */}
               <FormField
                 control={form.control}
                 name="status"
@@ -419,12 +470,14 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
               />
             </div>
             
+            {/* Invoice Items */}
             <div className="mb-6">
               <h3 className="text-lg font-medium mb-4">Invoice Items</h3>
               <div className="space-y-4">
                 {fields.map((field, index) => (
                   <div key={field.id} className="flex items-start space-x-4">
                     <div className="flex-grow grid grid-cols-1 md:grid-cols-4 gap-4">
+                      {/* Description */}
                       <div className="md:col-span-2">
                         <FormField
                           control={form.control}
@@ -442,6 +495,8 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                           )}
                         />
                       </div>
+                      
+                      {/* Quantity */}
                       <div>
                         <FormField
                           control={form.control}
@@ -458,10 +513,6 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                                   step="1" 
                                   placeholder="1"
                                   {...field}
-                                  onChange={(e) => {
-                                    field.onChange(e);
-                                    calculateTotals();
-                                  }}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -469,6 +520,8 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                           )}
                         />
                       </div>
+                      
+                      {/* Unit Price */}
                       <div>
                         <FormField
                           control={form.control}
@@ -485,10 +538,6 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                                   step="0.01" 
                                   placeholder="0.00"
                                   {...field}
-                                  onChange={(e) => {
-                                    field.onChange(e);
-                                    calculateTotals();
-                                  }}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -497,56 +546,57 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                         />
                       </div>
                     </div>
-                    <div className="pt-8">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => remove(index)}
-                        disabled={fields.length === 1}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    
+                    {/* Remove Button */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
+                      className="mt-8"
+                      onClick={() => handleRemoveItem(index)}
+                      disabled={fields.length <= 1}
+                    >
+                      <Trash className="h-4 w-4" />
+                    </Button>
                   </div>
                 ))}
                 
+                {/* Add Item Button */}
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => append({ description: "", quantity: "1", unitPrice: "0" } as any)}
                   className="mt-2"
+                  onClick={handleAddItem}
                 >
-                  <Plus className="h-4 w-4 mr-2" />
+                  <Plus className="mr-2 h-4 w-4" />
                   Add Item
                 </Button>
               </div>
             </div>
             
-            <Separator className="my-6" />
-            
-            <div className="flex flex-col items-end space-y-2 mb-6">
-              <div className="flex justify-between w-full max-w-xs">
-                <span className="text-gray-600">Subtotal:</span>
-                <span className="font-medium">
-                  {formatCurrency(form.watch("amount"))}
-                </span>
-              </div>
-              <div className="flex justify-between w-full max-w-xs">
-                <span className="text-gray-600">Tax ({(taxRate * 100).toFixed(0)}%):</span>
-                <span className="font-medium">
-                  {formatCurrency(form.watch("tax"))}
-                </span>
-              </div>
-              <div className="flex justify-between w-full max-w-xs font-bold text-lg">
-                <span>Total:</span>
-                <span>{formatCurrency(form.watch("total"))}</span>
+            {/* Invoice Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <div className="md:col-span-2"></div>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span>Subtotal:</span>
+                  <span>{formatCurrency(subtotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Tax ({(TAX_RATE * 100).toFixed(0)}%):</span>
+                  <span>{formatCurrency(tax)}</span>
+                </div>
+                <Separator />
+                <div className="flex justify-between font-medium">
+                  <span>Total:</span>
+                  <span>{formatCurrency(total)}</span>
+                </div>
               </div>
             </div>
             
-            <div className="flex justify-end space-x-4 mt-8">
+            {/* Form Actions */}
+            <div className="flex justify-end gap-4 mt-6">
               <Button
                 type="button"
                 variant="outline"
@@ -554,8 +604,16 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Saving..." : isEdit ? "Update Invoice" : "Create Invoice"}
+              <Button 
+                type="submit" 
+                disabled={isSubmitting}
+              >
+                {isSubmitting 
+                  ? "Processing..." 
+                  : isEdit 
+                    ? "Update Invoice" 
+                    : "Create Invoice"
+                }
               </Button>
             </div>
           </form>
