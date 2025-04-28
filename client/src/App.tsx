@@ -20,6 +20,7 @@ import EditQuote from "@/pages/quotes/[id]/edit";
 import Payment from "@/pages/payment";
 import SubscriptionSuccess from "@/pages/subscription-success";
 import OnboardingSubscription from "@/pages/onboarding/subscription";
+import OnboardingFlow from "@/pages/onboarding/index";
 import Receptionist from "@/pages/receptionist/index";
 import ReceptionistTraining from "@/pages/receptionist/training";
 import Settings from "@/pages/settings";
@@ -36,6 +37,7 @@ import { ProtectedAdminRoute } from "./components/auth/ProtectedAdminRoute";
 import { AppNav } from "./components/navigation/AppNav";
 import { ServiceWorkerNotification } from "@/components/ui/ServiceWorkerNotification";
 import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
+import { ContextHelp } from "@/components/ui/context-help";
 
 function Router() {
   return (
@@ -56,6 +58,7 @@ function Router() {
       <ProtectedRoute path="/quotes/:id/edit" component={EditQuote} />
       <ProtectedRoute path="/payment" component={Payment} />
       <ProtectedRoute path="/subscription-success" component={SubscriptionSuccess} />
+      <ProtectedRoute path="/onboarding" component={OnboardingFlow} />
       <ProtectedRoute path="/onboarding/subscription" component={OnboardingSubscription} />
       <ProtectedRoute path="/receptionist" component={Receptionist} />
       <ProtectedRoute path="/receptionist/training" component={ReceptionistTraining} />
@@ -83,6 +86,7 @@ function App() {
             <Toaster />
             <ServiceWorkerNotification />
             <PWAInstallPrompt />
+            <ContextHelp />
             <AppNav />
             <div className="pt-0 md:pt-14">
               <Router />

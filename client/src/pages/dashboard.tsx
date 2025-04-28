@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { ScheduleCard } from "@/components/dashboard/ScheduleCard";
 import { JobsTable } from "@/components/dashboard/JobsTable";
 import { CallsCard } from "@/components/dashboard/CallsCard";
 import { InvoicesCard } from "@/components/dashboard/InvoicesCard";
+import { SetupChecklist } from "@/components/dashboard/setup-checklist";
 import { Loader2 } from "lucide-react";
 
 import { 
