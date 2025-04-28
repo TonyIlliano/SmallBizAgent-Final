@@ -1,357 +1,461 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useMutation } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { Loader2, CalendarCheck, Calendar as CalendarIcon, Mail } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { 
+  Loader2, 
+  Mail, 
+  Calendar as CalendarIcon, 
+  MailCheck, 
+  BellRing, 
+  Clock, 
+  Globe, 
+  Bookmark
+} from 'lucide-react';
 
 interface CalendarSetupProps {
   onComplete: () => void;
 }
 
+// Calendar setup form schema
+const formSchema = z.object({
+  provider: z.enum(['google', 'microsoft', 'apple', 'none']),
+  syncEnabled: z.boolean().default(true),
+  calendarId: z.string().optional(),
+  reminderTime: z.enum(['none', '10min', '30min', '1hour', '1day']).default('30min'),
+  customerNotifications: z.boolean().default(true),
+  staffNotifications: z.boolean().default(true),
+});
+
+type FormValues = z.infer<typeof formSchema>;
+
 export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("google");
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState('provider');
   
-  // Fetch existing calendar integrations if any
-  const { data: calendarIntegrations, isLoading, refetch } = useQuery({
-    queryKey: ['/api/calendar/integrations'],
-    queryFn: async () => {
-      try {
-        const businessId = user?.businessId || 1;
-        const res = await apiRequest('GET', `/api/calendar/integrations/${businessId}`);
-        const data = await res.json();
-        return data;
-      } catch (error) {
-        return {
-          google: { connected: false },
-          outlook: { connected: false },
-          apple: { connected: false }
-        };
-      }
-    }
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      provider: 'none',
+      syncEnabled: true,
+      calendarId: '',
+      reminderTime: '30min',
+      customerNotifications: true,
+      staffNotifications: true,
+    },
   });
   
-  const googleConnectMutation = useMutation({
-    mutationFn: async () => {
-      const businessId = user?.businessId || 1;
-      const res = await apiRequest("POST", "/api/calendar/connect/google", { businessId });
-      return await res.json();
+  // Authenticate with calendar provider mutation
+  const authProviderMutation = useMutation({
+    mutationFn: async (provider: string) => {
+      return apiRequest('POST', '/api/calendar/auth', { provider });
     },
     onSuccess: (data) => {
-      // The API would return a URL to redirect to for OAuth
+      // Redirect to OAuth page
       if (data.authUrl) {
         window.location.href = data.authUrl;
-      } else {
-        toast({
-          title: "Error",
-          description: "Unable to initialize Google Calendar connection",
-          variant: "destructive",
-        });
-        setIsConnecting(false);
       }
     },
     onError: (error) => {
       toast({
-        title: "Error",
-        description: "There was a problem connecting to Google Calendar",
-        variant: "destructive",
+        title: 'Authentication failed',
+        description: 'There was a problem connecting to the calendar provider',
+        variant: 'destructive',
       });
-      setIsConnecting(false);
+      setIsAuthenticating(false);
     },
   });
   
-  const outlookConnectMutation = useMutation({
-    mutationFn: async () => {
+  // Save calendar settings mutation
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (data: FormValues) => {
       const businessId = user?.businessId || 1;
-      const res = await apiRequest("POST", "/api/calendar/connect/outlook", { businessId });
-      return await res.json();
-    },
-    onSuccess: (data) => {
-      // The API would return a URL to redirect to for OAuth
-      if (data.authUrl) {
-        window.location.href = data.authUrl;
-      } else {
-        toast({
-          title: "Error",
-          description: "Unable to initialize Outlook Calendar connection",
-          variant: "destructive",
-        });
-        setIsConnecting(false);
-      }
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: "There was a problem connecting to Outlook Calendar",
-        variant: "destructive",
-      });
-      setIsConnecting(false);
-    },
-  });
-  
-  const appleConnectMutation = useMutation({
-    mutationFn: async (data: { username: string; password: string }) => {
-      const businessId = user?.businessId || 1;
-      const res = await apiRequest("POST", "/api/calendar/connect/apple", { 
+      return apiRequest('POST', '/api/calendar/settings', {
         ...data,
-        businessId 
+        businessId,
       });
-      return await res.json();
     },
     onSuccess: () => {
       toast({
-        title: "Success",
-        description: "Apple Calendar connected successfully",
+        title: 'Calendar settings saved',
+        description: 'Your calendar integration has been configured',
+        variant: 'success',
       });
-      refetch();
-      setIsConnecting(false);
+      
+      // Mark this step as complete if we have a provider
+      if (form.getValues('provider') !== 'none') {
+        localStorage.setItem('onboardingCalendarComplete', 'true');
+      } else {
+        localStorage.setItem('onboardingCalendarComplete', 'skipped');
+      }
+      
+      // Move to next step
+      onComplete();
     },
     onError: (error) => {
       toast({
-        title: "Error",
-        description: "There was a problem connecting to Apple Calendar",
-        variant: "destructive",
+        title: 'Error',
+        description: 'There was a problem saving your calendar settings',
+        variant: 'destructive',
       });
-      setIsConnecting(false);
+      setIsSubmitting(false);
     },
   });
   
-  const connectToGoogle = () => {
-    setIsConnecting(true);
-    googleConnectMutation.mutate();
+  const handleAuthProvider = (provider: string) => {
+    setIsAuthenticating(true);
+    authProviderMutation.mutate(provider);
   };
   
-  const connectToOutlook = () => {
-    setIsConnecting(true);
-    outlookConnectMutation.mutate();
+  const onSubmit = (data: FormValues) => {
+    setIsSubmitting(true);
+    saveSettingsMutation.mutate(data);
   };
   
-  const skipStep = () => {
-    // Mark as skipped but completed
+  const skipSetup = () => {
+    form.setValue('provider', 'none');
+    
+    toast({
+      title: 'Step skipped',
+      description: 'You can set up calendar integration later in Settings',
+      variant: 'default',
+    });
+    
+    // Mark this step as skipped
     localStorage.setItem('onboardingCalendarComplete', 'skipped');
+    
+    // Move to next step
     onComplete();
   };
   
-  // Mock form submit for Apple Calendar
-  const [appleEmail, setAppleEmail] = useState('');
-  const [applePassword, setApplePassword] = useState('');
-  
-  const handleAppleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsConnecting(true);
-    appleConnectMutation.mutate({ 
-      username: appleEmail, 
-      password: applePassword 
-    });
-  };
-  
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-  
-  const isAnyCalendarConnected = 
-    calendarIntegrations?.google?.connected || 
-    calendarIntegrations?.outlook?.connected ||
-    calendarIntegrations?.apple?.connected;
+  const reminderOptions = [
+    { value: 'none', label: 'No reminders' },
+    { value: '10min', label: '10 minutes before' },
+    { value: '30min', label: '30 minutes before' },
+    { value: '1hour', label: '1 hour before' },
+    { value: '1day', label: '1 day before' },
+  ];
   
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold mb-2">Connect Your Calendar</h2>
-        <p className="text-muted-foreground">
-          Integrate with your calendar to sync appointments and avoid scheduling conflicts
-        </p>
+      <div className="flex flex-col space-y-4 sm:flex-row sm:space-y-0 sm:space-x-4">
+        <Card className="flex-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center">
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              Calendar Integration
+            </CardTitle>
+            <CardDescription>
+              Sync with your calendar
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              <li>• Sync appointments to your calendar</li>
+              <li>• Avoid double bookings</li>
+              <li>• Get appointment reminders</li>
+              <li>• Works with Google, Microsoft, Apple</li>
+            </ul>
+          </CardContent>
+        </Card>
+        
+        <Card className="flex-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center">
+              <BellRing className="mr-2 h-4 w-4" />
+              Automated Notifications
+            </CardTitle>
+            <CardDescription>
+              Keep everyone informed
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              <li>• Automatic appointment confirmations</li>
+              <li>• Customizable reminders</li>
+              <li>• Staff assignment notifications</li>
+              <li>• Reduces no-shows</li>
+            </ul>
+          </CardContent>
+        </Card>
       </div>
       
-      {isAnyCalendarConnected && (
-        <Alert variant="success" className="mb-6">
-          <CalendarCheck className="h-4 w-4" />
-          <AlertTitle>Calendar Connected</AlertTitle>
-          <AlertDescription>
-            You've successfully connected your calendar! You can connect additional calendars or continue to the next step.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <Tabs defaultValue={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3 mb-6">
-          <TabsTrigger value="google">Google</TabsTrigger>
-          <TabsTrigger value="outlook">Outlook/Microsoft</TabsTrigger>
-          <TabsTrigger value="apple">Apple Calendar</TabsTrigger>
+      <Tabs 
+        defaultValue="provider" 
+        value={activeTab} 
+        onValueChange={setActiveTab}
+        className="space-y-4"
+      >
+        <TabsList className="grid grid-cols-2 w-full">
+          <TabsTrigger value="provider">Calendar Provider</TabsTrigger>
+          <TabsTrigger value="settings">Notification Settings</TabsTrigger>
         </TabsList>
         
-        <TabsContent value="google">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <CalendarIcon className="mr-2 h-5 w-5" />
-                Google Calendar
-              </CardTitle>
-              <CardDescription>
-                Connect your Google Calendar to sync appointments and availability
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {calendarIntegrations?.google?.connected ? (
-                <div className="bg-muted p-4 rounded-lg flex flex-col items-center justify-center text-center">
-                  <CalendarCheck className="h-10 w-10 text-green-500 mb-2" />
-                  <h3 className="font-medium">Google Calendar Connected</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Your Google Calendar is already connected.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center text-center p-4">
-                  <p className="mb-6">
-                    By connecting Google Calendar, we can sync your appointments and avoid scheduling conflicts.
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <TabsContent value="provider" className="space-y-4">
+              <FormField
+                control={form.control}
+                name="provider"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Calendar Provider</FormLabel>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                      <Card className={`cursor-pointer ${field.value === 'google' ? 'border-primary' : ''}`} onClick={() => field.onChange('google')}>
+                        <CardContent className="p-4 flex flex-col items-center text-center">
+                          <div className="p-2 rounded-full bg-red-100 mb-2">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              width="24"
+                              height="24"
+                              className="h-6 w-6 text-red-500"
+                            >
+                              <path
+                                fill="currentColor"
+                                d="M12 22q-2.05 0-3.875-.788t-3.188-2.15-2.137-3.175T2 12q0-2.075.788-3.887t2.15-3.175Q6.3 3.575 8.124 2.787T12 2q2.075 0 3.888.788t3.175 2.15q1.362 1.363 2.15 3.175T22 12v1.45q0 1.475-1.012 2.513T18.5 17q-.875 0-1.65-.375t-1.3-1.075q-.725.725-1.638 1.088T12 17q-2.075 0-3.537-1.463T7 12q0-2.075 1.463-3.537T12 7q2.075 0 3.538 1.463T17 12v1.45q0 .65.425 1.1T18.5 15q.65 0 1.075-.45t.425-1.1V12q0-3.35-2.325-5.675T12 4Q8.65 4 6.325 6.325T4 12q0 3.35 2.325 5.675T12 20h5v2h-5Zm0-7q1.25 0 2.125-.875T15 12q0-1.25-.875-2.125T12 9q-1.25 0-2.125.875T9 12q0 1.25.875 2.125T12 15Z"
+                              />
+                            </svg>
+                          </div>
+                          <h3 className="font-medium">Google Calendar</h3>
+                          <p className="text-xs text-muted-foreground mt-1">Connect with Gmail</p>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card className={`cursor-pointer ${field.value === 'microsoft' ? 'border-primary' : ''}`} onClick={() => field.onChange('microsoft')}>
+                        <CardContent className="p-4 flex flex-col items-center text-center">
+                          <div className="p-2 rounded-full bg-blue-100 mb-2">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              width="24"
+                              height="24"
+                              className="h-6 w-6 text-blue-500"
+                            >
+                              <path
+                                fill="currentColor"
+                                d="M11.5 12.5H6v-1h5.5V6h1v5.5H18v1h-5.5V18h-1v-5.5Z"
+                              />
+                            </svg>
+                          </div>
+                          <h3 className="font-medium">Microsoft Outlook</h3>
+                          <p className="text-xs text-muted-foreground mt-1">Connect with Office 365</p>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card className={`cursor-pointer ${field.value === 'apple' ? 'border-primary' : ''}`} onClick={() => field.onChange('apple')}>
+                        <CardContent className="p-4 flex flex-col items-center text-center">
+                          <div className="p-2 rounded-full bg-gray-100 mb-2">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              width="24"
+                              height="24"
+                              className="h-6 w-6 text-gray-800"
+                            >
+                              <path
+                                fill="currentColor"
+                                d="M14.94 5.19A4.38 4.38 0 0 0 16 2a4.44 4.44 0 0 0-3 1.52a4.17 4.17 0 0 0-1 3.09a3.69 3.69 0 0 0 2.94-1.42zm2.52 7.44a4.51 4.51 0 0 1 2.16-3.81a4.66 4.66 0 0 0-3.66-2c-1.56-.16-3 .91-3.83.91s-2-.89-3.3-.87a4.92 4.92 0 0 0-4.14 2.53C2.92 12.29 4.24 17.2 6 19.86c.8 1.16 1.75 2.47 3 2.42s1.84-.77 3.44-.77 2.06.77 3.46.75 2.34-1.28 3.22-2.45a10.9 10.9 0 0 0 1.46-3A4.35 4.35 0 0 1 17.46 12.63z"
+                              />
+                            </svg>
+                          </div>
+                          <h3 className="font-medium">Apple Calendar</h3>
+                          <p className="text-xs text-muted-foreground mt-1">Connect with iCloud</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <FormDescription className="mt-2">
+                      Choose your preferred calendar provider
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              {form.watch('provider') !== 'none' && (
+                <div className="flex flex-col items-center justify-center p-6 border rounded-lg">
+                  <h3 className="text-base font-medium mb-2">
+                    {`Connect to ${
+                      form.watch('provider') === 'google'
+                        ? 'Google Calendar'
+                        : form.watch('provider') === 'microsoft'
+                        ? 'Microsoft Outlook'
+                        : 'Apple Calendar'
+                    }`}
+                  </h3>
+                  <p className="text-sm text-muted-foreground text-center mb-4">
+                    You'll need to authorize access to your calendar
                   </p>
                   <Button
-                    onClick={connectToGoogle}
-                    disabled={isConnecting}
-                    className="w-full max-w-xs"
+                    type="button"
+                    onClick={() => handleAuthProvider(form.watch('provider'))}
+                    disabled={isAuthenticating}
+                    className="gap-2"
                   >
-                    {isConnecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Connect Google Calendar
+                    {isAuthenticating && <Loader2 className="h-4 w-4 animate-spin" />}
+                    <CalendarIcon className="h-4 w-4" />
+                    Connect Now
                   </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="outlook">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Mail className="mr-2 h-5 w-5" />
-                Outlook/Microsoft Calendar
-              </CardTitle>
-              <CardDescription>
-                Connect your Outlook or Microsoft calendar to sync appointments and availability
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {calendarIntegrations?.outlook?.connected ? (
-                <div className="bg-muted p-4 rounded-lg flex flex-col items-center justify-center text-center">
-                  <CalendarCheck className="h-10 w-10 text-green-500 mb-2" />
-                  <h3 className="font-medium">Microsoft Calendar Connected</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Your Microsoft Calendar is already connected.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center text-center p-4">
-                  <p className="mb-6">
-                    By connecting Microsoft Calendar, we can sync your appointments and avoid scheduling conflicts.
-                  </p>
-                  <Button
-                    onClick={connectToOutlook}
-                    disabled={isConnecting}
-                    className="w-full max-w-xs"
-                  >
-                    {isConnecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Connect Microsoft Calendar
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="apple">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <CalendarIcon className="mr-2 h-5 w-5" />
-                Apple Calendar
-              </CardTitle>
-              <CardDescription>
-                Connect your Apple Calendar to sync appointments and availability
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {calendarIntegrations?.apple?.connected ? (
-                <div className="bg-muted p-4 rounded-lg flex flex-col items-center justify-center text-center">
-                  <CalendarCheck className="h-10 w-10 text-green-500 mb-2" />
-                  <h3 className="font-medium">Apple Calendar Connected</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Your Apple Calendar is already connected.
-                  </p>
-                </div>
-              ) : (
-                <form onSubmit={handleAppleSubmit} className="space-y-4">
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Enter your Apple ID credentials to connect to your Apple Calendar.
-                  </p>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="apple-email">Apple ID Email</Label>
-                    <Input
-                      id="apple-email"
-                      type="email"
-                      placeholder="your-apple-id@icloud.com"
-                      value={appleEmail}
-                      onChange={(e) => setAppleEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="apple-password">Apple ID Password</Label>
-                    <Input
-                      id="apple-password"
-                      type="password"
-                      placeholder="Your password"
-                      value={applePassword}
-                      onChange={(e) => setApplePassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  
-                  <Button
-                    type="submit"
-                    disabled={isConnecting || !appleEmail || !applePassword}
-                    className="w-full"
-                  >
-                    {isConnecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Connect Apple Calendar
-                  </Button>
-                </form>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+              
+              <div className="flex justify-between pt-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={skipSetup}
+                >
+                  Skip for Now
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setActiveTab('settings')}
+                  disabled={form.watch('provider') === 'none'}
+                >
+                  Next: Notification Settings
+                </Button>
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="settings" className="space-y-4">
+              <FormField
+                control={form.control}
+                name="syncEnabled"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">
+                        Two-way Calendar Sync
+                      </FormLabel>
+                      <FormDescription>
+                        Sync appointments in both directions
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name="reminderTime"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Appointment Reminders</FormLabel>
+                    <Select 
+                      onValueChange={field.onChange} 
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select reminder time" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {reminderOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      When to send appointment reminders
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="customerNotifications"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 h-full">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">
+                          Customer Notifications
+                        </FormLabel>
+                        <FormDescription>
+                          Send email notifications to customers
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="staffNotifications"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 h-full">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">
+                          Staff Notifications
+                        </FormLabel>
+                        <FormDescription>
+                          Send email notifications to staff
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+              
+              <div className="flex justify-between pt-6">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setActiveTab('provider')}
+                >
+                  Back: Calendar Provider
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="min-w-32"
+                >
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save & Continue
+                </Button>
+              </div>
+            </TabsContent>
+          </form>
+        </Form>
       </Tabs>
-      
-      <div className="pt-4 flex flex-col sm:flex-row gap-4">
-        <Button 
-          variant="outline"
-          className="flex-1"
-          onClick={skipStep}
-        >
-          Skip for Now
-        </Button>
-        <Button 
-          className="flex-1"
-          onClick={onComplete}
-        >
-          {isAnyCalendarConnected ? "Continue" : "Continue Without Connecting"}
-        </Button>
-      </div>
     </div>
   );
 }

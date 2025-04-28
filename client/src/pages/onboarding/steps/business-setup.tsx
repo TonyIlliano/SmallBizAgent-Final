@@ -1,126 +1,190 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
+import { z } from 'zod';
 import { useMutation } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
-
-const businessProfileSchema = z.object({
-  name: z.string().min(1, 'Business name is required'),
-  phone: z.string().min(10, 'Please enter a valid phone number').max(20),
-  email: z.string().email('Please enter a valid email address'),
-  website: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
-  address: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  zip: z.string().optional(),
-});
 
 interface BusinessSetupProps {
   onComplete: () => void;
 }
 
+// Business setup form schema
+const formSchema = z.object({
+  name: z.string().min(2, 'Business name must be at least 2 characters'),
+  description: z.string().optional(),
+  industry: z.string().min(1, 'Please select an industry'),
+  phone: z.string().min(10, 'Phone number must be at least 10 digits'),
+  email: z.string().email('Please enter a valid email'),
+  website: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
+  address: z.string().min(5, 'Address must be at least 5 characters'),
+  city: z.string().min(2, 'City must be at least 2 characters'),
+  state: z.string().min(2, 'State must be at least 2 characters'),
+  zipCode: z.string().min(5, 'Zip code must be at least 5 characters'),
+});
+
+type FormValues = z.infer<typeof formSchema>;
+
 export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   
-  const form = useForm<z.infer<typeof businessProfileSchema>>({
-    resolver: zodResolver(businessProfileSchema),
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
+      description: '',
+      industry: '',
       phone: '',
       email: user?.email || '',
       website: '',
       address: '',
       city: '',
       state: '',
-      zip: '',
+      zipCode: '',
     },
   });
   
-  const businessMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof businessProfileSchema>) => {
-      // We'll update the current business or create a new one if needed
-      // For now assume businessId is 1 or user's businessId if available
-      const businessId = user?.businessId || 1;
-      
-      try {
-        const res = await apiRequest("PUT", `/api/business/${businessId}`, data);
-        return await res.json();
-      } catch (error) {
-        // If business doesn't exist, create a new one
-        const res = await apiRequest("POST", `/api/business`, data);
-        return await res.json();
+  // Fetch existing business if available
+  const businessId = user?.businessId;
+  
+  // Mutation to update business
+  const updateBusinessMutation = useMutation({
+    mutationFn: async (data: FormValues) => {
+      if (businessId) {
+        return apiRequest('PUT', `/api/business/${businessId}`, data);
+      } else {
+        return apiRequest('POST', '/api/business', data);
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/business'] });
       toast({
-        title: "Success",
-        description: "Business profile saved successfully",
+        title: 'Business profile updated',
+        description: 'Your business information has been saved',
       });
       
-      // Handle any additional onboarding data
+      // Mark this step as complete
       localStorage.setItem('onboardingBusinessComplete', 'true');
       
+      // Move to next step
       onComplete();
     },
-    onError: (error) => {
+    onError: () => {
       toast({
-        title: "Error",
-        description: "There was a problem saving your business profile",
-        variant: "destructive",
+        title: 'Error',
+        description: 'There was a problem updating your business profile',
+        variant: 'destructive',
       });
-      setIsSubmitting(false);
+      setIsLoading(false);
     },
   });
   
-  const onSubmit = (data: z.infer<typeof businessProfileSchema>) => {
-    setIsSubmitting(true);
-    businessMutation.mutate(data);
+  const onSubmit = (data: FormValues) => {
+    setIsLoading(true);
+    updateBusinessMutation.mutate(data);
   };
+  
+  const industries = [
+    'Plumbing',
+    'Electrical',
+    'Landscaping',
+    'Cleaning',
+    'HVAC',
+    'Carpentry',
+    'Painting',
+    'Roofing',
+    'Flooring',
+    'Appliance Repair',
+    'General Contracting',
+    'Construction',
+    'Pest Control',
+    'Pool Maintenance',
+    'Auto Repair',
+    'Computer Repair',
+    'Other'
+  ];
   
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold mb-2">Tell us about your business</h2>
-        <p className="text-muted-foreground">
-          This information will be used on your invoices and customer communications
-        </p>
-      </div>
-
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Business Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Your Business Name" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
+            <FormField
+              control={form.control}
+              name="industry"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Industry</FormLabel>
+                  <Select 
+                    onValueChange={field.onChange} 
+                    defaultValue={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select your industry" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {industries.map((industry) => (
+                        <SelectItem key={industry} value={industry}>
+                          {industry}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+          
           <FormField
             control={form.control}
-            name="name"
+            name="description"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Business Name</FormLabel>
+                <FormLabel>Business Description</FormLabel>
                 <FormControl>
-                  <Input {...field} placeholder="Acme Services" />
+                  <Textarea 
+                    placeholder="Briefly describe your business and services" 
+                    {...field} 
+                    rows={3}
+                  />
                 </FormControl>
+                <FormDescription>
+                  This will be displayed to your customers
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid gap-4 md:grid-cols-2">
             <FormField
               control={form.control}
               name="phone"
@@ -128,7 +192,7 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
                 <FormItem>
                   <FormLabel>Phone Number</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="(555) 123-4567" />
+                    <Input placeholder="(555) 123-4567" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -140,9 +204,9 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email Address</FormLabel>
+                  <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="contact@example.com" />
+                    <Input placeholder="contact@yourbusiness.com" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -155,9 +219,9 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
             name="website"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Website</FormLabel>
+                <FormLabel>Website (Optional)</FormLabel>
                 <FormControl>
-                  <Input {...field} placeholder="https://example.com" />
+                  <Input placeholder="https://www.yourbusiness.com" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -171,14 +235,14 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
               <FormItem>
                 <FormLabel>Street Address</FormLabel>
                 <FormControl>
-                  <Input {...field} placeholder="123 Main St" />
+                  <Input placeholder="123 Business St" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
           
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <FormField
               control={form.control}
               name="city"
@@ -186,7 +250,7 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
                 <FormItem>
                   <FormLabel>City</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="New York" />
+                    <Input placeholder="City" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -200,7 +264,7 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
                 <FormItem>
                   <FormLabel>State</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="NY" />
+                    <Input placeholder="State" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -209,12 +273,12 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
             
             <FormField
               control={form.control}
-              name="zip"
+              name="zipCode"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>ZIP Code</FormLabel>
+                  <FormLabel>Zip Code</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="10001" />
+                    <Input placeholder="12345" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -225,11 +289,11 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
           <div className="pt-4">
             <Button 
               type="submit" 
-              className="w-full"
-              disabled={isSubmitting}
+              className="w-full" 
+              disabled={isLoading}
             >
-              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Business Information
+              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save Business Profile
             </Button>
           </div>
         </form>
