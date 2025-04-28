@@ -49,8 +49,9 @@ import subscriptionRoutes from "./routes/subscriptionRoutes";
 import quoteRoutes from "./routes/quoteRoutes";
 import customerRoutes from "./routes/customerRoutes";
 
-// Import training routes
+// Import training and analytics routes
 import { registerTrainingRoutes } from './routes/trainingRoutes';
+import { registerAnalyticsRoutes } from './routes/analyticsRoutes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication first
@@ -58,6 +59,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register training routes after authentication is set up
   registerTrainingRoutes(app);
+  
+  // Register analytics routes
+  registerAnalyticsRoutes(app);
   
   // Set default business ID for demo
   // This will be used for non-authenticated routes during development
