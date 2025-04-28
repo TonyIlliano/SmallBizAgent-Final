@@ -303,12 +303,13 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5 mb-6">
+          <TabsList className="grid w-full grid-cols-6 mb-6">
             <TabsTrigger value="profile">Business Profile</TabsTrigger>
             <TabsTrigger value="hours">Business Hours</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="subscription">Subscription</TabsTrigger>
+            <TabsTrigger value="pwa">App Installation</TabsTrigger>
           </TabsList>
           
           <TabsContent value="profile" className="space-y-4">
@@ -696,6 +697,54 @@ export default function Settings() {
                 ) : (
                   business && <SubscriptionPlans businessId={business.id} />
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="pwa" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Install SmallBizAgent as an App</CardTitle>
+                <CardDescription>
+                  Install SmallBizAgent on your device for a better experience
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex flex-col md:flex-row gap-6">
+                  <div className="flex-1 rounded-lg border bg-card p-6 shadow-sm">
+                    <div className="flex flex-col space-y-2">
+                      <h3 className="font-semibold text-lg">Why install SmallBizAgent?</h3>
+                      <ul className="space-y-2 text-sm text-muted-foreground list-disc list-inside">
+                        <li>Works offline when you don't have internet</li>
+                        <li>Faster loading times and better performance</li>
+                        <li>App-like experience without app store downloads</li>
+                        <li>Automatic updates with new features</li>
+                        <li>Easier access from your home screen</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="flex-1 rounded-lg border bg-card p-6 shadow-sm">
+                    <div className="flex flex-col space-y-2">
+                      <h3 className="font-semibold text-lg">Available on all platforms</h3>
+                      <ul className="space-y-2 text-sm text-muted-foreground list-disc list-inside">
+                        <li>iOS - iPhone and iPad using Safari</li>
+                        <li>Android - phones and tablets using Chrome</li>
+                        <li>Windows - using Chrome or Edge</li>
+                        <li>macOS - using Chrome, Edge, or Safari</li>
+                        <li>Linux - using Chrome or Edge</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex justify-center">
+                  <Button 
+                    onClick={() => window.location.href = '/settings/pwa-installation'}
+                    className="py-2 px-4"
+                  >
+                    View Installation Instructions
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
