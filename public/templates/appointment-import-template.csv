@@ -1,3 +1,4 @@
-customerId,customerName,customerEmail,customerPhone,date,startTime,endTime,serviceId,serviceName,notes,status
-1,John Smith,john@example.com,555-123-4567,2025-05-15,09:00,10:00,1,Basic Consultation,Initial meeting,scheduled
-,Jane Doe,jane@example.com,555-987-6543,2025-05-16,14:00,16:00,2,Premium Service,Follow-up appointment,confirmed
+customerName,customerEmail,customerPhone,serviceName,startDate,endDate,duration,notes,status
+John Doe,john.doe@example.com,555-123-4567,Basic Consultation,2025-05-01T10:00:00,2025-05-01T11:00:00,60,Initial meeting,scheduled
+Jane Smith,jane.smith@example.com,555-987-6543,Premium Package,2025-05-02T14:30:00,2025-05-02T16:30:00,120,Returning customer,scheduled
+Business Name LLC,contact@businessname.com,555-111-2222,Emergency Service,2025-05-03T09:00:00,2025-05-03T10:00:00,60,Urgent request,scheduled

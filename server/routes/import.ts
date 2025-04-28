@@ -92,8 +92,12 @@ export async function importCustomers(req: Request, res: Response) {
         
         // Check for duplicate emails if present
         if (validatedData.email) {
-          const existingCustomers = await storage.getCustomers(businessId, { email: validatedData.email });
-          if (existingCustomers && existingCustomers.length > 0) {
+          const existingCustomers = await storage.getCustomers(businessId);
+          const duplicateCustomer = existingCustomers.find(c => 
+            c.email && c.email.toLowerCase() === validatedData.email.toLowerCase()
+          );
+          
+          if (duplicateCustomer) {
             results.failed++;
             results.errors.push(`Row ${i + 1}: Customer with email ${validatedData.email} already exists`);
             continue;
@@ -265,7 +269,7 @@ export async function importAppointments(req: Request, res: Response) {
               businessId,
               firstName,
               lastName,
-              email: validRecord.customerEmail,
+              email: validRecord.customerEmail || "",
               phone: validRecord.customerPhone || null,
               active: true
             });
