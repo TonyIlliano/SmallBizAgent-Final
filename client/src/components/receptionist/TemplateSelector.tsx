@@ -125,9 +125,13 @@ export default function TemplateSelector() {
   const industryTemplates = filteredTemplates.filter(t => !t.isCommon);
 
   // Format industry name for display
-  const formatIndustryName = (industry: string) => {
-    if (industry === "general") return "General Business";
-    return industry.charAt(0).toUpperCase() + industry.slice(1);
+  const formatIndustryName = (industry: any): string => {
+    if (!industry) return "Unknown";
+    
+    const industryStr = typeof industry === 'string' ? industry : String(industry);
+    
+    if (industryStr === "general") return "General Business";
+    return industryStr.charAt(0).toUpperCase() + industryStr.slice(1);
   };
 
   return (
@@ -352,7 +356,7 @@ function TemplateCard({ template, onApply, isLoading }: TemplateCardProps) {
             <Badge variant="outline" className="bg-slate-100">Common</Badge>
           ) : (
             <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">
-              {template.industry.charAt(0).toUpperCase() + template.industry.slice(1)}
+              {formatIndustryName(template.industry)}
             </Badge>
           )}
         </div>
