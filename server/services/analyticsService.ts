@@ -232,7 +232,6 @@ export async function getJobAnalytics(businessId: number, dateRange: DateRange):
   const jobData = await db.select({
     id: jobs.id,
     status: jobs.status,
-    serviceId: jobs.serviceId,
     createdAt: jobs.createdAt
   })
   .from(jobs)
@@ -255,10 +254,7 @@ export async function getJobAnalytics(businessId: number, dateRange: DateRange):
     .from(services)
     .where(eq(services.businessId, businessId));
   
-  const serviceMap = new Map(serviceData.map(service => [service.id, service.name]));
-  
-  // Group jobs by service
-  // Simple distribution of jobs by service for demo
+  // Simple distribution of jobs by service for demo since we lack serviceId in jobs table
   const jobsByService = [
     { serviceName: 'Regular Service', count: Math.ceil(totalJobs * 0.45) },
     { serviceName: 'Premium Service', count: Math.ceil(totalJobs * 0.25) },
