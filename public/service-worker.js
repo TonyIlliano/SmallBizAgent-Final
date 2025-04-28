@@ -6,9 +6,11 @@ const CACHE_NAME = `smallbizagent-cache-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
   '/index.html',
+  '/offline.html',
   '/manifest.json',
   '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
+  '/icons/icon-512x512.png',
+  '/icons/badge-72x72.png'
 ];
 
 // Install handler: Cache static assets
@@ -83,7 +85,7 @@ self.addEventListener('fetch', event => {
           .catch(() => {
             // If network request fails and it's an HTML page, serve the offline page
             if (event.request.headers.get('Accept').includes('text/html')) {
-              return caches.match('/');
+              return caches.match('/offline.html');
             }
           });
       })
@@ -122,5 +124,12 @@ self.addEventListener('notificationclick', event => {
     clients.openWindow('/');
   } else {
     clients.openWindow('/');
+  }
+});
+
+// Handle messages from the client
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
   }
 });
