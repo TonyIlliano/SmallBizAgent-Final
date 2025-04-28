@@ -38,6 +38,13 @@ import {
   getPerformanceMetrics
 } from "./services/analyticsService";
 
+// Import handlers
+import {
+  importCustomers,
+  importServices,
+  importAppointments
+} from "./routes/import";
+
 // Stripe setup
 import Stripe from "stripe";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_example");
@@ -73,6 +80,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register analytics routes
   registerAnalyticsRoutes(app);
+  
+  // Register data import routes
+  app.post("/api/import/customers", isAuthenticated, importCustomers);
+  app.post("/api/import/services", isAuthenticated, importServices);
+  app.post("/api/import/appointments", isAuthenticated, importAppointments);
   
   // Set default business ID for demo
   // This will be used for non-authenticated routes during development

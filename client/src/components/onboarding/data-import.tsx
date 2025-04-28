@@ -6,7 +6,7 @@ import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileUpload, Upload, FileSpreadsheet, Users, Briefcase, ChevronRight, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { Upload, FileSpreadsheet, Users, Briefcase, ChevronRight, AlertCircle, CheckCircle, XCircle, Upload as UploadIcon } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 

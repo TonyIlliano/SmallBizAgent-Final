@@ -1,0 +1,3 @@
+firstName,lastName,email,phone,address,city,state,zip,notes
+John,Smith,john@example.com,555-123-4567,123 Main St,Anytown,CA,12345,VIP customer
+Jane,Doe,jane@example.com,555-987-6543,456 Oak Ave,Somecity,NY,67890,Prefers email communication
