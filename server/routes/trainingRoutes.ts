@@ -257,24 +257,6 @@ export function registerTrainingRoutes(app: any) {
   });
 
   /**
-   * Get available intent templates for a specific industry
-   */
-  app.get("/api/training/templates/:industry", isAuthenticated, (req: Request, res: Response) => {
-    try {
-      const industry = req.params.industry;
-      const templates = intentTemplateService.getAllIntentTemplates(industry);
-      res.json(templates);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("Error getting intent templates:", errorMessage);
-      res.status(500).json({ 
-        message: "Error getting intent templates", 
-        error: errorMessage 
-      });
-    }
-  });
-
-  /**
    * Get all common intent templates
    */
   app.get("/api/training/templates/common", isAuthenticated, (req: Request, res: Response) => {
@@ -303,6 +285,24 @@ export function registerTrainingRoutes(app: any) {
       console.error("Error getting industry types:", errorMessage);
       res.status(500).json({ 
         message: "Error getting industry types", 
+        error: errorMessage 
+      });
+    }
+  });
+  
+  /**
+   * Get available intent templates for a specific industry
+   */
+  app.get("/api/training/templates/:industry", isAuthenticated, (req: Request, res: Response) => {
+    try {
+      const industry = req.params.industry;
+      const templates = intentTemplateService.getAllIntentTemplates(industry);
+      res.json(templates);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error getting intent templates:", errorMessage);
+      res.status(500).json({ 
+        message: "Error getting intent templates", 
         error: errorMessage 
       });
     }
