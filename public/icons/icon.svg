@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="512px" height="512px" viewBox="0 0 512 512" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <defs>
+        <linearGradient x1="0%" y1="0%" x2="100%" y2="100%" id="gradient">
+            <stop stop-color="#6B46C1" offset="0%"></stop>
+            <stop stop-color="#9F7AEA" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect fill="url(#gradient)" x="0" y="0" width="512" height="512" rx="100"></rect>
+        <g transform="translate(96, 96)" fill="#FFFFFF">
+            <path d="M256,64 C256,28.7 227.3,0 192,0 L64,0 C28.7,0 0,28.7 0,64 L0,192 C0,227.3 28.7,256 64,256 L192,256 C227.3,256 256,227.3 256,192 L256,64 Z M112,192 C112,209.7 97.7,224 80,224 C62.3,224 48,209.7 48,192 L48,168 L80,168 L80,192 L112,192 Z M112,128 L48,128 L48,88 C48,79.2 55.2,72 64,72 L96,72 C104.8,72 112,79.2 112,88 L112,128 Z M208,192 C208,209.7 193.7,224 176,224 C158.3,224 144,209.7 144,192 L144,168 L176,168 L176,192 L208,192 Z M208,128 L144,128 L144,88 C144,79.2 151.2,72 160,72 L192,72 C200.8,72 208,79.2 208,88 L208,128 Z"/>
+        </g>
+    </g>
+</svg>
