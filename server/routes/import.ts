@@ -1,30 +1,54 @@
 import { Request, Response } from "express";
-import { isAuthenticated } from "../auth";
-import { db } from "../db";
-import { customers, services, appointments } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { insertCustomerSchema, insertServiceSchema, insertAppointmentSchema } from "@shared/schema";
+import { storage } from "../storage";
 
-// Customer import handler
+// Base validators for import data
+const customerImportSchema = z.object({
+  firstName: z.string().optional(),
+  lastName: z.string(),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  address: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zipCode: z.string().optional(),
+  notes: z.string().optional(),
+}).passthrough();
+
+const serviceImportSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  price: z.number().optional().transform(val => val ?? 0),
+  duration: z.number().optional().transform(val => val ?? 60),
+  active: z.boolean().optional().transform(val => val ?? true),
+}).passthrough();
+
+const appointmentImportSchema = z.object({
+  customerName: z.string().optional(),
+  customerEmail: z.string().email().optional(),
+  customerPhone: z.string().optional(), 
+  serviceName: z.string().optional(),
+  startDate: z.string().transform(val => new Date(val)),
+  endDate: z.string().optional().transform(val => val ? new Date(val) : undefined),
+  duration: z.number().optional(),
+  notes: z.string().optional(),
+  status: z.string().optional(),
+}).passthrough();
+
+/**
+ * Handles importing customers from CSV data
+ */
 export async function importCustomers(req: Request, res: Response) {
   try {
     const { businessId, data } = req.body;
     
     if (!businessId) {
-      return res.status(400).json({ 
-        message: "Business ID is required",
-        success: 0,
-        failed: data.length,
-        errors: ["Business ID is required"] 
-      });
+      return res.status(400).json({ message: "Business ID is required" });
     }
     
     if (!Array.isArray(data) || data.length === 0) {
-      return res.status(400).json({ 
-        message: "No valid data provided",
-        success: 0,
-        failed: 0,
-        errors: ["No valid data provided"] 
-      });
+      return res.status(400).json({ message: "No data provided for import" });
     }
     
     const results = {
@@ -34,83 +58,83 @@ export async function importCustomers(req: Request, res: Response) {
     };
     
     // Process each customer record
-    for (const customerData of data) {
+    for (let i = 0; i < data.length; i++) {
+      const record = data[i];
+      
       try {
-        // Validate required fields
-        if (!customerData.firstName || !customerData.lastName) {
+        // Validate the record
+        const validRecord = customerImportSchema.parse(record);
+        
+        // Skip records without required fields
+        if (!validRecord.lastName) {
           results.failed++;
-          results.errors.push(`Customer ${results.success + results.failed}: First name and last name are required`);
+          results.errors.push(`Row ${i + 1}: Missing last name`);
           continue;
         }
         
-        // Check for existing customer with same email to avoid duplicates
-        if (customerData.email) {
-          const existingCustomers = await db.select().from(customers).where(
-            eq(customers.email, customerData.email)
-          );
-          
-          if (existingCustomers.length > 0) {
+        // Create a customer object
+        const customer = {
+          businessId,
+          firstName: validRecord.firstName || "",
+          lastName: validRecord.lastName,
+          email: validRecord.email || "",
+          phone: validRecord.phone || null,
+          address: validRecord.address || null,
+          city: validRecord.city || null,
+          state: validRecord.state || null,
+          zipCode: validRecord.zipCode || null,
+          notes: validRecord.notes || null,
+          active: true
+        };
+        
+        // Validate with the insert schema
+        const validatedData = insertCustomerSchema.parse(customer);
+        
+        // Check for duplicate emails if present
+        if (validatedData.email) {
+          const existingCustomers = await storage.getCustomers(businessId, { email: validatedData.email });
+          if (existingCustomers && existingCustomers.length > 0) {
             results.failed++;
-            results.errors.push(`Customer ${results.success + results.failed}: Email ${customerData.email} already exists`);
+            results.errors.push(`Row ${i + 1}: Customer with email ${validatedData.email} already exists`);
             continue;
           }
         }
         
-        // Insert customer
-        await db.insert(customers).values({
-          businessId,
-          firstName: customerData.firstName,
-          lastName: customerData.lastName,
-          email: customerData.email || null,
-          phone: customerData.phone || null,
-          address: customerData.address || null,
-          city: customerData.city || null,
-          state: customerData.state || null,
-          zip: customerData.zip || null,
-          notes: customerData.notes || null,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-        
+        // Create the customer
+        await storage.createCustomer(validatedData);
         results.success++;
-      } catch (error: any) {
+      } catch (error) {
         results.failed++;
-        results.errors.push(`Customer ${results.success + results.failed}: ${error.message || "Unknown error"}`);
+        if (error instanceof z.ZodError) {
+          results.errors.push(`Row ${i + 1}: ${error.errors[0].message}`);
+        } else if (error instanceof Error) {
+          results.errors.push(`Row ${i + 1}: ${error.message}`);
+        } else {
+          results.errors.push(`Row ${i + 1}: Unknown error`);
+        }
       }
     }
     
-    return res.status(201).json(results);
-  } catch (error: any) {
-    return res.status(500).json({ 
-      message: error.message || "An error occurred while importing customers",
-      success: 0,
-      failed: req.body.data?.length || 0,
-      errors: [error.message || "An error occurred while importing customers"]
-    });
+    res.status(200).json(results);
+  } catch (error) {
+    console.error("Error importing customers:", error);
+    res.status(500).json({ message: "Error importing customers" });
   }
 }
 
-// Service import handler
+/**
+ * Handles importing services from CSV data
+ */
 export async function importServices(req: Request, res: Response) {
   try {
     const { businessId, data } = req.body;
     
     if (!businessId) {
-      return res.status(400).json({ 
-        message: "Business ID is required",
-        success: 0,
-        failed: data.length,
-        errors: ["Business ID is required"] 
-      });
+      return res.status(400).json({ message: "Business ID is required" });
     }
     
     if (!Array.isArray(data) || data.length === 0) {
-      return res.status(400).json({ 
-        message: "No valid data provided",
-        success: 0,
-        failed: 0,
-        errors: ["No valid data provided"] 
-      });
+      return res.status(400).json({ message: "No data provided for import" });
     }
     
     const results = {
@@ -120,90 +144,80 @@ export async function importServices(req: Request, res: Response) {
     };
     
     // Process each service record
-    for (const serviceData of data) {
+    for (let i = 0; i < data.length; i++) {
+      const record = data[i];
+      
       try {
-        // Validate required fields
-        if (!serviceData.name || !serviceData.price) {
+        // Validate the record
+        const validRecord = serviceImportSchema.parse(record);
+        
+        // Skip records without required fields
+        if (!validRecord.name) {
           results.failed++;
-          results.errors.push(`Service ${results.success + results.failed}: Name and price are required`);
+          results.errors.push(`Row ${i + 1}: Missing service name`);
           continue;
         }
         
-        // Check for existing service with same name to avoid duplicates
-        const existingServices = await db.select().from(services).where(
-          eq(services.name, serviceData.name)
+        // Create a service object
+        const service = {
+          businessId,
+          name: validRecord.name,
+          description: validRecord.description || null,
+          price: validRecord.price || 0,
+          duration: validRecord.duration || 60,
+          active: validRecord.active ?? true
+        };
+        
+        // Validate with the insert schema
+        const validatedData = insertServiceSchema.parse(service);
+        
+        // Check for duplicate service names
+        const existingServices = await storage.getServices(businessId);
+        const duplicateService = existingServices.find(s => 
+          s.name.toLowerCase() === validatedData.name.toLowerCase()
         );
         
-        if (existingServices.length > 0) {
+        if (duplicateService) {
           results.failed++;
-          results.errors.push(`Service ${results.success + results.failed}: Service name ${serviceData.name} already exists`);
+          results.errors.push(`Row ${i + 1}: Service with name "${validatedData.name}" already exists`);
           continue;
         }
         
-        // Convert price from string to number if needed
-        const price = typeof serviceData.price === 'string' 
-          ? parseFloat(serviceData.price) 
-          : serviceData.price;
-          
-        // Convert duration from string to number if needed
-        const duration = serviceData.duration
-          ? typeof serviceData.duration === 'string'
-            ? parseInt(serviceData.duration, 10)
-            : serviceData.duration
-          : 60; // Default duration
-        
-        // Insert service
-        await db.insert(services).values({
-          businessId,
-          name: serviceData.name,
-          description: serviceData.description || null,
-          price,
-          duration,
-          category: serviceData.category || null,
-          active: true,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-        
+        // Create the service
+        await storage.createService(validatedData);
         results.success++;
-      } catch (error: any) {
+      } catch (error) {
         results.failed++;
-        results.errors.push(`Service ${results.success + results.failed}: ${error.message || "Unknown error"}`);
+        if (error instanceof z.ZodError) {
+          results.errors.push(`Row ${i + 1}: ${error.errors[0].message}`);
+        } else if (error instanceof Error) {
+          results.errors.push(`Row ${i + 1}: ${error.message}`);
+        } else {
+          results.errors.push(`Row ${i + 1}: Unknown error`);
+        }
       }
     }
     
-    return res.status(201).json(results);
-  } catch (error: any) {
-    return res.status(500).json({ 
-      message: error.message || "An error occurred while importing services",
-      success: 0,
-      failed: req.body.data?.length || 0,
-      errors: [error.message || "An error occurred while importing services"]
-    });
+    res.status(200).json(results);
+  } catch (error) {
+    console.error("Error importing services:", error);
+    res.status(500).json({ message: "Error importing services" });
   }
 }
 
-// Appointment import handler
+/**
+ * Handles importing appointments from CSV data
+ */
 export async function importAppointments(req: Request, res: Response) {
   try {
     const { businessId, data } = req.body;
     
     if (!businessId) {
-      return res.status(400).json({ 
-        message: "Business ID is required",
-        success: 0,
-        failed: data.length,
-        errors: ["Business ID is required"] 
-      });
+      return res.status(400).json({ message: "Business ID is required" });
     }
     
     if (!Array.isArray(data) || data.length === 0) {
-      return res.status(400).json({ 
-        message: "No valid data provided",
-        success: 0,
-        failed: 0,
-        errors: ["No valid data provided"] 
-      });
+      return res.status(400).json({ message: "No data provided for import" });
     }
     
     const results = {
@@ -212,108 +226,149 @@ export async function importAppointments(req: Request, res: Response) {
       errors: [] as string[]
     };
     
+    // Get all customers and services for lookup
+    const customers = await storage.getCustomers(businessId);
+    const services = await storage.getServices(businessId);
+    
     // Process each appointment record
-    for (const appointmentData of data) {
+    for (let i = 0; i < data.length; i++) {
+      const record = data[i];
+      
       try {
-        // Validate required fields
-        if (!appointmentData.date || !appointmentData.startTime) {
+        // Validate the record
+        const validRecord = appointmentImportSchema.parse(record);
+        
+        // Skip records without start date
+        if (!validRecord.startDate) {
           results.failed++;
-          results.errors.push(`Appointment ${results.success + results.failed}: Date and start time are required`);
+          results.errors.push(`Row ${i + 1}: Missing or invalid start date`);
           continue;
         }
         
-        // Process customer information
-        let customerId = appointmentData.customerId;
-        
-        // If customer ID is not provided but we have customer details, try to find or create the customer
-        if (!customerId && appointmentData.customerEmail) {
-          // Look for existing customer with this email
-          const existingCustomers = await db.select().from(customers).where(
-            eq(customers.email, appointmentData.customerEmail)
+        // Find or create customer
+        let customerId = null;
+        if (validRecord.customerEmail) {
+          // Look up by email first
+          const existingCustomer = customers.find(c => 
+            c.email && c.email.toLowerCase() === validRecord.customerEmail?.toLowerCase()
           );
           
-          if (existingCustomers.length > 0) {
-            customerId = existingCustomers[0].id;
-          } else if (appointmentData.customerName) {
-            // Create a new customer
-            const nameParts = appointmentData.customerName.split(' ');
-            const firstName = nameParts[0];
-            const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+          if (existingCustomer) {
+            customerId = existingCustomer.id;
+          } else if (validRecord.customerName) {
+            // Create a new customer if we have name and email
+            const nameParts = validRecord.customerName.split(' ');
+            const firstName = nameParts[0] || '';
+            const lastName = nameParts.slice(1).join(' ') || firstName;
             
-            const [newCustomer] = await db.insert(customers).values({
+            const newCustomer = await storage.createCustomer({
               businessId,
               firstName,
               lastName,
-              email: appointmentData.customerEmail,
-              phone: appointmentData.customerPhone || null,
-              createdAt: new Date(),
-              updatedAt: new Date()
-            }).returning();
+              email: validRecord.customerEmail,
+              phone: validRecord.customerPhone || null,
+              active: true
+            });
             
             customerId = newCustomer.id;
+            customers.push(newCustomer); // Add to our local cache
+          } else {
+            results.failed++;
+            results.errors.push(`Row ${i + 1}: Customer email provided but no customer name`);
+            continue;
           }
-        }
-        
-        if (!customerId) {
+        } else if (validRecord.customerName) {
+          // Try to match by name if no email
+          const nameMatch = customers.find(c => {
+            const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
+            return fullName === validRecord.customerName?.toLowerCase();
+          });
+          
+          if (nameMatch) {
+            customerId = nameMatch.id;
+          } else {
+            results.failed++;
+            results.errors.push(`Row ${i + 1}: Customer "${validRecord.customerName}" not found, please include email to create new customer`);
+            continue;
+          }
+        } else {
           results.failed++;
-          results.errors.push(`Appointment ${results.success + results.failed}: Valid customer information is required`);
+          results.errors.push(`Row ${i + 1}: No customer information provided`);
           continue;
         }
         
-        // Process service information
-        let serviceId = appointmentData.serviceId;
-        
-        // If service ID is not provided but we have service name, try to find the service
-        if (!serviceId && appointmentData.serviceName) {
-          const existingServices = await db.select().from(services).where(
-            eq(services.name, appointmentData.serviceName)
+        // Find service if serviceName provided
+        let serviceId = null;
+        if (validRecord.serviceName) {
+          const service = services.find(s => 
+            s.name.toLowerCase() === validRecord.serviceName?.toLowerCase()
           );
           
-          if (existingServices.length > 0) {
-            serviceId = existingServices[0].id;
+          if (service) {
+            serviceId = service.id;
+          } else {
+            results.failed++;
+            results.errors.push(`Row ${i + 1}: Service "${validRecord.serviceName}" not found`);
+            continue;
           }
         }
         
-        // Parse date and times
-        const appointmentDate = new Date(appointmentData.date);
-        const [startHour, startMinute] = appointmentData.startTime.split(':').map(Number);
-        const endTime = appointmentData.endTime || ''; // Default empty string
-        const [endHour, endMinute] = endTime ? endTime.split(':').map(Number) : [startHour + 1, startMinute]; // Default 1 hour later
+        // Calculate end date if not provided
+        let endDate = validRecord.endDate;
+        if (!endDate && validRecord.duration) {
+          const startMs = validRecord.startDate.getTime();
+          endDate = new Date(startMs + (validRecord.duration * 60 * 1000));
+        } else if (!endDate && serviceId) {
+          // Try to get duration from service
+          const service = services.find(s => s.id === serviceId);
+          if (service && service.duration) {
+            const startMs = validRecord.startDate.getTime();
+            endDate = new Date(startMs + (service.duration * 60 * 1000));
+          } else {
+            // Default to 1 hour
+            const startMs = validRecord.startDate.getTime();
+            endDate = new Date(startMs + (60 * 60 * 1000));
+          }
+        } else if (!endDate) {
+          // Default to 1 hour if no duration specified
+          const startMs = validRecord.startDate.getTime();
+          endDate = new Date(startMs + (60 * 60 * 1000));
+        }
         
-        const startDateTime = new Date(appointmentDate);
-        startDateTime.setHours(startHour, startMinute);
-        
-        const endDateTime = new Date(appointmentDate);
-        endDateTime.setHours(endHour, endMinute);
-        
-        // Insert appointment
-        await db.insert(appointments).values({
+        // Create appointment object
+        const appointment = {
           businessId,
           customerId,
-          serviceId: serviceId || null,
-          title: appointmentData.serviceName || 'Appointment',
-          start: startDateTime,
-          end: endDateTime,
-          notes: appointmentData.notes || null,
-          status: appointmentData.status || 'scheduled',
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
+          serviceId,
+          startDate: validRecord.startDate,
+          endDate,
+          notes: validRecord.notes || null,
+          status: validRecord.status || 'scheduled',
+          allDay: false,
+          recurringAppointmentId: null
+        };
         
+        // Validate with the insert schema
+        const validatedData = insertAppointmentSchema.parse(appointment);
+        
+        // Create the appointment
+        await storage.createAppointment(validatedData);
         results.success++;
-      } catch (error: any) {
+      } catch (error) {
         results.failed++;
-        results.errors.push(`Appointment ${results.success + results.failed}: ${error.message || "Unknown error"}`);
+        if (error instanceof z.ZodError) {
+          results.errors.push(`Row ${i + 1}: ${error.errors[0].message}`);
+        } else if (error instanceof Error) {
+          results.errors.push(`Row ${i + 1}: ${error.message}`);
+        } else {
+          results.errors.push(`Row ${i + 1}: Unknown error`);
+        }
       }
     }
     
-    return res.status(201).json(results);
-  } catch (error: any) {
-    return res.status(500).json({ 
-      message: error.message || "An error occurred while importing appointments",
-      success: 0,
-      failed: req.body.data?.length || 0,
-      errors: [error.message || "An error occurred while importing appointments"]
-    });
+    res.status(200).json(results);
+  } catch (error) {
+    console.error("Error importing appointments:", error);
+    res.status(500).json({ message: "Error importing appointments" });
   }
 }

@@ -276,6 +276,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Error creating service" });
     }
   });
+  
+  // Apply industry-specific service templates
+  app.post("/api/services/template", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { businessId, services } = req.body;
+      
+      if (!businessId) {
+        return res.status(400).json({ message: "Business ID is required" });
+      }
+      
+      if (!Array.isArray(services) || services.length === 0) {
+        return res.status(400).json({ message: "Services array is required" });
+      }
+      
+      // Check if user has access to this business
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ message: "Unauthorized to add services to this business" });
+      }
+      
+      const createdServices = [];
+      
+      // Create services one by one
+      for (const serviceData of services) {
+        const validatedData = insertServiceSchema.parse({
+          ...serviceData,
+          businessId,
+          active: true,
+        });
+        
+        const service = await storage.createService(validatedData);
+        createdServices.push(service);
+      }
+      
+      res.status(201).json({
+        message: `Created ${createdServices.length} services`,
+        services: createdServices
+      });
+    } catch (error) {
+      console.error("Error applying service template:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ errors: error.format() });
+      }
+      res.status(500).json({ message: "Error applying service template" });
+    }
+  });
 
   app.put("/api/services/:id", async (req: Request, res: Response) => {
     try {

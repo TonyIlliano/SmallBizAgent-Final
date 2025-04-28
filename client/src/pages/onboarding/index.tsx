@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
+import { useOnboardingProgress, type OnboardingStep } from '@/hooks/use-onboarding-progress';
 
 import BusinessSetup from './steps/business-setup';
 import ServicesSetup from './steps/services-setup';
@@ -18,28 +19,34 @@ export default function OnboardingPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   
-  // Check if onboarding is already complete
-  const onboardingComplete = localStorage.getItem('onboardingComplete') === 'true';
+  // Use our progress hook
+  const { 
+    progress, 
+    setCurrentStep, 
+    updateStepStatus, 
+    completeOnboarding,
+    getNextIncompleteStep
+  } = useOnboardingProgress();
   
-  // Define the steps
+  // Define the steps with mapping to our progress tracking
   const steps = [
-    { id: 'business', label: 'Business Profile', component: BusinessSetup },
-    { id: 'services', label: 'Services', component: ServicesSetup },
-    { id: 'receptionist', label: 'Virtual Receptionist', component: VirtualReceptionistSetup },
-    { id: 'calendar', label: 'Calendar Integration', component: CalendarSetup },
-    { id: 'complete', label: 'Complete', component: FinalSetup },
+    { id: 'business' as OnboardingStep, label: 'Business Profile', component: BusinessSetup },
+    { id: 'services' as OnboardingStep, label: 'Services', component: ServicesSetup },
+    { id: 'receptionist' as OnboardingStep, label: 'Virtual Receptionist', component: VirtualReceptionistSetup },
+    { id: 'calendar' as OnboardingStep, label: 'Calendar Integration', component: CalendarSetup },
+    { id: 'final' as OnboardingStep, label: 'Complete', component: FinalSetup },
   ];
   
-  // Track current step
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const currentStep = steps[currentStepIndex];
+  // Find current step index based on progress
+  const currentStepIndex = steps.findIndex(step => step.id === progress.currentStep);
+  const currentStep = steps[currentStepIndex >= 0 ? currentStepIndex : 0];
   
   // Navigate to dashboard if onboarding is complete
   useEffect(() => {
-    if (onboardingComplete) {
+    if (progress.isComplete) {
       setLocation('/');
     }
-  }, [onboardingComplete, setLocation]);
+  }, [progress.isComplete, setLocation]);
   
   // If not logged in, navigate to auth page
   useEffect(() => {
@@ -48,25 +55,50 @@ export default function OnboardingPage() {
     }
   }, [user, isLoading, setLocation]);
   
+  // On first mount, check if we need to resume at a specific step
+  useEffect(() => {
+    const nextStep = getNextIncompleteStep();
+    const stepIndex = steps.findIndex(step => step.id === nextStep);
+    
+    if (stepIndex >= 0 && progress.currentStep !== nextStep) {
+      setCurrentStep(nextStep);
+    }
+  }, []);
+  
   const handleNext = () => {
     if (currentStepIndex < steps.length - 1) {
-      setCurrentStepIndex(prevIndex => prevIndex + 1);
+      // Mark current step as completed
+      updateStepStatus(currentStep.id, 'completed');
+      
+      // Move to next step
+      const nextStep = steps[currentStepIndex + 1].id;
+      setCurrentStep(nextStep);
+      
+      // If step is already in progress, don't change its status
+      if (progress.stepStatuses[nextStep] === 'not_started') {
+        updateStepStatus(nextStep, 'in_progress');
+      }
     }
   };
   
   const handleBack = () => {
     if (currentStepIndex > 0) {
-      setCurrentStepIndex(prevIndex => prevIndex - 1);
+      // Move to previous step
+      const prevStep = steps[currentStepIndex - 1].id;
+      setCurrentStep(prevStep);
     }
   };
   
   const handleSkip = () => {
-    // Mark all steps as skipped
-    localStorage.setItem('onboardingBusinessComplete', 'true');
-    localStorage.setItem('onboardingServicesComplete', 'true');
-    localStorage.setItem('onboardingReceptionistComplete', 'skipped');
-    localStorage.setItem('onboardingCalendarComplete', 'skipped');
-    localStorage.setItem('onboardingComplete', 'true');
+    // Mark all steps as skipped or completed
+    updateStepStatus('business', 'completed');
+    updateStepStatus('services', 'completed');
+    updateStepStatus('receptionist', 'skipped');
+    updateStepStatus('calendar', 'skipped');
+    updateStepStatus('final', 'completed');
+    
+    // Mark onboarding as complete
+    completeOnboarding();
     
     // Navigate to dashboard
     setLocation('/');

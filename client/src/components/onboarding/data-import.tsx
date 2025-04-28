@@ -182,7 +182,7 @@ export function DataImport({ businessId, onImportComplete }: DataImportProps) {
               {isUploading ? (
                 <div className="w-full space-y-4">
                   <div className="flex items-center justify-center">
-                    <FileUpload className="h-12 w-12 text-muted-foreground animate-pulse" />
+                    <UploadIcon className="h-12 w-12 text-muted-foreground animate-pulse" />
                   </div>
                   <div className="space-y-2">
                     <h3 className="font-medium">Processing your file...</h3>
@@ -273,7 +273,7 @@ export function DataImport({ businessId, onImportComplete }: DataImportProps) {
                           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                           onChange={handleFileUpload}
                         />
-                        <FileUpload className="mr-2 h-4 w-4" />
+                        <UploadIcon className="mr-2 h-4 w-4" />
                         Select CSV File
                       </label>
                     </Button>

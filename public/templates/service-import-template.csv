@@ -1,5 +1,6 @@
-name,description,price,duration,category
-Basic Consultation,Initial consultation service,99.99,60,Consultation
-Premium Service,Full-service premium package,199.99,120,Service
-Emergency Response,24/7 emergency response service,149.99,90,Emergency
-Maintenance,Regular system maintenance,79.99,45,Maintenance
+name,description,price,duration,active
+Basic Consultation,Initial consultation for new clients,75,60,true
+Standard Service,Our most popular service package,150,90,true
+Premium Package,Comprehensive service with all features,300,120,true
+Maintenance Plan,Regular maintenance service,50,45,true
+Emergency Service,24/7 emergency response,250,60,true

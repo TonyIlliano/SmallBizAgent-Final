@@ -1,3 +1,4 @@
-firstName,lastName,email,phone,address,city,state,zip,notes
-John,Smith,john@example.com,555-123-4567,123 Main St,Anytown,CA,12345,VIP customer
-Jane,Doe,jane@example.com,555-987-6543,456 Oak Ave,Somecity,NY,67890,Prefers email communication
+firstName,lastName,email,phone,address,city,state,zipCode,notes
+John,Doe,john.doe@example.com,555-123-4567,123 Main St,Anytown,CA,12345,Regular customer
+Jane,Smith,jane.smith@example.com,555-987-6543,456 Oak Ave,Somewhere,NY,67890,Prefers email contact
+,Business Name LLC,contact@businessname.com,555-111-2222,789 Commercial Blvd,Cityville,TX,54321,Business account
