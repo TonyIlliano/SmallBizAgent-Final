@@ -1,180 +1,130 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'wouter';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
-import { AlertCircle, ArrowRight, Check, Building, Briefcase, PhoneCall, Calendar, Settings } from 'lucide-react';
+import { useLocation } from 'wouter';
+import { useAuth } from '@/hooks/use-auth';
 
-interface SetupTask {
-  id: string;
-  title: string;
-  description: string;
-  completed: boolean;
-  link: string;
-  icon: React.ReactNode;
-}
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { CheckCircle, ChevronRight, X } from 'lucide-react';
 
 export function SetupChecklist() {
-  const [progress, setProgress] = useState(0);
-  const [showDismissed, setShowDismissed] = useState(true);
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const [isVisible, setIsVisible] = useState(true);
+  const [completedItems, setCompletedItems] = useState<Record<string, boolean>>({});
   
-  // Setup tasks
-  const [tasks, setTasks] = useState<SetupTask[]>([
-    {
-      id: 'business-profile',
-      title: 'Complete your business profile',
-      description: 'Add your business details, logo, and contact information',
-      completed: localStorage.getItem('onboardingBusinessComplete') === 'true',
-      link: '/onboarding',
-      icon: <Building className="h-5 w-5" />
-    },
-    {
-      id: 'services',
-      title: 'Add your services',
-      description: 'Define the services your business offers with pricing',
-      completed: localStorage.getItem('onboardingServicesComplete') === 'true',
-      link: '/onboarding',
-      icon: <Briefcase className="h-5 w-5" />
-    },
-    {
-      id: 'receptionist',
-      title: 'Set up virtual receptionist',
-      description: 'Configure your AI-powered call handler',
-      completed: localStorage.getItem('onboardingReceptionistComplete') === 'true' || 
-                localStorage.getItem('onboardingReceptionistComplete') === 'skipped',
-      link: '/onboarding',
-      icon: <PhoneCall className="h-5 w-5" />
-    },
-    {
-      id: 'calendar',
-      title: 'Connect your calendar',
-      description: 'Sync with Google, Outlook, or Apple calendar',
-      completed: localStorage.getItem('onboardingCalendarComplete') === 'true' || 
-                localStorage.getItem('onboardingCalendarComplete') === 'skipped',
-      link: '/onboarding',
-      icon: <Calendar className="h-5 w-5" />
-    },
-    {
-      id: 'notification',
-      title: 'Configure notifications',
-      description: 'Set up email and browser notifications',
-      completed: false,
-      link: '/settings',
-      icon: <Settings className="h-5 w-5" />
-    }
-  ]);
-  
-  // Calculate progress whenever tasks change
+  // Check localStorage on mount for completed items
   useEffect(() => {
-    const completedCount = tasks.filter(task => task.completed).length;
-    const calculatedProgress = Math.round((completedCount / tasks.length) * 100);
-    setProgress(calculatedProgress);
+    const onboardingComplete = localStorage.getItem('onboardingComplete') === 'true';
+    const businessComplete = localStorage.getItem('onboardingBusinessComplete') === 'true';
+    const servicesComplete = localStorage.getItem('onboardingServicesComplete') === 'true';
+    const receptionistComplete = localStorage.getItem('onboardingReceptionistComplete') === 'true' || 
+                               localStorage.getItem('onboardingReceptionistComplete') === 'skipped';
+    const calendarComplete = localStorage.getItem('onboardingCalendarComplete') === 'true' || 
+                           localStorage.getItem('onboardingCalendarComplete') === 'skipped';
     
-    // Hide checklist if user dismissed it or if all tasks are completed
-    const isDismissed = localStorage.getItem('setupChecklistDismissed') === 'true';
-    setShowDismissed(!isDismissed && calculatedProgress < 100);
-  }, [tasks]);
+    setCompletedItems({
+      business: businessComplete,
+      services: servicesComplete,
+      receptionist: receptionistComplete,
+      calendar: calendarComplete,
+    });
+    
+    // Hide checklist if all items are complete
+    if (onboardingComplete) {
+      setIsVisible(false);
+    }
+  }, []);
   
-  // Dismiss the checklist
-  const dismissChecklist = () => {
-    localStorage.setItem('setupChecklistDismissed', 'true');
-    setShowDismissed(false);
+  // Hide the checklist
+  const handleDismiss = () => {
+    setIsVisible(false);
+    localStorage.setItem('hideSetupChecklist', 'true');
   };
   
-  // Mark a task as completed
-  const markTaskCompleted = (taskId: string) => {
-    setTasks(tasks.map(task => 
-      task.id === taskId 
-        ? { ...task, completed: true } 
-        : task
-    ));
-    
-    localStorage.setItem(`${taskId}Complete`, 'true');
+  const navigateToOnboarding = () => {
+    setLocation('/onboarding');
   };
   
-  if (!showDismissed) return null;
+  // Return null if not visible
+  if (!isVisible) return null;
   
-  const incompleteTasks = tasks.filter(task => !task.completed);
+  // Calculate remaining items
+  const totalItems = Object.keys(completedItems).length;
+  const completedCount = Object.values(completedItems).filter(Boolean).length;
+  const remainingItems = totalItems - completedCount;
   
   return (
-    <Card className="relative overflow-hidden border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950">
-      <div className="absolute top-0 right-0 mt-4 mr-4">
-        <Button 
-          variant="ghost"
-          size="sm"
-          onClick={dismissChecklist}
-          className="h-7 w-7 p-0 rounded-full"
-          aria-label="Dismiss setup checklist"
-        >
-          <span className="sr-only">Dismiss</span>
-          <AlertCircle className="h-4 w-4" />
-        </Button>
-      </div>
-      
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-xl text-blue-800 dark:text-blue-200">
-          <span>Getting Started</span>
-          <span className="text-sm font-normal text-blue-700 dark:text-blue-300">{progress}% Complete</span>
-        </CardTitle>
-        <CardDescription className="text-blue-700 dark:text-blue-300">
-          Complete these tasks to get the most out of SmallBizAgent
-        </CardDescription>
-        <Progress value={progress} className="h-2 mt-1" />
+    <Card className="mb-6 overflow-hidden border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30">
+      <CardHeader className="pb-2">
+        <div className="flex justify-between items-start">
+          <div>
+            <CardTitle>Setup your business</CardTitle>
+            <CardDescription>
+              {remainingItems === 0
+                ? "All setup steps complete!" 
+                : `${remainingItems} ${remainingItems === 1 ? 'item' : 'items'} remaining`}
+            </CardDescription>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-8 w-8 p-0 rounded-full"
+            onClick={handleDismiss}
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Dismiss</span>
+          </Button>
+        </div>
       </CardHeader>
-      
       <CardContent>
-        <div className="space-y-4">
-          {incompleteTasks.slice(0, 3).map(task => (
-            <div 
-              key={task.id} 
-              className="flex items-start gap-3 p-3 rounded-lg bg-white dark:bg-blue-900 shadow-sm"
-            >
-              <div className="flex-shrink-0 mt-0.5">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-800">
-                  {task.icon}
-                </div>
-              </div>
-              <div className="flex-grow">
-                <h3 className="font-medium">{task.title}</h3>
-                <p className="text-sm text-muted-foreground">{task.description}</p>
-              </div>
-              <div className="flex-shrink-0">
-                <Link href={task.link}>
-                  <Button variant="ghost" size="sm" className="text-blue-600 dark:text-blue-300">
-                    <span className="sr-only">Start {task.title}</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          ))}
-          
-          {incompleteTasks.length > 3 && (
-            <p className="text-sm text-center text-blue-700 dark:text-blue-300">
-              +{incompleteTasks.length - 3} more tasks remain
-            </p>
-          )}
+        <div className="space-y-3">
+          <ChecklistItem 
+            title="Complete your business profile" 
+            isCompleted={completedItems.business || false}
+          />
+          <ChecklistItem 
+            title="Add your services" 
+            isCompleted={completedItems.services || false}
+          />
+          <ChecklistItem 
+            title="Set up virtual receptionist" 
+            isCompleted={completedItems.receptionist || false}
+          />
+          <ChecklistItem 
+            title="Connect your calendar" 
+            isCompleted={completedItems.calendar || false}
+          />
         </div>
       </CardContent>
-      
-      <CardFooter className="flex justify-between border-t border-blue-200 dark:border-blue-900 pt-4">
-        <Link href="/onboarding">
-          <Button 
-            variant="outline" 
-            className="border-blue-600 text-blue-700 hover:bg-blue-100 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-900"
-          >
-            Continue Setup
-          </Button>
-        </Link>
-        
-        <Button
-          variant="ghost"
-          onClick={dismissChecklist}
-          className="text-blue-700 hover:text-blue-800 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-900"
+      <CardFooter className="bg-blue-100/50 dark:bg-blue-900/20 pt-2 pb-2">
+        <Button 
+          variant="default" 
+          className="w-full"
+          onClick={navigateToOnboarding}
         >
-          Remind Me Later
+          {completedCount === 0 ? "Start setup" : 
+           completedCount === totalItems ? "Review setup" : "Continue setup"}
         </Button>
       </CardFooter>
     </Card>
+  );
+}
+
+function ChecklistItem({ title, isCompleted }: { title: string; isCompleted: boolean }) {
+  return (
+    <div className="flex items-center">
+      <div className={`flex-shrink-0 w-6 h-6 rounded-full ${
+        isCompleted ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-500'
+      } flex items-center justify-center mr-3`}>
+        {isCompleted ? (
+          <CheckCircle className="w-4 h-4" />
+        ) : (
+          <ChevronRight className="w-4 h-4" />
+        )}
+      </div>
+      <span className={isCompleted ? 'text-muted-foreground line-through' : ''}>
+        {title}
+      </span>
+    </div>
   );
 }
