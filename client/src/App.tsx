@@ -24,6 +24,7 @@ import Receptionist from "@/pages/receptionist/index";
 import ReceptionistTraining from "@/pages/receptionist/training";
 import Settings from "@/pages/settings";
 import CalendarSettings from "@/pages/settings/calendar";
+import PWAInstallationGuide from "@/pages/settings/pwa-installation";
 import AuthPage from "@/pages/auth/index";
 // Admin pages
 import AdminDashboard from "@/pages/admin/index";
@@ -34,6 +35,7 @@ import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { ProtectedAdminRoute } from "./components/auth/ProtectedAdminRoute";
 import { AppNav } from "./components/navigation/AppNav";
 import { ServiceWorkerNotification } from "@/components/ui/ServiceWorkerNotification";
+import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
 
 function Router() {
   return (
@@ -59,6 +61,7 @@ function Router() {
       <ProtectedRoute path="/receptionist/training" component={ReceptionistTraining} />
       <ProtectedRoute path="/settings" component={Settings} />
       <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />
+      <ProtectedRoute path="/settings/pwa-installation" component={PWAInstallationGuide} />
       
       {/* Admin routes */}
       <ProtectedAdminRoute path="/admin" component={AdminDashboard} />
@@ -79,6 +82,7 @@ function App() {
           <SidebarProvider>
             <Toaster />
             <ServiceWorkerNotification />
+            <PWAInstallPrompt />
             <AppNav />
             <div className="pt-0 md:pt-14">
               <Router />
