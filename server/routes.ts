@@ -27,6 +27,17 @@ import {
   checkBelongsToBusiness 
 } from "./auth";
 
+// Analytics service
+import {
+  getBusinessAnalytics,
+  getRevenueAnalytics,
+  getJobAnalytics,
+  getAppointmentAnalytics,
+  getCallAnalytics,
+  getCustomerAnalytics,
+  getPerformanceMetrics
+} from "./services/analyticsService";
+
 // Stripe setup
 import Stripe from "stripe";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_example");

@@ -5,16 +5,70 @@ import { ScheduleCard } from "@/components/dashboard/ScheduleCard";
 import { JobsTable } from "@/components/dashboard/JobsTable";
 import { CallsCard } from "@/components/dashboard/CallsCard";
 import { InvoicesCard } from "@/components/dashboard/InvoicesCard";
+import { Loader2 } from "lucide-react";
 
 import { 
   CheckSquare, 
   DollarSign, 
   Calendar as CalendarIcon, 
-  Phone 
+  Phone,
+  BarChart,
+  TrendingUp,
+  Clock,
+  Repeat 
 } from "lucide-react";
 
+// Analytics data interface
+interface BusinessAnalytics {
+  revenue: {
+    totalRevenue: number;
+    paidRevenue: number;
+    pendingRevenue: number;
+    overdueRevenue: number;
+    revenueByMonth: { month: string; revenue: number; }[];
+  };
+  jobs: {
+    totalJobs: number;
+    completedJobs: number;
+    inProgressJobs: number;
+    scheduledJobs: number;
+    jobsByService: { serviceName: string; count: number; }[];
+    jobsOverTime: { date: string; count: number; }[];
+  };
+  appointments: {
+    totalAppointments: number;
+    completedAppointments: number;
+    upcomingAppointments: number;
+    appointmentsByStaff: { staffName: string; count: number; }[];
+    appointmentsByDay: { day: string; count: number; }[];
+  };
+  calls: {
+    totalCalls: number;
+    answeredCalls: number;
+    missedCalls: number;
+    emergencyCalls: number;
+    callsByTime: { hour: number; count: number; }[];
+    callsOverTime: { date: string; count: number; }[];
+    intentBreakdown: { intent: string; count: number; }[];
+  };
+  customers: {
+    totalCustomers: number;
+    newCustomers: number;
+    returningCustomers: number;
+    customersBySource: { source: string; count: number; }[];
+    topCustomers: { customerId: number; customerName: string; revenue: number; jobCount: number; }[];
+  };
+  performance: {
+    revenuePerJob: number;
+    jobCompletionRate: number;
+    averageJobDuration: number;
+    callConversionRate: number;
+    appointmentCompletionRate: number;
+  };
+}
+
 export default function Dashboard() {
-  // Fetch dashboard data
+  // Fetch dashboard data for backward compatibility
   const { data: jobs } = useQuery({
     queryKey: ['/api/jobs', { businessId: 1, status: 'completed' }],
   });
@@ -34,22 +88,10 @@ export default function Dashboard() {
     queryKey: ['/api/call-logs', { businessId: 1 }],
   });
 
-  // Calculate monthly revenue
-  const calculateMonthlyRevenue = () => {
-    if (!invoices) return 0;
-    
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-    
-    return invoices
-      .filter((invoice: any) => {
-        const invoiceDate = new Date(invoice.createdAt);
-        return invoiceDate.getMonth() === currentMonth && 
-               invoiceDate.getFullYear() === currentYear &&
-               invoice.status === 'paid';
-      })
-      .reduce((sum: number, invoice: any) => sum + invoice.total, 0);
-  };
+  // Fetch analytics data
+  const { data: analytics, isLoading: analyticsLoading } = useQuery<BusinessAnalytics>({
+    queryKey: ['/api/analytics', { businessId: 1, period: 'month' }],
+  });
 
   return (
     <PageLayout title="Dashboard">
