@@ -57,8 +57,30 @@
       "purpose": "any maskable"
     }
   ],
-  "splash_pages": null,
-  "prefer_related_applications": false,
-  "related_applications": [],
-  "categories": ["business", "productivity", "utilities"]
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View your business dashboard",
+      "url": "/"
+    },
+    {
+      "name": "Appointments",
+      "short_name": "Appointments",
+      "description": "Manage your appointments",
+      "url": "/appointments"
+    },
+    {
+      "name": "Customers",
+      "short_name": "Customers",
+      "description": "Manage your customers",
+      "url": "/customers"
+    },
+    {
+      "name": "Invoices",
+      "short_name": "Invoices",
+      "description": "Manage your invoices",
+      "url": "/invoices"
+    }
+  ]
 }

@@ -1,152 +1,126 @@
-// Service Worker for SmallBizAgent PWA
+// Service Worker Version
+const CACHE_VERSION = 'v1';
+const CACHE_NAME = `smallbizagent-cache-${CACHE_VERSION}`;
 
-const CACHE_NAME = 'smallbizagent-v1';
-const ASSETS = [
+// Assets to cache
+const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png'
-  // Note: Additional assets will be cached dynamically
 ];
 
-// Install event - caches static assets
-self.addEventListener('install', (event) => {
+// Install handler: Cache static assets
+self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Opened cache');
-        return cache.addAll(ASSETS);
+      .then(cache => {
+        console.log('Service Worker: Caching static assets');
+        return cache.addAll(STATIC_ASSETS);
       })
+      .then(() => self.skipWaiting())
   );
-  // Skip waiting to activate the new service worker immediately
-  self.skipWaiting();
 });
 
-// Activate event - clean up old caches
-self.addEventListener('activate', (event) => {
-  const cacheWhitelist = [CACHE_NAME];
+// Activate handler: Clean up old caches
+self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
+    caches.keys().then(cacheNames => {
       return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            return caches.delete(cacheName);
-          }
-        })
+        cacheNames
+          .filter(name => name.startsWith('smallbizagent-cache-') && name !== CACHE_NAME)
+          .map(name => caches.delete(name))
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  // Ensure the service worker takes control immediately
-  self.clients.claim();
 });
 
-// Fetch event - serve cached content when offline, cache API responses
-self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests and browser extension/chrome-extension requests
-  if (event.request.method !== 'GET' || 
-      event.request.url.startsWith('chrome-extension') ||
-      event.request.url.includes('extension') ||
-      !event.request.url.startsWith('http')) {
+// Fetch handler: Serve from cache, falling back to network
+self.addEventListener('fetch', event => {
+  // Skip non-GET requests and API calls
+  if (
+    event.request.method !== 'GET' || 
+    event.request.url.includes('/api/') ||
+    event.request.url.includes('/ws')
+  ) {
     return;
   }
 
-  // For API requests, try network first, then fallback to cache
-  if (event.request.url.includes('/api/')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          // Clone the response before using it
-          const responseClone = response.clone();
-          
-          caches.open(CACHE_NAME)
-            .then((cache) => {
-              // Only cache successful responses
-              if (response.status === 200) {
-                cache.put(event.request, responseClone);
-              }
-            });
-            
-          return response;
-        })
-        .catch(() => {
-          // If network fetch fails, try to return from cache
-          return caches.match(event.request);
-        })
-    );
-    return;
-  }
-
-  // For static content, use cache-first strategy
   event.respondWith(
     caches.match(event.request)
-      .then((response) => {
-        // Cache hit - return response
+      .then(response => {
+        // Return cached response if found
         if (response) {
           return response;
         }
-        
-        // Clone the request before using it
+
+        // Clone the request - request is a stream that can only be consumed once
         const fetchRequest = event.request.clone();
-        
-        // Try to fetch from network
+
+        // Make network request
         return fetch(fetchRequest)
-          .then((response) => {
-            // Don't cache non-successful responses or non-GET requests
+          .then(response => {
+            // Check if valid response
             if (!response || response.status !== 200 || response.type !== 'basic') {
               return response;
             }
-            
-            // Clone the response before using it
+
+            // Clone the response - it's a stream that can only be consumed once
             const responseToCache = response.clone();
-            
-            // Cache the fetched response
+
+            // Cache the new resource
             caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(event.request, responseToCache);
+              .then(cache => {
+                // Don't cache API responses
+                if (!event.request.url.includes('/api/')) {
+                  cache.put(event.request, responseToCache);
+                }
               });
-              
+
             return response;
           })
           .catch(() => {
-            // If fetch fails and there's no cache match, return a fallback
-            if (event.request.url.includes('.html')) {
+            // If network request fails and it's an HTML page, serve the offline page
+            if (event.request.headers.get('Accept').includes('text/html')) {
               return caches.match('/');
             }
-            return new Response('Network error, app is offline');
           });
       })
   );
 });
 
-// Handle push notifications (for future implementation)
-self.addEventListener('push', (event) => {
-  if (event.data) {
-    const data = event.data.json();
-    
-    const options = {
-      body: data.body || 'New notification from SmallBizAgent',
-      icon: '/icons/icon-192x192.png',
-      badge: '/icons/badge-72x72.png',
-      vibrate: [100, 50, 100],
-      data: {
-        url: data.url || '/'
+// Handle push notifications (if needed in the future)
+self.addEventListener('push', event => {
+  const options = {
+    body: event.data.text(),
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/badge-72x72.png',
+    vibrate: [100, 50, 100],
+    data: {
+      dateOfArrival: Date.now(),
+      primaryKey: '1'
+    },
+    actions: [
+      {
+        action: 'explore',
+        title: 'View'
       }
-    };
-    
-    event.waitUntil(
-      self.registration.showNotification(data.title || 'SmallBizAgent', options)
-    );
-  }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification('SmallBizAgent', options)
+  );
 });
 
-// Handle notification click
-self.addEventListener('notificationclick', (event) => {
+// Handle notification clicks
+self.addEventListener('notificationclick', event => {
   event.notification.close();
-  
-  if (event.notification.data && event.notification.data.url) {
-    event.waitUntil(
-      clients.openWindow(event.notification.data.url)
-    );
+
+  if (event.action === 'explore') {
+    clients.openWindow('/');
+  } else {
+    clients.openWindow('/');
   }
 });
