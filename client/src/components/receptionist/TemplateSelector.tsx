@@ -124,15 +124,8 @@ export default function TemplateSelector() {
   const commonTemplates = filteredTemplates.filter(t => t.isCommon);
   const industryTemplates = filteredTemplates.filter(t => !t.isCommon);
 
-  // Format industry name for display
-  const formatIndustryName = (industry: any): string => {
-    if (!industry) return "Unknown";
-    
-    const industryStr = typeof industry === 'string' ? industry : String(industry);
-    
-    if (industryStr === "general") return "General Business";
-    return industryStr.charAt(0).toUpperCase() + industryStr.slice(1);
-  };
+  // Format industry name for display - using the helper function
+  const formatIndustryName = formatIndustryNameHelper;
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -248,7 +241,7 @@ export default function TemplateSelector() {
                     {industryTemplates.length > 0 && (
                       <div>
                         <h3 className="text-lg font-medium mb-3">
-                          {formatIndustryName(selectedIndustry)} Specific Intents
+                          {formatIndustryNameHelper(selectedIndustry)} Specific Intents
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {industryTemplates.map((template) => (
@@ -344,6 +337,16 @@ interface TemplateCardProps {
   isLoading: boolean;
 }
 
+// Helper to format industry name consistently
+const formatIndustryNameHelper = (industry: any): string => {
+  if (!industry) return "Unknown";
+  
+  const industryStr = typeof industry === 'string' ? industry : String(industry);
+  
+  if (industryStr === "general") return "General Business";
+  return industryStr.charAt(0).toUpperCase() + industryStr.slice(1);
+};
+
 function TemplateCard({ template, onApply, isLoading }: TemplateCardProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -356,7 +359,7 @@ function TemplateCard({ template, onApply, isLoading }: TemplateCardProps) {
             <Badge variant="outline" className="bg-slate-100">Common</Badge>
           ) : (
             <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">
-              {formatIndustryName(template.industry)}
+              {formatIndustryNameHelper(template.industry)}
             </Badge>
           )}
         </div>

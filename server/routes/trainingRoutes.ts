@@ -234,7 +234,9 @@ export function registerTrainingRoutes(app: any) {
       // Format the response for the client
       res.json({
         intent: response.intentName || 'Unknown',
-        confidence: typeof response.confidence === 'number' ? response.confidence : 0.5,
+        confidence: (response as any).confidence !== undefined 
+          ? (response as any).confidence 
+          : 0.5,
         message: response.message || "",
         dialogState: response.dialogState || "Unknown",
         isSimulated: !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY
