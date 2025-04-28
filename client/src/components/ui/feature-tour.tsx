@@ -1,105 +1,144 @@
-import { useState, useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { X, ChevronRight, ChevronLeft, MapPin } from 'lucide-react';
 
-interface TourStep {
+export interface TourStep {
   target: string;
-  content: string;
   title: string;
-  position: 'top' | 'right' | 'bottom' | 'left';
+  content: string;
+  placement?: 'top' | 'right' | 'bottom' | 'left';
 }
 
-interface FeatureTourProps {
+export interface FeatureTourProps {
   tourId: string;
   steps: TourStep[];
   onComplete?: () => void;
+  autoStart?: boolean;
 }
 
-export function FeatureTour({ tourId, steps, onComplete }: FeatureTourProps) {
+export function FeatureTour({ tourId, steps, onComplete, autoStart = false }: FeatureTourProps) {
+  const [location] = useLocation();
   const [currentStep, setCurrentStep] = useState(0);
-  const [isVisible, setIsVisible] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
-  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltipSize, setTooltipSize] = useState({ width: 320, height: 180 });
   
+  // Check if this tour has been completed
   useEffect(() => {
-    // Check if this tour has been completed before
+    // Check if tour has been completed
     const completedTours = JSON.parse(localStorage.getItem('completedTours') || '{}');
     if (completedTours[tourId]) {
-      setIsVisible(false);
+      setIsOpen(false);
       return;
     }
     
-    // Position the tooltip relative to the target element
-    const positionTooltip = () => {
-      const step = steps[currentStep];
-      const targetEl = document.querySelector(step.target);
-      if (!targetEl || !tooltipRef.current) return;
+    // Auto-start the tour
+    if (autoStart) {
+      setIsOpen(true);
+    }
+  }, [tourId, autoStart]);
+  
+  // Update position when step changes or window resizes
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const updatePosition = () => {
+      const currentTarget = steps[currentStep]?.target;
+      if (!currentTarget) return;
       
-      // Get positions
-      const targetRect = targetEl.getBoundingClientRect();
-      const tooltipRect = tooltipRef.current.getBoundingClientRect();
+      const targetElement = document.querySelector(currentTarget);
+      if (!targetElement) return;
       
-      // Calculate position based on specified position
+      const rect = targetElement.getBoundingClientRect();
+      const placement = steps[currentStep]?.placement || 'bottom';
+      
       let top = 0;
       let left = 0;
       
-      switch (step.position) {
+      switch (placement) {
         case 'top':
-          top = targetRect.top - tooltipRect.height - 10;
-          left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
+          top = rect.top - tooltipSize.height - 10;
+          left = rect.left + rect.width / 2 - tooltipSize.width / 2;
           break;
         case 'right':
-          top = targetRect.top + (targetRect.height / 2) - (tooltipRect.height / 2);
-          left = targetRect.right + 10;
+          top = rect.top + rect.height / 2 - tooltipSize.height / 2;
+          left = rect.right + 10;
           break;
         case 'bottom':
-          top = targetRect.bottom + 10;
-          left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
+          top = rect.bottom + 10;
+          left = rect.left + rect.width / 2 - tooltipSize.width / 2;
           break;
         case 'left':
-          top = targetRect.top + (targetRect.height / 2) - (tooltipRect.height / 2);
-          left = targetRect.left - tooltipRect.width - 10;
+          top = rect.top + rect.height / 2 - tooltipSize.height / 2;
+          left = rect.left - tooltipSize.width - 10;
           break;
       }
       
-      // Make sure tooltip is within viewport
-      if (top < 0) top = 10;
-      if (left < 0) left = 10;
-      if (top + tooltipRect.height > window.innerHeight) {
-        top = window.innerHeight - tooltipRect.height - 10;
+      // Ensure tooltip stays within viewport
+      if (left < 10) left = 10;
+      if (left + tooltipSize.width > window.innerWidth - 10) {
+        left = window.innerWidth - tooltipSize.width - 10;
       }
-      if (left + tooltipRect.width > window.innerWidth) {
-        left = window.innerWidth - tooltipRect.width - 10;
+      
+      if (top < 10) top = 10;
+      if (top + tooltipSize.height > window.innerHeight - 10) {
+        top = window.innerHeight - tooltipSize.height - 10;
       }
       
       setPosition({ top, left });
       
-      // Highlight target element
-      targetEl.classList.add('ring-2', 'ring-primary', 'ring-offset-2', 'z-30');
-      
-      // Remove highlight from all other elements
-      document.querySelectorAll('.ring-primary').forEach(el => {
-        if (el !== targetEl) {
-          el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'z-30');
-        }
-      });
+      // Highlight the target element
+      targetElement.classList.add('tour-highlight');
     };
     
-    positionTooltip();
+    updatePosition();
     
-    // Update position on resize
-    window.addEventListener('resize', positionTooltip);
+    // Clean up previous highlight
+    document.querySelectorAll('.tour-highlight').forEach(el => {
+      el.classList.remove('tour-highlight');
+    });
+    
+    // Add styles for the tour highlight if they don't exist
+    if (!document.getElementById('tour-highlight-style')) {
+      const style = document.createElement('style');
+      style.id = 'tour-highlight-style';
+      style.innerHTML = `
+        .tour-highlight {
+          position: relative;
+          z-index: 60;
+          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.5);
+          border-radius: 4px;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    
+    window.addEventListener('resize', updatePosition);
     
     return () => {
-      window.removeEventListener('resize', positionTooltip);
-      // Remove highlights from all elements
-      document.querySelectorAll('.ring-primary').forEach(el => {
-        el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'z-30');
+      window.removeEventListener('resize', updatePosition);
+      document.querySelectorAll('.tour-highlight').forEach(el => {
+        el.classList.remove('tour-highlight');
       });
     };
-  }, [currentStep, steps, tourId]);
+  }, [currentStep, isOpen, steps]);
   
+  // Close the tour and mark as completed
+  const completeTour = () => {
+    setIsOpen(false);
+    
+    // Save completed tour in localStorage
+    const completedTours = JSON.parse(localStorage.getItem('completedTours') || '{}');
+    completedTours[tourId] = true;
+    localStorage.setItem('completedTours', JSON.stringify(completedTours));
+    
+    if (onComplete) {
+      onComplete();
+    }
+  };
+  
+  // Navigate between steps
   const nextStep = () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
@@ -114,74 +153,76 @@ export function FeatureTour({ tourId, steps, onComplete }: FeatureTourProps) {
     }
   };
   
-  const skipTour = () => {
-    completeTour();
-  };
+  if (!isOpen || steps.length === 0) {
+    return null;
+  }
   
-  const completeTour = () => {
-    // Mark this tour as completed
-    const completedTours = JSON.parse(localStorage.getItem('completedTours') || '{}');
-    completedTours[tourId] = true;
-    localStorage.setItem('completedTours', JSON.stringify(completedTours));
-    
-    // Hide the tour
-    setIsVisible(false);
-    
-    // Remove highlights from all elements
-    document.querySelectorAll('.ring-primary').forEach(el => {
-      el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'z-30');
-    });
-    
-    // Call onComplete callback
-    onComplete?.();
-  };
-  
-  if (!isVisible) return null;
-  
-  const step = steps[currentStep];
+  const currentTourStep = steps[currentStep];
   
   return (
     <>
-      <div className="fixed inset-0 bg-black/10 z-40" onClick={skipTour}></div>
+      {/* Overlay */}
+      <div className="fixed inset-0 bg-black/40 z-50" onClick={completeTour}></div>
       
-      <Card 
-        ref={tooltipRef}
-        className="fixed z-50 w-80 shadow-lg"
-        style={{ 
-          top: `${position.top}px`, 
-          left: `${position.left}px` 
+      {/* Tooltip */}
+      <div 
+        className="fixed z-[60] bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 max-w-[320px]"
+        style={{
+          top: `${position.top}px`,
+          left: `${position.left}px`,
+          width: `${tooltipSize.width}px`,
         }}
       >
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex justify-between items-center">
-            {step.title}
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={skipTour}>
-              <X className="h-4 w-4" />
-            </Button>
-          </CardTitle>
-        </CardHeader>
+        <Button 
+          variant="ghost" 
+          size="icon"
+          className="absolute top-1 right-1 h-6 w-6 rounded-full p-0"
+          onClick={completeTour}
+          aria-label="Close tour"
+        >
+          <X className="h-4 w-4" />
+        </Button>
         
-        <CardContent className="text-sm">
-          <p>{step.content}</p>
-        </CardContent>
+        <div className="flex items-center gap-2 mb-2">
+          <MapPin className="h-5 w-5 text-primary" />
+          <h3 className="font-medium">{currentTourStep.title}</h3>
+        </div>
         
-        <CardFooter className="pt-0 flex justify-between items-center">
-          <span className="text-xs text-muted-foreground">
-            {currentStep + 1} of {steps.length}
-          </span>
+        <p className="text-sm text-muted-foreground mb-4">
+          {currentTourStep.content}
+        </p>
+        
+        <div className="flex items-center justify-between mt-2">
+          <div className="text-sm text-muted-foreground">
+            Step {currentStep + 1} of {steps.length}
+          </div>
           
-          <div className="space-x-2">
-            {currentStep > 0 && (
-              <Button variant="outline" size="sm" onClick={prevStep}>
-                Back
-              </Button>
-            )}
-            <Button size="sm" onClick={nextStep}>
-              {currentStep < steps.length - 1 ? 'Next' : 'Finish'}
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={prevStep}
+              disabled={currentStep === 0}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Back
+            </Button>
+            
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={nextStep}
+            >
+              {currentStep < steps.length - 1 ? (
+                <>
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </>
+              ) : 'Finish'}
             </Button>
           </div>
-        </CardFooter>
-      </Card>
+        </div>
+      </div>
     </>
   );
 }

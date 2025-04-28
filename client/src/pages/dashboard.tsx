@@ -70,6 +70,14 @@ interface BusinessAnalytics {
 }
 
 export default function Dashboard() {
+  const [showSetupChecklist, setShowSetupChecklist] = useState(true);
+  
+  // Check if onboarding is complete
+  useEffect(() => {
+    const isOnboardingComplete = localStorage.getItem('onboardingComplete') === 'true';
+    setShowSetupChecklist(!isOnboardingComplete);
+  }, []);
+  
   // Fetch dashboard data for backward compatibility
   const { data: jobs = [] } = useQuery<any[]>({
     queryKey: ['/api/jobs', { businessId: 1, status: 'completed' }],
@@ -120,6 +128,13 @@ export default function Dashboard() {
   return (
     <PageLayout title="Dashboard">
       <div className="space-y-6">
+        {/* Setup Checklist */}
+        {showSetupChecklist && (
+          <div className="mb-6">
+            <SetupChecklist />
+          </div>
+        )}
+        
         {/* Top Section - Analytics Cards */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
