@@ -47,7 +47,7 @@ export default function VirtualReceptionistSetup({ onComplete }: VirtualReceptio
   const businessId = user?.businessId || 1;
   
   // Fetch any existing receptionist config
-  const { data: config, isLoading: isLoadingConfig } = useQuery({
+  const { data: config, isLoading: isLoadingConfig } = useQuery<{ id?: number } | undefined>({
     queryKey: ['/api/receptionist-config', businessId],
     retry: false,
     enabled: !!businessId,

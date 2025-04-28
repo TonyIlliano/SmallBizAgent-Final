@@ -1,22 +1,11 @@
-import { useState, useEffect } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
+import { useLocation } from 'wouter';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
-import { 
-  Check, 
-  AlertTriangle,
-  Calendar as CalendarIcon, 
-  PhoneCall, 
-  Building, 
-  Briefcase,
-  Loader2 
-} from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CheckCircle, ChevronRight, Loader2 } from 'lucide-react';
 
 interface FinalSetupProps {
   onComplete: () => void;
@@ -25,238 +14,181 @@ interface FinalSetupProps {
 export default function FinalSetup({ onComplete }: FinalSetupProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [isFinishing, setIsFinishing] = useState(false);
-  const [notifications, setNotifications] = useState({
-    email: true,
-    sms: false,
-    browser: true
-  });
+  const [, setLocation] = useLocation();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Get completion status from localStorage
-  const [completedSteps, setCompletedSteps] = useState({
-    business: localStorage.getItem('onboardingBusinessComplete') === 'true',
-    services: localStorage.getItem('onboardingServicesComplete') === 'true',
-    receptionist: localStorage.getItem('onboardingReceptionistComplete') === 'true' || 
-                  localStorage.getItem('onboardingReceptionistComplete') === 'skipped',
-    calendar: localStorage.getItem('onboardingCalendarComplete') === 'true' || 
-              localStorage.getItem('onboardingCalendarComplete') === 'skipped',
-  });
+  // Check which steps are completed
+  const businessComplete = localStorage.getItem('onboardingBusinessComplete') === 'true';
+  const servicesComplete = localStorage.getItem('onboardingServicesComplete') === 'true';
+  const receptionistComplete = localStorage.getItem('onboardingReceptionistComplete') === 'true' || 
+                              localStorage.getItem('onboardingReceptionistComplete') === 'skipped';
+  const calendarComplete = localStorage.getItem('onboardingCalendarComplete') === 'true' || 
+                          localStorage.getItem('onboardingCalendarComplete') === 'skipped';
   
-  const finishOnboardingMutation = useMutation({
-    mutationFn: async () => {
-      const businessId = user?.businessId || 1;
-      return apiRequest("POST", "/api/onboarding/complete", { 
-        businessId,
-        notifications,
-        completedSteps
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "Setup Complete",
-        description: "Your business is now ready to use SmallBizAgent"
-      });
-      
-      // Mark onboarding as complete
-      localStorage.setItem('onboardingComplete', 'true');
-      
-      // Redirect to dashboard
+  const allStepsComplete = businessComplete && servicesComplete && receptionistComplete && calendarComplete;
+  
+  const completeOnboarding = () => {
+    setIsSubmitting(true);
+    
+    // Mark onboarding as complete
+    localStorage.setItem('onboardingComplete', 'true');
+    
+    // Show success message
+    toast({
+      title: 'Onboarding complete!',
+      description: 'You\'re all set to start using SmallBizAgent',
+    });
+    
+    // Move to dashboard
+    setTimeout(() => {
       onComplete();
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: "There was a problem completing the setup",
-        variant: "destructive",
-      });
-      setIsFinishing(false);
-    },
-  });
-  
-  const handleNotificationChange = (key: keyof typeof notifications) => {
-    setNotifications(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
-  };
-  
-  const finishSetup = () => {
-    setIsFinishing(true);
-    finishOnboardingMutation.mutate();
+      setLocation('/');
+    }, 1000);
   };
   
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold mb-2">You're Almost Done!</h2>
-        <p className="text-muted-foreground">
-          Review your setup progress and complete the onboarding process
+      <div className="text-center pb-4">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+          <CheckCircle className="h-8 w-8 text-primary" />
+        </div>
+        <h2 className="text-2xl font-bold tracking-tight">Setup Complete!</h2>
+        <p className="text-muted-foreground mt-2">
+          You've completed all the necessary steps to get started with SmallBizAgent.
         </p>
       </div>
       
-      <div className="space-y-4">
-        <h3 className="text-lg font-medium">Setup Progress</h3>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Business Profile</CardTitle>
+            <CardDescription>
+              {businessComplete ? 'Setup complete' : 'Not configured'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-muted-foreground">
+                Your business details and contact information
+              </p>
+              {businessComplete && (
+                <div className="h-6 w-6 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
         
-        <div className="grid gap-3">
-          <Card>
-            <CardContent className="p-4 flex items-start">
-              <div className="mr-3 mt-0.5">
-                {completedSteps.business ? (
-                  <div className="h-6 w-6 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="h-4 w-4 text-green-600" />
-                  </div>
-                ) : (
-                  <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="font-medium flex items-center">
-                  <Building className="h-4 w-4 mr-1" />
-                  Business Profile
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Services</CardTitle>
+            <CardDescription>
+              {servicesComplete ? 'Setup complete' : 'Not configured'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-muted-foreground">
+                Your service offerings and pricing
+              </p>
+              {servicesComplete && (
+                <div className="h-6 w-6 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  {completedSteps.business 
-                    ? "Your business profile is complete" 
-                    : "Business profile is incomplete"}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4 flex items-start">
-              <div className="mr-3 mt-0.5">
-                {completedSteps.services ? (
-                  <div className="h-6 w-6 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="h-4 w-4 text-green-600" />
-                  </div>
-                ) : (
-                  <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="font-medium flex items-center">
-                  <Briefcase className="h-4 w-4 mr-1" />
-                  Services
+              )}
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Virtual Receptionist</CardTitle>
+            <CardDescription>
+              {receptionistComplete 
+                ? localStorage.getItem('onboardingReceptionistComplete') === 'skipped'
+                  ? 'Will set up later'
+                  : 'Setup complete'
+                : 'Not configured'
+              }
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-muted-foreground">
+                AI-powered call handling and scheduling
+              </p>
+              {receptionistComplete && (
+                <div className="h-6 w-6 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  {completedSteps.services 
-                    ? "You've added services your business offers" 
-                    : "No services have been added yet"}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4 flex items-start">
-              <div className="mr-3 mt-0.5">
-                {completedSteps.receptionist ? (
-                  <div className="h-6 w-6 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="h-4 w-4 text-green-600" />
-                  </div>
-                ) : (
-                  <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="font-medium flex items-center">
-                  <PhoneCall className="h-4 w-4 mr-1" />
-                  Virtual Receptionist
+              )}
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Calendar Integration</CardTitle>
+            <CardDescription>
+              {calendarComplete 
+                ? localStorage.getItem('onboardingCalendarComplete') === 'skipped'
+                  ? 'Will set up later'
+                  : 'Setup complete'
+                : 'Not configured'
+              }
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-muted-foreground">
+                Sync with your existing calendar system
+              </p>
+              {calendarComplete && (
+                <div className="h-6 w-6 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  {completedSteps.receptionist 
-                    ? localStorage.getItem('onboardingReceptionistComplete') === 'skipped'
-                      ? "You skipped virtual receptionist setup"
-                      : "Virtual receptionist is configured"
-                    : "Virtual receptionist is not configured"}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4 flex items-start">
-              <div className="mr-3 mt-0.5">
-                {completedSteps.calendar ? (
-                  <div className="h-6 w-6 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="h-4 w-4 text-green-600" />
-                  </div>
-                ) : (
-                  <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="font-medium flex items-center">
-                  <CalendarIcon className="h-4 w-4 mr-1" />
-                  Calendar Integration
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {completedSteps.calendar 
-                    ? localStorage.getItem('onboardingCalendarComplete') === 'skipped'
-                      ? "You skipped calendar integration"
-                      : "Calendar is connected"
-                    : "Calendar is not connected"}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
       
-      <div className="space-y-4 pt-4 border-t">
-        <h3 className="text-lg font-medium">Notification Preferences</h3>
-        
-        <div className="space-y-2">
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="notifications-email" 
-              checked={notifications.email}
-              onCheckedChange={() => handleNotificationChange('email')}
-            />
-            <Label htmlFor="notifications-email">
-              Email notifications
-            </Label>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="notifications-sms" 
-              checked={notifications.sms}
-              onCheckedChange={() => handleNotificationChange('sms')}
-            />
-            <Label htmlFor="notifications-sms">
-              SMS notifications (requires phone verification)
-            </Label>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="notifications-browser" 
-              checked={notifications.browser}
-              onCheckedChange={() => handleNotificationChange('browser')}
-            />
-            <Label htmlFor="notifications-browser">
-              Browser notifications
-            </Label>
-          </div>
-        </div>
+      <div className="pt-6">
+        <Card className="bg-primary/5 border-primary/20">
+          <CardContent className="p-6">
+            <h3 className="font-medium text-lg mb-2">What's Next?</h3>
+            <ul className="space-y-2">
+              <li className="flex items-start">
+                <ChevronRight className="h-5 w-5 mr-2 text-primary shrink-0" />
+                <span>Invite staff members to join your team</span>
+              </li>
+              <li className="flex items-start">
+                <ChevronRight className="h-5 w-5 mr-2 text-primary shrink-0" />
+                <span>Add your first customer to the system</span>
+              </li>
+              <li className="flex items-start">
+                <ChevronRight className="h-5 w-5 mr-2 text-primary shrink-0" />
+                <span>Create and send your first invoice</span>
+              </li>
+              <li className="flex items-start">
+                <ChevronRight className="h-5 w-5 mr-2 text-primary shrink-0" />
+                <span>Schedule your first appointment</span>
+              </li>
+            </ul>
+          </CardContent>
+        </Card>
       </div>
       
-      <div className="pt-4">
+      <div className="pt-4 text-center">
         <Button 
-          onClick={finishSetup}
-          className="w-full"
-          disabled={isFinishing}
+          onClick={completeOnboarding}
+          disabled={!allStepsComplete || isSubmitting}
+          size="lg"
+          className="min-w-40"
         >
-          {isFinishing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Complete Setup and Go to Dashboard
+          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Go to Dashboard
         </Button>
       </div>
     </div>

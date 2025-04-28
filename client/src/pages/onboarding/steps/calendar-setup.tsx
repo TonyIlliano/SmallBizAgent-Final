@@ -63,9 +63,10 @@ export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
   // Authenticate with calendar provider mutation
   const authProviderMutation = useMutation({
     mutationFn: async (provider: string) => {
-      return apiRequest('POST', '/api/calendar/auth', { provider });
+      const res = await apiRequest('POST', '/api/calendar/auth', { provider });
+      return await res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: { authUrl?: string }) => {
       // Redirect to OAuth page
       if (data.authUrl) {
         window.location.href = data.authUrl;
@@ -94,7 +95,6 @@ export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
       toast({
         title: 'Calendar settings saved',
         description: 'Your calendar integration has been configured',
-        variant: 'success',
       });
       
       // Mark this step as complete if we have a provider
