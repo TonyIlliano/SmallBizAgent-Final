@@ -34,7 +34,7 @@ export default function OnboardingSubscription() {
   }, [user, navigate]);
 
   // Fetch all available plans
-  const { data: plans, isLoading: isLoadingPlans } = useQuery({
+  const { data: plans = [], isLoading: isLoadingPlans } = useQuery<Plan[]>({
     queryKey: ['/api/subscription/plans'],
     enabled: !!user,
   });
@@ -45,33 +45,17 @@ export default function OnboardingSubscription() {
 
   const handleContinue = async () => {
     if (!selectedPlan) return;
-    
+
     try {
       setIsCreatingSubscription(true);
-      
-      // Get the business ID for the current user
-      const businessRes = await apiRequest('GET', '/api/business');
-      const business = await businessRes.json();
-      
-      // Create a subscription with the selected plan
-      const res = await apiRequest('POST', '/api/subscription/create-subscription', {
-        businessId: business.id,
-        planId: selectedPlan
-      });
-      const data = await res.json();
-      
-      // Invalidate any cached subscription data
-      queryClient.invalidateQueries({ queryKey: ['/api/subscription/status', business.id] });
-      
-      // Redirect to payment page if we have a client secret
-      if (data.clientSecret) {
-        navigate('/payment?clientSecret=' + data.clientSecret);
-      } else {
-        // If no payment is required (e.g., free trial), go to dashboard
-        navigate('/');
-      }
+
+      // Store the selected plan for later (after business is created)
+      localStorage.setItem('selectedPlanId', selectedPlan.toString());
+
+      // Navigate to the main onboarding flow to create the business first
+      navigate('/onboarding');
     } catch (error) {
-      console.error('Error creating subscription:', error);
+      console.error('Error selecting plan:', error);
     } finally {
       setIsCreatingSubscription(false);
     }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
+import { useOnboardingProgress } from '@/hooks/use-onboarding-progress';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,29 +17,30 @@ export default function FinalSetup({ onComplete }: FinalSetupProps) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // Check which steps are completed
-  const businessComplete = localStorage.getItem('onboardingBusinessComplete') === 'true';
-  const servicesComplete = localStorage.getItem('onboardingServicesComplete') === 'true';
-  const receptionistComplete = localStorage.getItem('onboardingReceptionistComplete') === 'true' || 
-                              localStorage.getItem('onboardingReceptionistComplete') === 'skipped';
-  const calendarComplete = localStorage.getItem('onboardingCalendarComplete') === 'true' || 
-                          localStorage.getItem('onboardingCalendarComplete') === 'skipped';
-  
+  const { progress, completeOnboarding: markComplete } = useOnboardingProgress();
+
+  // Check which steps are completed from the progress hook
+  const businessComplete = progress.stepStatuses.business === 'completed';
+  const servicesComplete = progress.stepStatuses.services === 'completed';
+  const receptionistComplete = progress.stepStatuses.receptionist === 'completed' ||
+                              progress.stepStatuses.receptionist === 'skipped';
+  const calendarComplete = progress.stepStatuses.calendar === 'completed' ||
+                          progress.stepStatuses.calendar === 'skipped';
+
   const allStepsComplete = businessComplete && servicesComplete && receptionistComplete && calendarComplete;
-  
-  const completeOnboarding = () => {
+
+  const handleCompleteOnboarding = () => {
     setIsSubmitting(true);
-    
-    // Mark onboarding as complete
-    localStorage.setItem('onboardingComplete', 'true');
-    
+
+    // Mark onboarding as complete using the hook
+    markComplete();
+
     // Show success message
     toast({
       title: 'Onboarding complete!',
       description: 'You\'re all set to start using SmallBizAgent',
     });
-    
+
     // Move to dashboard
     setTimeout(() => {
       onComplete();
@@ -105,8 +107,8 @@ export default function FinalSetup({ onComplete }: FinalSetupProps) {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Virtual Receptionist</CardTitle>
             <CardDescription>
-              {receptionistComplete 
-                ? localStorage.getItem('onboardingReceptionistComplete') === 'skipped'
+              {receptionistComplete
+                ? progress.stepStatuses.receptionist === 'skipped'
                   ? 'Will set up later'
                   : 'Setup complete'
                 : 'Not configured'
@@ -126,13 +128,13 @@ export default function FinalSetup({ onComplete }: FinalSetupProps) {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Calendar Integration</CardTitle>
             <CardDescription>
-              {calendarComplete 
-                ? localStorage.getItem('onboardingCalendarComplete') === 'skipped'
+              {calendarComplete
+                ? progress.stepStatuses.calendar === 'skipped'
                   ? 'Will set up later'
                   : 'Setup complete'
                 : 'Not configured'
@@ -181,8 +183,8 @@ export default function FinalSetup({ onComplete }: FinalSetupProps) {
       </div>
       
       <div className="pt-4 text-center">
-        <Button 
-          onClick={completeOnboarding}
+        <Button
+          onClick={handleCompleteOnboarding}
           disabled={!allStepsComplete || isSubmitting}
           size="lg"
           className="min-w-40"

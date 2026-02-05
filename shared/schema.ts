@@ -33,11 +33,27 @@ export const businesses = pgTable("businesses", {
   email: text("email").notNull(),
   website: text("website"),
   logoUrl: text("logo_url"),
+  // Business type and timezone for virtual receptionist
+  type: text("type").default("general"), // plumbing, electrical, medical, etc.
+  timezone: text("timezone").default("America/New_York"), // IANA timezone
+  // Online booking configuration
+  bookingSlug: text("booking_slug"), // Unique URL slug for public booking page (e.g., "joes-plumbing")
+  bookingEnabled: boolean("booking_enabled").default(false), // Toggle to enable/disable online booking
+  bookingLeadTimeHours: integer("booking_lead_time_hours").default(24), // Minimum hours notice required
+  bookingBufferMinutes: integer("booking_buffer_minutes").default(15), // Buffer time between appointments
+  bookingSlotIntervalMinutes: integer("booking_slot_interval_minutes").default(30), // Slot interval (15, 30, 60 min etc.)
+  // Industry type for AI receptionist context
+  industry: text("industry"),
+  businessHours: text("business_hours"), // JSON string or simple text
   // Twilio phone number information
   twilioPhoneNumber: text("twilio_phone_number"),
   twilioPhoneNumberSid: text("twilio_phone_number_sid"),
   twilioPhoneNumberStatus: text("twilio_phone_number_status"),
   twilioDateProvisioned: timestamp("twilio_date_provisioned"),
+  // Vapi.ai AI receptionist
+  vapiAssistantId: text("vapi_assistant_id"),
+  vapiPhoneNumberId: text("vapi_phone_number_id"),
+  receptionistEnabled: boolean("receptionist_enabled").default(true), // Toggle to enable/disable AI receptionist
   // QuickBooks integration information
   quickbooksRealmId: text("quickbooks_realm_id"),
   quickbooksAccessToken: text("quickbooks_access_token"),
@@ -100,13 +116,25 @@ export const staff = pgTable("staff", {
   id: serial("id").primaryKey(),
   businessId: integer("business_id").notNull(),
   firstName: text("first_name").notNull(),
-  lastName: text("last_name").notNull(),
+  lastName: text("last_name").notNull(), // Required to distinguish staff (e.g., two "Mikes")
   email: text("email"),
   phone: text("phone"),
   role: text("role"),
+  specialty: text("specialty"), // e.g., "Senior Barber", "Colorist", "Master Stylist"
+  bio: text("bio"), // Short description for customers
   active: boolean("active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Staff Working Hours (individual schedules for each staff member)
+export const staffHours = pgTable("staff_hours", {
+  id: serial("id").primaryKey(),
+  staffId: integer("staff_id").notNull(),
+  day: text("day").notNull(), // monday, tuesday, etc.
+  startTime: text("start_time"), // HH:MM format (e.g., "09:00")
+  endTime: text("end_time"), // HH:MM format (e.g., "17:00")
+  isOff: boolean("is_off").default(false), // true = day off
 });
 
 // Appointments
@@ -146,6 +174,19 @@ export const jobs = pgTable("jobs", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Job Line Items (labor, parts, materials for a job)
+export const jobLineItems = pgTable("job_line_items", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").notNull(),
+  type: text("type").notNull(), // labor, parts, materials, service
+  description: text("description").notNull(),
+  quantity: real("quantity").default(1),
+  unitPrice: real("unit_price").notNull(),
+  amount: real("amount").notNull(), // quantity * unitPrice
+  taxable: boolean("taxable").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Invoices
 export const invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
@@ -158,7 +199,10 @@ export const invoices = pgTable("invoices", {
   total: real("total").notNull(),
   dueDate: date("due_date"),
   status: text("status").default("pending"), // pending, paid, overdue
+  notes: text("notes"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
+  // Public access token for customer portal
+  accessToken: text("access_token"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -234,6 +278,7 @@ export const quotes = pgTable("quotes", {
   status: text("status").default("pending"), // pending, accepted, declined, expired, converted
   notes: text("notes"),
   convertedToInvoiceId: integer("converted_to_invoice_id"), // Reference to the invoice if this quote was converted
+  accessToken: text("access_token"), // Token for customer portal access
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -246,6 +291,103 @@ export const quoteItems = pgTable("quote_items", {
   quantity: integer("quantity").default(1),
   unitPrice: real("unit_price").notNull(),
   amount: real("amount").notNull(),
+});
+
+// Review Settings (business review link configuration)
+export const reviewSettings = pgTable("review_settings", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  googleReviewUrl: text("google_review_url"),
+  yelpReviewUrl: text("yelp_review_url"),
+  facebookReviewUrl: text("facebook_review_url"),
+  customReviewUrl: text("custom_review_url"),
+  reviewRequestEnabled: boolean("review_request_enabled").default(true),
+  autoSendAfterJobCompletion: boolean("auto_send_after_job_completion").default(true),
+  delayHoursAfterCompletion: integer("delay_hours_after_completion").default(2), // Wait before sending
+  smsTemplate: text("sms_template").default("Hi {customerName}! Thank you for choosing {businessName}. We'd love to hear about your experience. Please leave us a review: {reviewLink}"),
+  emailSubject: text("email_subject").default("How was your experience with {businessName}?"),
+  emailTemplate: text("email_template"),
+  preferredPlatform: text("preferred_platform").default("google"), // google, yelp, facebook, custom
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Review Requests (tracking sent review requests)
+export const reviewRequests = pgTable("review_requests", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  jobId: integer("job_id"),
+  sentVia: text("sent_via").notNull(), // sms, email
+  sentAt: timestamp("sent_at").defaultNow(),
+  platform: text("platform"), // google, yelp, facebook, custom
+  reviewLink: text("review_link"),
+  status: text("status").default("sent"), // sent, clicked, reviewed
+  clickedAt: timestamp("clicked_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Recurring Schedules (for recurring jobs and invoices)
+export const recurringSchedules = pgTable("recurring_schedules", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  serviceId: integer("service_id"),
+  staffId: integer("staff_id"),
+  // Schedule configuration
+  name: text("name").notNull(), // e.g., "Monthly Pool Cleaning for Smith"
+  frequency: text("frequency").notNull(), // daily, weekly, biweekly, monthly, quarterly, yearly
+  interval: integer("interval").default(1), // Every X days/weeks/months
+  dayOfWeek: integer("day_of_week"), // 0-6 for weekly schedules (0 = Sunday)
+  dayOfMonth: integer("day_of_month"), // 1-31 for monthly schedules
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"), // null = no end date
+  nextRunDate: date("next_run_date"),
+  // Job template
+  jobTitle: text("job_title").notNull(),
+  jobDescription: text("job_description"),
+  estimatedDuration: integer("estimated_duration"), // in minutes
+  // Invoice configuration
+  autoCreateInvoice: boolean("auto_create_invoice").default(true),
+  invoiceAmount: real("invoice_amount"),
+  invoiceTax: real("invoice_tax"),
+  invoiceNotes: text("invoice_notes"),
+  // Status
+  status: text("status").default("active"), // active, paused, completed, cancelled
+  lastRunDate: date("last_run_date"),
+  totalJobsCreated: integer("total_jobs_created").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Recurring Schedule Line Items (template for invoice line items)
+export const recurringScheduleItems = pgTable("recurring_schedule_items", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id").notNull(),
+  description: text("description").notNull(),
+  quantity: integer("quantity").default(1),
+  unitPrice: real("unit_price").notNull(),
+  amount: real("amount").notNull(),
+});
+
+// Recurring Job History (tracks generated jobs)
+export const recurringJobHistory = pgTable("recurring_job_history", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id").notNull(),
+  jobId: integer("job_id").notNull(),
+  invoiceId: integer("invoice_id"),
+  scheduledFor: date("scheduled_for").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Password Reset Tokens
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  token: text("token").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Subscription Plans
@@ -271,8 +413,17 @@ export const insertBusinessHoursSchema = createInsertSchema(businessHours).omit(
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertAppointmentSchema = createInsertSchema(appointments).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertStaffHoursSchema = createInsertSchema(staffHours).omit({ id: true });
+
+// Create appointment schema with date coercion to handle ISO strings from API
+const baseInsertAppointmentSchema = createInsertSchema(appointments).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertAppointmentSchema = baseInsertAppointmentSchema.extend({
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+});
+
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertJobLineItemSchema = createInsertSchema(jobLineItems).omit({ id: true, createdAt: true });
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({ id: true });
 export const insertReceptionistConfigSchema = createInsertSchema(receptionistConfig).omit({ id: true, updatedAt: true });
@@ -287,6 +438,12 @@ export const insertQuoteSchema = baseInsertQuoteSchema.extend({
   validUntil: z.string().nullable().optional(),
 });
 export const insertQuoteItemSchema = createInsertSchema(quoteItems).omit({ id: true });
+export const insertReviewSettingsSchema = createInsertSchema(reviewSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertReviewRequestSchema = createInsertSchema(reviewRequests).omit({ id: true, createdAt: true });
+export const insertRecurringScheduleSchema = createInsertSchema(recurringSchedules).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertRecurringScheduleItemSchema = createInsertSchema(recurringScheduleItems).omit({ id: true });
+export const insertRecurringJobHistorySchema = createInsertSchema(recurringJobHistory).omit({ id: true, createdAt: true });
+export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -307,11 +464,17 @@ export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Staff = typeof staff.$inferSelect;
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
 
+export type StaffHours = typeof staffHours.$inferSelect;
+export type InsertStaffHours = z.infer<typeof insertStaffHoursSchema>;
+
 export type Appointment = typeof appointments.$inferSelect;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
 
 export type Job = typeof jobs.$inferSelect;
 export type InsertJob = z.infer<typeof insertJobSchema>;
+
+export type JobLineItem = typeof jobLineItems.$inferSelect;
+export type InsertJobLineItem = z.infer<typeof insertJobLineItemSchema>;
 
 export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
@@ -336,3 +499,21 @@ export type InsertQuote = z.infer<typeof insertQuoteSchema>;
 
 export type QuoteItem = typeof quoteItems.$inferSelect;
 export type InsertQuoteItem = z.infer<typeof insertQuoteItemSchema>;
+
+export type ReviewSettings = typeof reviewSettings.$inferSelect;
+export type InsertReviewSettings = z.infer<typeof insertReviewSettingsSchema>;
+
+export type ReviewRequest = typeof reviewRequests.$inferSelect;
+export type InsertReviewRequest = z.infer<typeof insertReviewRequestSchema>;
+
+export type RecurringSchedule = typeof recurringSchedules.$inferSelect;
+export type InsertRecurringSchedule = z.infer<typeof insertRecurringScheduleSchema>;
+
+export type RecurringScheduleItem = typeof recurringScheduleItems.$inferSelect;
+export type InsertRecurringScheduleItem = z.infer<typeof insertRecurringScheduleItemSchema>;
+
+export type RecurringJobHistory = typeof recurringJobHistory.$inferSelect;
+export type InsertRecurringJobHistory = z.infer<typeof insertRecurringJobHistorySchema>;
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;

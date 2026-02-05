@@ -6,6 +6,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User, InsertUser } from "@shared/schema";
+import { sendPasswordResetEmail } from "./emailService";
 
 // Extend Express Request type to include user property
 declare global {
@@ -27,6 +28,51 @@ declare global {
 
 // Convert callback-based scrypt to Promise-based
 const scryptAsync = promisify(scrypt);
+
+/**
+ * ===========================================
+ * PASSWORD SECURITY REQUIREMENTS
+ * ===========================================
+ * Enforces strong password policy:
+ * - Minimum 12 characters
+ * - At least one uppercase letter
+ * - At least one lowercase letter
+ * - At least one number
+ * - At least one special character
+ */
+export interface PasswordValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+export function validatePassword(password: string): PasswordValidationResult {
+  const errors: string[] = [];
+
+  if (!password || password.length < 12) {
+    errors.push("Password must be at least 12 characters long");
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    errors.push("Password must contain at least one uppercase letter");
+  }
+
+  if (!/[a-z]/.test(password)) {
+    errors.push("Password must contain at least one lowercase letter");
+  }
+
+  if (!/[0-9]/.test(password)) {
+    errors.push("Password must contain at least one number");
+  }
+
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    errors.push("Password must contain at least one special character (!@#$%^&*()_+-=[]{}|;':\",./<>?)");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
 
 // Hash a password with a salt
 export async function hashPassword(password: string): Promise<string> {
@@ -70,13 +116,21 @@ export async function comparePasswords(supplied: string, stored: string): Promis
 
 // Set up authentication middleware
 export function setupAuth(app: Express) {
+  // Validate session secret in production
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (process.env.NODE_ENV === "production" && !sessionSecret) {
+    throw new Error("SESSION_SECRET environment variable is required in production");
+  }
+
   // Create session options
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET || "small-biz-agent-secret-key",
+    secret: sessionSecret || "dev-only-secret-change-in-production",
     resave: false,
     saveUninitialized: false,
     cookie: {
       secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      sameSite: "lax",
       maxAge: 24 * 60 * 60 * 1000, // 1 day
     },
     store: storage.sessionStore,
@@ -124,6 +178,15 @@ export function setupAuth(app: Express) {
   // Setup API routes for authentication
   app.post("/api/register", async (req, res, next) => {
     try {
+      // Validate password strength
+      const passwordValidation = validatePassword(req.body.password);
+      if (!passwordValidation.valid) {
+        return res.status(400).json({
+          error: "Password does not meet security requirements",
+          details: passwordValidation.errors
+        });
+      }
+
       // Check if user already exists
       const existingUser = await storage.getUserByUsername(req.body.username);
       if (existingUser) {
@@ -183,14 +246,163 @@ export function setupAuth(app: Express) {
     });
   });
 
-  app.get("/api/user", (req, res) => {
+  app.get("/api/user", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Not authenticated" });
     }
-    
-    // Don't send the password back to the client
-    const { password, ...userWithoutPassword } = req.user as User;
-    res.json(userWithoutPassword);
+
+    try {
+      // Fetch fresh user data from database to get latest businessId
+      const freshUser = await storage.getUser(req.user!.id);
+      if (!freshUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Update session with fresh data
+      req.user = freshUser;
+
+      // Don't send the password back to the client
+      const { password, ...userWithoutPassword } = freshUser;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      // Fallback to session user if database fetch fails
+      const { password, ...userWithoutPassword } = req.user as User;
+      res.json(userWithoutPassword);
+    }
+  });
+
+  // Forgot Password - Request password reset
+  app.post("/api/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+
+      // Find user by email
+      const user = await storage.getUserByEmail(email);
+
+      // Always return success to prevent email enumeration attacks
+      if (!user) {
+        return res.json({ message: "If an account exists with that email, a password reset link will be sent." });
+      }
+
+      // Generate a secure random token
+      const token = randomBytes(32).toString("hex");
+
+      // Set expiration to 1 hour from now
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+      // Store the token
+      await storage.createPasswordResetToken({
+        userId: user.id,
+        token,
+        expiresAt,
+        used: false,
+      });
+
+      // Build the reset link
+      const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const resetLink = `${baseUrl}/reset-password?token=${token}`;
+
+      // Send the email
+      try {
+        const result = await sendPasswordResetEmail(user.email, user.username, resetLink);
+        console.log("Password reset email sent:", result.messageId);
+        if (result.previewUrl) {
+          console.log("Preview URL:", result.previewUrl);
+        }
+      } catch (emailError) {
+        console.error("Failed to send password reset email:", emailError);
+        // Don't reveal the error to the user
+      }
+
+      return res.json({ message: "If an account exists with that email, a password reset link will be sent." });
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      return res.status(500).json({ error: "An error occurred. Please try again." });
+    }
+  });
+
+  // Reset Password - Use token to set new password
+  app.post("/api/reset-password", async (req, res) => {
+    try {
+      const { token, password: newPassword } = req.body;
+
+      if (!token || !newPassword) {
+        return res.status(400).json({ error: "Token and new password are required" });
+      }
+
+      // Validate password strength
+      const passwordValidation = validatePassword(newPassword);
+      if (!passwordValidation.valid) {
+        return res.status(400).json({
+          error: "Password does not meet security requirements",
+          details: passwordValidation.errors
+        });
+      }
+
+      // Find the token
+      const resetToken = await storage.getPasswordResetToken(token);
+
+      if (!resetToken) {
+        return res.status(400).json({ error: "Invalid or expired reset token" });
+      }
+
+      // Check if token is expired
+      if (new Date() > resetToken.expiresAt) {
+        await storage.markPasswordResetTokenUsed(resetToken.id);
+        return res.status(400).json({ error: "Reset token has expired. Please request a new one." });
+      }
+
+      // Get the user
+      const user = await storage.getUser(resetToken.userId);
+      if (!user) {
+        return res.status(400).json({ error: "User not found" });
+      }
+
+      // Hash the new password
+      const hashedPassword = await hashPassword(newPassword);
+
+      // Update the user's password
+      await storage.updateUser(user.id, { password: hashedPassword });
+
+      // Mark the token as used
+      await storage.markPasswordResetTokenUsed(resetToken.id);
+
+      return res.json({ message: "Password has been reset successfully. You can now log in with your new password." });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      return res.status(500).json({ error: "An error occurred. Please try again." });
+    }
+  });
+
+  // Validate reset token
+  app.get("/api/validate-reset-token", async (req, res) => {
+    try {
+      const token = req.query.token as string;
+
+      if (!token) {
+        return res.status(400).json({ valid: false, error: "Token is required" });
+      }
+
+      const resetToken = await storage.getPasswordResetToken(token);
+
+      if (!resetToken) {
+        return res.json({ valid: false, error: "Invalid or expired reset token" });
+      }
+
+      if (new Date() > resetToken.expiresAt) {
+        return res.json({ valid: false, error: "Reset token has expired" });
+      }
+
+      return res.json({ valid: true });
+    } catch (error) {
+      console.error("Validate reset token error:", error);
+      return res.status(500).json({ valid: false, error: "An error occurred" });
+    }
   });
 
   // Middleware to check if user is authenticated

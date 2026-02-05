@@ -5,18 +5,21 @@ import {
   Service, InsertService, services,
   Customer, InsertCustomer, customers,
   Staff, InsertStaff, staff,
+  StaffHours, InsertStaffHours, staffHours,
   Appointment, InsertAppointment, appointments,
   Job, InsertJob, jobs,
+  JobLineItem, InsertJobLineItem, jobLineItems,
   Invoice, InsertInvoice, invoices,
   InvoiceItem, InsertInvoiceItem, invoiceItems,
   ReceptionistConfig, InsertReceptionistConfig, receptionistConfig,
   CallLog, InsertCallLog, callLogs,
   Quote, InsertQuote, quotes,
-  QuoteItem, InsertQuoteItem, quoteItems
+  QuoteItem, InsertQuoteItem, quoteItems,
+  PasswordResetToken, InsertPasswordResetToken, passwordResetTokens
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
-import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
+import { eq, and, or, desc, ilike, sql, gte, lte } from "drizzle-orm";
 import { db, pool } from "./db";
 
 // Storage interface for all operations
@@ -35,9 +38,11 @@ export interface IStorage {
   // Business
   getAllBusinesses(): Promise<Business[]>;
   getBusiness(id: number): Promise<Business | undefined>;
+  getBusinessByTwilioPhoneNumber(phoneNumber: string): Promise<Business | undefined>;
+  getBusinessByBookingSlug(slug: string): Promise<Business | undefined>;
   createBusiness(business: InsertBusiness): Promise<Business>;
   updateBusiness(id: number, business: Partial<Business>): Promise<Business>;
-  
+
   // Business Hours
   getBusinessHours(businessId: number): Promise<BusinessHours[]>;
   createBusinessHours(hours: InsertBusinessHours): Promise<BusinessHours>;
@@ -64,7 +69,14 @@ export interface IStorage {
   createStaffMember(staff: InsertStaff): Promise<Staff>;
   updateStaffMember(id: number, staff: Partial<Staff>): Promise<Staff>;
   deleteStaffMember(id: number): Promise<void>;
-  
+
+  // Staff Hours
+  getStaffHours(staffId: number): Promise<StaffHours[]>;
+  getStaffHoursByDay(staffId: number, day: string): Promise<StaffHours | undefined>;
+  setStaffHours(staffId: number, hours: InsertStaffHours[]): Promise<StaffHours[]>;
+  updateStaffHoursForDay(staffId: number, day: string, hours: Partial<StaffHours>): Promise<StaffHours>;
+  getAvailableStaffForSlot(businessId: number, date: Date, time: string): Promise<Staff[]>;
+
   // Appointments
   getAppointments(businessId: number, params?: {
     startDate?: Date,
@@ -73,10 +85,12 @@ export interface IStorage {
     staffId?: number
   }): Promise<Appointment[]>;
   getAppointment(id: number): Promise<Appointment | undefined>;
+  getAppointmentsByBusinessId(businessId: number): Promise<Appointment[]>;
+  getAppointmentsByCustomerId(customerId: number): Promise<Appointment[]>;
   createAppointment(appointment: InsertAppointment): Promise<Appointment>;
   updateAppointment(id: number, appointment: Partial<Appointment>): Promise<Appointment>;
   deleteAppointment(id: number): Promise<void>;
-  
+
   // Jobs
   getJobs(businessId: number, params?: {
     status?: string,
@@ -87,13 +101,22 @@ export interface IStorage {
   createJob(job: InsertJob): Promise<Job>;
   updateJob(id: number, job: Partial<Job>): Promise<Job>;
   deleteJob(id: number): Promise<void>;
-  
+
+  // Job Line Items
+  getJobLineItems(jobId: number): Promise<JobLineItem[]>;
+  createJobLineItem(item: InsertJobLineItem): Promise<JobLineItem>;
+  updateJobLineItem(id: number, item: Partial<JobLineItem>): Promise<JobLineItem>;
+  deleteJobLineItem(id: number): Promise<void>;
+  deleteJobLineItemsByJob(jobId: number): Promise<void>;
+
   // Invoices
   getInvoices(businessId: number, params?: {
     status?: string,
     customerId?: number
   }): Promise<Invoice[]>;
   getInvoice(id: number): Promise<Invoice | undefined>;
+  getInvoiceByAccessToken(token: string): Promise<Invoice | undefined>;
+  getInvoicesWithAccessToken(email?: string, phone?: string): Promise<Invoice[]>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: number, invoice: Partial<Invoice>): Promise<Invoice>;
   deleteInvoice(id: number): Promise<void>;
@@ -130,6 +153,7 @@ export interface IStorage {
     toDate?: Date;
   }): Promise<any[]>;
   getQuoteById(id: number, businessId: number): Promise<any>;
+  getQuoteByAccessToken(token: string): Promise<Quote | null>;
   createQuote(quote: InsertQuote): Promise<Quote>;
   updateQuote(id: number, quote: Partial<Quote>): Promise<Quote>;
   updateQuoteStatus(id: number, status: string): Promise<Quote>;
@@ -139,6 +163,12 @@ export interface IStorage {
   getQuoteItems(quoteId: number): Promise<QuoteItem[]>;
   createQuoteItem(item: InsertQuoteItem): Promise<QuoteItem>;
   deleteQuoteItems(quoteId: number): Promise<void>;
+
+  // Password Reset Tokens
+  createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken>;
+  getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined>;
+  markPasswordResetTokenUsed(id: number): Promise<void>;
+  deleteExpiredPasswordResetTokens(): Promise<void>;
 }
 
 // Database storage implementation
@@ -230,6 +260,33 @@ export class DatabaseStorage implements IStorage {
       .where(eq(businesses.id, id))
       .returning();
     return updatedBusiness;
+  }
+
+  async getBusinessByTwilioPhoneNumber(phoneNumber: string): Promise<Business | undefined> {
+    // Normalize phone number format for comparison
+    const normalizedPhone = phoneNumber.replace(/\D/g, '');
+    const phoneVariants = [
+      phoneNumber,
+      normalizedPhone,
+      `+${normalizedPhone}`,
+      `+1${normalizedPhone}`,
+      normalizedPhone.slice(-10) // Last 10 digits
+    ];
+
+    // Search for business with any of the phone variants
+    const [business] = await db.select().from(businesses)
+      .where(
+        or(
+          ...phoneVariants.map(p => eq(businesses.twilioPhoneNumber, p))
+        )
+      );
+    return business;
+  }
+
+  async getBusinessByBookingSlug(slug: string): Promise<Business | undefined> {
+    const [business] = await db.select().from(businesses)
+      .where(eq(businesses.bookingSlug, slug.toLowerCase()));
+    return business;
   }
 
   // Business Hours
@@ -358,6 +415,97 @@ export class DatabaseStorage implements IStorage {
     await db.delete(staff).where(eq(staff.id, id));
   }
 
+  // Staff Hours
+  async getStaffHours(staffId: number): Promise<StaffHours[]> {
+    return db.select().from(staffHours).where(eq(staffHours.staffId, staffId));
+  }
+
+  async getStaffHoursByDay(staffId: number, day: string): Promise<StaffHours | undefined> {
+    const [hours] = await db.select().from(staffHours)
+      .where(and(eq(staffHours.staffId, staffId), eq(staffHours.day, day.toLowerCase())));
+    return hours;
+  }
+
+  async setStaffHours(staffId: number, hours: InsertStaffHours[]): Promise<StaffHours[]> {
+    // Delete existing hours for this staff member
+    await db.delete(staffHours).where(eq(staffHours.staffId, staffId));
+
+    // Insert new hours
+    if (hours.length === 0) return [];
+
+    const newHours = await db.insert(staffHours)
+      .values(hours.map(h => ({ ...h, staffId })))
+      .returning();
+    return newHours;
+  }
+
+  async updateStaffHoursForDay(staffId: number, day: string, hours: Partial<StaffHours>): Promise<StaffHours> {
+    // Check if hours exist for this day
+    const existing = await this.getStaffHoursByDay(staffId, day);
+
+    if (existing) {
+      const [updated] = await db.update(staffHours)
+        .set(hours)
+        .where(and(eq(staffHours.staffId, staffId), eq(staffHours.day, day.toLowerCase())))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(staffHours)
+        .values({ staffId, day: day.toLowerCase(), ...hours })
+        .returning();
+      return created;
+    }
+  }
+
+  async getAvailableStaffForSlot(businessId: number, date: Date, time: string): Promise<Staff[]> {
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const timeMinutes = parseInt(time.split(':')[0]) * 60 + parseInt(time.split(':')[1]);
+
+    // Get all active staff for this business
+    const allStaff = await this.getStaff(businessId);
+    const activeStaff = allStaff.filter(s => s.active);
+
+    const availableStaff: Staff[] = [];
+
+    for (const staffMember of activeStaff) {
+      // Get this staff member's hours for the day
+      const dayHours = await this.getStaffHoursByDay(staffMember.id, dayName);
+
+      // If no hours set, assume they follow business hours (available)
+      // If hours are set and it's their day off, skip
+      if (dayHours?.isOff) continue;
+
+      // If they have hours set, check if the time falls within their working hours
+      if (dayHours?.startTime && dayHours?.endTime) {
+        const startMinutes = parseInt(dayHours.startTime.split(':')[0]) * 60 + parseInt(dayHours.startTime.split(':')[1]);
+        const endMinutes = parseInt(dayHours.endTime.split(':')[0]) * 60 + parseInt(dayHours.endTime.split(':')[1]);
+
+        if (timeMinutes < startMinutes || timeMinutes >= endMinutes) {
+          continue; // Outside their working hours
+        }
+      }
+
+      // Check if they have an appointment at this time
+      const appointments = await this.getAppointments(businessId, { staffId: staffMember.id });
+      const hasConflict = appointments.some(apt => {
+        if (apt.status === 'cancelled') return false;
+        const aptDate = new Date(apt.startDate);
+        if (aptDate.toDateString() !== date.toDateString()) return false;
+
+        const aptStart = aptDate.getHours() * 60 + aptDate.getMinutes();
+        const aptEnd = new Date(apt.endDate).getHours() * 60 + new Date(apt.endDate).getMinutes();
+
+        return timeMinutes >= aptStart && timeMinutes < aptEnd;
+      });
+
+      if (!hasConflict) {
+        availableStaff.push(staffMember);
+      }
+    }
+
+    return availableStaff;
+  }
+
   // Appointments
   async getAppointments(businessId: number, params?: {
     startDate?: Date,
@@ -365,18 +513,33 @@ export class DatabaseStorage implements IStorage {
     customerId?: number,
     staffId?: number
   }): Promise<Appointment[]> {
-    let query = db.select().from(appointments)
-      .where(eq(appointments.businessId, businessId));
-    
+    // Build conditions array
+    const conditions = [eq(appointments.businessId, businessId)];
+
     if (params?.customerId) {
-      query = query.where(eq(appointments.customerId, params.customerId));
+      conditions.push(eq(appointments.customerId, params.customerId));
     }
-    
+
     if (params?.staffId) {
-      query = query.where(eq(appointments.staffId, params.staffId));
+      conditions.push(eq(appointments.staffId, params.staffId));
     }
-    
-    return query;
+
+    // Filter by date range - compare just the date portion
+    if (params?.startDate) {
+      // Get start of day for the filter date
+      const startOfDay = new Date(params.startDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      conditions.push(gte(appointments.startDate, startOfDay));
+    }
+
+    if (params?.endDate) {
+      // Get end of day for the filter date
+      const endOfDay = new Date(params.endDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      conditions.push(lte(appointments.startDate, endOfDay));
+    }
+
+    return db.select().from(appointments).where(and(...conditions));
   }
 
   async getAppointment(id: number): Promise<Appointment | undefined> {
@@ -408,24 +571,34 @@ export class DatabaseStorage implements IStorage {
     await db.delete(appointments).where(eq(appointments.id, id));
   }
 
+  // Helper methods for Vapi integration
+  async getAppointmentsByBusinessId(businessId: number): Promise<Appointment[]> {
+    return db.select().from(appointments)
+      .where(eq(appointments.businessId, businessId));
+  }
+
+  async getAppointmentsByCustomerId(customerId: number): Promise<Appointment[]> {
+    return db.select().from(appointments)
+      .where(eq(appointments.customerId, customerId));
+  }
+
   // Jobs
   async getJobs(businessId: number, params?: {
     status?: string,
     customerId?: number,
     staffId?: number
   }): Promise<Job[]> {
-    let query = db.select().from(jobs)
-      .where(eq(jobs.businessId, businessId));
-    
+    const conditions = [eq(jobs.businessId, businessId)];
+
     if (params?.status) {
-      query = query.where(eq(jobs.status, params.status));
+      conditions.push(eq(jobs.status, params.status));
     }
-    
+
     if (params?.customerId) {
-      query = query.where(eq(jobs.customerId, params.customerId));
+      conditions.push(eq(jobs.customerId, params.customerId));
     }
-    
-    return query;
+
+    return db.select().from(jobs).where(and(...conditions));
   }
 
   async getJob(id: number): Promise<Job | undefined> {
@@ -457,28 +630,98 @@ export class DatabaseStorage implements IStorage {
     await db.delete(jobs).where(eq(jobs.id, id));
   }
 
+  // Job Line Items
+  async getJobLineItems(jobId: number): Promise<JobLineItem[]> {
+    return db.select().from(jobLineItems)
+      .where(eq(jobLineItems.jobId, jobId))
+      .orderBy(jobLineItems.createdAt);
+  }
+
+  async createJobLineItem(item: InsertJobLineItem): Promise<JobLineItem> {
+    const [newItem] = await db.insert(jobLineItems).values({
+      ...item,
+      createdAt: new Date()
+    }).returning();
+    return newItem;
+  }
+
+  async updateJobLineItem(id: number, item: Partial<JobLineItem>): Promise<JobLineItem> {
+    const [updatedItem] = await db.update(jobLineItems)
+      .set(item)
+      .where(eq(jobLineItems.id, id))
+      .returning();
+    return updatedItem;
+  }
+
+  async deleteJobLineItem(id: number): Promise<void> {
+    await db.delete(jobLineItems).where(eq(jobLineItems.id, id));
+  }
+
+  async deleteJobLineItemsByJob(jobId: number): Promise<void> {
+    await db.delete(jobLineItems).where(eq(jobLineItems.jobId, jobId));
+  }
+
   // Invoices
   async getInvoices(businessId: number, params?: {
     status?: string,
     customerId?: number
   }): Promise<Invoice[]> {
-    let query = db.select().from(invoices)
-      .where(eq(invoices.businessId, businessId));
-    
+    const conditions = [eq(invoices.businessId, businessId)];
+
     if (params?.status) {
-      query = query.where(eq(invoices.status, params.status));
+      conditions.push(eq(invoices.status, params.status));
     }
-    
+
     if (params?.customerId) {
-      query = query.where(eq(invoices.customerId, params.customerId));
+      conditions.push(eq(invoices.customerId, params.customerId));
     }
-    
-    return query;
+
+    return db.select().from(invoices).where(and(...conditions));
   }
 
   async getInvoice(id: number): Promise<Invoice | undefined> {
     const [invoice] = await db.select().from(invoices).where(eq(invoices.id, id));
     return invoice;
+  }
+
+  async getInvoiceByAccessToken(token: string): Promise<Invoice | undefined> {
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.accessToken, token));
+    return invoice;
+  }
+
+  async getInvoicesWithAccessToken(email?: string, phone?: string): Promise<Invoice[]> {
+    if (!email && !phone) {
+      return [];
+    }
+
+    // Find customers matching email or phone
+    const conditions = [];
+    if (email) {
+      conditions.push(eq(customers.email, email));
+    }
+    if (phone) {
+      conditions.push(eq(customers.phone, phone));
+    }
+
+    const matchingCustomers = await db.select().from(customers)
+      .where(conditions.length > 1 ? or(...conditions) : conditions[0]);
+
+    if (matchingCustomers.length === 0) {
+      return [];
+    }
+
+    // Get all invoices for these customers that have access tokens
+    const customerIds = matchingCustomers.map(c => c.id);
+    const allInvoices = await db.select().from(invoices)
+      .where(
+        and(
+          sql`${invoices.customerId} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`,
+          sql`${invoices.accessToken} IS NOT NULL`
+        )
+      )
+      .orderBy(desc(invoices.createdAt));
+
+    return allInvoices;
   }
 
   async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
@@ -561,18 +804,17 @@ export class DatabaseStorage implements IStorage {
     isEmergency?: boolean,
     status?: string
   }): Promise<CallLog[]> {
-    let query = db.select().from(callLogs)
-      .where(eq(callLogs.businessId, businessId));
-    
+    const conditions = [eq(callLogs.businessId, businessId)];
+
     if (params?.status) {
-      query = query.where(eq(callLogs.status, params.status));
+      conditions.push(eq(callLogs.status, params.status));
     }
-    
+
     if (params?.isEmergency !== undefined) {
-      query = query.where(eq(callLogs.isEmergency, params.isEmergency));
+      conditions.push(eq(callLogs.isEmergency, params.isEmergency));
     }
-    
-    return query;
+
+    return db.select().from(callLogs).where(and(...conditions));
   }
 
   async getCallLog(id: number): Promise<CallLog | undefined> {
@@ -602,8 +844,47 @@ export class DatabaseStorage implements IStorage {
     fromDate?: Date;
     toDate?: Date;
   }): Promise<any[]> {
-    // Start with a base query
-    let query = db.select({
+    // Build conditions array
+    const conditions: ReturnType<typeof eq>[] = [eq(quotes.businessId, businessId)];
+
+    if (filters?.status) {
+      conditions.push(eq(quotes.status, filters.status));
+    }
+
+    if (filters?.customerId) {
+      conditions.push(eq(quotes.customerId, filters.customerId));
+    }
+
+    if (filters?.jobId) {
+      conditions.push(eq(quotes.jobId, filters.jobId as number));
+    }
+
+    if (filters?.fromDate) {
+      conditions.push(gte(quotes.createdAt, filters.fromDate));
+    }
+
+    if (filters?.toDate) {
+      conditions.push(lte(quotes.createdAt, filters.toDate));
+    }
+
+    // Build the query with all conditions
+    let whereCondition = and(...conditions);
+
+    // Add search filter with OR conditions
+    if (filters?.search) {
+      const searchCondition = or(
+        ilike(quotes.quoteNumber, `%${filters.search}%`),
+        ilike(customers.firstName, `%${filters.search}%`),
+        ilike(customers.lastName, `%${filters.search}%`),
+        ilike(customers.email, `%${filters.search}%`),
+        ilike(customers.phone, `%${filters.search}%`),
+        ilike(jobs.title, `%${filters.search}%`)
+      );
+      whereCondition = and(whereCondition, searchCondition);
+    }
+
+    // Execute the query
+    const results = await db.select({
       quote: quotes,
       customerFirstName: customers.firstName,
       customerLastName: customers.lastName,
@@ -614,47 +895,8 @@ export class DatabaseStorage implements IStorage {
     .from(quotes)
     .leftJoin(customers, eq(quotes.customerId, customers.id))
     .leftJoin(jobs, eq(quotes.jobId, jobs.id))
-    .where(eq(quotes.businessId, businessId));
-    
-    // Apply filters
-    if (filters?.status) {
-      query = query.where(eq(quotes.status, filters.status));
-    }
-    
-    if (filters?.customerId) {
-      query = query.where(eq(quotes.customerId, filters.customerId));
-    }
-    
-    if (filters?.jobId) {
-      query = query.where(eq(quotes.jobId, filters.jobId));
-    }
-    
-    if (filters?.fromDate) {
-      query = query.where(db.sql`${quotes.createdAt} >= ${filters.fromDate}`);
-    }
-    
-    if (filters?.toDate) {
-      query = query.where(db.sql`${quotes.createdAt} <= ${filters.toDate}`);
-    }
-    
-    if (filters?.search) {
-      query = query.where(
-        or(
-          ilike(quotes.quoteNumber, `%${filters.search}%`),
-          ilike(customers.firstName, `%${filters.search}%`),
-          ilike(customers.lastName, `%${filters.search}%`),
-          ilike(customers.email, `%${filters.search}%`),
-          ilike(customers.phone, `%${filters.search}%`),
-          ilike(jobs.title, `%${filters.search}%`)
-        )
-      );
-    }
-    
-    // Order by most recent first
-    query = query.orderBy(desc(quotes.createdAt));
-    
-    // Execute the query
-    const results = await query;
+    .where(whereCondition)
+    .orderBy(desc(quotes.createdAt));
     
     // Format the results for the frontend
     return results.map(row => ({
@@ -718,6 +960,13 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  async getQuoteByAccessToken(token: string): Promise<Quote | null> {
+    const [quote] = await db.select()
+      .from(quotes)
+      .where(eq(quotes.accessToken, token));
+    return quote || null;
+  }
+
   async createQuote(quote: InsertQuote): Promise<Quote> {
     const [newQuote] = await db.insert(quotes).values({
       ...quote,
@@ -731,10 +980,10 @@ export class DatabaseStorage implements IStorage {
   async updateQuote(id: number, quote: Partial<Quote>): Promise<Quote> {
     // Handle Date object to string conversion for validUntil
     let quoteData = { ...quote };
-    if (quote.validUntil instanceof Date) {
-      quoteData.validUntil = quote.validUntil.toISOString();
+    if (quote.validUntil && typeof quote.validUntil === 'object' && 'toISOString' in quote.validUntil) {
+      quoteData.validUntil = (quote.validUntil as Date).toISOString();
     }
-    
+
     const [updatedQuote] = await db.update(quotes)
       .set({
         ...quoteData,
@@ -820,8 +1069,37 @@ export class DatabaseStorage implements IStorage {
       status: 'converted',
       convertedToInvoiceId: invoice.id,
     });
-    
+
     return invoice;
+  }
+
+  // Password Reset Token methods
+  async createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken> {
+    const [newToken] = await db.insert(passwordResetTokens).values({
+      ...token,
+      createdAt: new Date()
+    }).returning();
+    return newToken;
+  }
+
+  async getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined> {
+    const [resetToken] = await db.select().from(passwordResetTokens)
+      .where(and(
+        eq(passwordResetTokens.token, token),
+        eq(passwordResetTokens.used, false)
+      ));
+    return resetToken;
+  }
+
+  async markPasswordResetTokenUsed(id: number): Promise<void> {
+    await db.update(passwordResetTokens)
+      .set({ used: true })
+      .where(eq(passwordResetTokens.id, id));
+  }
+
+  async deleteExpiredPasswordResetTokens(): Promise<void> {
+    await db.delete(passwordResetTokens)
+      .where(sql`${passwordResetTokens.expiresAt} < NOW()`);
   }
 }
 

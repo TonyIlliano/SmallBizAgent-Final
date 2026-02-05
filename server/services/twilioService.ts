@@ -11,13 +11,22 @@
 import twilio from 'twilio';
 const { VoiceResponse } = twilio.twiml;
 
-// Initialize Twilio client with environment variables or default test values
-const accountSid = process.env.TWILIO_ACCOUNT_SID || 'AC_test_example';
-const authToken = process.env.TWILIO_AUTH_TOKEN || 'auth_token_example';
+// Initialize Twilio client with environment variables
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '+15555555555';
 
-// Create Twilio client
-const client = twilio(accountSid, authToken);
+// Check if Twilio is properly configured
+const isTwilioConfigured = accountSid && authToken && accountSid.startsWith('AC');
+
+// Create Twilio client only if configured, otherwise use a mock
+let client: ReturnType<typeof twilio> | null = null;
+if (isTwilioConfigured) {
+  client = twilio(accountSid, authToken);
+} else {
+  console.warn('⚠️  Twilio credentials not configured or invalid. SMS/Call features will be disabled.');
+  console.warn('   Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in your .env file.');
+}
 
 /**
  * Send an SMS message
@@ -27,13 +36,17 @@ const client = twilio(accountSid, authToken);
  * @returns Promise with message response
  */
 export async function sendSms(to: string, body: string) {
+  if (!client) {
+    console.warn('Twilio not configured - SMS would be sent to:', to, 'Message:', body.substring(0, 50));
+    return { sid: 'mock-sid', status: 'mock' };
+  }
   try {
     const message = await client.messages.create({
       body,
       from: twilioPhoneNumber,
       to
     });
-    
+
     return message;
   } catch (error) {
     console.error('Error sending SMS:', error);
@@ -49,13 +62,17 @@ export async function sendSms(to: string, body: string) {
  * @returns Promise with call response
  */
 export async function makeCall(to: string, url: string) {
+  if (!client) {
+    console.warn('Twilio not configured - Call would be made to:', to);
+    return { sid: 'mock-call-sid', status: 'mock' };
+  }
   try {
     const call = await client.calls.create({
       url,
       from: twilioPhoneNumber,
       to
     });
-    
+
     return call;
   } catch (error) {
     console.error('Error making call:', error);
@@ -78,7 +95,7 @@ export function createGreetingTwiml(greeting: string, gatherCallback: string) {
   
   // Gather speech input
   twiml.gather({
-    input: 'speech dtmf',
+    input: ['speech', 'dtmf'],
     action: gatherCallback,
     speechTimeout: 'auto',
     speechModel: 'phone_call',
@@ -103,7 +120,7 @@ export function createAfterHoursTwiml(afterHoursMessage: string, gatherCallback:
   
   // Gather speech input
   twiml.gather({
-    input: 'speech',
+    input: ['speech'],
     action: gatherCallback,
     speechTimeout: 'auto',
     speechModel: 'phone_call'

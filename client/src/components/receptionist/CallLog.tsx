@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { cn, formatDate } from "@/lib/utils";
 import { CalendarIcon, PhoneCall, Phone, PhoneOff, Voicemail } from "lucide-react";
 
-export function CallLog({ businessId = 1 }) {
+export function CallLog({ businessId }: { businessId?: number | null }) {
   const [dateRange, setDateRange] = useState<{
     from: Date | undefined;
     to: Date | undefined;
@@ -64,8 +64,9 @@ export function CallLog({ businessId = 1 }) {
   };
 
   // Fetch call logs with filters
-  const { data: calls = [], isLoading } = useQuery({
+  const { data: calls = [], isLoading } = useQuery<any[]>({
     queryKey: ['/api/call-logs', buildQueryParams()],
+    enabled: !!businessId,
   });
 
   // Status badge component
@@ -218,7 +219,7 @@ export function CallLog({ businessId = 1 }) {
                 <Calendar
                   mode="range"
                   selected={dateRange}
-                  onSelect={setDateRange}
+                  onSelect={(range) => setDateRange({ from: range?.from, to: range?.to })}
                   initialFocus
                 />
               </PopoverContent>

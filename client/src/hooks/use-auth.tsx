@@ -5,7 +5,7 @@ import {
   UseMutationResult,
 } from "@tanstack/react-query";
 import { User } from "@shared/schema";
-import { apiRequest, queryClient } from "../lib/queryClient";
+import { queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 type AuthContextType = {
@@ -43,8 +43,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: ["/api/user"],
     queryFn: async () => {
       try {
-        const res = await apiRequest("GET", "/api/user");
+        const res = await fetch("/api/user", {
+          credentials: "include",
+        });
         if (res.status === 401) {
+          return null;
+        }
+        if (!res.ok) {
           return null;
         }
         return await res.json();
@@ -57,10 +62,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
-      const res = await apiRequest("POST", "/api/login", credentials);
+      // Don't use apiRequest here because it throws on non-OK responses
+      // and we need to parse the error response ourselves
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(credentials),
+        credentials: "include",
+      });
+
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Login failed");
+        try {
+          const error = await res.json();
+          throw new Error(error.error || "Login failed");
+        } catch {
+          throw new Error("Login failed");
+        }
       }
       return await res.json();
     },
@@ -71,21 +88,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         description: `Welcome back, ${user.username}!`,
       });
     },
-    onError: (error: Error) => {
-      toast({
-        title: "Login failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+    // Note: Error handling is done inline in the auth page for better UX
   });
 
   const registerMutation = useMutation({
     mutationFn: async (userData: RegisterData) => {
-      const res = await apiRequest("POST", "/api/register", userData);
+      // Don't use apiRequest here because it throws on non-OK responses
+      // and we need to parse the error response ourselves
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(userData),
+        credentials: "include",
+      });
+
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Registration failed");
+        try {
+          const errorData = await res.json();
+          // Handle specific error messages from the backend
+          if (errorData.error) {
+            if (errorData.error.toLowerCase().includes("email already") ||
+                errorData.error.toLowerCase().includes("email in use")) {
+              throw new Error("This email is already registered. Please use a different email or try logging in.");
+            }
+            if (errorData.error.toLowerCase().includes("username already")) {
+              throw new Error("This username is already taken. Please choose a different username.");
+            }
+            throw new Error(errorData.error);
+          }
+        } catch (parseError) {
+          // If JSON parsing fails, provide a generic error
+          if (parseError instanceof Error && parseError.message !== "Registration failed") {
+            throw parseError;
+          }
+        }
+        throw new Error("Registration failed. Please try again.");
       }
       return await res.json();
     },
@@ -96,36 +133,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         description: `Welcome, ${user.username}!`,
       });
     },
-    onError: (error: Error) => {
-      toast({
-        title: "Registration failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+    // Note: Error handling is done inline in the auth page for better UX
   });
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/logout");
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Logout failed");
+      try {
+        const res = await fetch("/api/logout", {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          throw new Error("Logout failed");
+        }
+      } catch (error) {
+        // Even if there's a network error, we should still clear local state
+        console.error("Logout request error:", error);
+        throw error;
       }
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);
+      queryClient.clear(); // Clear all cached data on logout
       toast({
         title: "Logged out",
         description: "You have been successfully logged out.",
       });
+      // Redirect to login page
+      window.location.href = "/auth";
     },
     onError: (error: Error) => {
+      // Even on error, clear local auth state and redirect
+      queryClient.setQueryData(["/api/user"], null);
+      queryClient.clear();
       toast({
-        title: "Logout failed",
-        description: error.message,
-        variant: "destructive",
+        title: "Logged out",
+        description: "You have been logged out.",
       });
+      window.location.href = "/auth";
     },
   });
 

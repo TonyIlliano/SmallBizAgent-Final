@@ -1,12 +1,11 @@
-import { useState } from "react";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { CustomerTable } from "@/components/customers/CustomerTable";
-import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Customers() {
-  // We use a default business ID for demo purposes
-  const businessId = 1;
-  
+  const { user } = useAuth();
+  const businessId = user?.businessId;
+
   return (
     <PageLayout title="Customers">
       <div className="space-y-6">

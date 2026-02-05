@@ -8,6 +8,7 @@
 import { Business } from '@shared/schema';
 import { storage } from '../storage';
 import twilioProvisioningService from './twilioProvisioningService';
+import vapiProvisioningService from './vapiProvisioningService';
 
 /**
  * Provision resources for a new business
@@ -36,26 +37,38 @@ export async function provisionBusiness(
       businessId,
       success: true,
       twilioProvisioned: false,
+      vapiProvisioned: false,
       virtualReceptionistConfigured: false,
       businessHoursConfigured: false,
       servicesConfigured: false
     };
     
     // 1. Provision a Twilio phone number if not skipped
-    if (!options?.skipTwilioProvisioning) {
+    console.log(`[Provisioning] Business ${businessId}: Starting Twilio provisioning. skipTwilioProvisioning=${options?.skipTwilioProvisioning}`);
+    console.log(`[Provisioning] Business ${businessId}: Current business phone: ${business.twilioPhoneNumber || 'none'}`);
+
+    // Check if business already has a phone number
+    if (business.twilioPhoneNumber) {
+      console.log(`[Provisioning] Business ${businessId}: Already has phone number ${business.twilioPhoneNumber}, skipping Twilio provisioning`);
+      results.twilioProvisioned = true;
+      results.twilioPhoneNumber = business.twilioPhoneNumber;
+      results.twilioAlreadyProvisioned = true;
+    } else if (!options?.skipTwilioProvisioning) {
       try {
         // Check if Twilio has valid credentials
         if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
-          console.warn('Twilio credentials not set, skipping phone number provisioning');
+          console.warn('[Provisioning] Twilio credentials not set, skipping phone number provisioning');
           results.twilioProvisioned = false;
           results.twilioProvisioningSkipped = true;
         } else {
+          console.log(`[Provisioning] Business ${businessId}: Provisioning NEW Twilio phone number...`);
           // Get a phone number in the preferred area code if specified
           const phoneNumber = await twilioProvisioningService.provisionPhoneNumber(
-            business, 
+            business,
             options?.preferredAreaCode
           );
-          
+          console.log(`[Provisioning] Business ${businessId}: Got NEW phone number ${phoneNumber.phoneNumber} (SID: ${phoneNumber.phoneNumberSid})`);
+
           // Update the business with the new phone number
           await storage.updateBusiness(businessId, {
             twilioPhoneNumber: phoneNumber.phoneNumber,
@@ -63,15 +76,17 @@ export async function provisionBusiness(
             twilioPhoneNumberStatus: 'active',
             twilioDateProvisioned: new Date(),
           });
-          
+
           results.twilioProvisioned = true;
           results.twilioPhoneNumber = phoneNumber.phoneNumber;
         }
       } catch (error) {
-        console.error('Error provisioning Twilio phone number:', error);
+        console.error(`[Provisioning] Business ${businessId}: Error provisioning Twilio phone number:`, error);
         results.twilioProvisioned = false;
-        results.twilioError = error.message;
+        results.twilioError = error instanceof Error ? error.message : String(error);
       }
+    } else {
+      console.log(`[Provisioning] Business ${businessId}: Twilio provisioning skipped by option`);
     }
     
     // 2. Create default virtual receptionist configuration
@@ -99,84 +114,70 @@ export async function provisionBusiness(
     } catch (error) {
       console.error('Error configuring virtual receptionist:', error);
       results.virtualReceptionistConfigured = false;
-      results.virtualReceptionistError = error.message;
+      results.virtualReceptionistError = error instanceof Error ? error.message : String(error);
     }
     
-    // 3. Configure default business hours
+    // 3. Check business hours status (but don't create defaults - business owner must configure)
     try {
       const existingHours = await storage.getBusinessHours(businessId);
       if (existingHours.length === 0) {
-        // Set up default hours (Mon-Fri 9-5, Sat 10-2, Sun closed)
-        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        const defaultHours = [
-          { open: '09:00', close: '17:00', isClosed: false }, // Mon-Fri
-          { open: '09:00', close: '17:00', isClosed: false },
-          { open: '09:00', close: '17:00', isClosed: false },
-          { open: '09:00', close: '17:00', isClosed: false },
-          { open: '09:00', close: '17:00', isClosed: false },
-          { open: '10:00', close: '14:00', isClosed: false }, // Sat
-          { open: '00:00', close: '00:00', isClosed: true }   // Sun
-        ];
-        
-        // Create hours for each day
-        const hoursPromises = days.map((day, index) => 
-          storage.createBusinessHours({
-            businessId,
-            day,
-            open: defaultHours[index].open,
-            close: defaultHours[index].close,
-            isClosed: defaultHours[index].isClosed
-          })
-        );
-        
-        const createdHours = await Promise.all(hoursPromises);
-        results.businessHoursConfigured = true;
-        results.businessHours = createdHours;
+        // Don't create default hours - the business owner needs to set their actual hours
+        // The AI will gracefully handle missing hours by offering to take callback info
+        results.businessHoursConfigured = false;
+        results.businessHoursNote = 'Business hours not configured - owner should set up in Settings';
+        console.log(`Business ${businessId}: No hours configured. AI will offer callbacks until hours are set.`);
       } else {
         results.businessHoursConfigured = true;
         results.businessHoursExist = true;
       }
     } catch (error) {
-      console.error('Error configuring business hours:', error);
+      console.error('Error checking business hours:', error);
       results.businessHoursConfigured = false;
-      results.businessHoursError = error.message;
+      results.businessHoursError = error instanceof Error ? error.message : String(error);
     }
-    
-    // 4. Add some default services
+
+    // 4. Check services status (but don't create fake defaults - business owner must configure)
     try {
       const existingServices = await storage.getServices(businessId);
       if (existingServices.length === 0) {
-        // Create a few generic services that can be customized later
-        const defaultServices = [
-          { name: 'Standard Service', description: 'Regular service appointment', price: 100, duration: 60 },
-          { name: 'Express Service', description: 'Quick service for minor issues', price: 75, duration: 30 },
-          { name: 'Premium Service', description: 'Comprehensive service with full inspection', price: 150, duration: 90 }
-        ];
-        
-        const servicePromises = defaultServices.map(service => 
-          storage.createService({
-            businessId,
-            name: service.name,
-            description: service.description,
-            price: service.price,
-            duration: service.duration,
-            active: true
-          })
-        );
-        
-        const createdServices = await Promise.all(servicePromises);
-        results.servicesConfigured = true;
-        results.services = createdServices;
+        // Don't create default services with fake prices - that would confuse customers
+        // The AI will gracefully handle missing services by offering general appointments
+        results.servicesConfigured = false;
+        results.servicesNote = 'Services not configured - owner should add their services in Settings';
+        console.log(`Business ${businessId}: No services configured. AI will offer general appointments.`);
       } else {
         results.servicesConfigured = true;
         results.servicesExist = true;
       }
     } catch (error) {
-      console.error('Error configuring default services:', error);
+      console.error('Error checking services:', error);
       results.servicesConfigured = false;
-      results.servicesError = error.message;
+      results.servicesError = error instanceof Error ? error.message : String(error);
     }
-    
+
+    // 5. Provision Vapi AI Receptionist
+    console.log(`[Provisioning] Business ${businessId}: Starting Vapi provisioning...`);
+    try {
+      if (process.env.VAPI_API_KEY) {
+        const vapiResult = await vapiProvisioningService.provisionVapiForBusiness(businessId);
+        console.log(`[Provisioning] Business ${businessId}: Vapi result:`, JSON.stringify(vapiResult));
+        results.vapiProvisioned = vapiResult.success;
+        results.vapiAssistantId = vapiResult.assistantId;
+        results.vapiPhoneConnected = vapiResult.phoneConnected;
+        if (vapiResult.error) {
+          results.vapiError = vapiResult.error;
+        }
+      } else {
+        console.warn('[Provisioning] Vapi API key not set, skipping AI receptionist provisioning');
+        results.vapiProvisioned = false;
+        results.vapiSkipped = true;
+      }
+    } catch (error) {
+      console.error(`[Provisioning] Business ${businessId}: Error provisioning Vapi AI receptionist:`, error);
+      results.vapiProvisioned = false;
+      results.vapiError = error instanceof Error ? error.message : String(error);
+    }
+
     console.log(`Provisioning completed for business ID ${businessId}`);
     return results;
   } catch (error) {
@@ -204,16 +205,30 @@ export async function deprovisionBusiness(businessId: number) {
     const results: any = {
       businessId,
       success: true,
-      twilioDeprovisioned: false
+      twilioDeprovisioned: false,
+      vapiDeprovisioned: false
     };
-    
+
+    // Remove Vapi assistant if one exists
+    try {
+      const vapiResult = await vapiProvisioningService.removeVapiAssistant(businessId);
+      results.vapiDeprovisioned = vapiResult.success;
+      if (vapiResult.error) {
+        results.vapiError = vapiResult.error;
+      }
+    } catch (error) {
+      console.error('Error removing Vapi assistant:', error);
+      results.vapiDeprovisioned = false;
+      results.vapiError = error instanceof Error ? error.message : String(error);
+    }
+
     // Release Twilio phone number if one exists
     if (business.twilioPhoneNumberSid) {
       try {
         const releaseResult = await twilioProvisioningService.releasePhoneNumber(
-          business.twilioPhoneNumberSid
+          businessId
         );
-        
+
         // Update the business record
         await storage.updateBusiness(businessId, {
           twilioPhoneNumber: null,
@@ -221,13 +236,13 @@ export async function deprovisionBusiness(businessId: number) {
           twilioPhoneNumberStatus: 'released',
           twilioDateProvisioned: null
         });
-        
+
         results.twilioDeprovisioned = true;
         results.twilioReleaseResult = releaseResult;
       } catch (error) {
         console.error('Error releasing Twilio phone number:', error);
         results.twilioDeprovisioned = false;
-        results.twilioError = error.message;
+        results.twilioError = error instanceof Error ? error.message : String(error);
       }
     } else {
       results.twilioDeprovisioned = true;

@@ -55,3 +55,6 @@ attached_assets/
 npm-debug.log
 .env
 *.sqlite3
+
+# SQLite database
+database.db

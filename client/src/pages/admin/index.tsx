@@ -1,13 +1,34 @@
-import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Redirect, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Phone, Users, Building, Settings, BarChart, HardDrive, Clock } from "lucide-react";
+import { Phone, Users, Building, Settings, BarChart, HardDrive, Clock, Loader2 } from "lucide-react";
 
 const AdminDashboardPage = () => {
   const { user } = useAuth();
+
+  // Fetch admin stats
+  const { data: stats, isLoading: isLoadingStats } = useQuery({
+    queryKey: ["/api/admin/stats"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/stats");
+      return res.json();
+    },
+    enabled: !!user && user.role === "admin"
+  });
+
+  // Fetch all businesses
+  const { data: businessesData, isLoading: isLoadingBusinesses } = useQuery({
+    queryKey: ["/api/admin/businesses"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/businesses");
+      return res.json();
+    },
+    enabled: !!user && user.role === "admin"
+  });
 
   // Redirect if not admin
   if (user && user.role !== "admin") {
@@ -40,29 +61,33 @@ const AdminDashboardPage = () => {
           
           <TabsContent value="overview" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <StatsCard 
-                title="Total Users" 
-                value="24" 
+              <StatsCard
+                title="Total Users"
+                value={isLoadingStats ? "..." : String(stats?.totalUsers || 0)}
                 description="Active user accounts"
                 icon={<Users className="h-4 w-4 text-muted-foreground" />}
+                loading={isLoadingStats}
               />
-              <StatsCard 
-                title="Businesses" 
-                value="12" 
+              <StatsCard
+                title="Businesses"
+                value={isLoadingStats ? "..." : String(stats?.totalBusinesses || 0)}
                 description="Registered businesses"
                 icon={<Building className="h-4 w-4 text-muted-foreground" />}
+                loading={isLoadingStats}
               />
-              <StatsCard 
-                title="Phone Numbers" 
-                value="8" 
+              <StatsCard
+                title="Phone Numbers"
+                value={isLoadingStats ? "..." : String(stats?.activePhoneNumbers || 0)}
                 description="Active Twilio numbers"
                 icon={<Phone className="h-4 w-4 text-muted-foreground" />}
+                loading={isLoadingStats}
               />
-              <StatsCard 
-                title="Total Calls" 
-                value="153" 
+              <StatsCard
+                title="Total Calls"
+                value={isLoadingStats ? "..." : String(stats?.totalCalls || 0)}
                 description="Call logs recorded"
                 icon={<Phone className="h-4 w-4 text-muted-foreground" />}
+                loading={isLoadingStats}
               />
             </div>
 
@@ -180,11 +205,12 @@ const AdminDashboardPage = () => {
 };
 
 // Helper components
-const StatsCard = ({ title, value, description, icon }: { 
-  title: string, 
-  value: string, 
-  description: string, 
-  icon: React.ReactNode 
+const StatsCard = ({ title, value, description, icon, loading }: {
+  title: string,
+  value: string,
+  description: string,
+  icon: React.ReactNode,
+  loading?: boolean
 }) => {
   return (
     <Card>
@@ -193,7 +219,11 @@ const StatsCard = ({ title, value, description, icon }: {
         {icon}
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
+        {loading ? (
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        ) : (
+          <div className="text-2xl font-bold">{value}</div>
+        )}
         <p className="text-xs text-muted-foreground">{description}</p>
       </CardContent>
     </Card>

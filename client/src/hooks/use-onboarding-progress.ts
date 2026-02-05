@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from './use-auth';
 
 // Define the onboarding steps
-export type OnboardingStep = 
+export type OnboardingStep =
+  | 'welcome'
   | 'business'
   | 'services'
   | 'receptionist'
@@ -25,8 +27,9 @@ export interface OnboardingProgress {
 
 // Default progress state
 const defaultProgress: OnboardingProgress = {
-  currentStep: 'business',
+  currentStep: 'welcome',
   stepStatuses: {
+    welcome: 'not_started',
     business: 'not_started',
     services: 'not_started',
     receptionist: 'not_started',
@@ -37,25 +40,38 @@ const defaultProgress: OnboardingProgress = {
   lastUpdated: Date.now()
 };
 
-// Local storage key
-const STORAGE_KEY = 'onboardingProgress';
+// Get user-specific storage key
+const getStorageKey = (userId: number | undefined) => {
+  return userId ? `onboardingProgress_user_${userId}` : 'onboardingProgress';
+};
 
 /**
  * Custom hook for managing onboarding progress with persistence
+ * Progress is stored per-user to prevent data mixing between accounts
  */
 export function useOnboardingProgress() {
+  const { user } = useAuth();
   const [progress, setProgress] = useState<OnboardingProgress>(defaultProgress);
-  
-  // Load progress from storage on mount
+
+  // Get the user-specific storage key
+  const storageKey = getStorageKey(user?.id);
+
+  // Load progress from storage on mount or when user changes
   useEffect(() => {
+    if (!user?.id) {
+      // No user logged in, reset to default
+      setProgress(defaultProgress);
+      return;
+    }
+
     try {
-      const savedProgress = localStorage.getItem(STORAGE_KEY);
-      
+      const savedProgress = localStorage.getItem(storageKey);
+
       if (savedProgress) {
         const parsedProgress = JSON.parse(savedProgress) as OnboardingProgress;
         setProgress(parsedProgress);
       } else {
-        // Check for legacy storage format
+        // Check for legacy storage format (non-user-specific)
         const businessComplete = localStorage.getItem('onboardingBusinessComplete') === 'true';
         const servicesComplete = localStorage.getItem('onboardingServicesComplete') === 'true';
         const receptionistComplete = localStorage.getItem('onboardingReceptionistComplete') === 'true';
@@ -71,11 +87,13 @@ export function useOnboardingProgress() {
           const legacyProgress: OnboardingProgress = {
             currentStep: 'business',
             stepStatuses: {
+              // Legacy users already started, so welcome is completed
+              welcome: 'completed',
               business: businessComplete ? 'completed' : 'not_started',
               services: servicesComplete ? 'completed' : 'not_started',
-              receptionist: receptionistComplete ? 'completed' : 
+              receptionist: receptionistComplete ? 'completed' :
                            receptionistSkipped ? 'skipped' : 'not_started',
-              calendar: calendarComplete ? 'completed' : 
+              calendar: calendarComplete ? 'completed' :
                         calendarSkipped ? 'skipped' : 'not_started',
               final: onboardingComplete ? 'completed' : 'not_started'
             },
@@ -97,23 +115,34 @@ export function useOnboardingProgress() {
           }
           
           setProgress(legacyProgress);
-          // Save the converted progress
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(legacyProgress));
+          // Save the converted progress to user-specific key
+          localStorage.setItem(storageKey, JSON.stringify(legacyProgress));
+          // Clear legacy keys after migration
+          localStorage.removeItem('onboardingBusinessComplete');
+          localStorage.removeItem('onboardingServicesComplete');
+          localStorage.removeItem('onboardingReceptionistComplete');
+          localStorage.removeItem('onboardingCalendarComplete');
+          localStorage.removeItem('onboardingComplete');
+        } else {
+          // No saved progress and no legacy data - start fresh
+          setProgress(defaultProgress);
         }
       }
     } catch (error) {
       console.error('Error loading onboarding progress:', error);
     }
-  }, []);
-  
-  // Save progress to storage whenever it changes
+  }, [user?.id, storageKey]);
+
+  // Save progress to storage whenever it changes (only if user is logged in)
   useEffect(() => {
+    if (!user?.id) return;
+
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+      localStorage.setItem(storageKey, JSON.stringify(progress));
     } catch (error) {
       console.error('Error saving onboarding progress:', error);
     }
-  }, [progress]);
+  }, [progress, user?.id, storageKey]);
   
   // Update current step
   const setCurrentStep = (step: OnboardingStep) => {
@@ -134,32 +163,26 @@ export function useOnboardingProgress() {
       },
       lastUpdated: Date.now()
     }));
-    
-    // Also update legacy storage format for backward compatibility
-    if (status === 'completed') {
-      localStorage.setItem(`onboarding${step.charAt(0).toUpperCase() + step.slice(1)}Complete`, 'true');
-    } else if (status === 'skipped') {
-      localStorage.setItem(`onboarding${step.charAt(0).toUpperCase() + step.slice(1)}Complete`, 'skipped');
-    }
   };
-  
+
   // Mark the entire onboarding as complete
   const completeOnboarding = () => {
-    const updatedProgress = {
-      ...progress,
+    setProgress(prev => ({
+      ...prev,
       isComplete: true,
       lastUpdated: Date.now()
-    };
-    
-    setProgress(updatedProgress);
-    localStorage.setItem('onboardingComplete', 'true');
+    }));
   };
-  
+
   // Reset onboarding progress
   const resetProgress = () => {
     setProgress(defaultProgress);
-    
-    // Clear legacy storage as well
+    // Clear the user-specific storage key
+    if (user?.id) {
+      localStorage.removeItem(storageKey);
+    }
+    // Clear any legacy keys that might exist
+    localStorage.removeItem('onboardingProgress');
     localStorage.removeItem('onboardingBusinessComplete');
     localStorage.removeItem('onboardingServicesComplete');
     localStorage.removeItem('onboardingReceptionistComplete');
@@ -170,15 +193,15 @@ export function useOnboardingProgress() {
   
   // Get next incomplete step
   const getNextIncompleteStep = (): OnboardingStep => {
-    const steps: OnboardingStep[] = ['business', 'services', 'receptionist', 'calendar', 'final'];
-    
+    const steps: OnboardingStep[] = ['welcome', 'business', 'services', 'receptionist', 'calendar', 'final'];
+
     for (const step of steps) {
       const status = progress.stepStatuses[step];
       if (status === 'not_started' || status === 'in_progress') {
         return step;
       }
     }
-    
+
     return 'final'; // Default to final step if all are completed or skipped
   };
   

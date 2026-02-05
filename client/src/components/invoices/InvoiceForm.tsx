@@ -300,7 +300,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
 
   // Handler for adding new item
   const handleAddItem = () => {
-    append({ description: "", quantity: "1", unitPrice: "0" });
+    append({ description: "", quantity: 1, unitPrice: 0 });
   };
 
   // Handler for removing an item

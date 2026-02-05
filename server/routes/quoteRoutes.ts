@@ -375,4 +375,150 @@ router.delete("/quotes/:id", async (req, res) => {
   }
 });
 
+// Generate a shareable link for a quote
+router.post("/quotes/:id/generate-link", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const user = req.user;
+    const businessId = user.businessId;
+    const quoteId = parseInt(req.params.id);
+
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+
+    // Check if the quote exists and belongs to the business
+    const existingQuote = await storage.getQuoteById(quoteId, businessId);
+    if (!existingQuote) {
+      return res.status(404).json({ error: "Quote not found" });
+    }
+
+    // Generate a unique access token if one doesn't exist
+    const crypto = require("crypto");
+    const accessToken = existingQuote.accessToken || crypto.randomBytes(32).toString("hex");
+
+    // Update the quote with the access token
+    await storage.updateQuote(quoteId, { accessToken });
+
+    // Generate the URL
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const quoteUrl = `${baseUrl}/portal/quote/${accessToken}`;
+
+    res.json({
+      success: true,
+      url: quoteUrl,
+      accessToken
+    });
+  } catch (error) {
+    console.error("Error generating quote link:", error);
+    res.status(500).json({ error: "Failed to generate quote link" });
+  }
+});
+
+// Public route to get quote by access token (no auth required)
+router.get("/portal/quote/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    // Find the quote by access token
+    const quote = await storage.getQuoteByAccessToken(token);
+
+    if (!quote) {
+      return res.status(404).json({ error: "Quote not found" });
+    }
+
+    // Get business info for the quote
+    const business = await storage.getBusiness(quote.businessId);
+
+    // Get customer info
+    const customer = await storage.getCustomer(quote.customerId);
+
+    // Get quote items
+    const items = await storage.getQuoteItems(quote.id);
+
+    res.json({
+      id: quote.id,
+      quoteNumber: quote.quoteNumber,
+      amount: quote.amount,
+      tax: quote.tax,
+      total: quote.total,
+      status: quote.status,
+      validUntil: quote.validUntil,
+      notes: quote.notes,
+      createdAt: quote.createdAt,
+      customer: customer ? {
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+      } : null,
+      business: business ? {
+        name: business.name,
+        address: business.address,
+        phone: business.phone,
+        email: business.email,
+      } : null,
+      items: items.map(item => ({
+        id: item.id,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        amount: item.amount,
+      })),
+    });
+  } catch (error) {
+    console.error("Error fetching quote by token:", error);
+    res.status(500).json({ error: "Failed to fetch quote" });
+  }
+});
+
+// Public route to accept/decline a quote (no auth required)
+router.post("/portal/quote/:token/respond", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { response } = req.body; // "accepted" or "declined"
+
+    if (!["accepted", "declined"].includes(response)) {
+      return res.status(400).json({ error: "Invalid response. Must be 'accepted' or 'declined'" });
+    }
+
+    // Find the quote by access token
+    const quote = await storage.getQuoteByAccessToken(token);
+
+    if (!quote) {
+      return res.status(404).json({ error: "Quote not found" });
+    }
+
+    // Can only respond to pending quotes
+    if (quote.status !== "pending") {
+      return res.status(400).json({ error: `Cannot respond to a quote that is ${quote.status}` });
+    }
+
+    // Check if quote has expired
+    if (quote.validUntil) {
+      const validUntilDate = new Date(quote.validUntil);
+      if (validUntilDate < new Date()) {
+        await storage.updateQuoteStatus(quote.id, "expired");
+        return res.status(400).json({ error: "This quote has expired" });
+      }
+    }
+
+    // Update the quote status
+    await storage.updateQuoteStatus(quote.id, response);
+
+    res.json({
+      success: true,
+      message: response === "accepted"
+        ? "Quote accepted! The business will be in touch shortly."
+        : "Quote declined."
+    });
+  } catch (error) {
+    console.error("Error responding to quote:", error);
+    res.status(500).json({ error: "Failed to respond to quote" });
+  }
+});
+
 export default router;

@@ -7,9 +7,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Phone, Settings, MessageSquare, Info, BookOpen, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Receptionist() {
   const [activeTab, setActiveTab] = useState("calls");
+  const { user } = useAuth();
+  const businessId = user?.businessId;
   
   return (
     <PageLayout title="Virtual Receptionist">
@@ -77,11 +80,11 @@ export default function Receptionist() {
           </TabsList>
           
           <TabsContent value="calls" className="space-y-4">
-            <CallLog businessId={1} />
+            <CallLog businessId={businessId} />
           </TabsContent>
-          
+
           <TabsContent value="settings" className="space-y-4">
-            <ReceptionistConfig businessId={1} />
+            <ReceptionistConfig businessId={businessId} />
           </TabsContent>
           
           <TabsContent value="training" className="space-y-4">

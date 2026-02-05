@@ -20,6 +20,7 @@ import { Loader2, Phone, Bot, CalendarClock, MessageSquare, Settings } from 'luc
 
 interface VirtualReceptionistSetupProps {
   onComplete: () => void;
+  onSkip?: () => void;
 }
 
 // Virtual receptionist configuration schema
@@ -38,21 +39,21 @@ const configSchema = z.object({
 
 type ConfigFormValues = z.infer<typeof configSchema>;
 
-export default function VirtualReceptionistSetup({ onComplete }: VirtualReceptionistSetupProps) {
-  const { user } = useAuth();
+export default function VirtualReceptionistSetup({ onComplete, onSkip }: VirtualReceptionistSetupProps) {
+  const { user, isLoading: isLoadingUser } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
-  
-  const businessId = user?.businessId || 1;
-  
-  // Fetch any existing receptionist config
+
+  const businessId = user?.businessId;
+
+  // Fetch any existing receptionist config - must be called before any early returns
   const { data: config, isLoading: isLoadingConfig } = useQuery<{ id?: number } | undefined>({
     queryKey: ['/api/receptionist-config', businessId],
     retry: false,
     enabled: !!businessId,
   });
-  
+
   const form = useForm<ConfigFormValues>({
     resolver: zodResolver(configSchema),
     defaultValues: {
@@ -68,33 +69,15 @@ export default function VirtualReceptionistSetup({ onComplete }: VirtualReceptio
       forwardingNumbers: '',
     },
   });
-  
-  // Update form when config is loaded
-  const updateFormWithConfig = (config: any) => {
-    if (config) {
-      form.reset({
-        businessHours: config.businessHours || 'Monday-Friday, 9:00 AM - 5:00 PM',
-        welcomeMessage: config.welcomeMessage || 'Thank you for calling. Our virtual receptionist will help you today.',
-        callHandling: config.callHandling || 'both',
-        emergencySupport: !!config.emergencySupport,
-        appointmentBooking: config.appointmentBooking !== false,
-        notificationEmails: config.notificationEmails || user?.email || '',
-        voicemailTranscription: config.voicemailTranscription !== false,
-        callRecording: !!config.callRecording,
-        callForwarding: !!config.callForwarding,
-        forwardingNumbers: config.forwardingNumbers || '',
-      });
-    }
-  };
-  
-  // Save receptionist config mutation
+
+  // Save receptionist config mutation - MUST be before early returns
   const saveConfigMutation = useMutation({
     mutationFn: async (data: ConfigFormValues) => {
       const payload = {
         ...data,
         businessId,
       };
-      
+
       if (config?.id) {
         return apiRequest('PUT', `/api/receptionist-config/${config.id}`, payload);
       } else {
@@ -107,14 +90,11 @@ export default function VirtualReceptionistSetup({ onComplete }: VirtualReceptio
         title: 'Receptionist settings saved',
         description: 'Your virtual receptionist has been configured',
       });
-      
-      // Mark this step as complete
-      localStorage.setItem('onboardingReceptionistComplete', 'true');
-      
-      // Move to next step
+
+      // Move to next step (progress is tracked by the onboarding index)
       onComplete();
     },
-    onError: (error) => {
+    onError: () => {
       toast({
         title: 'Error',
         description: 'There was a problem saving your receptionist settings',
@@ -123,12 +103,34 @@ export default function VirtualReceptionistSetup({ onComplete }: VirtualReceptio
       setIsSubmitting(false);
     },
   });
-  
+
+  // NOW we can have early returns after all hooks are defined
+
+  // Show loading while user data is being fetched
+  if (isLoadingUser) {
+    return (
+      <div className="flex justify-center py-8">
+        <div className="animate-spin w-8 h-8 border-4 border-primary rounded-full border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  // Show error if no business is associated
+  if (!businessId) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-destructive mb-4">
+          No business is associated with your account. Please complete business setup first.
+        </p>
+      </div>
+    );
+  }
+
   const onSubmit = (data: ConfigFormValues) => {
     setIsSubmitting(true);
     saveConfigMutation.mutate(data);
   };
-  
+
   const skipSetup = () => {
     toast({
       title: 'Step skipped',
@@ -136,11 +138,12 @@ export default function VirtualReceptionistSetup({ onComplete }: VirtualReceptio
       variant: 'default',
     });
     
-    // Mark this step as skipped
-    localStorage.setItem('onboardingReceptionistComplete', 'skipped');
-    
-    // Move to next step
-    onComplete();
+    // Move to next step (marked as skipped)
+    if (onSkip) {
+      onSkip();
+    } else {
+      onComplete();
+    }
   };
   
   return (

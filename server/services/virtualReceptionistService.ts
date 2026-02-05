@@ -197,22 +197,31 @@ async function logAppointmentCreation(
 export async function processCall(callData: any): Promise<VirtualReceptionistResponse> {
   try {
     const { businessId, callerId, text, name, email, history } = callData;
-    
+
     // Get business configuration
     const config = await storage.getReceptionistConfig(businessId);
     if (!config) {
       throw new Error('Virtual receptionist configuration not found');
     }
-    
-    // Check business hours
+
+    // Get business info for timezone
+    const business = await storage.getBusiness(businessId);
+    const timezone = business?.timezone || 'America/New_York';
+
+    // Check business hours using business timezone
     const now = new Date();
-    const day = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-    const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-    
+
+    // Convert current time to business timezone
+    const businessTime = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const day = businessTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: timezone }).toLowerCase();
+    const hours = businessTime.getHours().toString().padStart(2, '0');
+    const minutes = businessTime.getMinutes().toString().padStart(2, '0');
+    const time = `${hours}:${minutes}`;
+
     // Get business hours for today
     const businessHours = await storage.getBusinessHours(businessId);
     const todaysHours = businessHours.find(h => h.day.toLowerCase() === day.toLowerCase());
-    
+
     // Check if current time is within business hours
     let isBusinessHours = false;
     if (todaysHours && !todaysHours.isClosed && todaysHours.open && todaysHours.close) {

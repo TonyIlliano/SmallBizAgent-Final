@@ -29,13 +29,13 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
   const [selectedPlan, setSelectedPlan] = useState<number | null>(null);
 
   // Fetch all available plans
-  const { data: plans, isLoading: isLoadingPlans } = useQuery({
+  const { data: plans = [], isLoading: isLoadingPlans } = useQuery<Plan[]>({
     queryKey: ['/api/subscription/plans'],
     enabled: !!user,
   });
 
   // Fetch current subscription status
-  const { data: subscriptionStatus, isLoading: isLoadingStatus } = useQuery({
+  const { data: subscriptionStatus, isLoading: isLoadingStatus } = useQuery<any>({
     queryKey: ['/api/subscription/status', businessId],
     enabled: !!businessId,
   });

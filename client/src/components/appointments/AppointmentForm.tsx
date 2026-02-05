@@ -88,15 +88,15 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
   const [selectedService, setSelectedService] = useState<any>(null);
 
   // Fetch customers, staff, and services for dropdowns
-  const { data: customers } = useQuery({
+  const { data: customers = [] } = useQuery<any[]>({
     queryKey: ['/api/customers', { businessId: 1 }],
   });
 
-  const { data: staff } = useQuery({
+  const { data: staff = [] } = useQuery<any[]>({
     queryKey: ['/api/staff', { businessId: 1 }],
   });
 
-  const { data: services } = useQuery({
+  const { data: services = [] } = useQuery<any[]>({
     queryKey: ['/api/services', { businessId: 1 }],
   });
 

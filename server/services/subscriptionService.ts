@@ -9,7 +9,7 @@ if (!process.env.STRIPE_SECRET_KEY) {
 }
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2023-10-16',
+  apiVersion: '2025-03-31.basil',
 });
 
 export class SubscriptionService {
@@ -54,10 +54,10 @@ export class SubscriptionService {
       // Fetch live subscription data from Stripe
       try {
         const subscription = await stripe.subscriptions.retrieve(businessRecord.stripeSubscriptionId);
-        
+
         // Check if subscription is active
         const isActive = subscription.status === 'active' || subscription.status === 'trialing';
-        const periodEnd = new Date(subscription.current_period_end * 1000);
+        const periodEnd = new Date((subscription as any).current_period_end * 1000);
         
         // Get plan details
         const plan = await db.select()
@@ -206,7 +206,7 @@ export class SubscriptionService {
             stripeSubscriptionId: subscription.id,
             stripePlanId: planId,
             subscriptionStatus: subscription.status,
-            subscriptionPeriodEnd: new Date(subscription.current_period_end * 1000),
+            subscriptionPeriodEnd: new Date((subscription as any).current_period_end * 1000),
             updatedAt: new Date()
           })
           .where(eq(businesses.id, businessId));
@@ -262,7 +262,7 @@ export class SubscriptionService {
       return {
         status: 'canceling',
         message: 'Subscription will be canceled at the end of the current billing period',
-        periodEnd: new Date(subscription.current_period_end * 1000)
+        periodEnd: new Date((subscription as any).current_period_end * 1000)
       };
     } catch (error) {
       console.error('Error canceling subscription:', error);
@@ -324,15 +324,15 @@ export class SubscriptionService {
       switch (event.type) {
         case 'invoice.payment_succeeded': {
           const invoice = event.data.object as Stripe.Invoice;
-          if (invoice.subscription) {
+          if ((invoice as any).subscription) {
             await this.handleInvoicePaymentSucceeded(invoice);
           }
           break;
         }
-        
+
         case 'invoice.payment_failed': {
           const invoice = event.data.object as Stripe.Invoice;
-          if (invoice.subscription) {
+          if ((invoice as any).subscription) {
             await this.handleInvoicePaymentFailed(invoice);
           }
           break;
@@ -379,7 +379,7 @@ export class SubscriptionService {
       await db.update(businesses)
         .set({
           subscriptionStatus: subscription.status,
-          subscriptionPeriodEnd: new Date(subscription.current_period_end * 1000),
+          subscriptionPeriodEnd: new Date((subscription as any).current_period_end * 1000),
           updatedAt: new Date()
         })
         .where(eq(businesses.id, business[0].id));
@@ -430,11 +430,12 @@ export class SubscriptionService {
   private async handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
     try {
       // Update the subscription status in our database
-      if (invoice.subscription) {
-        const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
+      const subscriptionId = (invoice as any).subscription;
+      if (subscriptionId) {
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId as string);
         await this.updateSubscriptionStatus(subscription);
-        
-        console.log(`Subscription payment succeeded for subscription ${invoice.subscription}`);
+
+        console.log(`Subscription payment succeeded for subscription ${subscriptionId}`);
       }
     } catch (error) {
       console.error('Error handling invoice payment succeeded:', error);
@@ -449,11 +450,12 @@ export class SubscriptionService {
   private async handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     try {
       // Update the subscription status in our database
-      if (invoice.subscription) {
-        const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
+      const subscriptionId = (invoice as any).subscription;
+      if (subscriptionId) {
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId as string);
         await this.updateSubscriptionStatus(subscription);
-        
-        console.log(`Subscription payment failed for subscription ${invoice.subscription}`);
+
+        console.log(`Subscription payment failed for subscription ${subscriptionId}`);
       }
     } catch (error) {
       console.error('Error handling invoice payment failed:', error);

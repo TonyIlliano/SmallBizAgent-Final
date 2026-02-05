@@ -1,13 +1,14 @@
 import { Link, useLocation } from "wouter";
-import { 
-  Home, 
-  Users, 
-  FileText, 
-  Briefcase, 
-  Calendar, 
+import {
+  Home,
+  Users,
+  FileText,
+  Briefcase,
+  Calendar,
   Settings,
   Menu,
-  X
+  X,
+  Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -39,12 +40,24 @@ export function AppNav() {
     { name: "Settings", href: "/settings", icon: <Settings className="w-5 h-5 mr-2" /> },
   ];
 
+  // Admin-only nav items
+  const adminNavItems: NavItem[] = user?.role === "admin" ? [
+    { name: "Admin", href: "/admin", icon: <Shield className="w-5 h-5 mr-2" /> },
+  ] : [];
+
+  // Combine nav items
+  const allNavItems = [...mainNavItems, ...adminNavItems];
+
   // Handle logout
   const handleLogout = () => {
     logoutMutation.mutate();
   };
 
-  if (!user) return null;
+  // Hide nav on public routes
+  const publicRoutes = ['/auth', '/welcome', '/reset-password', '/portal'];
+  const isPublicRoute = publicRoutes.some(route => location.startsWith(route)) || location === '/welcome';
+
+  if (!user || isPublicRoute) return null;
 
   return (
     <>
@@ -68,7 +81,7 @@ export function AppNav() {
       {isMobileNavOpen && (
         <div className="md:hidden fixed inset-0 bg-background z-40 p-4 pt-16 flex flex-col">
           <nav className="space-y-2">
-            {mainNavItems.map((item) => (
+            {allNavItems.map((item) => (
               <Link key={item.href} href={item.href}>
                 <div className={cn(
                   "flex items-center p-3 rounded-md hover:bg-muted transition-colors cursor-pointer",
@@ -97,11 +110,12 @@ export function AppNav() {
       <div className="hidden md:flex w-full bg-background border-b sticky top-0 z-30">
         <div className="container flex items-center py-2">
           <div className="flex-1 flex items-center space-x-4">
-            {mainNavItems.map((item) => (
+            {allNavItems.map((item) => (
               <Link key={item.href} href={item.href}>
                 <div className={cn(
                   "flex items-center px-3 py-2 rounded-md hover:bg-muted transition-colors cursor-pointer",
-                  location === item.href ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground"
+                  location === item.href ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground",
+                  item.name === "Admin" && "text-amber-600 hover:text-amber-700"
                 )}>
                   {item.icon}
                   {item.name}

@@ -1,10 +1,145 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { seed } from "./seed";
 import runMigrations from "./migrations/runMigrations";
+import schedulerService from "./services/schedulerService";
+import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
+
+/**
+ * ===========================================
+ * ENVIRONMENT VALIDATION
+ * ===========================================
+ * Fail fast if critical environment variables are missing
+ */
+function validateEnvironment() {
+  const required = [
+    'DATABASE_URL',
+    'SESSION_SECRET',
+  ];
+
+  const recommended = [
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
+    'TWILIO_ACCOUNT_SID',
+    'TWILIO_AUTH_TOKEN',
+    'VAPI_API_KEY',
+  ];
+
+  const missing = required.filter(key => !process.env[key]);
+  if (missing.length > 0) {
+    console.error('❌ CRITICAL: Missing required environment variables:', missing.join(', '));
+    process.exit(1);
+  }
+
+  // Check for weak/default secrets
+  if (process.env.SESSION_SECRET === 'dev-only-secret-change-in-production') {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ CRITICAL: Cannot use default SESSION_SECRET in production');
+      process.exit(1);
+    } else {
+      console.warn('⚠️  WARNING: Using default SESSION_SECRET - change this for production');
+    }
+  }
+
+  const missingRecommended = recommended.filter(key => !process.env[key]);
+  if (missingRecommended.length > 0) {
+    console.warn('⚠️  WARNING: Missing recommended environment variables:', missingRecommended.join(', '));
+    console.warn('   Some features may not work correctly.');
+  }
+
+  console.log('✅ Environment validation passed');
+}
+
+// Validate environment on startup
+validateEnvironment();
 
 const app = express();
+
+/**
+ * ===========================================
+ * SECURITY MIDDLEWARE
+ * ===========================================
+ */
+
+// Helmet - Security headers (CSP, X-Frame-Options, etc.)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.stripe.com", "https://api.vapi.ai", "wss:"],
+      frameSrc: ["'self'", "https://js.stripe.com"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Required for some external resources
+}));
+
+// CORS - Configure allowed origins
+const allowedOrigins = [
+  'http://localhost:5000',
+  'http://localhost:3000',
+  process.env.BASE_URL,
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (process.env.NODE_ENV !== 'production') {
+      // In development, allow any localhost origin
+      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
+
+// Rate limiting - General API rate limit
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per 15 minutes per IP
+  message: { message: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for webhooks (they have their own validation)
+    return req.path.includes('/webhook') || req.path.includes('/twilio');
+  },
+});
+
+// Stricter rate limit for authentication endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 login attempts per 15 minutes
+  message: { message: 'Too many login attempts, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiters
+app.use('/api/', generalLimiter);
+app.use('/api/login', authLimiter);
+app.use('/api/register', authLimiter);
+app.use('/api/forgot-password', authLimiter);
+app.use('/api/reset-password', authLimiter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -75,6 +210,10 @@ app.use((req, res, next) => {
       reusePort: true,
     }, () => {
       log(`serving on port ${port}`);
+
+      // Start the reminder scheduler after server is running
+      schedulerService.startAllSchedulers();
+      log('Reminder schedulers started');
     });
   } catch (error) {
     console.error('Server startup error:', error);

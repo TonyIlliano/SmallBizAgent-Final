@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
-import { formatDateTime, formatTime } from "@/lib/utils";
-import { PlusCircle, Calendar as CalendarIcon } from "lucide-react";
+import { formatDate, formatTime } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/api";
+import { PlusCircle, Calendar as CalendarIcon, MessageSquare } from "lucide-react";
 import { 
   Popover,
   PopoverContent,
@@ -26,16 +29,53 @@ export default function Appointments() {
   const [, navigate] = useLocation();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [sheetOpen, setSheetOpen] = useState(false);
-  
-  // Build query parameters
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  // Get business ID from authenticated user
+  const businessId = user?.businessId;
+
+  // Send reminder mutation
+  const sendReminderMutation = useMutation({
+    mutationFn: (appointmentId: number) =>
+      apiRequest("POST", `/api/appointments/${appointmentId}/send-reminder`),
+    onSuccess: () => {
+      toast({
+        title: "Reminder Sent",
+        description: "SMS reminder sent to customer successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Send",
+        description: error?.message || "Could not send reminder",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Build query parameters - create new Date objects to avoid mutating selectedDate
+  const getStartOfDay = (date: Date) => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  const getEndOfDay = (date: Date) => {
+    const d = new Date(date);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  };
+
   const queryParams = {
-    businessId: 1,
-    startDate: selectedDate ? new Date(selectedDate.setHours(0, 0, 0, 0)).toISOString() : undefined,
-    endDate: selectedDate ? new Date(selectedDate.setHours(23, 59, 59, 999)).toISOString() : undefined,
+    businessId,
+    startDate: selectedDate ? getStartOfDay(selectedDate).toISOString() : undefined,
+    endDate: selectedDate ? getEndOfDay(selectedDate).toISOString() : undefined,
   };
   
   // Fetch appointments for selected date
-  const { data: appointments, isLoading } = useQuery({
+  const { data: appointments = [], isLoading } = useQuery<any[]>({
     queryKey: ['/api/appointments', queryParams],
   });
   
@@ -107,8 +147,22 @@ export default function Appointments() {
       accessorKey: "actions",
       cell: (appointment: any) => (
         <div className="flex items-center space-x-2">
-          <Button 
-            variant="outline" 
+          {(appointment.status === 'scheduled' || appointment.status === 'confirmed') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                sendReminderMutation.mutate(appointment.id);
+              }}
+              disabled={sendReminderMutation.isPending}
+              title="Send SMS Reminder"
+            >
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+          )}
+          <Button
+            variant="outline"
             size="sm"
             onClick={(e) => {
               e.stopPropagation();
@@ -145,14 +199,12 @@ export default function Appointments() {
               <PopoverTrigger asChild>
                 <Button
                   variant={"outline"}
-                  className="w-full justify-start text-left font-normal mb-4"
+                  className="w-full justify-start text-left font-normal mb-4 text-sm"
                 >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {selectedDate ? (
-                    formatDateTime(selectedDate)
-                  ) : (
-                    <span>Pick a date</span>
-                  )}
+                  <CalendarIcon className="mr-2 h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">
+                    {selectedDate ? formatDate(selectedDate) : "Pick a date"}
+                  </span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
@@ -208,7 +260,7 @@ export default function Appointments() {
           <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
             <div className="p-4 border-b">
               <h3 className="text-lg font-medium">
-                Appointments for {selectedDate ? formatDateTime(selectedDate).split(' at')[0] : 'Today'}
+                Appointments for {selectedDate ? formatDate(selectedDate) : 'Today'}
               </h3>
             </div>
             
@@ -244,14 +296,14 @@ export default function Appointments() {
       
       {/* Appointment Creation Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent size="full">
+        <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Schedule New Appointment</SheetTitle>
             <SheetDescription>
               Fill in the details to schedule a new appointment
             </SheetDescription>
           </SheetHeader>
-          <div className="mt-8 overflow-y-auto max-h-[calc(100vh-10rem)]">
+          <div className="mt-8">
             <AppointmentForm />
           </div>
         </SheetContent>

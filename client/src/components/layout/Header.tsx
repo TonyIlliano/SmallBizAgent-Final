@@ -1,5 +1,7 @@
 import { useSidebar } from "@/context/SidebarContext";
-import { Bell, Search } from "lucide-react";
+import { Bell, Search, Menu } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface HeaderProps {
   title: string;
@@ -9,54 +11,44 @@ export function Header({ title }: HeaderProps) {
   const { toggleSidebar } = useSidebar();
 
   return (
-    <header className="bg-white shadow-sm z-10">
+    <header className="bg-card border-b border-border z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex h-16 items-center justify-between">
-        <div className="flex items-center">
-          <button
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={toggleSidebar}
-            className="md:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500"
+            className="md:hidden h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <svg
-              className="h-6 w-6"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M4 6h16M4 12h16M4 18h16"
-              />
-            </svg>
-          </button>
-          <h1 className="ml-3 md:ml-0 text-lg font-semibold text-gray-800">{title}</h1>
+            <Menu className="h-5 w-5" />
+            <span className="sr-only">Toggle sidebar</span>
+          </Button>
+          <h1 className="text-xl font-bold tracking-tight text-foreground">{title}</h1>
         </div>
 
-        <div className="flex items-center space-x-4">
-          {/* Notifications */}
-          <div className="relative">
-            <button className="p-1 rounded-full text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
-              <span className="sr-only">View notifications</span>
-              <Bell className="h-6 w-6" />
-              <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500"></span>
-            </button>
-          </div>
-
+        <div className="flex items-center gap-3">
           {/* Search */}
           <div className="hidden md:block">
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-5 w-5 text-gray-400" aria-hidden="true" />
-              </div>
-              <input
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
                 type="text"
                 placeholder="Search..."
-                className="block w-full bg-gray-100 border border-transparent rounded-md py-2 pl-10 pr-3 text-sm placeholder-gray-500 focus:outline-none focus:bg-white focus:border-primary-500 focus:ring-primary-500 focus:placeholder-gray-400"
+                className="w-64 pl-10 h-10 bg-muted border-0 rounded-lg text-sm placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
           </div>
+
+          {/* Notifications */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+          >
+            <Bell className="h-5 w-5" />
+            <span className="sr-only">View notifications</span>
+            <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-card"></span>
+          </Button>
         </div>
       </div>
     </header>

@@ -27,6 +27,7 @@ import {
 
 interface CalendarSetupProps {
   onComplete: () => void;
+  onSkip?: () => void;
 }
 
 // Calendar setup form schema
@@ -41,13 +42,16 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
-  const { user } = useAuth();
+export default function CalendarSetup({ onComplete, onSkip }: CalendarSetupProps) {
+  const { user, isLoading: isLoadingUser } = useAuth();
   const { toast } = useToast();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('provider');
-  
+
+  const businessId = user?.businessId;
+
+  // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -59,7 +63,7 @@ export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
       staffNotifications: true,
     },
   });
-  
+
   // Authenticate with calendar provider mutation
   const authProviderMutation = useMutation({
     mutationFn: async (provider: string) => {
@@ -72,7 +76,7 @@ export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
         window.location.href = data.authUrl;
       }
     },
-    onError: (error) => {
+    onError: () => {
       toast({
         title: 'Authentication failed',
         description: 'There was a problem connecting to the calendar provider',
@@ -81,11 +85,13 @@ export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
       setIsAuthenticating(false);
     },
   });
-  
+
   // Save calendar settings mutation
   const saveSettingsMutation = useMutation({
     mutationFn: async (data: FormValues) => {
-      const businessId = user?.businessId || 1;
+      if (!businessId) {
+        throw new Error('No business associated with account');
+      }
       return apiRequest('POST', '/api/calendar/settings', {
         ...data,
         businessId,
@@ -96,18 +102,15 @@ export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
         title: 'Calendar settings saved',
         description: 'Your calendar integration has been configured',
       });
-      
-      // Mark this step as complete if we have a provider
-      if (form.getValues('provider') !== 'none') {
-        localStorage.setItem('onboardingCalendarComplete', 'true');
+
+      // Move to next step - if no provider selected, treat as skip
+      if (form.getValues('provider') === 'none' && onSkip) {
+        onSkip();
       } else {
-        localStorage.setItem('onboardingCalendarComplete', 'skipped');
+        onComplete();
       }
-      
-      // Move to next step
-      onComplete();
     },
-    onError: (error) => {
+    onError: () => {
       toast({
         title: 'Error',
         description: 'There was a problem saving your calendar settings',
@@ -116,6 +119,28 @@ export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
       setIsSubmitting(false);
     },
   });
+
+  // NOW we can have early returns after all hooks are defined
+
+  // Show loading while user data is being fetched
+  if (isLoadingUser) {
+    return (
+      <div className="flex justify-center py-8">
+        <div className="animate-spin w-8 h-8 border-4 border-primary rounded-full border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  // Show error if no business is associated
+  if (!businessId) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-destructive mb-4">
+          No business is associated with your account. Please complete business setup first.
+        </p>
+      </div>
+    );
+  }
   
   const handleAuthProvider = (provider: string) => {
     setIsAuthenticating(true);
@@ -135,12 +160,13 @@ export default function CalendarSetup({ onComplete }: CalendarSetupProps) {
       description: 'You can set up calendar integration later in Settings',
       variant: 'default',
     });
-    
-    // Mark this step as skipped
-    localStorage.setItem('onboardingCalendarComplete', 'skipped');
-    
-    // Move to next step
-    onComplete();
+
+    // Move to next step (marked as skipped)
+    if (onSkip) {
+      onSkip();
+    } else {
+      onComplete();
+    }
   };
   
   const reminderOptions = [

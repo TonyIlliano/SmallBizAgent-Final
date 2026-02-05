@@ -11,10 +11,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Plus, Edit2, Trash2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Loader2, Plus, Edit2, Trash2, Sparkles, PenLine } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { IndustryTemplateSelector } from '@/components/onboarding/industry-template-selector';
 
 interface ServicesSetupProps {
   onComplete: () => void;
@@ -36,20 +37,26 @@ interface Service extends ServiceFormValues {
   businessId: number;
 }
 
+type SetupMode = 'choose' | 'template' | 'manual';
+
 export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
-  const { user } = useAuth();
+  const { user, isLoading: isLoadingUser } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
   const [currentService, setCurrentService] = useState<Service | null>(null);
-  
-  const businessId = user?.businessId || 1;
-  
+  const [setupMode, setSetupMode] = useState<SetupMode>('choose');
+
+  const businessId = user?.businessId;
+
+  // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
+
   // Fetch services for the business
   const { data: services = [], isLoading: isLoadingServices } = useQuery<Service[]>({
     queryKey: ['/api/services', { businessId }],
+    enabled: !!businessId,
   });
-  
+
   const form = useForm<ServiceFormValues>({
     resolver: zodResolver(serviceFormSchema),
     defaultValues: {
@@ -57,10 +64,10 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
       description: '',
       priceType: 'fixed',
       basePrice: 0,
-      duration: 60, // Default 60 minutes
+      duration: 60,
     },
   });
-  
+
   // Reset form when dialog opens/closes
   useEffect(() => {
     if (showDialog && currentService) {
@@ -80,8 +87,16 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
         duration: 60,
       });
     }
-  }, [showDialog, currentService, form]);
-  
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDialog, currentService]);
+
+  // If services already exist, skip to manual mode
+  useEffect(() => {
+    if (services.length > 0 && setupMode === 'choose') {
+      setSetupMode('manual');
+    }
+  }, [services.length, setupMode]);
+
   // Create service mutation
   const createServiceMutation = useMutation({
     mutationFn: async (data: ServiceFormValues) => {
@@ -89,7 +104,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
         ...data,
         businessId,
       };
-      
+
       if (currentService) {
         return apiRequest('PUT', `/api/services/${currentService.id}`, payload);
       } else {
@@ -102,12 +117,12 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
         title: currentService ? 'Service updated' : 'Service added',
         description: currentService ? 'Service has been updated' : 'New service has been added',
       });
-      
+
       setShowDialog(false);
       setCurrentService(null);
       setIsSubmitting(false);
     },
-    onError: (error) => {
+    onError: () => {
       toast({
         title: 'Error',
         description: `There was a problem ${currentService ? 'updating' : 'adding'} the service`,
@@ -116,7 +131,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
       setIsSubmitting(false);
     },
   });
-  
+
   // Delete service mutation
   const deleteServiceMutation = useMutation({
     mutationFn: async (serviceId: number) => {
@@ -129,7 +144,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
         description: 'Service has been removed',
       });
     },
-    onError: (error) => {
+    onError: () => {
       toast({
         title: 'Error',
         description: 'There was a problem deleting the service',
@@ -137,41 +152,159 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
       });
     },
   });
-  
+
+  // NOW we can have early returns after all hooks are defined
+
+  // Show loading while user data is being fetched
+  if (isLoadingUser) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Show error if no business is associated
+  if (!businessId) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-destructive mb-4">
+          No business is associated with your account. Please complete business setup first.
+        </p>
+      </div>
+    );
+  }
+
   const onSubmit = (data: ServiceFormValues) => {
     setIsSubmitting(true);
     createServiceMutation.mutate(data);
   };
-  
+
   const handleDelete = (serviceId: number) => {
     deleteServiceMutation.mutate(serviceId);
   };
-  
+
   const handleEdit = (service: Service) => {
     setCurrentService(service);
     setShowDialog(true);
   };
-  
+
   const formatPrice = (price: number, priceType: string) => {
     const formattedPrice = new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
     }).format(price);
-    
+
     if (priceType === 'hourly') {
       return `${formattedPrice}/hr`;
     } else if (priceType === 'variable') {
       return `From ${formattedPrice}`;
     }
-    
+
     return formattedPrice;
   };
-  
+
   const handleComplete = () => {
-    localStorage.setItem('onboardingServicesComplete', 'true');
+    // Progress is tracked by the onboarding index
     onComplete();
   };
-  
+
+  const handleTemplateApplied = () => {
+    // Refetch services after template is applied
+    queryClient.invalidateQueries({ queryKey: ['/api/services'] });
+    setSetupMode('manual'); // Switch to manual mode to show/edit services
+  };
+
+  // Mode selection screen
+  if (setupMode === 'choose' && services.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center pb-4">
+          <h2 className="text-xl font-semibold mb-2">How would you like to set up your services?</h2>
+          <p className="text-muted-foreground">
+            Choose a quick start option or create services manually
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card
+            className="cursor-pointer hover:border-primary transition-colors"
+            onClick={() => setSetupMode('template')}
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Quick Setup
+              </CardTitle>
+              <CardDescription>
+                Choose your industry and get pre-built services instantly
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>• 12 industry templates available</li>
+                <li>• 5 services per template</li>
+                <li>• Includes suggested pricing</li>
+                <li>• Customize after setup</li>
+              </ul>
+              <Button className="w-full mt-4" variant="default">
+                <Sparkles className="h-4 w-4 mr-2" />
+                Use Industry Template
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card
+            className="cursor-pointer hover:border-primary transition-colors"
+            onClick={() => setSetupMode('manual')}
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <PenLine className="h-5 w-5 text-primary" />
+                Manual Setup
+              </CardTitle>
+              <CardDescription>
+                Create your own services from scratch
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>• Full control over service details</li>
+                <li>• Set your own pricing</li>
+                <li>• Custom durations</li>
+                <li>• Add as many as you need</li>
+              </ul>
+              <Button className="w-full mt-4" variant="outline">
+                <PenLine className="h-4 w-4 mr-2" />
+                Create Manually
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Template selector screen
+  if (setupMode === 'template' && businessId) {
+    return (
+      <div className="space-y-6">
+        <Button
+          variant="ghost"
+          onClick={() => setSetupMode('choose')}
+          className="mb-2"
+        >
+          &larr; Back to options
+        </Button>
+        <IndustryTemplateSelector
+          businessId={businessId}
+          onTemplateApplied={handleTemplateApplied}
+        />
+      </div>
+    );
+  }
+
+  // Manual setup / service list screen
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -189,7 +322,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                 {currentService ? 'Edit Service' : 'Add New Service'}
               </DialogTitle>
             </DialogHeader>
-            
+
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
                 <FormField
@@ -205,7 +338,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="description"
@@ -213,8 +346,8 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          placeholder="Describe what's included in this service" 
+                        <Textarea
+                          placeholder="Describe what's included in this service"
                           {...field}
                           rows={3}
                         />
@@ -223,7 +356,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                     </FormItem>
                   )}
                 />
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -245,7 +378,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                       </FormItem>
                     )}
                   />
-                  
+
                   <FormField
                     control={form.control}
                     name="basePrice"
@@ -266,7 +399,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                     )}
                   />
                 </div>
-                
+
                 <FormField
                   control={form.control}
                   name="duration"
@@ -285,7 +418,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                     </FormItem>
                   )}
                 />
-                
+
                 <div className="flex justify-end gap-2 pt-4">
                   <Button
                     type="button"
@@ -304,7 +437,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
           </DialogContent>
         </Dialog>
       </div>
-      
+
       {isLoadingServices ? (
         <div className="flex justify-center py-8">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -345,7 +478,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                       Duration: {service.duration} mins
                     </span>
                   ) : (
-                    <span></span> 
+                    <span></span>
                   )}
                   <div className="flex gap-2">
                     <Button
@@ -357,7 +490,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                       <Edit2 className="h-4 w-4" />
                       <span className="sr-only">Edit</span>
                     </Button>
-                    
+
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -378,7 +511,7 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction 
+                          <AlertDialogAction
                             className="bg-destructive text-destructive-foreground"
                             onClick={() => handleDelete(service.id)}
                           >
@@ -394,9 +527,9 @@ export default function ServicesSetup({ onComplete }: ServicesSetupProps) {
           ))}
         </div>
       )}
-      
+
       <div className="pt-6 flex justify-end">
-        <Button 
+        <Button
           onClick={handleComplete}
           disabled={services.length === 0}
         >

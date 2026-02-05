@@ -21,15 +21,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-export function CustomerTable({ businessId = 1 }) {
+export function CustomerTable({ businessId }: { businessId?: number | null }) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [customerToDelete, setCustomerToDelete] = useState<any>(null);
 
-  const { data: customers, isLoading } = useQuery({
+  const { data: customers = [], isLoading } = useQuery<any[]>({
     queryKey: ['/api/customers', { businessId }],
+    enabled: !!businessId,
   });
 
   const deleteMutation = useMutation({

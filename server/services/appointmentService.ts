@@ -16,8 +16,8 @@ export async function isTimeSlotAvailable(
   businessId: number,
   startDate: Date,
   endDate: Date,
-  staffId?: number,
-  serviceId?: number
+  staffId?: number | null,
+  serviceId?: number | null
 ): Promise<boolean> {
   try {
     // Format dates for SQL query

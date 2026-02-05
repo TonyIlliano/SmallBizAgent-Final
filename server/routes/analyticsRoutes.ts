@@ -5,9 +5,17 @@ import * as analyticsService from "../services/analyticsService";
 
 // Define validation schema for analytics requests
 const analyticsRequestSchema = z.object({
-  businessId: z.number().optional(),
   period: z.enum(['week', 'month', 'quarter', 'year']).default('month')
 });
+
+// Helper to get businessId from authenticated user
+const getBusinessId = (req: Request): number => {
+  if (req.isAuthenticated() && req.user?.businessId) {
+    return req.user.businessId;
+  }
+  // Fallback for development
+  return 1;
+};
 
 /**
  * Register analytics API routes
@@ -18,40 +26,40 @@ export function registerAnalyticsRoutes(app: any) {
    */
   app.get("/api/analytics", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      // Validate and parse query parameters
-      const { businessId = 1, period = 'month' } = analyticsRequestSchema.parse({
-        businessId: req.query.businessId ? parseInt(req.query.businessId as string) : undefined,
+      // Get businessId from authenticated user (not query params)
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
         period: req.query.period || 'month'
       });
-      
+
       // Get analytics data
       const analytics = await analyticsService.getBusinessAnalytics(businessId, period);
-      
+
       res.json(analytics);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid request parameters",
-          errors: error.format() 
+          errors: error.format()
         });
       }
-      
+
       console.error("Error fetching analytics:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Error fetching analytics",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
   });
-  
+
   /**
    * Get revenue analytics
    */
   app.get("/api/analytics/revenue", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      // Validate and parse query parameters
-      const { businessId = 1, period = 'month' } = analyticsRequestSchema.parse({
-        businessId: req.query.businessId ? parseInt(req.query.businessId as string) : undefined,
+      // Get businessId from authenticated user (not query params)
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
         period: req.query.period || 'month'
       });
       
@@ -105,8 +113,8 @@ export function registerAnalyticsRoutes(app: any) {
   app.get("/api/analytics/jobs", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
-      const { businessId = 1, period = 'month' } = analyticsRequestSchema.parse({
-        businessId: req.query.businessId ? parseInt(req.query.businessId as string) : undefined,
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
         period: req.query.period || 'month'
       });
       
@@ -160,8 +168,8 @@ export function registerAnalyticsRoutes(app: any) {
   app.get("/api/analytics/appointments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
-      const { businessId = 1, period = 'month' } = analyticsRequestSchema.parse({
-        businessId: req.query.businessId ? parseInt(req.query.businessId as string) : undefined,
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
         period: req.query.period || 'month'
       });
       
@@ -215,8 +223,8 @@ export function registerAnalyticsRoutes(app: any) {
   app.get("/api/analytics/calls", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
-      const { businessId = 1, period = 'month' } = analyticsRequestSchema.parse({
-        businessId: req.query.businessId ? parseInt(req.query.businessId as string) : undefined,
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
         period: req.query.period || 'month'
       });
       
@@ -270,8 +278,8 @@ export function registerAnalyticsRoutes(app: any) {
   app.get("/api/analytics/customers", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
-      const { businessId = 1, period = 'month' } = analyticsRequestSchema.parse({
-        businessId: req.query.businessId ? parseInt(req.query.businessId as string) : undefined,
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
         period: req.query.period || 'month'
       });
       
@@ -325,8 +333,8 @@ export function registerAnalyticsRoutes(app: any) {
   app.get("/api/analytics/performance", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
-      const { businessId = 1, period = 'month' } = analyticsRequestSchema.parse({
-        businessId: req.query.businessId ? parseInt(req.query.businessId as string) : undefined,
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
         period: req.query.period || 'month'
       });
       

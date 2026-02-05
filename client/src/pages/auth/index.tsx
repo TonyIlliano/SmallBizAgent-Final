@@ -9,18 +9,36 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, AlertCircle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 
 const loginFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
+// Password must match server-side requirements
+const passwordSchema = z.string()
+  .min(12, "Password must be at least 12 characters")
+  .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+  .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+  .regex(/[0-9]/, "Password must contain at least one number")
+  .regex(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/, "Password must contain at least one special character");
+
 const registerFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string().min(6, "Password must be at least 6 characters"),
+  password: passwordSchema,
+  confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
@@ -29,9 +47,20 @@ const registerFormSchema = z.object({
 type LoginFormValues = z.infer<typeof loginFormSchema>;
 type RegisterFormValues = z.infer<typeof registerFormSchema>;
 
+const forgotPasswordSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+});
+
+type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>;
+
 export default function AuthPage() {
   const [activeTab, setActiveTab] = useState<string>("login");
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [forgotPasswordSent, setForgotPasswordSent] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [registerError, setRegisterError] = useState<string | null>(null);
   const { user, loginMutation, registerMutation } = useAuth();
+  const { toast } = useToast();
 
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginFormSchema),
@@ -50,24 +79,69 @@ export default function AuthPage() {
       confirmPassword: "",
     },
   });
-  
+
+  const forgotPasswordForm = useForm<ForgotPasswordValues>({
+    resolver: zodResolver(forgotPasswordSchema),
+    defaultValues: {
+      email: "",
+    },
+  });
+
   // Redirect if user is already logged in - moved after hook declarations
   if (user) {
     return <Redirect to="/" />;
   }
 
   const onLoginSubmit = (values: LoginFormValues) => {
-    loginMutation.mutate(values);
+    setLoginError(null);
+    loginMutation.mutate(values, {
+      onError: (error: Error) => {
+        // Show user-friendly error message
+        if (error.message.includes("Invalid") || error.message.includes("401")) {
+          setLoginError("Invalid username or password. Please try again.");
+        } else {
+          setLoginError(error.message);
+        }
+      },
+    });
   };
 
   const onRegisterSubmit = (values: RegisterFormValues) => {
+    setRegisterError(null);
     const { confirmPassword, ...userData } = values;
     registerMutation.mutate(userData, {
       onSuccess: () => {
         // Redirect to subscription selection page after successful registration
         window.location.href = '/onboarding/subscription';
-      }
+      },
+      onError: (error: Error) => {
+        // Display the error message from the hook (already user-friendly)
+        setRegisterError(error.message);
+      },
     });
+  };
+
+  const onForgotPasswordSubmit = async (values: ForgotPasswordValues) => {
+    try {
+      const res = await fetch("/api/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: values.email }),
+      });
+
+      // Always show success to prevent email enumeration
+      setForgotPasswordSent(true);
+      toast({
+        title: "Reset link sent",
+        description: `If an account exists for ${values.email}, you'll receive a password reset link.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send reset link. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -126,6 +200,12 @@ export default function AuthPage() {
               <TabsContent value="login" className="mt-4">
                 <Form {...loginForm}>
                   <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
+                    {loginError && (
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>{loginError}</AlertDescription>
+                      </Alert>
+                    )}
                     <FormField
                       control={loginForm.control}
                       name="username"
@@ -133,7 +213,14 @@ export default function AuthPage() {
                         <FormItem>
                           <FormLabel>Username</FormLabel>
                           <FormControl>
-                            <Input placeholder="yourname" {...field} />
+                            <Input
+                              placeholder="yourname"
+                              {...field}
+                              onChange={(e) => {
+                                setLoginError(null);
+                                field.onChange(e);
+                              }}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -144,9 +231,27 @@ export default function AuthPage() {
                       name="password"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Password</FormLabel>
+                          <div className="flex items-center justify-between">
+                            <FormLabel>Password</FormLabel>
+                            <Button
+                              type="button"
+                              variant="link"
+                              className="p-0 h-auto text-xs text-muted-foreground"
+                              onClick={() => setForgotPasswordOpen(true)}
+                            >
+                              Forgot password?
+                            </Button>
+                          </div>
                           <FormControl>
-                            <Input type="password" placeholder="••••••••" {...field} />
+                            <Input
+                              type="password"
+                              placeholder="••••••••"
+                              {...field}
+                              onChange={(e) => {
+                                setLoginError(null);
+                                field.onChange(e);
+                              }}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -175,6 +280,12 @@ export default function AuthPage() {
               <TabsContent value="register" className="mt-4">
                 <Form {...registerForm}>
                   <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4">
+                    {registerError && (
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>{registerError}</AlertDescription>
+                      </Alert>
+                    )}
                     <FormField
                       control={registerForm.control}
                       name="username"
@@ -182,7 +293,14 @@ export default function AuthPage() {
                         <FormItem>
                           <FormLabel>Username</FormLabel>
                           <FormControl>
-                            <Input placeholder="yourname" {...field} />
+                            <Input
+                              placeholder="yourname"
+                              {...field}
+                              onChange={(e) => {
+                                setRegisterError(null);
+                                field.onChange(e);
+                              }}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -195,7 +313,15 @@ export default function AuthPage() {
                         <FormItem>
                           <FormLabel>Email</FormLabel>
                           <FormControl>
-                            <Input type="email" placeholder="you@example.com" {...field} />
+                            <Input
+                              type="email"
+                              placeholder="you@example.com"
+                              {...field}
+                              onChange={(e) => {
+                                setRegisterError(null);
+                                field.onChange(e);
+                              }}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -210,6 +336,9 @@ export default function AuthPage() {
                           <FormControl>
                             <Input type="password" placeholder="••••••••" {...field} />
                           </FormControl>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Must be 12+ characters with uppercase, lowercase, number, and special character
+                          </p>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -255,6 +384,76 @@ export default function AuthPage() {
           </CardFooter>
         </Card>
       </div>
+
+      {/* Forgot Password Dialog */}
+      <Dialog open={forgotPasswordOpen} onOpenChange={(open) => {
+        setForgotPasswordOpen(open);
+        if (!open) {
+          setForgotPasswordSent(false);
+          forgotPasswordForm.reset();
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset your password</DialogTitle>
+            <DialogDescription>
+              Enter your email address and we'll send you a link to reset your password.
+            </DialogDescription>
+          </DialogHeader>
+          {forgotPasswordSent ? (
+            <div className="py-6 text-center">
+              <div className="mx-auto w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                If an account exists for that email, you'll receive a password reset link shortly.
+              </p>
+              <Button
+                className="mt-4"
+                onClick={() => {
+                  setForgotPasswordOpen(false);
+                  setForgotPasswordSent(false);
+                  forgotPasswordForm.reset();
+                }}
+              >
+                Back to login
+              </Button>
+            </div>
+          ) : (
+            <Form {...forgotPasswordForm}>
+              <form onSubmit={forgotPasswordForm.handleSubmit(onForgotPasswordSubmit)} className="space-y-4">
+                <FormField
+                  control={forgotPasswordForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input type="email" placeholder="you@example.com" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter className="gap-2 sm:gap-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setForgotPasswordOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit">
+                    Send reset link
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

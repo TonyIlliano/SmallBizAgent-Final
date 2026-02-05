@@ -12,8 +12,8 @@ export default function CustomerDetail() {
   const isNew = customerId === "new";
   
   // Fetch customer data if editing existing customer
-  const { data: customer, isLoading, error } = useQuery({
-    queryKey: ['/api/customers', parseInt(customerId)],
+  const { data: customer, isLoading, error } = useQuery<any>({
+    queryKey: ['/api/customers', parseInt(customerId || "0")],
     enabled: !isNew && !!customerId,
   });
   

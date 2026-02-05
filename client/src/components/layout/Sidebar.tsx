@@ -1,32 +1,34 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { 
-  Home, 
-  Users, 
-  Calendar, 
-  Briefcase, 
-  FileText, 
-  MessageSquare, 
-  Settings, 
+import {
+  Home,
+  Users,
+  Calendar,
+  Briefcase,
+  FileText,
+  Settings,
   LogOut,
   Shield,
   Phone,
-  LineChart,
-  Receipt
+  Receipt,
+  Bot,
+  ChevronRight,
+  X,
+  RefreshCw
 } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: Home },
   { path: "/customers", label: "Customers", icon: Users },
   { path: "/appointments", label: "Appointments", icon: Calendar },
   { path: "/jobs", label: "Jobs", icon: Briefcase },
+  { path: "/recurring", label: "Recurring", icon: RefreshCw },
   { path: "/quotes", label: "Quotes", icon: Receipt },
   { path: "/invoices", label: "Invoices", icon: FileText },
-  { path: "/receptionist", label: "Virtual Receptionist", icon: MessageSquare },
+  { path: "/receptionist", label: "AI Receptionist", icon: Bot },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -35,11 +37,41 @@ const adminNavItems = [
   { path: "/admin/phone-management", label: "Phone Management", icon: Phone },
 ];
 
+// Robot SVG matching the Small Business Agent logo
+const RobotLogo = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 100 100" fill="currentColor" className={className}>
+    {/* Antenna */}
+    <rect x="47" y="5" width="6" height="10" rx="3" />
+    <circle cx="50" cy="5" r="4" />
+    {/* Head */}
+    <rect x="25" y="18" width="50" height="40" rx="12" />
+    {/* Visor */}
+    <rect x="30" y="28" width="40" height="15" rx="7" fill="black" />
+    {/* Eyes */}
+    <circle cx="40" cy="35" r="5" fill="white" />
+    <circle cx="60" cy="35" r="5" fill="white" />
+    {/* Smile */}
+    <path d="M 38 48 Q 50 55 62 48" stroke="black" strokeWidth="3" fill="none" strokeLinecap="round" />
+    {/* Body */}
+    <path d="M 32 58 L 32 75 Q 32 82 39 82 L 61 82 Q 68 82 68 75 L 68 58" />
+    {/* Chest detail */}
+    <path d="M 42 62 L 50 68 L 58 62" stroke="black" strokeWidth="2" fill="none" />
+    {/* Arms */}
+    <ellipse cx="20" cy="65" rx="8" ry="12" />
+    <ellipse cx="80" cy="65" rx="8" ry="12" />
+    <circle cx="20" cy="78" r="5" />
+    <circle cx="80" cy="78" r="5" />
+    {/* Legs */}
+    <rect x="36" y="82" width="10" height="12" rx="3" />
+    <rect x="54" y="82" width="10" height="12" rx="3" />
+  </svg>
+);
+
 export function Sidebar() {
   const [location] = useLocation();
   const { isSidebarOpen, toggleSidebar } = useSidebar();
   const { user, logoutMutation } = useAuth();
-  
+
   // Get user initials for avatar
   const getInitials = () => {
     if (!user) return '';
@@ -49,109 +81,132 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "transform transition-transform duration-300 lg:w-64 md:w-20 w-64 bg-white border-r border-gray-200 fixed md:static inset-0 z-40 h-full",
+        "transform transition-all duration-300 lg:w-64 md:w-20 w-64 fixed md:static inset-0 z-40 h-full flex flex-col",
+        "bg-black border-r border-neutral-800",
         isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}
     >
-      {/* Logo */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200">
-        <div className="flex items-center">
-          <svg className="h-8 w-8 text-primary-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16" />
-            <path d="M12 11.5v-4" />
-            <path d="M7.5 7.5h9v9h-9z" />
-            <path d="M12 16.5v-4" />
-          </svg>
-          <span className="text-lg font-semibold ml-2 md:hidden lg:inline">SmallBizAgent</span>
+      {/* Logo Section */}
+      <div className="h-16 flex items-center justify-between px-4 border-b border-neutral-800">
+        <div className="flex items-center gap-3">
+          {/* Robot Logo */}
+          <div className="h-10 w-10 flex items-center justify-center">
+            <RobotLogo className="h-9 w-9 text-white" />
+          </div>
+          <div className="md:hidden lg:block">
+            <div className="text-sm font-bold tracking-wide text-white uppercase">
+              SmallBiz
+            </div>
+            <div className="text-xs font-semibold tracking-widest text-neutral-400 uppercase">
+              Agent
+            </div>
+          </div>
         </div>
         <button
           onClick={toggleSidebar}
-          className="md:hidden p-2 rounded-md hover:bg-gray-100"
+          className="md:hidden p-2 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fillRule="evenodd"
-              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <X className="h-5 w-5" />
         </button>
       </div>
 
       {/* Navigation Links */}
-      <nav className="px-2 py-4 space-y-1">
-        {navItems.map((item) => (
-          <Link
-            key={item.path}
-            href={item.path}
-            className={cn(
-              "flex items-center px-4 py-2 text-sm font-medium rounded-md",
-              location === item.path
-                ? "bg-primary-50 text-primary-700"
-                : "text-gray-700 hover:bg-gray-100"
-            )}
-          >
-            <item.icon className="h-5 w-5 mr-2 md:mr-0 lg:mr-2" />
-            <span className="md:hidden lg:inline">{item.label}</span>
-          </Link>
-        ))}
-        
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {navItems.map((item) => {
+          const isActive = location === item.path || (item.path !== "/" && location.startsWith(item.path));
+          return (
+            <Link
+              key={item.path}
+              href={item.path}
+              className={cn(
+                "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
+                isActive
+                  ? "bg-white text-black"
+                  : "text-neutral-400 hover:text-white hover:bg-neutral-800/80"
+              )}
+            >
+              <div className={cn(
+                "flex items-center justify-center h-8 w-8 rounded-lg mr-3 md:mr-0 lg:mr-3 transition-all",
+                isActive
+                  ? "bg-black text-white"
+                  : "bg-neutral-800 text-neutral-400 group-hover:bg-neutral-700 group-hover:text-white"
+              )}>
+                <item.icon className="h-4 w-4" />
+              </div>
+              <span className="md:hidden lg:inline flex-1">{item.label}</span>
+              {isActive && (
+                <ChevronRight className="h-4 w-4 md:hidden lg:block text-black" />
+              )}
+            </Link>
+          );
+        })}
+
         {/* Admin Navigation Links - only shown to admin users */}
         {user?.role === 'admin' && (
           <>
-            <div className="pt-3 pb-1">
-              <Separator />
-              <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase md:hidden lg:block">
-                Admin
-              </p>
-              <Separator className="md:block lg:hidden" />
+            <div className="pt-4 pb-2">
+              <div className="px-3 flex items-center gap-2">
+                <div className="h-px flex-1 bg-neutral-800" />
+                <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider md:hidden lg:block">
+                  Admin
+                </span>
+                <div className="h-px flex-1 bg-neutral-800" />
+              </div>
             </div>
-            
-            {adminNavItems.map((item) => (
-              <Link
-                key={item.path}
-                href={item.path}
-                className={cn(
-                  "flex items-center px-4 py-2 text-sm font-medium rounded-md",
-                  location === item.path || location.startsWith(item.path + '/')
-                    ? "bg-red-50 text-red-700"
-                    : "text-gray-700 hover:bg-gray-100"
-                )}
-              >
-                <item.icon className="h-5 w-5 mr-2 md:mr-0 lg:mr-2" />
-                <span className="md:hidden lg:inline">{item.label}</span>
-              </Link>
-            ))}
+
+            {adminNavItems.map((item) => {
+              const isActive = location === item.path || location.startsWith(item.path + '/');
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className={cn(
+                    "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
+                    isActive
+                      ? "bg-red-500 text-white"
+                      : "text-neutral-400 hover:text-white hover:bg-neutral-800/80"
+                  )}
+                >
+                  <div className={cn(
+                    "flex items-center justify-center h-8 w-8 rounded-lg mr-3 md:mr-0 lg:mr-3 transition-all",
+                    isActive
+                      ? "bg-red-600 text-white"
+                      : "bg-neutral-800 text-neutral-400 group-hover:bg-neutral-700 group-hover:text-white"
+                  )}>
+                    <item.icon className="h-4 w-4" />
+                  </div>
+                  <span className="md:hidden lg:inline flex-1">{item.label}</span>
+                  {isActive && (
+                    <ChevronRight className="h-4 w-4 md:hidden lg:block" />
+                  )}
+                </Link>
+              );
+            })}
           </>
         )}
       </nav>
 
       {/* Profile Section */}
-      <div className="border-t border-gray-200 p-4 mt-auto">
+      <div className="border-t border-neutral-800 p-4">
         <div className="flex items-center">
-          <div className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-semibold">
+          <div className="h-10 w-10 rounded-lg bg-white flex items-center justify-center text-black font-bold text-sm">
             {getInitials()}
           </div>
-          <div className="ml-3 md:hidden lg:block flex-grow">
-            <p className="text-sm font-medium text-gray-700">{user?.username}</p>
-            <p className="text-xs font-medium text-gray-500">{user?.email}</p>
+          <div className="ml-3 md:hidden lg:block flex-grow min-w-0">
+            <p className="text-sm font-medium text-white truncate">{user?.username}</p>
+            <p className="text-xs text-neutral-500 truncate">{user?.email}</p>
           </div>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="ml-auto p-0 h-8 w-8 rounded-full"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto p-0 h-9 w-9 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-all"
             onClick={() => logoutMutation.mutate()}
             disabled={logoutMutation.isPending}
           >
             {logoutMutation.isPending ? (
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
             ) : (
-              <LogOut className="h-4 w-4 text-gray-500" />
+              <LogOut className="h-4 w-4" />
             )}
           </Button>
         </div>

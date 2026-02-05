@@ -12,7 +12,7 @@ import Stripe from 'stripe';
 // Initialize Stripe with environment variables or default test values
 const apiKey = process.env.STRIPE_SECRET_KEY || 'sk_test_example';
 const stripe = new Stripe(apiKey, {
-  apiVersion: '2023-10-16'
+  apiVersion: '2025-03-31.basil'
 });
 
 /**

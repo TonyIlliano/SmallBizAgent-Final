@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatCurrency } from "@/lib/utils";
-import { PlusCircle, FileText, Download, Edit, Printer } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/api";
+import { PlusCircle, FileText, Download, Edit, Printer, MessageSquare, Share2, Copy, Check } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -18,7 +20,57 @@ import {
 export default function Invoices() {
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("");
-  
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Generate shareable link mutation
+  const generateLinkMutation = useMutation({
+    mutationFn: (invoiceId: number) =>
+      apiRequest("POST", `/api/invoices/${invoiceId}/generate-link`),
+    onSuccess: async (response: any, invoiceId: number) => {
+      const data = await response.json();
+      // Copy to clipboard
+      await navigator.clipboard.writeText(data.publicUrl);
+      setCopiedId(invoiceId);
+      setTimeout(() => setCopiedId(null), 2000);
+
+      toast({
+        title: "Link Created & Copied!",
+        description: "Payment link has been copied to clipboard",
+      });
+
+      // Refresh invoices to show link status
+      queryClient.invalidateQueries({ queryKey: ['/api/invoices'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Generate Link",
+        description: error?.message || "Could not generate payment link",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Send payment reminder mutation
+  const sendReminderMutation = useMutation({
+    mutationFn: (invoiceId: number) =>
+      apiRequest("POST", `/api/invoices/${invoiceId}/send-reminder`),
+    onSuccess: () => {
+      toast({
+        title: "Reminder Sent",
+        description: "Payment reminder sent to customer",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Send",
+        description: error?.message || "Could not send reminder",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Build query parameters
   const queryParams: any = { businessId: 1 };
   if (statusFilter) {
@@ -26,7 +78,7 @@ export default function Invoices() {
   }
   
   // Fetch invoices
-  const { data: invoices = [], isLoading } = useQuery({
+  const { data: invoices = [], isLoading } = useQuery<any[]>({
     queryKey: ['/api/invoices', queryParams],
   });
   
@@ -95,46 +147,81 @@ export default function Invoices() {
       cell: (invoice: any) => (
         <div className="flex items-center space-x-2">
           {(invoice.status === 'pending' || invoice.status === 'overdue') && (
-            <Button 
-              variant="default"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                // Navigate to payment page
-                navigate(`/invoices/pay/${invoice.id}`);
-              }}
-            >
-              Pay Now
-            </Button>
+            <>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/invoices/pay/${invoice.id}`);
+                }}
+              >
+                Pay Now
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  sendReminderMutation.mutate(invoice.id);
+                }}
+                disabled={sendReminderMutation.isPending}
+                title="Send Payment Reminder"
+              >
+                <MessageSquare className="h-4 w-4" />
+              </Button>
+            </>
           )}
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="outline"
             size="icon"
             onClick={(e) => {
               e.stopPropagation();
-              // Handle download
-              window.alert('Download invoice feature would go here');
+              generateLinkMutation.mutate(invoice.id);
             }}
+            disabled={generateLinkMutation.isPending}
+            title={invoice.accessToken ? "Copy Payment Link" : "Generate Payment Link"}
+          >
+            {copiedId === invoice.id ? (
+              <Check className="h-4 w-4 text-green-600" />
+            ) : (
+              <Share2 className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              // Open invoice in new tab for download/save as PDF
+              window.open(`/invoices/${invoice.id}/print`, '_blank');
+            }}
+            title="Download Invoice"
           >
             <Download className="h-4 w-4" />
           </Button>
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
             onClick={(e) => {
               e.stopPropagation();
-              // Handle print
-              window.alert('Print invoice feature would go here');
+              // Open print preview in new window
+              const printWindow = window.open(`/invoices/${invoice.id}/print`, '_blank');
+              if (printWindow) {
+                printWindow.onload = () => {
+                  printWindow.print();
+                };
+              }
             }}
+            title="Print Invoice"
           >
             <Printer className="h-4 w-4" />
           </Button>
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
             onClick={(e) => {
               e.stopPropagation();
-              // Navigate to edit page
               navigate(`/invoices/${invoice.id}`);
             }}
           >
@@ -191,8 +278,7 @@ export default function Invoices() {
             columns={columns}
             data={invoices}
             onRowClick={(invoice) => {
-              // View invoice details
-              window.alert(`View invoice ${invoice.invoiceNumber} details`);
+              navigate(`/invoices/${invoice.id}`);
             }}
           />
         ) : (

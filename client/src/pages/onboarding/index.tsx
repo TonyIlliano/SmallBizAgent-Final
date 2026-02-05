@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useOnboardingProgress, type OnboardingStep } from '@/hooks/use-onboarding-progress';
 
+import Welcome from './steps/welcome';
 import BusinessSetup from './steps/business-setup';
 import ServicesSetup from './steps/services-setup';
 import VirtualReceptionistSetup from './steps/virtual-receptionist-setup';
@@ -20,16 +21,18 @@ export default function OnboardingPage() {
   const [, setLocation] = useLocation();
   
   // Use our progress hook
-  const { 
-    progress, 
-    setCurrentStep, 
-    updateStepStatus, 
+  const {
+    progress,
+    setCurrentStep,
+    updateStepStatus,
     completeOnboarding,
-    getNextIncompleteStep
+    getNextIncompleteStep,
+    resetProgress
   } = useOnboardingProgress();
   
   // Define the steps with mapping to our progress tracking
   const steps = [
+    { id: 'welcome' as OnboardingStep, label: 'Welcome', component: Welcome },
     { id: 'business' as OnboardingStep, label: 'Business Profile', component: BusinessSetup },
     { id: 'services' as OnboardingStep, label: 'Services', component: ServicesSetup },
     { id: 'receptionist' as OnboardingStep, label: 'Virtual Receptionist', component: VirtualReceptionistSetup },
@@ -40,13 +43,32 @@ export default function OnboardingPage() {
   // Find current step index based on progress
   const currentStepIndex = steps.findIndex(step => step.id === progress.currentStep);
   const currentStep = steps[currentStepIndex >= 0 ? currentStepIndex : 0];
+
+  // Debug logging
+  console.log('Onboarding Debug:', {
+    progressCurrentStep: progress.currentStep,
+    currentStepIndex,
+    currentStepId: currentStep?.id,
+    isComplete: progress.isComplete,
+    userBusinessId: user?.businessId,
+    stepStatuses: progress.stepStatuses
+  });
   
-  // Navigate to dashboard if onboarding is complete
+  // Reset onboarding if localStorage says complete but user has no business
+  // This handles cases where localStorage persists across different user accounts
   useEffect(() => {
-    if (progress.isComplete) {
+    if (user && !user.businessId && progress.isComplete) {
+      console.log('Resetting onboarding - user has no business but progress shows complete');
+      resetProgress();
+    }
+  }, [user, progress.isComplete, resetProgress]);
+
+  // Navigate to dashboard if onboarding is complete AND user has a business
+  useEffect(() => {
+    if (progress.isComplete && user?.businessId) {
       setLocation('/');
     }
-  }, [progress.isComplete, setLocation]);
+  }, [progress.isComplete, user?.businessId, setLocation]);
   
   // If not logged in, navigate to auth page
   useEffect(() => {
@@ -69,11 +91,27 @@ export default function OnboardingPage() {
     if (currentStepIndex < steps.length - 1) {
       // Mark current step as completed
       updateStepStatus(currentStep.id, 'completed');
-      
+
       // Move to next step
       const nextStep = steps[currentStepIndex + 1].id;
       setCurrentStep(nextStep);
-      
+
+      // If step is already in progress, don't change its status
+      if (progress.stepStatuses[nextStep] === 'not_started') {
+        updateStepStatus(nextStep, 'in_progress');
+      }
+    }
+  };
+
+  const handleSkipStep = () => {
+    if (currentStepIndex < steps.length - 1) {
+      // Mark current step as skipped
+      updateStepStatus(currentStep.id, 'skipped');
+
+      // Move to next step
+      const nextStep = steps[currentStepIndex + 1].id;
+      setCurrentStep(nextStep);
+
       // If step is already in progress, don't change its status
       if (progress.stepStatuses[nextStep] === 'not_started') {
         updateStepStatus(nextStep, 'in_progress');
@@ -91,15 +129,16 @@ export default function OnboardingPage() {
   
   const handleSkip = () => {
     // Mark all steps as skipped or completed
+    updateStepStatus('welcome', 'completed');
     updateStepStatus('business', 'completed');
     updateStepStatus('services', 'completed');
     updateStepStatus('receptionist', 'skipped');
     updateStepStatus('calendar', 'skipped');
     updateStepStatus('final', 'completed');
-    
+
     // Mark onboarding as complete
     completeOnboarding();
-    
+
     // Navigate to dashboard
     setLocation('/');
   };
@@ -167,7 +206,7 @@ export default function OnboardingPage() {
       
       <main className="flex-1 py-8">
         <div className="container max-w-3xl mx-auto px-4">
-          <StepComponent onComplete={handleNext} />
+          <StepComponent onComplete={handleNext} onSkip={handleSkipStep} />
         </div>
       </main>
       

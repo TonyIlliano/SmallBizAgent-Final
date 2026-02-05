@@ -107,7 +107,7 @@ export default function InvoicePayment() {
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "success" | "error">("idle");
   
   // Fetch invoice
-  const { data: invoice, isLoading: isLoadingInvoice } = useQuery({
+  const { data: invoice, isLoading: isLoadingInvoice } = useQuery<any>({
     queryKey: [`/api/invoices/${invoiceId}`],
     enabled: !!invoiceId,
   });

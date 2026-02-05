@@ -45,7 +45,7 @@ const receptionistConfigSchema = z.object({
 
 type ReceptionistConfigFormData = z.infer<typeof receptionistConfigSchema>;
 
-export function ReceptionistConfig({ businessId = 1 }) {
+export function ReceptionistConfig({ businessId }: { businessId?: number | null }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -53,15 +53,17 @@ export function ReceptionistConfig({ businessId = 1 }) {
   const [newPhoneNumber, setNewPhoneNumber] = useState("");
 
   // Fetch existing configuration
-  const { data: config, isLoading } = useQuery({
+  const { data: config, isLoading } = useQuery<any>({
     queryKey: [`/api/receptionist-config/${businessId}`],
+    enabled: !!businessId,
   });
 
   // Convert JSON data to proper form values
-  const getDefaultValues = () => {
+  const getDefaultValues = (): ReceptionistConfigFormData => {
+    const safeBusinessId = businessId ?? 1;
     if (!config) {
       return {
-        businessId,
+        businessId: safeBusinessId,
         greeting: "Thank you for calling. How may I help you today?",
         afterHoursMessage: "I'm sorry, our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff. Otherwise, I'd be happy to schedule an appointment for you.",
         emergencyKeywords: ["emergency", "urgent", "immediately", "critical", "asap"],
@@ -74,7 +76,7 @@ export function ReceptionistConfig({ businessId = 1 }) {
     }
 
     return {
-      businessId,
+      businessId: safeBusinessId,
       greeting: config.greeting || "Thank you for calling. How may I help you today?",
       afterHoursMessage: config.afterHoursMessage || "I'm sorry, our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff. Otherwise, I'd be happy to schedule an appointment for you.",
       emergencyKeywords: config.emergencyKeywords || [],
@@ -253,7 +255,7 @@ export function ReceptionistConfig({ businessId = 1 }) {
                     </Button>
                   </Badge>
                 ))}
-                {(!form.watch("emergencyKeywords") || form.watch("emergencyKeywords").length === 0) && (
+                {(!form.watch("emergencyKeywords") || (form.watch("emergencyKeywords") ?? []).length === 0) && (
                   <span className="text-sm text-gray-500">No emergency keywords added</span>
                 )}
               </div>
@@ -382,7 +384,7 @@ export function ReceptionistConfig({ businessId = 1 }) {
                     </Button>
                   </Badge>
                 ))}
-                {(!form.watch("transferPhoneNumbers") || form.watch("transferPhoneNumbers").length === 0) && (
+                {(!form.watch("transferPhoneNumbers") || (form.watch("transferPhoneNumbers") ?? []).length === 0) && (
                   <span className="text-sm text-gray-500">No transfer numbers added</span>
                 )}
               </div>

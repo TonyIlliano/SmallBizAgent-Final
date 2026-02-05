@@ -1,94 +1,112 @@
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { formatDateTime, formatPhoneNumber } from "@/lib/utils";
-import { Phone } from "lucide-react";
+import { Phone, ArrowRight, PhoneIncoming, PhoneMissed, Voicemail } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton-loader";
 
 interface CallsCardProps {
-  businessId?: number;
+  businessId?: number | null;
   limit?: number;
 }
 
-export function CallsCard({ businessId = 1, limit = 3 }: CallsCardProps) {
-  const { data: calls, isLoading } = useQuery({
+export function CallsCard({ businessId, limit = 3 }: CallsCardProps) {
+  const { data: calls = [], isLoading } = useQuery<any[]>({
     queryKey: ['/api/call-logs', { businessId }],
+    enabled: !!businessId,
   });
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'answered':
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Answered</Badge>;
+        return <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-0 text-xs font-medium">Answered</Badge>;
       case 'missed':
-        return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Missed</Badge>;
+        return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0 text-xs font-medium">Missed</Badge>;
       case 'voicemail':
-        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Voicemail</Badge>;
+        return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-0 text-xs font-medium">Voicemail</Badge>;
       default:
-        return <Badge>{status}</Badge>;
+        return <Badge className="text-xs font-medium">{status}</Badge>;
     }
   };
 
   const getIntentBadge = (intent: string) => {
     switch (intent) {
       case 'appointment':
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Scheduled</Badge>;
+        return <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-0 text-xs font-medium">Scheduled</Badge>;
       case 'inquiry':
-        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Inquiry</Badge>;
+        return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-0 text-xs font-medium">Inquiry</Badge>;
       case 'emergency':
-        return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Emergency</Badge>;
+        return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0 text-xs font-medium">Emergency</Badge>;
       default:
         return null;
     }
   };
 
-  const getIconColor = (status: string) => {
+  const getStatusIcon = (status: string) => {
     switch (status) {
       case 'answered':
-        return "text-green-500";
+        return <PhoneIncoming className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />;
       case 'missed':
-        return "text-yellow-500";
+        return <PhoneMissed className="h-4 w-4 text-amber-600 dark:text-amber-400" />;
       case 'voicemail':
-        return "text-blue-500";
+        return <Voicemail className="h-4 w-4 text-blue-600 dark:text-blue-400" />;
       default:
-        return "text-gray-500";
+        return <Phone className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
   const limitedCalls = limit && calls ? calls.slice(0, limit) : calls;
 
   return (
-    <Card>
-      <CardHeader className="pb-3 border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900">Recent Calls</h3>
-        <p className="text-sm text-gray-500 mt-1">Handled by Virtual Receptionist</p>
+    <Card className="border-border bg-card shadow-sm rounded-xl overflow-hidden">
+      <CardHeader className="pb-4 border-b border-border">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+            <Phone className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Recent Calls</h3>
+            <p className="text-sm text-muted-foreground">Handled by AI Receptionist</p>
+          </div>
+        </div>
       </CardHeader>
-      <CardContent className="px-4 py-3 sm:p-6">
+      <CardContent className="p-0">
         {isLoading ? (
-          <div className="flex items-center justify-center h-40">
-            <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full"></div>
+          <div className="p-4 space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-start gap-3">
+                <Skeleton className="h-10 w-10 rounded-xl" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : limitedCalls && limitedCalls.length > 0 ? (
-          <div className="divide-y divide-gray-200">
+          <div className="divide-y divide-border">
             {limitedCalls.map((call: any) => (
-              <div key={call.id} className="py-3 flex items-start">
-                <div className="flex-shrink-0">
-                  <Phone className={`h-5 w-5 ${getIconColor(call.status)}`} />
+              <div key={call.id} className="py-4 px-4 flex items-start gap-4 hover:bg-muted/50 transition-colors">
+                <div className="flex-shrink-0 h-10 w-10 rounded-xl bg-muted flex items-center justify-center">
+                  {getStatusIcon(call.status)}
                 </div>
-                <div className="ml-3 flex-1">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-medium text-gray-900">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-sm font-semibold text-foreground">
                       {formatPhoneNumber(call.callerId)}
                     </h4>
-                    <span className="text-sm text-gray-500">
+                    <span className="text-xs text-muted-foreground">
                       {formatDateTime(call.callTime)}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">{call.transcript}</p>
-                  <div className="mt-1 flex items-center space-x-2">
+                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{call.transcript}</p>
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
                     {getStatusBadge(call.status)}
                     {call.intentDetected && getIntentBadge(call.intentDetected)}
                     {call.isEmergency && (
-                      <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
+                      <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0 text-xs font-medium">
                         Emergency
                       </Badge>
                     )}
@@ -98,19 +116,24 @@ export function CallsCard({ businessId = 1, limit = 3 }: CallsCardProps) {
             ))}
           </div>
         ) : (
-          <div className="py-8 flex flex-col items-center justify-center text-center">
-            <Phone className="h-12 w-12 text-gray-400" />
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No recent calls</h3>
-            <p className="mt-1 text-sm text-gray-500">The virtual receptionist hasn't handled any calls yet.</p>
+          <div className="py-12 flex flex-col items-center justify-center text-center px-4">
+            <div className="p-4 rounded-full bg-muted mb-4">
+              <Phone className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="text-sm font-semibold text-foreground">No recent calls</h3>
+            <p className="mt-1 text-sm text-muted-foreground max-w-[200px]">
+              The AI receptionist hasn't handled any calls yet
+            </p>
           </div>
         )}
       </CardContent>
       {calls && calls.length > 0 && (
-        <CardFooter className="bg-gray-50 px-4 py-4 border-t border-gray-200">
+        <CardFooter className="bg-muted/50 px-4 py-3 border-t border-border">
           <Link href="/receptionist">
-            <a className="text-sm font-medium text-primary-600 hover:text-primary-700">
-              View all call history →
-            </a>
+            <Button variant="ghost" size="sm" className="h-9 text-foreground hover:bg-muted group">
+              View all calls
+              <ArrowRight className="h-4 w-4 ml-1 group-hover:translate-x-0.5 transition-transform" />
+            </Button>
           </Link>
         </CardFooter>
       )}

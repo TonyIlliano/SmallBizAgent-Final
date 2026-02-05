@@ -14,6 +14,10 @@ export async function apiRequest(
   data?: unknown
 ): Promise<any> {
   const response = await baseApiRequest(method, url, data);
+  // Handle 204 No Content responses (e.g., DELETE requests)
+  if (response.status === 204) {
+    return null;
+  }
   return response.json();
 }
 

@@ -5,17 +5,21 @@ import { Button } from '@/components/ui/button';
 import { Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/use-auth';
 
 export default function SubscriptionSuccessPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const searchParams = new URLSearchParams(window.location.search);
   const paymentIntent = searchParams.get('payment_intent');
   const paymentIntentClientSecret = searchParams.get('payment_intent_client_secret');
   const redirectStatus = searchParams.get('redirect_status');
 
+  // Get business ID from authenticated user
+  const businessId = user?.businessId;
+
   // Optionally refresh the subscription status in the background
-  const businessId = 1; // Default business ID, in a real app you'd get this from context
   useQuery({
     queryKey: ['/api/subscription/status', businessId],
     enabled: !!businessId && redirectStatus === 'succeeded',

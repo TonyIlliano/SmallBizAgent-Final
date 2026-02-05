@@ -11,10 +11,27 @@ import { Business } from '@shared/schema';
 // Initialize Twilio client with master account credentials
 const accountSid = process.env.TWILIO_ACCOUNT_SID || '';
 const authToken = process.env.TWILIO_AUTH_TOKEN || '';
-const client = twilio(accountSid, authToken);
+const isTwilioConfigured = accountSid && authToken && accountSid.startsWith('AC');
+
+// Only create client if properly configured
+let client: ReturnType<typeof twilio> | null = null;
+if (isTwilioConfigured) {
+  client = twilio(accountSid, authToken);
+}
 
 // Base URL for your Twilio webhook endpoints
-const baseWebhookUrl = process.env.BASE_URL || 'https://your-app.herokuapp.com';
+// IMPORTANT: This must be set to your publicly accessible URL for Twilio webhooks to work
+const baseWebhookUrl = process.env.BASE_URL || '';
+
+function validateWebhookUrl(): void {
+  if (!baseWebhookUrl) {
+    console.warn('⚠️  BASE_URL environment variable is not set. Twilio webhooks will not work.');
+    console.warn('   Set BASE_URL to your publicly accessible URL (e.g., https://your-domain.com)');
+  } else if (baseWebhookUrl.includes('localhost') || baseWebhookUrl.includes('127.0.0.1')) {
+    console.warn('⚠️  BASE_URL is set to localhost. Twilio cannot reach localhost URLs.');
+    console.warn('   Use ngrok or a similar tool for local development.');
+  }
+}
 
 /**
  * Provision a new phone number for a business
@@ -25,10 +42,17 @@ const baseWebhookUrl = process.env.BASE_URL || 'https://your-app.herokuapp.com';
  */
 export async function provisionPhoneNumber(business: Business, areaCode?: string) {
   try {
-    // Validate Twilio credentials
-    if (!accountSid || !authToken) {
-      throw new Error('Twilio credentials not configured');
+    // Validate Twilio credentials and client
+    if (!client || !isTwilioConfigured) {
+      throw new Error('Twilio credentials not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.');
     }
+
+    // Validate BASE_URL is set
+    if (!baseWebhookUrl) {
+      throw new Error('BASE_URL environment variable is not configured. Twilio webhooks require a publicly accessible URL.');
+    }
+
+    validateWebhookUrl();
 
     // Search for available phone numbers
     // If areaCode is provided, search in that area code first
@@ -62,7 +86,7 @@ export async function provisionPhoneNumber(business: Business, areaCode?: string
         phoneNumber: availableNumbers[0].phoneNumber,
         friendlyName: `${business.name} - SmallBizAgent`,
         // Set the voice URL to your webhook endpoint
-        voiceUrl: `${baseWebhookUrl}/api/twilio/call?businessId=${business.id}`,
+        voiceUrl: `${baseWebhookUrl}/api/twilio/incoming-call?businessId=${business.id}`,
         // Optional: Set SMS URL if you want to handle SMS
         smsUrl: `${baseWebhookUrl}/api/twilio/sms?businessId=${business.id}`,
       });
@@ -95,8 +119,8 @@ export async function provisionPhoneNumber(business: Business, areaCode?: string
  */
 export async function releasePhoneNumber(businessId: number) {
   try {
-    // Validate Twilio credentials
-    if (!accountSid || !authToken) {
+    // Validate Twilio client
+    if (!client || !isTwilioConfigured) {
       throw new Error('Twilio credentials not configured');
     }
 
@@ -149,15 +173,15 @@ export async function releasePhoneNumber(businessId: number) {
  */
 export async function updatePhoneNumberWebhooks(phoneNumberSid: string, businessId: number) {
   try {
-    // Validate Twilio credentials
-    if (!accountSid || !authToken) {
+    // Validate Twilio client
+    if (!client || !isTwilioConfigured) {
       throw new Error('Twilio credentials not configured');
     }
 
     // Update the webhook URLs
     const phoneNumber = await client.incomingPhoneNumbers(phoneNumberSid)
       .update({
-        voiceUrl: `${baseWebhookUrl}/api/twilio/call?businessId=${businessId}`,
+        voiceUrl: `${baseWebhookUrl}/api/twilio/incoming-call?businessId=${businessId}`,
         smsUrl: `${baseWebhookUrl}/api/twilio/sms?businessId=${businessId}`
       });
 
@@ -181,8 +205,8 @@ export async function updatePhoneNumberWebhooks(phoneNumberSid: string, business
  */
 export async function listPhoneNumbers() {
   try {
-    // Validate Twilio credentials
-    if (!accountSid || !authToken) {
+    // Validate Twilio client
+    if (!client || !isTwilioConfigured) {
       throw new Error('Twilio credentials not configured');
     }
 
@@ -224,8 +248,8 @@ export async function listPhoneNumbers() {
  */
 export async function searchAvailablePhoneNumbers(areaCode: string) {
   try {
-    // Validate Twilio credentials
-    if (!accountSid || !authToken) {
+    // Validate Twilio client
+    if (!client || !isTwilioConfigured) {
       throw new Error('Twilio credentials not configured');
     }
 
@@ -266,8 +290,8 @@ export async function searchAvailablePhoneNumbers(areaCode: string) {
  */
 export async function provisionSpecificPhoneNumber(businessId: number, phoneNumber: string) {
   try {
-    // Validate Twilio credentials
-    if (!accountSid || !authToken) {
+    // Validate Twilio client
+    if (!client || !isTwilioConfigured) {
       throw new Error('Twilio credentials not configured');
     }
 

@@ -92,9 +92,10 @@ export async function importCustomers(req: Request, res: Response) {
         
         // Check for duplicate emails if present
         if (validatedData.email) {
+          const emailToCheck = validatedData.email;
           const existingCustomers = await storage.getCustomers(businessId);
-          const duplicateCustomer = existingCustomers.find(c => 
-            c.email && c.email.toLowerCase() === validatedData.email.toLowerCase()
+          const duplicateCustomer = existingCustomers.find(c =>
+            c.email && c.email.toLowerCase() === emailToCheck.toLowerCase()
           );
           
           if (duplicateCustomer) {
@@ -269,9 +270,8 @@ export async function importAppointments(req: Request, res: Response) {
               businessId,
               firstName,
               lastName,
-              email: validRecord.customerEmail || "",
-              phone: validRecord.customerPhone || null,
-              active: true
+              email: validRecord.customerEmail ?? "",
+              phone: validRecord.customerPhone ?? ""
             });
             
             customerId = newCustomer.id;

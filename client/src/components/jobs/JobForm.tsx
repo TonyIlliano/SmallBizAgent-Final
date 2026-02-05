@@ -70,11 +70,11 @@ export function JobForm({ job, isEdit = false }: JobFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Fetch customers and staff for dropdowns
-  const { data: customers } = useQuery({
+  const { data: customers = [] } = useQuery<any[]>({
     queryKey: ['/api/customers', { businessId: 1 }],
   });
 
-  const { data: staff } = useQuery({
+  const { data: staff = [] } = useQuery<any[]>({
     queryKey: ['/api/staff', { businessId: 1 }],
   });
 

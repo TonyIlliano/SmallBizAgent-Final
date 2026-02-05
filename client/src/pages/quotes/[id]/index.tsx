@@ -25,6 +25,10 @@ import {
   MoreHorizontal,
   Send,
   User,
+  Link,
+  Copy,
+  Mail,
+  Check,
 } from "lucide-react";
 import {
   Table,
@@ -126,6 +130,44 @@ export default function QuoteDetail() {
       });
     },
   });
+
+  const [quoteLink, setQuoteLink] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+
+  const generateQuoteLink = async () => {
+    try {
+      setIsGeneratingLink(true);
+      const res = await apiRequest("POST", `/api/quotes/${quoteId}/generate-link`, {});
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to generate link");
+      }
+      const data = await res.json();
+      setQuoteLink(data.url);
+      setConfirmDialog("send");
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingLink(false);
+    }
+  };
+
+  const copyToClipboard = async () => {
+    if (quoteLink) {
+      await navigator.clipboard.writeText(quoteLink);
+      setLinkCopied(true);
+      toast({
+        title: "Link copied",
+        description: "Quote link copied to clipboard",
+      });
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -244,6 +286,15 @@ export default function QuoteDetail() {
                   <DropdownMenuItem onClick={() => setConfirmDialog("convert")}>
                     <Send className="h-4 w-4 mr-2" />
                     Convert to Invoice
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              {quote.status === "pending" && (
+                <>
+                  <DropdownMenuItem onClick={generateQuoteLink} disabled={isGeneratingLink}>
+                    <Link className="h-4 w-4 mr-2" />
+                    {isGeneratingLink ? "Generating..." : "Send to Customer"}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                 </>
@@ -484,6 +535,58 @@ export default function QuoteDetail() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmDialog("")}>Cancel</Button>
             <Button onClick={handleConvertToInvoice}>Convert to Invoice</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDialog === "send"} onOpenChange={() => setConfirmDialog("")}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Quote to Customer</DialogTitle>
+            <DialogDescription>
+              Share this link with your customer so they can view, accept, or decline the quote.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {quoteLink && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={quoteLink}
+                  className="flex-1 px-3 py-2 text-sm border rounded-md bg-muted"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={copyToClipboard}
+                >
+                  {linkCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            )}
+            {quote?.customer?.email && (
+              <div className="pt-2">
+                <p className="text-sm text-muted-foreground mb-2">
+                  Or send directly via email:
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    const subject = encodeURIComponent(`Quote #${quote.quoteNumber} from ${quote.business?.name || 'Your Business'}`);
+                    const body = encodeURIComponent(`Hi ${quote.customer?.firstName},\n\nPlease review the quote we prepared for you:\n\n${quoteLink}\n\nLet us know if you have any questions!\n\nBest regards`);
+                    window.open(`mailto:${quote.customer?.email}?subject=${subject}&body=${body}`, '_blank');
+                  }}
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Send via Email
+                </Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setConfirmDialog("")}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

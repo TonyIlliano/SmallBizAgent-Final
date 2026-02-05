@@ -8,11 +8,13 @@ import Dashboard from "@/pages/dashboard";
 import Customers from "@/pages/customers/index";
 import CustomerDetail from "@/pages/customers/[id]";
 import Appointments from "@/pages/appointments/index";
+import AppointmentDetail from "@/pages/appointments/[id]";
 import Jobs from "@/pages/jobs/index";
 import JobDetail from "@/pages/jobs/[id]";
 import Invoices from "@/pages/invoices/index";
 import CreateInvoice from "@/pages/invoices/create";
 import InvoicePayment from "@/pages/invoices/pay";
+import PrintInvoice from "@/pages/invoices/[id]/print";
 import Quotes from "@/pages/quotes/index";
 import CreateQuote from "@/pages/quotes/create";
 import QuoteDetail from "@/pages/quotes/[id]/index";
@@ -26,10 +28,18 @@ import ReceptionistTraining from "@/pages/receptionist/training";
 import Settings from "@/pages/settings";
 import CalendarSettings from "@/pages/settings/calendar";
 import PWAInstallationGuide from "@/pages/settings/pwa-installation";
+import RecurringSchedules from "@/pages/recurring/index";
 import AuthPage from "@/pages/auth/index";
+import ResetPasswordPage from "@/pages/reset-password";
+// Customer Portal pages (public)
+import CustomerPortal from "@/pages/portal/index";
+import PortalInvoice from "@/pages/portal/invoice";
+import PortalQuote from "@/pages/portal/quote";
+import PublicBooking from "@/pages/book/[slug]";
 // Admin pages
 import AdminDashboard from "@/pages/admin/index";
 import PhoneManagement from "@/pages/admin/phone-management";
+import LandingPage from "@/pages/landing";
 import { SidebarProvider } from "./context/SidebarContext";
 import { AuthProvider } from "./hooks/use-auth";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
@@ -47,11 +57,13 @@ function Router() {
       <ProtectedRoute path="/customers" component={Customers} />
       <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
       <ProtectedRoute path="/appointments" component={Appointments} />
+      <ProtectedRoute path="/appointments/:id" component={AppointmentDetail} />
       <ProtectedRoute path="/jobs" component={Jobs} />
       <ProtectedRoute path="/jobs/:id" component={JobDetail} />
       <ProtectedRoute path="/invoices" component={Invoices} />
       <ProtectedRoute path="/invoices/create" component={CreateInvoice} />
       <ProtectedRoute path="/invoices/pay/:invoiceId" component={InvoicePayment} />
+      <ProtectedRoute path="/invoices/:id/print" component={PrintInvoice} />
       <ProtectedRoute path="/quotes" component={Quotes} />
       <ProtectedRoute path="/quotes/create" component={CreateQuote} />
       <ProtectedRoute path="/quotes/:id" component={QuoteDetail} />
@@ -62,6 +74,7 @@ function Router() {
       <ProtectedRoute path="/onboarding/subscription" component={OnboardingSubscription} />
       <ProtectedRoute path="/receptionist" component={Receptionist} />
       <ProtectedRoute path="/receptionist/training" component={ReceptionistTraining} />
+      <ProtectedRoute path="/recurring" component={RecurringSchedules} />
       <ProtectedRoute path="/settings" component={Settings} />
       <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />
       <ProtectedRoute path="/settings/pwa-installation" component={PWAInstallationGuide} />
@@ -71,7 +84,13 @@ function Router() {
       <ProtectedAdminRoute path="/admin/phone-management" component={PhoneManagement} />
       
       {/* Public routes */}
+      <Route path="/welcome" component={LandingPage} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
+      <Route path="/portal" component={CustomerPortal} />
+      <Route path="/portal/invoice/:token" component={PortalInvoice} />
+      <Route path="/portal/quote/:token" component={PortalQuote} />
+      <Route path="/book/:slug" component={PublicBooking} />
       <Route component={NotFound} />
     </Switch>
   );
