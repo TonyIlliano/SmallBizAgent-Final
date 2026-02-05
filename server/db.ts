@@ -1,10 +1,8 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
+import pg from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "@shared/schema";
 
-// Configure WebSocket for Neon serverless
-neonConfig.webSocketConstructor = ws;
+const { Pool } = pg;
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -12,19 +10,19 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Detect if we're connecting to a local PostgreSQL or Neon
+// Detect if we're connecting to a local PostgreSQL
 const isLocalDB = process.env.DATABASE_URL.includes('localhost') ||
                   process.env.DATABASE_URL.includes('127.0.0.1');
 
 // Pool configuration
 const poolConfig: any = {
   connectionString: process.env.DATABASE_URL,
-  max: isLocalDB ? 10 : 5, // More connections for local, fewer for serverless
+  max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
 };
 
-// For Neon/production, we may need SSL
+// For production, we need SSL
 if (!isLocalDB && process.env.NODE_ENV === 'production') {
   poolConfig.ssl = { rejectUnauthorized: false };
 }
