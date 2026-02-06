@@ -85,6 +85,7 @@ app.use(helmet({
 const allowedOrigins = [
   'http://localhost:5000',
   'http://localhost:3000',
+  'https://web-production-76c5e.up.railway.app',
   process.env.BASE_URL,
 ].filter(Boolean);
 

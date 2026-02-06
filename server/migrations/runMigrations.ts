@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 /**
  * Create base tables if they don't exist
+ * These match the Drizzle schema in shared/schema.ts
  */
 async function createBaseTables() {
   console.log('Checking and creating base tables...');
@@ -29,69 +30,105 @@ async function createBaseTables() {
 
   console.log('Creating base tables from schema...');
 
-  // Create users table
+  // Create users table (matches shared/schema.ts)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
-      username TEXT NOT NULL UNIQUE,
-      email TEXT NOT NULL UNIQUE,
+      username TEXT NOT NULL,
+      email TEXT NOT NULL,
       password TEXT NOT NULL,
-      first_name TEXT,
-      last_name TEXT,
       role TEXT DEFAULT 'user',
       business_id INTEGER,
-      reset_token TEXT,
-      reset_token_expires TIMESTAMP,
+      active BOOLEAN DEFAULT true,
+      last_login TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT email_idx UNIQUE (email),
+      CONSTRAINT username_idx UNIQUE (username)
     );
   `);
 
-  // Create businesses table
+  // Create businesses table (matches shared/schema.ts)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS businesses (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
-      slug TEXT UNIQUE,
-      phone TEXT,
-      email TEXT,
       address TEXT,
       city TEXT,
       state TEXT,
       zip TEXT,
-      description TEXT,
-      business_type TEXT,
+      phone TEXT,
+      email TEXT NOT NULL,
+      website TEXT,
+      logo_url TEXT,
+      type TEXT DEFAULT 'general',
       timezone TEXT DEFAULT 'America/New_York',
-      hours JSONB,
+      booking_slug TEXT,
+      booking_enabled BOOLEAN DEFAULT false,
+      booking_lead_time_hours INTEGER DEFAULT 24,
+      booking_buffer_minutes INTEGER DEFAULT 15,
+      booking_slot_interval_minutes INTEGER DEFAULT 30,
+      industry TEXT,
+      business_hours TEXT,
       twilio_phone_number TEXT,
-      twilio_phone_sid TEXT,
-      google_calendar_id TEXT,
-      google_calendar_refresh_token TEXT,
-      microsoft_calendar_id TEXT,
-      microsoft_calendar_refresh_token TEXT,
-      apple_calendar_id TEXT,
-      receptionist_enabled BOOLEAN DEFAULT false,
-      receptionist_greeting TEXT,
-      receptionist_voice TEXT DEFAULT 'alloy',
-      receptionist_instructions TEXT,
+      twilio_phone_number_sid TEXT,
+      twilio_phone_number_status TEXT,
+      twilio_date_provisioned TIMESTAMP,
       vapi_assistant_id TEXT,
       vapi_phone_number_id TEXT,
-      booking_slot_interval INTEGER DEFAULT 30,
-      owner_id INTEGER,
+      receptionist_enabled BOOLEAN DEFAULT true,
+      quickbooks_realm_id TEXT,
+      quickbooks_access_token TEXT,
+      quickbooks_refresh_token TEXT,
+      quickbooks_token_expiry TIMESTAMP,
+      subscription_status TEXT DEFAULT 'inactive',
+      subscription_plan_id TEXT,
+      stripe_plan_id INTEGER,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      subscription_start_date TIMESTAMP,
+      subscription_period_end TIMESTAMP,
+      subscription_end_date TIMESTAMP,
+      trial_ends_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  // Create customers table
+  // Create business_hours table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS business_hours (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      open TEXT,
+      close TEXT,
+      is_closed BOOLEAN DEFAULT false
+    );
+  `);
+
+  // Create services table (matches shared/schema.ts)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS services (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      price REAL,
+      duration INTEGER,
+      active BOOLEAN DEFAULT true
+    );
+  `);
+
+  // Create customers table (matches shared/schema.ts)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS customers (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
       first_name TEXT NOT NULL,
-      last_name TEXT,
+      last_name TEXT NOT NULL,
       email TEXT,
-      phone TEXT,
+      phone TEXT NOT NULL,
       address TEXT,
       city TEXT,
       state TEXT,
@@ -102,32 +139,46 @@ async function createBaseTables() {
     );
   `);
 
-  // Create services table
+  // Create staff table (matches shared/schema.ts)
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS services (
+    CREATE TABLE IF NOT EXISTS staff (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      description TEXT,
-      duration INTEGER DEFAULT 60,
-      price DECIMAL(10,2),
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      role TEXT,
+      specialty TEXT,
+      bio TEXT,
       active BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  // Create appointments table
+  // Create staff_hours table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_hours (
+      id SERIAL PRIMARY KEY,
+      staff_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      start_time TEXT,
+      end_time TEXT,
+      is_off BOOLEAN DEFAULT false
+    );
+  `);
+
+  // Create appointments table (matches shared/schema.ts)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS appointments (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
-      customer_id INTEGER,
-      service_id INTEGER,
+      customer_id INTEGER NOT NULL,
       staff_id INTEGER,
-      title TEXT,
-      start_time TIMESTAMP NOT NULL,
-      end_time TIMESTAMP NOT NULL,
+      service_id INTEGER,
+      start_date TIMESTAMP NOT NULL,
+      end_date TIMESTAMP NOT NULL,
       status TEXT DEFAULT 'scheduled',
       notes TEXT,
       google_calendar_event_id TEXT,
@@ -139,110 +190,104 @@ async function createBaseTables() {
     );
   `);
 
-  // Create jobs table
+  // Create jobs table (matches shared/schema.ts)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS jobs (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
-      customer_id INTEGER,
+      customer_id INTEGER NOT NULL,
+      appointment_id INTEGER,
+      staff_id INTEGER,
       title TEXT NOT NULL,
       description TEXT,
+      scheduled_date DATE,
       status TEXT DEFAULT 'pending',
-      scheduled_date TIMESTAMP,
-      completed_date TIMESTAMP,
-      total DECIMAL(10,2),
+      estimated_completion TIMESTAMP,
       notes TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  // Create invoices table
+  // Create job_line_items table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS job_line_items (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      quantity REAL DEFAULT 1,
+      unit_price REAL NOT NULL,
+      amount REAL NOT NULL,
+      taxable BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create invoices table (matches shared/schema.ts)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
-      customer_id INTEGER,
+      customer_id INTEGER NOT NULL,
       job_id INTEGER,
-      invoice_number TEXT,
-      amount DECIMAL(10,2),
-      status TEXT DEFAULT 'draft',
-      due_date TIMESTAMP,
-      paid_date TIMESTAMP,
-      stripe_invoice_id TEXT,
+      invoice_number TEXT NOT NULL,
+      amount REAL NOT NULL,
+      tax REAL,
+      total REAL NOT NULL,
+      due_date DATE,
+      status TEXT DEFAULT 'pending',
+      notes TEXT,
       stripe_payment_intent_id TEXT,
       access_token TEXT,
-      notes TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  // Create staff_members table
+  // Create invoice_items table
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS staff_members (
+    CREATE TABLE IF NOT EXISTS invoice_items (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      unit_price REAL NOT NULL,
+      amount REAL NOT NULL
+    );
+  `);
+
+  // Create receptionist_config table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS receptionist_config (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
-      user_id INTEGER,
-      first_name TEXT NOT NULL,
-      last_name TEXT,
-      email TEXT,
-      phone TEXT,
-      role TEXT DEFAULT 'staff',
-      active BOOLEAN DEFAULT true,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      greeting TEXT,
+      after_hours_message TEXT,
+      emergency_keywords JSONB,
+      voicemail_enabled BOOLEAN DEFAULT true,
+      call_recording_enabled BOOLEAN DEFAULT false,
+      transcription_enabled BOOLEAN DEFAULT true,
+      max_call_length_minutes INTEGER DEFAULT 15,
+      transfer_phone_numbers JSONB,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  // Create call_logs table
+  // Create call_logs table (matches shared/schema.ts)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS call_logs (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
-      caller_phone TEXT,
+      caller_id TEXT,
       caller_name TEXT,
-      call_sid TEXT,
-      direction TEXT,
-      status TEXT,
-      duration INTEGER,
-      recording_url TEXT,
       transcript TEXT,
-      summary TEXT,
-      sentiment TEXT,
-      action_taken TEXT,
-      vapi_call_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  // Create subscriptions table
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS subscriptions (
-      id SERIAL PRIMARY KEY,
-      business_id INTEGER NOT NULL UNIQUE,
-      stripe_customer_id TEXT,
-      stripe_subscription_id TEXT,
-      plan TEXT DEFAULT 'free',
-      status TEXT DEFAULT 'active',
-      current_period_start TIMESTAMP,
-      current_period_end TIMESTAMP,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  // Create subscription_plans table
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS subscription_plans (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      stripe_price_id TEXT,
-      price DECIMAL(10,2),
-      interval TEXT DEFAULT 'month',
-      features JSONB,
-      active BOOLEAN DEFAULT true,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      intent_detected TEXT,
+      is_emergency BOOLEAN DEFAULT false,
+      call_duration INTEGER,
+      recording_url TEXT,
+      status TEXT,
+      call_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
@@ -258,7 +303,172 @@ async function createBaseTables() {
       data TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(business_id, provider)
+      CONSTRAINT business_provider_unique UNIQUE (business_id, provider)
+    );
+  `);
+
+  // Create quotes table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quotes (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      job_id INTEGER,
+      quote_number TEXT NOT NULL,
+      amount REAL NOT NULL,
+      tax REAL,
+      total REAL NOT NULL,
+      valid_until TEXT,
+      status TEXT DEFAULT 'pending',
+      notes TEXT,
+      converted_to_invoice_id INTEGER,
+      access_token TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create quote_items table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quote_items (
+      id SERIAL PRIMARY KEY,
+      quote_id INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      unit_price REAL NOT NULL,
+      amount REAL NOT NULL
+    );
+  `);
+
+  // Create review_settings table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS review_settings (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      google_review_url TEXT,
+      yelp_review_url TEXT,
+      facebook_review_url TEXT,
+      custom_review_url TEXT,
+      review_request_enabled BOOLEAN DEFAULT true,
+      auto_send_after_job_completion BOOLEAN DEFAULT true,
+      delay_hours_after_completion INTEGER DEFAULT 2,
+      sms_template TEXT DEFAULT 'Hi {customerName}! Thank you for choosing {businessName}. We''d love to hear about your experience. Please leave us a review: {reviewLink}',
+      email_subject TEXT DEFAULT 'How was your experience with {businessName}?',
+      email_template TEXT,
+      preferred_platform TEXT DEFAULT 'google',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create review_requests table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS review_requests (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      job_id INTEGER,
+      sent_via TEXT NOT NULL,
+      sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      platform TEXT,
+      review_link TEXT,
+      status TEXT DEFAULT 'sent',
+      clicked_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create recurring_schedules table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recurring_schedules (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      service_id INTEGER,
+      staff_id INTEGER,
+      name TEXT NOT NULL,
+      frequency TEXT NOT NULL,
+      interval INTEGER DEFAULT 1,
+      day_of_week INTEGER,
+      day_of_month INTEGER,
+      start_date DATE NOT NULL,
+      end_date DATE,
+      next_run_date DATE,
+      job_title TEXT NOT NULL,
+      job_description TEXT,
+      estimated_duration INTEGER,
+      auto_create_invoice BOOLEAN DEFAULT true,
+      invoice_amount REAL,
+      invoice_tax REAL,
+      invoice_notes TEXT,
+      status TEXT DEFAULT 'active',
+      last_run_date DATE,
+      total_jobs_created INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create recurring_schedule_items table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recurring_schedule_items (
+      id SERIAL PRIMARY KEY,
+      schedule_id INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      unit_price REAL NOT NULL,
+      amount REAL NOT NULL
+    );
+  `);
+
+  // Create recurring_job_history table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recurring_job_history (
+      id SERIAL PRIMARY KEY,
+      schedule_id INTEGER NOT NULL,
+      job_id INTEGER NOT NULL,
+      invoice_id INTEGER,
+      scheduled_for DATE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create password_reset_tokens table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      token TEXT NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create subscription_plans table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS subscription_plans (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      price REAL NOT NULL,
+      interval TEXT NOT NULL,
+      features JSONB,
+      stripe_product_id TEXT,
+      stripe_price_id TEXT,
+      active BOOLEAN DEFAULT true,
+      sort_order INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create migrations tracking table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS migrations (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
   `);
 
