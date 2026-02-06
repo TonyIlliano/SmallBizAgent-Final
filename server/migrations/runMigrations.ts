@@ -301,6 +301,19 @@ async function fixExistingTables() {
     );
   `);
 
+  // Seed subscription plans if empty
+  const plansResult = await pool.query('SELECT COUNT(*) FROM subscription_plans');
+  if (parseInt(plansResult.rows[0].count) === 0) {
+    console.log('Seeding subscription plans...');
+    await pool.query(`
+      INSERT INTO subscription_plans (name, description, price, interval, features, active, sort_order) VALUES
+      ('Starter', 'Perfect for small businesses just getting started', 29, 'monthly', '["Up to 100 customers", "Basic scheduling", "Email support", "1 staff member"]', true, 1),
+      ('Professional', 'For growing businesses that need more features', 79, 'monthly', '["Up to 500 customers", "Advanced scheduling", "AI receptionist", "Priority support", "5 staff members", "Online booking"]', true, 2),
+      ('Enterprise', 'Full-featured solution for established businesses', 149, 'monthly', '["Unlimited customers", "All features included", "Dedicated support", "Unlimited staff", "Custom integrations", "API access"]', true, 3)
+    `);
+    console.log('Subscription plans seeded');
+  }
+
   console.log('Finished checking/fixing existing tables');
 }
 
