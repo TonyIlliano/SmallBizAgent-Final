@@ -8,6 +8,303 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * Add missing columns to existing tables (for Railway migration)
+ */
+async function fixExistingTables() {
+  console.log('Checking for missing columns in existing tables...');
+
+  // Helper to safely add column if it doesn't exist
+  const addColumnIfNotExists = async (table: string, column: string, type: string) => {
+    try {
+      await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+    } catch (e: any) {
+      // Ignore "already exists" errors
+      if (!e.message.includes('already exists')) {
+        console.log(`Note: Could not add ${column} to ${table}: ${e.message}`);
+      }
+    }
+  };
+
+  // Fix users table
+  await addColumnIfNotExists('users', 'active', 'BOOLEAN DEFAULT true');
+  await addColumnIfNotExists('users', 'last_login', 'TIMESTAMP');
+
+  // Fix businesses table
+  await addColumnIfNotExists('businesses', 'website', 'TEXT');
+  await addColumnIfNotExists('businesses', 'logo_url', 'TEXT');
+  await addColumnIfNotExists('businesses', 'type', "TEXT DEFAULT 'general'");
+  await addColumnIfNotExists('businesses', 'booking_slug', 'TEXT');
+  await addColumnIfNotExists('businesses', 'booking_enabled', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('businesses', 'booking_lead_time_hours', 'INTEGER DEFAULT 24');
+  await addColumnIfNotExists('businesses', 'booking_buffer_minutes', 'INTEGER DEFAULT 15');
+  await addColumnIfNotExists('businesses', 'booking_slot_interval_minutes', 'INTEGER DEFAULT 30');
+  await addColumnIfNotExists('businesses', 'industry', 'TEXT');
+  await addColumnIfNotExists('businesses', 'business_hours', 'TEXT');
+  await addColumnIfNotExists('businesses', 'twilio_phone_number_status', 'TEXT');
+  await addColumnIfNotExists('businesses', 'twilio_date_provisioned', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'quickbooks_realm_id', 'TEXT');
+  await addColumnIfNotExists('businesses', 'quickbooks_access_token', 'TEXT');
+  await addColumnIfNotExists('businesses', 'quickbooks_refresh_token', 'TEXT');
+  await addColumnIfNotExists('businesses', 'quickbooks_token_expiry', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'subscription_status', "TEXT DEFAULT 'inactive'");
+  await addColumnIfNotExists('businesses', 'subscription_plan_id', 'TEXT');
+  await addColumnIfNotExists('businesses', 'stripe_plan_id', 'INTEGER');
+  await addColumnIfNotExists('businesses', 'stripe_customer_id', 'TEXT');
+  await addColumnIfNotExists('businesses', 'stripe_subscription_id', 'TEXT');
+  await addColumnIfNotExists('businesses', 'subscription_start_date', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'subscription_period_end', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'subscription_end_date', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'trial_ends_at', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'twilio_phone_number_sid', 'TEXT');
+
+  // Fix services table
+  await addColumnIfNotExists('services', 'active', 'BOOLEAN DEFAULT true');
+
+  // Fix appointments - rename columns if needed and add missing
+  await addColumnIfNotExists('appointments', 'start_date', 'TIMESTAMP');
+  await addColumnIfNotExists('appointments', 'end_date', 'TIMESTAMP');
+
+  // Fix jobs table
+  await addColumnIfNotExists('jobs', 'appointment_id', 'INTEGER');
+  await addColumnIfNotExists('jobs', 'staff_id', 'INTEGER');
+  await addColumnIfNotExists('jobs', 'estimated_completion', 'TIMESTAMP');
+
+  // Fix invoices table
+  await addColumnIfNotExists('invoices', 'tax', 'REAL');
+  await addColumnIfNotExists('invoices', 'total', 'REAL');
+  await addColumnIfNotExists('invoices', 'access_token', 'TEXT');
+
+  // Create missing tables that don't exist
+  console.log('Creating any missing tables...');
+
+  // Create staff table (Railway has staff_members, we need staff)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      role TEXT,
+      specialty TEXT,
+      bio TEXT,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create business_hours table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS business_hours (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      open TEXT,
+      close TEXT,
+      is_closed BOOLEAN DEFAULT false
+    );
+  `);
+
+  // Create staff_hours table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_hours (
+      id SERIAL PRIMARY KEY,
+      staff_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      start_time TEXT,
+      end_time TEXT,
+      is_off BOOLEAN DEFAULT false
+    );
+  `);
+
+  // Create job_line_items table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS job_line_items (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      quantity REAL DEFAULT 1,
+      unit_price REAL NOT NULL,
+      amount REAL NOT NULL,
+      taxable BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create invoice_items table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS invoice_items (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      unit_price REAL NOT NULL,
+      amount REAL NOT NULL
+    );
+  `);
+
+  // Create receptionist_config table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS receptionist_config (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      greeting TEXT,
+      after_hours_message TEXT,
+      emergency_keywords JSONB,
+      voicemail_enabled BOOLEAN DEFAULT true,
+      call_recording_enabled BOOLEAN DEFAULT false,
+      transcription_enabled BOOLEAN DEFAULT true,
+      max_call_length_minutes INTEGER DEFAULT 15,
+      transfer_phone_numbers JSONB,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create quotes table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quotes (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      job_id INTEGER,
+      quote_number TEXT NOT NULL,
+      amount REAL NOT NULL,
+      tax REAL,
+      total REAL NOT NULL,
+      valid_until TEXT,
+      status TEXT DEFAULT 'pending',
+      notes TEXT,
+      converted_to_invoice_id INTEGER,
+      access_token TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create quote_items table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quote_items (
+      id SERIAL PRIMARY KEY,
+      quote_id INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      unit_price REAL NOT NULL,
+      amount REAL NOT NULL
+    );
+  `);
+
+  // Create review_settings table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS review_settings (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      google_review_url TEXT,
+      yelp_review_url TEXT,
+      facebook_review_url TEXT,
+      custom_review_url TEXT,
+      review_request_enabled BOOLEAN DEFAULT true,
+      auto_send_after_job_completion BOOLEAN DEFAULT true,
+      delay_hours_after_completion INTEGER DEFAULT 2,
+      sms_template TEXT,
+      email_subject TEXT,
+      email_template TEXT,
+      preferred_platform TEXT DEFAULT 'google',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create review_requests table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS review_requests (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      job_id INTEGER,
+      sent_via TEXT NOT NULL,
+      sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      platform TEXT,
+      review_link TEXT,
+      status TEXT DEFAULT 'sent',
+      clicked_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create recurring_schedules table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recurring_schedules (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      service_id INTEGER,
+      staff_id INTEGER,
+      name TEXT NOT NULL,
+      frequency TEXT NOT NULL,
+      interval INTEGER DEFAULT 1,
+      day_of_week INTEGER,
+      day_of_month INTEGER,
+      start_date DATE NOT NULL,
+      end_date DATE,
+      next_run_date DATE,
+      job_title TEXT NOT NULL,
+      job_description TEXT,
+      estimated_duration INTEGER,
+      auto_create_invoice BOOLEAN DEFAULT true,
+      invoice_amount REAL,
+      invoice_tax REAL,
+      invoice_notes TEXT,
+      status TEXT DEFAULT 'active',
+      last_run_date DATE,
+      total_jobs_created INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create recurring_schedule_items table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recurring_schedule_items (
+      id SERIAL PRIMARY KEY,
+      schedule_id INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      unit_price REAL NOT NULL,
+      amount REAL NOT NULL
+    );
+  `);
+
+  // Create recurring_job_history table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recurring_job_history (
+      id SERIAL PRIMARY KEY,
+      schedule_id INTEGER NOT NULL,
+      job_id INTEGER NOT NULL,
+      invoice_id INTEGER,
+      scheduled_for DATE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create password_reset_tokens table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      token TEXT NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  console.log('Finished checking/fixing existing tables');
+}
+
+/**
  * Create base tables if they don't exist
  * These match the Drizzle schema in shared/schema.ts
  */
@@ -24,7 +321,8 @@ async function createBaseTables() {
   `);
 
   if (result.rows[0].exists) {
-    console.log('Base tables already exist');
+    console.log('Base tables already exist, checking for missing columns...');
+    await fixExistingTables();
     return;
   }
 
