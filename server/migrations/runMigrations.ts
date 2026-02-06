@@ -301,6 +301,13 @@ async function fixExistingTables() {
     );
   `);
 
+  // Fix subscription_plans table - add missing columns
+  await addColumnIfNotExists('subscription_plans', 'description', 'TEXT');
+  await addColumnIfNotExists('subscription_plans', 'stripe_product_id', 'TEXT');
+  await addColumnIfNotExists('subscription_plans', 'stripe_price_id', 'TEXT');
+  await addColumnIfNotExists('subscription_plans', 'sort_order', 'INTEGER DEFAULT 0');
+  await addColumnIfNotExists('subscription_plans', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+
   // Seed subscription plans if empty
   const plansResult = await pool.query('SELECT COUNT(*) FROM subscription_plans');
   if (parseInt(plansResult.rows[0].count) === 0) {
