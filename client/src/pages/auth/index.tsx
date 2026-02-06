@@ -145,50 +145,105 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2">
-      {/* Hero section */}
-      <div className="hidden md:flex flex-col justify-center px-12 bg-gradient-to-br from-primary/20 to-primary/5">
-        <div className="space-y-6 max-w-md">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary to-primary-foreground bg-clip-text text-transparent">
-            SmallBizAgent
-          </h1>
-          <p className="text-xl text-muted-foreground">
-            The complete business management platform for service-based small businesses.
-          </p>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-primary"></div>
-              <p className="text-sm text-muted-foreground">Customer relationship management</p>
+    <div className="min-h-screen grid md:grid-cols-2 bg-black">
+      {/* Hero section - matches landing page dark theme */}
+      <div className="hidden md:flex flex-col justify-center px-12 bg-gradient-to-br from-neutral-900 to-black border-r border-neutral-800">
+        <div className="space-y-8 max-w-md">
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center">
+              <svg viewBox="0 0 100 100" fill="currentColor" className="h-7 w-7 text-black">
+                <rect x="47" y="5" width="6" height="10" rx="3" />
+                <circle cx="50" cy="5" r="4" />
+                <rect x="25" y="18" width="50" height="40" rx="12" />
+                <rect x="30" y="28" width="40" height="15" rx="7" fill="black" />
+                <circle cx="40" cy="35" r="5" fill="white" />
+                <circle cx="60" cy="35" r="5" fill="white" />
+                <path d="M 38 48 Q 50 55 62 48" stroke="black" strokeWidth="3" fill="none" strokeLinecap="round" />
+                <path d="M 32 58 L 32 75 Q 32 82 39 82 L 61 82 Q 68 82 68 75 L 68 58" />
+                <ellipse cx="20" cy="65" rx="8" ry="12" />
+                <ellipse cx="80" cy="65" rx="8" ry="12" />
+              </svg>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-primary"></div>
-              <p className="text-sm text-muted-foreground">Smart appointment scheduling</p>
+            <span className="text-xl font-bold text-white tracking-wide">SMALLBIZ AGENT</span>
+          </div>
+
+          <div>
+            <h1 className="text-4xl font-bold text-white mb-4">
+              Your Business,
+              <br />
+              <span className="bg-gradient-to-r from-white via-neutral-300 to-neutral-500 bg-clip-text text-transparent">
+                On Autopilot
+              </span>
+            </h1>
+            <p className="text-lg text-neutral-400">
+              The all-in-one platform that handles your calls, books appointments, and manages customers.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-neutral-300">
+              <div className="h-5 w-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg className="h-3 w-3 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p>AI receptionist answers 24/7</p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-primary"></div>
-              <p className="text-sm text-muted-foreground">Job tracking and management</p>
+            <div className="flex items-center gap-3 text-neutral-300">
+              <div className="h-5 w-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg className="h-3 w-3 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p>Smart appointment scheduling</p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-primary"></div>
-              <p className="text-sm text-muted-foreground">AI-powered virtual receptionist</p>
+            <div className="flex items-center gap-3 text-neutral-300">
+              <div className="h-5 w-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg className="h-3 w-3 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p>Professional invoicing & payments</p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-primary"></div>
-              <p className="text-sm text-muted-foreground">Invoicing and payment processing</p>
+            <div className="flex items-center gap-3 text-neutral-300">
+              <div className="h-5 w-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg className="h-3 w-3 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p>Customer management CRM</p>
             </div>
+          </div>
+
+          <div className="pt-4 border-t border-neutral-800">
+            <p className="text-sm text-neutral-500">
+              Trusted by 10,000+ small businesses
+            </p>
           </div>
         </div>
       </div>
 
       {/* Auth forms */}
-      <div className="flex items-center justify-center p-8">
-        <Card className="w-full max-w-md">
+      <div className="flex items-center justify-center p-8 bg-neutral-950">
+        <Card className="w-full max-w-md bg-neutral-900 border-neutral-800">
           <CardHeader>
-            <CardTitle className="md:hidden text-3xl font-bold bg-gradient-to-r from-primary to-primary-foreground bg-clip-text text-transparent">
-              SmallBizAgent
-            </CardTitle>
-            <CardDescription className="md:hidden mb-6">
-              The complete business management platform
+            <div className="md:hidden flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center">
+                <svg viewBox="0 0 100 100" fill="currentColor" className="h-7 w-7 text-black">
+                  <rect x="47" y="5" width="6" height="10" rx="3" />
+                  <circle cx="50" cy="5" r="4" />
+                  <rect x="25" y="18" width="50" height="40" rx="12" />
+                  <rect x="30" y="28" width="40" height="15" rx="7" fill="black" />
+                  <circle cx="40" cy="35" r="5" fill="white" />
+                  <circle cx="60" cy="35" r="5" fill="white" />
+                </svg>
+              </div>
+              <span className="text-xl font-bold text-white tracking-wide">SMALLBIZ AGENT</span>
+            </div>
+            <CardTitle className="text-white">Welcome back</CardTitle>
+            <CardDescription className="text-neutral-400">
+              Sign in to your account or create a new one
             </CardDescription>
             
             <Tabs defaultValue="login" value={activeTab} onValueChange={setActiveTab}>
