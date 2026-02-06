@@ -59,6 +59,11 @@ validateEnvironment();
 
 const app = express();
 
+// Trust proxy for Railway/Heroku/etc (needed for secure cookies over HTTPS)
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 /**
  * ===========================================
  * SECURITY MIDDLEWARE
