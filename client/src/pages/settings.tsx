@@ -65,7 +65,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2 } from "lucide-react";
+import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -508,6 +508,27 @@ export default function Settings() {
       toast({
         title: "Error",
         description: "Failed to provision receptionist. Please contact support.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Refresh VAPI Assistant (update webhook URL and configuration)
+  const refreshVapiMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/vapi/refresh/${businessId}`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "AI Assistant Updated",
+        description: "Your AI receptionist has been refreshed with the latest configuration.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to refresh AI assistant. Please try again.",
         variant: "destructive",
       });
     },
@@ -1230,6 +1251,45 @@ export default function Settings() {
           </TabsContent>
           
           <TabsContent value="pwa" className="space-y-4">
+            {/* AI Receptionist Refresh Card */}
+            {business?.vapiAssistantId && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>AI Receptionist Configuration</CardTitle>
+                  <CardDescription>
+                    Manage your AI receptionist settings and sync configuration
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+                    <div>
+                      <h4 className="font-medium">Refresh AI Assistant</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Update your AI receptionist with the latest business info, services, and hours
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => refreshVapiMutation.mutate()}
+                      disabled={refreshVapiMutation.isPending}
+                      variant="outline"
+                    >
+                      {refreshVapiMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Refreshing...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          Refresh Assistant
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle>Install SmallBizAgent as an App</CardTitle>
