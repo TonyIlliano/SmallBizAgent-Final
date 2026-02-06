@@ -60,9 +60,30 @@ async function fixExistingTables() {
   // Fix services table
   await addColumnIfNotExists('services', 'active', 'BOOLEAN DEFAULT true');
 
-  // Fix appointments - rename columns if needed and add missing
+  // Fix customers table - ensure all columns exist
+  await addColumnIfNotExists('customers', 'address', 'TEXT');
+  await addColumnIfNotExists('customers', 'city', 'TEXT');
+  await addColumnIfNotExists('customers', 'state', 'TEXT');
+  await addColumnIfNotExists('customers', 'zip', 'TEXT');
+  await addColumnIfNotExists('customers', 'notes', 'TEXT');
+  await addColumnIfNotExists('customers', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+  await addColumnIfNotExists('customers', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+
+  // Fix appointments - ensure all columns exist
+  await addColumnIfNotExists('appointments', 'business_id', 'INTEGER NOT NULL');
+  await addColumnIfNotExists('appointments', 'customer_id', 'INTEGER NOT NULL');
+  await addColumnIfNotExists('appointments', 'staff_id', 'INTEGER');
+  await addColumnIfNotExists('appointments', 'service_id', 'INTEGER');
   await addColumnIfNotExists('appointments', 'start_date', 'TIMESTAMP');
   await addColumnIfNotExists('appointments', 'end_date', 'TIMESTAMP');
+  await addColumnIfNotExists('appointments', 'status', "TEXT DEFAULT 'scheduled'");
+  await addColumnIfNotExists('appointments', 'notes', 'TEXT');
+  await addColumnIfNotExists('appointments', 'google_calendar_event_id', 'TEXT');
+  await addColumnIfNotExists('appointments', 'microsoft_calendar_event_id', 'TEXT');
+  await addColumnIfNotExists('appointments', 'apple_calendar_event_id', 'TEXT');
+  await addColumnIfNotExists('appointments', 'last_synced_at', 'TIMESTAMP');
+  await addColumnIfNotExists('appointments', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+  await addColumnIfNotExists('appointments', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
 
   // Fix jobs table
   await addColumnIfNotExists('jobs', 'appointment_id', 'INTEGER');

@@ -1284,15 +1284,36 @@ async function bookAppointment(
     if (!customer) {
       // Create new customer
       const nameParts = (params.customerName || 'New Customer').split(' ');
-      customer = await storage.createCustomer({
-        businessId,
-        firstName: nameParts[0] || 'New',
-        lastName: nameParts.slice(1).join(' ') || 'Customer',
-        phone: phone,
-        email: params.customerEmail || '',
-        address: '',
-        notes: 'Created via AI phone receptionist'
-      });
+      try {
+        console.log('Creating new customer for booking:', {
+          businessId,
+          firstName: nameParts[0] || 'New',
+          lastName: nameParts.slice(1).join(' ') || 'Customer',
+          phone
+        });
+        customer = await storage.createCustomer({
+          businessId,
+          firstName: nameParts[0] || 'New',
+          lastName: nameParts.slice(1).join(' ') || 'Customer',
+          phone: phone,
+          email: params.customerEmail || '',
+          address: '',
+          notes: 'Created via AI phone receptionist'
+        });
+        console.log('Customer created successfully:', customer.id);
+      } catch (customerError: any) {
+        console.error('Failed to create customer:', {
+          error: customerError.message,
+          stack: customerError.stack
+        });
+        return {
+          result: {
+            success: false,
+            error: 'Unable to create customer record. Please try again.',
+            details: customerError.message
+          }
+        };
+      }
     }
 
     customerId = customer.id;
@@ -1431,12 +1452,22 @@ async function bookAppointment(
         service: params.serviceName || 'General appointment'
       }
     };
-  } catch (error) {
-    console.error('Error creating appointment:', error);
+  } catch (error: any) {
+    console.error('Error creating appointment:', {
+      error: error.message,
+      stack: error.stack,
+      businessId,
+      customerId,
+      serviceId,
+      staffId: resolvedStaffId,
+      appointmentDate,
+      endTime
+    });
     return {
       result: {
         success: false,
-        error: 'Failed to create appointment. Please try again.'
+        error: 'Failed to create appointment. Please try again.',
+        details: error.message
       }
     };
   }
