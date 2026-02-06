@@ -2,6 +2,12 @@ import { storage } from "./storage";
 import { hashPassword } from "./auth";
 
 export async function seed() {
+  // Skip seeding in production - each user creates their own business during registration
+  if (process.env.NODE_ENV === 'production') {
+    console.log("Skipping seed in production - users create businesses during registration");
+    return;
+  }
+
   try {
     // Check if demo user already exists
     const existingUser = await storage.getUserByUsername("demo");

@@ -10,8 +10,8 @@ import QuickBooks from "node-quickbooks";
 // Check for required environment variables
 const QUICKBOOKS_CLIENT_ID = process.env.QUICKBOOKS_CLIENT_ID;
 const QUICKBOOKS_CLIENT_SECRET = process.env.QUICKBOOKS_CLIENT_SECRET;
-const REDIRECT_URI = process.env.NODE_ENV === 'production' 
-  ? 'https://smallbizagent.replit.app/api/quickbooks/callback' 
+const REDIRECT_URI = process.env.BASE_URL
+  ? `${process.env.BASE_URL}/api/quickbooks/callback`
   : 'http://localhost:5000/api/quickbooks/callback';
 
 // Check if QuickBooks is configured
