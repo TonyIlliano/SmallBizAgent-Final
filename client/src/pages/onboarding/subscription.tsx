@@ -132,10 +132,10 @@ export default function OnboardingSubscription() {
           <p className="text-muted-foreground mb-4 text-center max-w-2xl">
             All plans come with a 14-day free trial. You can upgrade, downgrade, or cancel at any time.
           </p>
-          
-          <Button 
-            size="lg" 
-            onClick={handleContinue} 
+
+          <Button
+            size="lg"
+            onClick={handleContinue}
             disabled={!selectedPlan || isCreatingSubscription}
             className="min-w-[200px]"
           >
@@ -149,6 +149,16 @@ export default function OnboardingSubscription() {
                 Continue <ArrowRight className="ml-2 h-4 w-4" />
               </>
             )}
+          </Button>
+
+          {/* Skip subscription for debugging */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/onboarding')}
+            className="mt-4 text-muted-foreground"
+          >
+            Skip for now (Debug Mode)
           </Button>
         </div>
       </div>
