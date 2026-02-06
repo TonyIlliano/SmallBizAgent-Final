@@ -117,6 +117,7 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
   };
   
   const industries = [
+    'Barber/Salon',
     'Plumbing',
     'Electrical',
     'Landscaping',
