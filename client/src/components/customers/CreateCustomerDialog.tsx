@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/form";
 import { Loader2, UserPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 const customerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -43,6 +44,8 @@ export function CreateCustomerDialog({ onCreate }: { onCreate: (customer: any) =
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const businessId = user?.businessId;
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
@@ -61,11 +64,9 @@ export function CreateCustomerDialog({ onCreate }: { onCreate: (customer: any) =
   const onSubmit = async (data: CustomerFormValues) => {
     setIsSubmitting(true);
     try {
-      // Use a default businessId of 1 for demo purposes
-      // In a real app, this would come from the authenticated user's context
       const customerData = {
         ...data,
-        businessId: 1 // Default business ID for demo
+        businessId,
       };
       const response = await apiRequest("POST", "/api/customers", customerData);
       const customer = await response.json();

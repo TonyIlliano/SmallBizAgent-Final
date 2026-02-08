@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
 import { useLocation } from "wouter";
 
@@ -86,18 +87,20 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
   const [, navigate] = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedService, setSelectedService] = useState<any>(null);
+  const { user } = useAuth();
+  const businessId = user?.businessId;
 
   // Fetch customers, staff, and services for dropdowns
   const { data: customers = [] } = useQuery<any[]>({
-    queryKey: ['/api/customers', { businessId: 1 }],
+    queryKey: ['/api/customers', { businessId }],
   });
 
   const { data: staff = [] } = useQuery<any[]>({
-    queryKey: ['/api/staff', { businessId: 1 }],
+    queryKey: ['/api/staff', { businessId }],
   });
 
   const { data: services = [] } = useQuery<any[]>({
-    queryKey: ['/api/services', { businessId: 1 }],
+    queryKey: ['/api/services', { businessId }],
   });
 
   // Find the service data when edit mode is active
@@ -129,7 +132,7 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
   const form = useForm<AppointmentFormData>({
     resolver: zodResolver(appointmentSchema),
     defaultValues: {
-      businessId: 1,
+      businessId: businessId,
       customerId: appointment?.customerId?.toString() || "",
       staffId: appointment?.staffId?.toString() || "",
       serviceId: appointment?.serviceId?.toString() || "",

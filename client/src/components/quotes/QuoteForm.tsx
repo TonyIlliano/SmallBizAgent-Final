@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { CreateCustomerDialog } from "@/components/customers/CreateCustomerDialog";
@@ -95,6 +96,8 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const businessId = user?.businessId;
   const isEditing = !!quoteId;
 
   const { data: customers } = useQuery({
@@ -117,14 +120,14 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
 
   const createQuoteMutation = useMutation({
     mutationFn: async (data: any) => {
-      // Make sure we send businessId with the data for the demo
+      // Make sure we send businessId with the data
       const quoteData = {
         ...data,
-        businessId: 1 // Default business ID for demo
+        businessId,
       };
-      
+
       console.log("Creating quote with data:", quoteData);
-      
+
       const res = await apiRequest("POST", "/api/quotes", quoteData);
       if (!res.ok) {
         const errorText = await res.text();
@@ -158,14 +161,14 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
 
   const updateQuoteMutation = useMutation({
     mutationFn: async (data: any) => {
-      // Make sure we send businessId with the data for the demo
+      // Make sure we send businessId with the data
       const quoteData = {
         ...data,
-        businessId: 1 // Default business ID for demo
+        businessId,
       };
-      
+
       console.log("Updating quote with data:", quoteData);
-      
+
       const res = await apiRequest("PATCH", `/api/quotes/${quoteId}`, quoteData);
       if (!res.ok) {
         const errorText = await res.text();

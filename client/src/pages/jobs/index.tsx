@@ -6,6 +6,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 import { PlusCircle, Briefcase } from "lucide-react";
 import {
   Select,
@@ -18,9 +19,11 @@ import {
 export default function Jobs() {
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("");
-  
+  const { user } = useAuth();
+  const businessId = user?.businessId;
+
   // Build query parameters
-  const queryParams: any = { businessId: 1 };
+  const queryParams: any = { businessId };
   if (statusFilter) {
     queryParams.status = statusFilter;
   }

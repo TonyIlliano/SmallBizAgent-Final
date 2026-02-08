@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
 import { useLocation } from "wouter";
 
@@ -74,7 +75,9 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
-  
+  const { user } = useAuth();
+  const businessId = user?.businessId;
+
   // State
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [subtotal, setSubtotal] = useState(0);
@@ -113,7 +116,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
   const form = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceSchema),
     defaultValues: {
-      businessId: 1,
+      businessId,
       customerId: invoice?.customerId?.toString() || "",
       jobId: invoice?.jobId?.toString() || "",
       invoiceNumber: invoice?.invoiceNumber || generateInvoiceNumber(),

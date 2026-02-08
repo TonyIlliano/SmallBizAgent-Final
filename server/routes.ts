@@ -333,9 +333,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =================== BUSINESS HOURS API ===================
-  app.get("/api/business/:businessId/hours", async (req: Request, res: Response) => {
+  app.get("/api/business/:businessId/hours", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+
+      // Authorization: user must be admin or belong to this business
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ message: "Not authorized to view this business's hours" });
+      }
+
       const hours = await storage.getBusinessHours(businessId);
       res.json(hours);
     } catch (error) {
@@ -2926,9 +2932,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Check what's missing for AI receptionist to work properly
-  app.get("/api/vapi/status/:businessId", async (req: Request, res: Response) => {
+  app.get("/api/vapi/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
 
       const business = await storage.getBusiness(businessId);
       if (!business) {
@@ -2991,9 +3001,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Diagnostic endpoint to check business data for AI receptionist
-  app.get("/api/vapi/diagnostic/:businessId", async (req: Request, res: Response) => {
+  app.get("/api/vapi/diagnostic/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
 
       const business = await storage.getBusiness(businessId);
       if (!business) {

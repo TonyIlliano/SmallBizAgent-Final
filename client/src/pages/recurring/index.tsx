@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { RecurringScheduleForm } from "@/components/recurring/RecurringScheduleForm";
 import { Skeleton } from "@/components/ui/skeleton-loader";
 
@@ -84,10 +85,12 @@ export default function RecurringSchedulesPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<RecurringSchedule | null>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const businessId = user?.businessId;
   const queryClient = useQueryClient();
 
   const { data: schedules = [], isLoading } = useQuery<RecurringSchedule[]>({
-    queryKey: ["/api/recurring-schedules", { businessId: 1 }],
+    queryKey: ["/api/recurring-schedules", { businessId }],
   });
 
   const pauseMutation = useMutation({

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
 import { PlusCircle, FileText, Download, Edit, Printer, MessageSquare, Share2, Copy, Check } from "lucide-react";
 import {
@@ -23,6 +24,8 @@ export default function Invoices() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const businessId = user?.businessId;
 
   // Generate shareable link mutation
   const generateLinkMutation = useMutation({
@@ -72,7 +75,7 @@ export default function Invoices() {
   });
 
   // Build query parameters
-  const queryParams: any = { businessId: 1 };
+  const queryParams: any = { businessId };
   if (statusFilter) {
     queryParams.status = statusFilter;
   }

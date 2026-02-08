@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
 import { useLocation } from "wouter";
 
@@ -68,20 +69,22 @@ export function JobForm({ job, isEdit = false }: JobFormProps) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { user } = useAuth();
+  const businessId = user?.businessId;
 
   // Fetch customers and staff for dropdowns
   const { data: customers = [] } = useQuery<any[]>({
-    queryKey: ['/api/customers', { businessId: 1 }],
+    queryKey: ['/api/customers', { businessId }],
   });
 
   const { data: staff = [] } = useQuery<any[]>({
-    queryKey: ['/api/staff', { businessId: 1 }],
+    queryKey: ['/api/staff', { businessId }],
   });
 
   const form = useForm<JobFormData>({
     resolver: zodResolver(jobSchema),
     defaultValues: {
-      businessId: 1,
+      businessId,
       customerId: job?.customerId?.toString() || "",
       staffId: job?.staffId?.toString() || "",
       appointmentId: job?.appointmentId?.toString() || "",

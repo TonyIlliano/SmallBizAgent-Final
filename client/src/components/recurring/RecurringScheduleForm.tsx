@@ -15,6 +15,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Plus, Trash2 } from "lucide-react";
 
 interface RecurringScheduleFormProps {
@@ -52,6 +53,8 @@ const dayOfWeekOptions = [
 export function RecurringScheduleForm({ schedule, onSuccess, onCancel }: RecurringScheduleFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const businessId = user?.businessId;
 
   const [frequency, setFrequency] = useState(schedule?.frequency || "monthly");
   const [autoCreateInvoice, setAutoCreateInvoice] = useState(schedule?.autoCreateInvoice ?? true);
@@ -80,17 +83,17 @@ export function RecurringScheduleForm({ schedule, onSuccess, onCancel }: Recurri
 
   // Fetch customers
   const { data: customers = [] } = useQuery<any[]>({
-    queryKey: ["/api/customers", { businessId: 1 }],
+    queryKey: ["/api/customers", { businessId }],
   });
 
   // Fetch services
   const { data: services = [] } = useQuery<any[]>({
-    queryKey: ["/api/services", { businessId: 1 }],
+    queryKey: ["/api/services", { businessId }],
   });
 
   // Fetch staff
   const { data: staffList = [] } = useQuery<any[]>({
-    queryKey: ["/api/staff", { businessId: 1 }],
+    queryKey: ["/api/staff", { businessId }],
   });
 
   // Calculate totals
@@ -152,7 +155,7 @@ export function RecurringScheduleForm({ schedule, onSuccess, onCancel }: Recurri
     const { subtotal, tax, total } = calculateTotals();
 
     const payload = {
-      businessId: 1,
+      businessId,
       customerId: parseInt(data.customerId),
       serviceId: data.serviceId ? parseInt(data.serviceId) : undefined,
       staffId: data.staffId ? parseInt(data.staffId) : undefined,

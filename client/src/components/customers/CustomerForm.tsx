@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
 import { useLocation } from "wouter";
 
@@ -46,11 +47,13 @@ export function CustomerForm({ customer, isEdit = false }: CustomerFormProps) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { user } = useAuth();
+  const businessId = user?.businessId;
 
   const form = useForm<CustomerFormData>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
-      businessId: 1,
+      businessId,
       firstName: customer?.firstName || "",
       lastName: customer?.lastName || "",
       email: customer?.email || "",
