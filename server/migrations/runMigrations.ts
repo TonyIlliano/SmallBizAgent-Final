@@ -79,6 +79,18 @@ async function fixExistingTables() {
   await addColumnIfNotExists('appointments', 'service_id', 'INTEGER');
   await addColumnIfNotExists('appointments', 'start_date', 'TIMESTAMP');
   await addColumnIfNotExists('appointments', 'end_date', 'TIMESTAMP');
+
+  // Fix legacy columns: start_time/end_time may exist with NOT NULL from old schema
+  // These are no longer used (replaced by start_date/end_date timestamps) so make them nullable
+  try {
+    await pool.query('ALTER TABLE appointments ALTER COLUMN start_time DROP NOT NULL');
+    await pool.query('ALTER TABLE appointments ALTER COLUMN end_time DROP NOT NULL');
+  } catch (e: any) {
+    // Column might not exist in newer databases - that's fine
+    if (!e.message.includes('does not exist')) {
+      console.log('Note: Could not alter start_time/end_time:', e.message);
+    }
+  }
   await addColumnIfNotExists('appointments', 'status', "TEXT DEFAULT 'scheduled'");
   await addColumnIfNotExists('appointments', 'notes', 'TEXT');
   await addColumnIfNotExists('appointments', 'google_calendar_event_id', 'TEXT');
