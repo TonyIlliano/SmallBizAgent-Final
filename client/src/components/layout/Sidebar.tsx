@@ -81,7 +81,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "transform transition-all duration-300 lg:w-64 md:w-20 w-64 fixed md:static inset-0 z-40 h-full flex flex-col",
+        "transform transition-all duration-300 lg:w-64 md:w-20 w-64 fixed md:static inset-0 z-40 md:z-auto h-full flex flex-col",
         "bg-black border-r border-neutral-800",
         isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}
