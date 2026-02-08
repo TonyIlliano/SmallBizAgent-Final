@@ -5,27 +5,31 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatDate(date: Date | string): string {
+export function formatDate(date: Date | string, timezone?: string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString('en-US', {
+  const options: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: 'long',
     day: 'numeric'
-  });
+  };
+  if (timezone) options.timeZone = timezone;
+  return d.toLocaleDateString('en-US', options);
 }
 
-export function formatTime(date: Date | string): string {
+export function formatTime(date: Date | string, timezone?: string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleTimeString('en-US', {
+  const options: Intl.DateTimeFormatOptions = {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true
-  });
+  };
+  if (timezone) options.timeZone = timezone;
+  return d.toLocaleTimeString('en-US', options);
 }
 
-export function formatDateTime(date: Date | string): string {
+export function formatDateTime(date: Date | string, timezone?: string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  return `${formatDate(d)} at ${formatTime(d)}`;
+  return `${formatDate(d, timezone)} at ${formatTime(d, timezone)}`;
 }
 
 export function formatCurrency(amount: number): string {
