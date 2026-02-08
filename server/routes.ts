@@ -236,17 +236,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/business/:id", async (req: Request, res: Response) => {
+  app.put("/api/business/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+
+      // Authorization: user must be admin or belong to this business
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, id)) {
+        return res.status(403).json({ message: "Not authorized to update this business" });
+      }
+
       const validatedData = insertBusinessSchema.partial().parse(req.body);
       const business = await storage.updateBusiness(id, validatedData);
 
-      // Update Vapi assistant if business name, industry, or hours changed (background)
+      // Update Vapi assistant if business name, industry, or hours changed (debounced)
       if (validatedData.name || validatedData.industry || validatedData.businessHours) {
-        vapiProvisioningService.updateVapiAssistant(id).catch(err => {
-          console.error('Error updating Vapi assistant after business update:', err);
-        });
+        vapiProvisioningService.debouncedUpdateVapiAssistant(id);
       }
 
       res.json(business);
@@ -258,6 +262,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Get provisioning status for a business
+  app.get("/api/business/:id/provisioning-status", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = parseInt(req.params.id);
+
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const business = await storage.getBusiness(businessId);
+      if (!business) {
+        return res.status(404).json({ message: "Business not found" });
+      }
+
+      res.json({
+        provisioningStatus: business.provisioningStatus || 'unknown',
+        provisioningResult: business.provisioningResult ? JSON.parse(business.provisioningResult) : null,
+        provisioningCompletedAt: business.provisioningCompletedAt,
+        twilioPhoneNumber: business.twilioPhoneNumber,
+        vapiAssistantId: business.vapiAssistantId,
+      });
+    } catch (error) {
+      console.error("Error fetching provisioning status:", error);
+      res.status(500).json({ message: "Error fetching provisioning status" });
+    }
+  });
+
   // Endpoint to manually provision a business (useful for businesses created before this feature)
   app.post("/api/business/:id/provision", isAuthenticated, async (req: Request, res: Response) => {
     try {
@@ -416,10 +447,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Invalidate services cache
       dataCache.invalidate(businessId, 'services');
 
-      // Update Vapi assistant with new services (background, don't block response)
-      vapiProvisioningService.updateVapiAssistant(businessId).catch(err => {
-        console.error('Error updating Vapi assistant after service creation:', err);
-      });
+      // Update Vapi assistant with new services (debounced to prevent race conditions)
+      vapiProvisioningService.debouncedUpdateVapiAssistant(businessId);
 
       res.status(201).json(service);
     } catch (error) {
@@ -489,10 +518,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Invalidate services cache
       dataCache.invalidate(existing.businessId, 'services');
 
-      // Update Vapi assistant with updated services (background)
-      vapiProvisioningService.updateVapiAssistant(existing.businessId).catch(err => {
-        console.error('Error updating Vapi assistant after service update:', err);
-      });
+      // Update Vapi assistant with updated services (debounced to prevent race conditions)
+      vapiProvisioningService.debouncedUpdateVapiAssistant(existing.businessId);
 
       res.json(service);
     } catch (error) {
@@ -517,10 +544,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Invalidate services cache
       dataCache.invalidate(businessId, 'services');
 
-      // Update Vapi assistant after service deletion (background)
-      vapiProvisioningService.updateVapiAssistant(businessId).catch(err => {
-        console.error('Error updating Vapi assistant after service deletion:', err);
-      });
+      // Update Vapi assistant after service deletion (debounced to prevent race conditions)
+      vapiProvisioningService.debouncedUpdateVapiAssistant(businessId);
 
       res.status(204).end();
     } catch (error) {
@@ -3025,9 +3050,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Force refresh Vapi assistant (for debugging - updates serverUrl and system prompt)
-  app.post("/api/vapi/refresh/:businessId", async (req: Request, res: Response) => {
+  app.post("/api/vapi/refresh/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+
+      // Authorization: user must be admin or belong to this business
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ message: "Not authorized to refresh this business's assistant" });
+      }
+
       console.log(`Force refreshing Vapi assistant for business ${businessId}`);
 
       const business = await storage.getBusiness(businessId);

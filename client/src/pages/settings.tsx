@@ -189,6 +189,27 @@ export default function Settings() {
     queryKey: ['/api/services', { businessId }],
     enabled: !!businessId,
   });
+
+  // Poll provisioning status when it may be in progress
+  const { data: provisioningStatus } = useQuery<any>({
+    queryKey: [`/api/business/${businessId}/provisioning-status`],
+    enabled: !!businessId && (!business?.twilioPhoneNumber || !business?.vapiAssistantId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.provisioningStatus;
+      // Poll every 5 seconds while provisioning is in progress or pending
+      if (status === 'in_progress' || status === 'pending') {
+        return 5000;
+      }
+      return false; // Stop polling when complete or failed
+    },
+  });
+
+  // When provisioning completes, refresh the business data to show phone number
+  useEffect(() => {
+    if (provisioningStatus?.provisioningStatus === 'completed') {
+      queryClient.invalidateQueries({ queryKey: ['/api/business'] });
+    }
+  }, [provisioningStatus?.provisioningStatus, queryClient]);
   
   // Business Profile Form
   const businessForm = useForm<z.infer<typeof businessProfileSchema>>({
@@ -874,11 +895,27 @@ export default function Settings() {
                     <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
                       A dedicated phone number has not been provisioned for your business yet.
                     </p>
+
+                    {/* Show provisioning progress */}
+                    {(provisioningStatus?.provisioningStatus === 'in_progress' || provisionMutation.isPending) && (
+                      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground mb-4">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Setting up your AI receptionist... This may take a minute.
+                      </div>
+                    )}
+
+                    {/* Show failure message */}
+                    {provisioningStatus?.provisioningStatus === 'failed' && !provisionMutation.isPending && (
+                      <div className="text-sm text-destructive mb-4">
+                        Provisioning encountered an issue. Click below to try again.
+                      </div>
+                    )}
+
                     <Button
                       onClick={() => provisionMutation.mutate()}
-                      disabled={provisionMutation.isPending}
+                      disabled={provisionMutation.isPending || provisioningStatus?.provisioningStatus === 'in_progress'}
                     >
-                      {provisionMutation.isPending ? (
+                      {(provisionMutation.isPending || provisioningStatus?.provisioningStatus === 'in_progress') ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Provisioning...

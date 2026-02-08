@@ -56,6 +56,9 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'subscription_end_date', 'TIMESTAMP');
   await addColumnIfNotExists('businesses', 'trial_ends_at', 'TIMESTAMP');
   await addColumnIfNotExists('businesses', 'twilio_phone_number_sid', 'TEXT');
+  await addColumnIfNotExists('businesses', 'provisioning_status', "TEXT DEFAULT 'pending'");
+  await addColumnIfNotExists('businesses', 'provisioning_result', 'TEXT');
+  await addColumnIfNotExists('businesses', 'provisioning_completed_at', 'TIMESTAMP');
 
   // Fix services table
   await addColumnIfNotExists('services', 'active', 'BOOLEAN DEFAULT true');
@@ -416,6 +419,9 @@ async function createBaseTables() {
       vapi_assistant_id TEXT,
       vapi_phone_number_id TEXT,
       receptionist_enabled BOOLEAN DEFAULT true,
+      provisioning_status TEXT DEFAULT 'pending',
+      provisioning_result TEXT,
+      provisioning_completed_at TIMESTAMP,
       quickbooks_realm_id TEXT,
       quickbooks_access_token TEXT,
       quickbooks_refresh_token TEXT,

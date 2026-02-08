@@ -54,6 +54,10 @@ export const businesses = pgTable("businesses", {
   vapiAssistantId: text("vapi_assistant_id"),
   vapiPhoneNumberId: text("vapi_phone_number_id"),
   receptionistEnabled: boolean("receptionist_enabled").default(true), // Toggle to enable/disable AI receptionist
+  // Provisioning status tracking
+  provisioningStatus: text("provisioning_status").default("pending"), // pending, in_progress, completed, failed
+  provisioningResult: text("provisioning_result"), // JSON string with detailed provisioning results
+  provisioningCompletedAt: timestamp("provisioning_completed_at"),
   // QuickBooks integration information
   quickbooksRealmId: text("quickbooks_realm_id"),
   quickbooksAccessToken: text("quickbooks_access_token"),

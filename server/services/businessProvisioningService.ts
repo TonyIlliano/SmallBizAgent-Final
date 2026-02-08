@@ -26,12 +26,17 @@ export async function provisionBusiness(
 ) {
   try {
     console.log(`Provisioning resources for business ID ${businessId}...`);
-    
+
     // Get the business
     const business = await storage.getBusiness(businessId);
     if (!business) {
       throw new Error(`Business with ID ${businessId} not found`);
     }
+
+    // Mark provisioning as in_progress
+    await storage.updateBusiness(businessId, {
+      provisioningStatus: 'in_progress'
+    });
     
     const results: any = {
       businessId,
@@ -179,9 +184,26 @@ export async function provisionBusiness(
     }
 
     console.log(`Provisioning completed for business ID ${businessId}`);
+
+    // Store provisioning results in database
+    const finalStatus = results.success ? 'completed' : 'failed';
+    await storage.updateBusiness(businessId, {
+      provisioningStatus: finalStatus,
+      provisioningResult: JSON.stringify(results),
+      provisioningCompletedAt: new Date()
+    });
+
     return results;
   } catch (error) {
     console.error(`Error provisioning business ID ${businessId}:`, error);
+
+    // Store failure status in database
+    await storage.updateBusiness(businessId, {
+      provisioningStatus: 'failed',
+      provisioningResult: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      provisioningCompletedAt: new Date()
+    }).catch(updateErr => console.error('Failed to update provisioning status:', updateErr));
+
     throw error;
   }
 }

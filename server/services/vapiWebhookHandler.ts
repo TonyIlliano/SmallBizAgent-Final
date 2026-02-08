@@ -212,11 +212,62 @@ async function getAppointmentsOptimized(
 export { dataCache };
 
 /**
+ * ===========================================
+ * TIMEZONE UTILITIES
+ * ===========================================
+ * Uses Node.js built-in Intl.DateTimeFormat to get the current
+ * date/time in a business's timezone. This ensures "tomorrow at 2pm"
+ * means 2pm in the business's local time, not the server's timezone.
+ */
+
+/**
+ * Get the current date/time in a specific IANA timezone.
+ * Returns a Date whose local components (getHours, getDate, etc.)
+ * correspond to the wall clock time in the given timezone.
+ */
+function getNowInTimezone(timezone: string): Date {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(new Date());
+    const get = (type: string) => parts.find(p => p.type === type)?.value || '0';
+
+    return new Date(
+      parseInt(get('year')),
+      parseInt(get('month')) - 1,
+      parseInt(get('day')),
+      parseInt(get('hour')),
+      parseInt(get('minute')),
+      parseInt(get('second'))
+    );
+  } catch (error) {
+    console.warn(`Invalid timezone "${timezone}", falling back to America/New_York:`, error);
+    return getNowInTimezone('America/New_York');
+  }
+}
+
+/**
+ * Get today's date at midnight in a specific timezone.
+ */
+function getTodayInTimezone(timezone: string): Date {
+  const now = getNowInTimezone(timezone);
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+/**
  * Parse natural language date expressions into actual dates
  * Handles: "tomorrow", "next tuesday", "in 2 days", "next week", etc.
  */
-function parseNaturalDate(dateStr: string): Date {
-  const now = new Date();
+function parseNaturalDate(dateStr: string, timezone: string = 'America/New_York'): Date {
+  const now = getNowInTimezone(timezone);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const input = dateStr.toLowerCase().trim();
 
@@ -686,7 +737,8 @@ async function getAvailableSlotsForDay(
   appointments: any[],
   duration: number,
   staffHours?: any[], // Optional staff-specific hours
-  slotIntervalMinutes: number = 30 // Configurable slot interval
+  slotIntervalMinutes: number = 30, // Configurable slot interval
+  timezone: string = 'America/New_York' // Business timezone for "is today" checks
 ): Promise<{ slots: string[], isClosed: boolean, dayName: string }> {
   const daysMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const dayOfWeek = date.getDay();
@@ -806,8 +858,8 @@ async function getAvailableSlotsForDay(
   // Generate available slots
   const availableSlots: string[] = [];
 
-  // Check if date is today - skip past times
-  const now = new Date();
+  // Check if date is today (in business timezone) - skip past times
+  const now = getNowInTimezone(timezone);
   const isToday = date.toDateString() === now.toDateString();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
@@ -976,13 +1028,15 @@ async function checkAvailability(
 
   const daysMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+  // Use business timezone for all date calculations
+  const businessTimezone = business.timezone || 'America/New_York';
+
   // Check if this is a range request (like "next week")
   if (isDateRangeRequest(dateStr)) {
     console.log('Processing as date range request');
 
-    // Get availability for the next 7 business days
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Get availability for the next 7 business days (in business timezone)
+    const today = getTodayInTimezone(businessTimezone);
 
     const availableDays: { day: string, date: string, slots: string[] }[] = [];
     let daysChecked = 0;
@@ -1006,7 +1060,8 @@ async function checkAvailability(
         appointments,
         duration,
         staffHoursData.length > 0 ? staffHoursData : undefined,
-        slotIntervalMinutes
+        slotIntervalMinutes,
+        businessTimezone
       );
 
       if (!result.isClosed && result.slots.length > 0) {
@@ -1086,12 +1141,11 @@ async function checkAvailability(
   }
 
   // Single date request - original logic with improvements
-  const date = parseNaturalDate(dateStr);
-  console.log(`Parsed date "${dateStr}" to: ${date.toISOString()}`);
+  const date = parseNaturalDate(dateStr, businessTimezone);
+  console.log(`Parsed date "${dateStr}" to: ${date.toISOString()} (timezone: ${businessTimezone})`);
 
-  // Check if date is in the past
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Check if date is in the past (in business timezone)
+  const today = getTodayInTimezone(businessTimezone);
   if (date < today) {
     return {
       result: {
@@ -1101,7 +1155,7 @@ async function checkAvailability(
     };
   }
 
-  const result = await getAvailableSlotsForDay(businessId, date, businessHours, appointments, duration, staffHoursData.length > 0 ? staffHoursData : undefined, slotIntervalMinutes);
+  const result = await getAvailableSlotsForDay(businessId, date, businessHours, appointments, duration, staffHoursData.length > 0 ? staffHoursData : undefined, slotIntervalMinutes, businessTimezone);
 
   // Format date for display
   const displayDate = date.toLocaleDateString('en-US', {
@@ -1319,18 +1373,7 @@ async function bookAppointment(
     customerId = customer.id;
   }
 
-  // Parse date and time using natural language parser
-  const appointmentDate = parseNaturalDate(params.date);
-  const timeStr = parseNaturalTime(params.time);
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  appointmentDate.setHours(hours, minutes, 0, 0);
-
-  // Calculate end time
-  const duration = params.estimatedDuration || 60;
-  const endTime = new Date(appointmentDate);
-  endTime.setMinutes(endTime.getMinutes() + duration);
-
-  // Get service if specified - IMPORTANT: Always validate serviceId belongs to this business
+  // Resolve service FIRST so we can use its duration for end time calculation
   let serviceId = params.serviceId;
   const services = await getCachedServices(businessId);
 
@@ -1354,6 +1397,29 @@ async function bookAppointment(
       console.warn(`Could not find service matching "${params.serviceName}" for business ${businessId}`);
     }
   }
+
+  // Parse date and time using natural language parser (in business timezone)
+  const businessTimezone = business.timezone || 'America/New_York';
+  const appointmentDate = parseNaturalDate(params.date, businessTimezone);
+  const timeStr = parseNaturalTime(params.time);
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  appointmentDate.setHours(hours, minutes, 0, 0);
+
+  // Calculate duration: prefer DB service duration, then AI estimate, then default 60min
+  let duration = 60;
+  if (serviceId) {
+    const matchedService = services.find(s => s.id === serviceId);
+    if (matchedService?.duration) {
+      duration = matchedService.duration;
+      console.log(`Using service "${matchedService.name}" duration from DB: ${duration} minutes`);
+    }
+  }
+  if (!serviceId && params.estimatedDuration && params.estimatedDuration > 0) {
+    duration = Math.min(params.estimatedDuration, 480); // Cap at 8 hours
+    console.log(`No service matched, using AI estimated duration: ${duration} minutes`);
+  }
+  const endTime = new Date(appointmentDate);
+  endTime.setMinutes(endTime.getMinutes() + duration);
 
   // Double-booking prevention: Check if the time slot is already taken (optimized query)
   const existingAppointments = await getAppointmentsOptimized(businessId, {

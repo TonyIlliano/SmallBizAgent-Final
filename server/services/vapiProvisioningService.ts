@@ -14,6 +14,40 @@ const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 
 /**
+ * Debounce map for VAPI assistant updates.
+ * When a business rapidly updates settings/services/hours, multiple
+ * updateVapiAssistant() calls fire. This coalesces them into one API call
+ * using the latest data (2-second window).
+ */
+const pendingUpdates = new Map<number, NodeJS.Timeout>();
+const DEBOUNCE_DELAY_MS = 2000;
+
+/**
+ * Debounced version of updateVapiAssistant.
+ * Multiple calls within DEBOUNCE_DELAY_MS for the same business
+ * are coalesced into a single update using the latest data.
+ */
+export function debouncedUpdateVapiAssistant(businessId: number): void {
+  const existing = pendingUpdates.get(businessId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+
+  const timeout = setTimeout(async () => {
+    pendingUpdates.delete(businessId);
+    try {
+      console.log(`[Debounced] Executing VAPI update for business ${businessId}`);
+      await updateVapiAssistant(businessId);
+    } catch (error) {
+      console.error(`[Debounced] Error updating VAPI assistant for business ${businessId}:`, error);
+    }
+  }, DEBOUNCE_DELAY_MS);
+
+  pendingUpdates.set(businessId, timeout);
+  console.log(`[Debounced] Scheduled VAPI update for business ${businessId} (${DEBOUNCE_DELAY_MS}ms delay)`);
+}
+
+/**
  * Provision a complete Vapi setup for a business
  * Creates assistant and optionally connects phone number
  */
@@ -255,6 +289,7 @@ export default {
   provisionVapiForBusiness,
   connectPhoneToVapi,
   updateVapiAssistant,
+  debouncedUpdateVapiAssistant,
   removeVapiAssistant,
   getVapiStatus
 };
