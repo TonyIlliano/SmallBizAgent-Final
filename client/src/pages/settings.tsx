@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { apiRequest } from "@/lib/queryClient";
+import { formatPhoneNumber } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
@@ -593,7 +594,7 @@ export default function Settings() {
       setSelectedPhoneNumber(null);
       toast({
         title: "AI Receptionist Activated!",
-        description: `Your new phone number is ${data.phoneNumber}`,
+        description: `Your new phone number is ${formatPhoneNumber(data.phoneNumber)}`,
       });
     },
     onError: (error) => {
@@ -850,7 +851,7 @@ export default function Settings() {
                       <Phone className="h-8 w-8 text-primary" />
                       <div className="flex-1">
                         <p className="text-2xl font-bold tracking-wide">
-                          {business.twilioPhoneNumber}
+                          {formatPhoneNumber(business.twilioPhoneNumber)}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           Provisioned on {business.twilioDateProvisioned
@@ -928,7 +929,7 @@ export default function Settings() {
                               <AlertDialogDescription>
                                 This will permanently:
                                 <ul className="list-disc list-inside mt-2 space-y-1">
-                                  <li>Release your phone number ({business.twilioPhoneNumber})</li>
+                                  <li>Release your phone number ({formatPhoneNumber(business.twilioPhoneNumber)})</li>
                                   <li>Delete your AI assistant configuration</li>
                                   <li>Stop all incoming call handling</li>
                                 </ul>
@@ -983,21 +984,21 @@ export default function Settings() {
                             </p>
                             <div className="flex items-center gap-2 p-2 bg-white dark:bg-background rounded border font-mono text-lg">
                               <Phone className="h-4 w-4 text-primary flex-shrink-0" />
-                              {business.twilioPhoneNumber}
+                              {formatPhoneNumber(business.twilioPhoneNumber)}
                             </div>
                             <div className="space-y-2 text-sm">
                               <p className="font-medium">How to set up forwarding:</p>
                               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                                 <li>
                                   <strong>Most carriers:</strong> Dial <code className="bg-muted px-1 rounded">*72</code> followed by{" "}
-                                  <code className="bg-muted px-1 rounded">{business.twilioPhoneNumber}</code>
+                                  <code className="bg-muted px-1 rounded">{formatPhoneNumber(business.twilioPhoneNumber)}</code>
                                 </li>
                                 <li>
                                   <strong>To disable forwarding:</strong> Dial <code className="bg-muted px-1 rounded">*73</code>
                                 </li>
                                 <li>
                                   <strong>Alternative:</strong> Contact your phone provider and ask to forward calls to{" "}
-                                  {business.twilioPhoneNumber}
+                                  {formatPhoneNumber(business.twilioPhoneNumber)}
                                 </li>
                               </ul>
                             </div>
@@ -1137,7 +1138,7 @@ export default function Settings() {
                                       className={selectedPhoneNumber === num.phoneNumber ? "bg-primary/10" : ""}
                                     >
                                       <TableCell className="font-mono">
-                                        {num.phoneNumber}
+                                        {formatPhoneNumber(num.phoneNumber)}
                                       </TableCell>
                                       <TableCell className="text-sm text-muted-foreground">
                                         <span className="flex items-center gap-1">
@@ -1188,7 +1189,7 @@ export default function Settings() {
                                 ) : (
                                   <Phone className="mr-2 h-4 w-4" />
                                 )}
-                                Use {selectedPhoneNumber}
+                                Use {formatPhoneNumber(selectedPhoneNumber || '')}
                               </Button>
                             )}
                           </DialogFooter>

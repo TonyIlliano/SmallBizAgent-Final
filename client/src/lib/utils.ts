@@ -43,14 +43,18 @@ export function formatCurrency(amount: number): string {
 
 export function formatPhoneNumber(phoneNumber: string): string {
   if (!phoneNumber) return '';
-  
-  const cleaned = phoneNumber.replace(/\D/g, '');
+
+  let cleaned = phoneNumber.replace(/\D/g, '');
+  // Strip leading country code (1 for US)
+  if (cleaned.length === 11 && cleaned.startsWith('1')) {
+    cleaned = cleaned.substring(1);
+  }
+
   const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
-  
   if (match) {
     return `(${match[1]}) ${match[2]}-${match[3]}`;
   }
-  
+
   return phoneNumber;
 }
 

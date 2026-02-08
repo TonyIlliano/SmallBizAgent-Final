@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
-import { formatDate, formatTime } from "@/lib/utils";
+import { formatDate, formatTime, formatPhoneNumber } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
@@ -111,7 +111,7 @@ export default function Appointments() {
             {appointment.customer?.firstName} {appointment.customer?.lastName}
           </div>
           <div className="text-sm text-gray-500">
-            {appointment.customer?.phone}
+            {formatPhoneNumber(appointment.customer?.phone || '')}
           </div>
         </div>
       ),

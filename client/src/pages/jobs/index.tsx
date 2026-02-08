@@ -5,7 +5,7 @@ import { PageLayout } from "@/components/layout/PageLayout";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPhoneNumber } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { PlusCircle, Briefcase } from "lucide-react";
 import {
@@ -72,7 +72,7 @@ export default function Jobs() {
             {job.customer?.firstName} {job.customer?.lastName}
           </div>
           <div className="text-sm text-gray-500">
-            {job.customer?.phone}
+            {formatPhoneNumber(job.customer?.phone || '')}
           </div>
         </div>
       ),

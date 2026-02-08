@@ -22,6 +22,20 @@ import connectPg from "connect-pg-simple";
 import { eq, and, or, desc, ilike, sql, gte, lte } from "drizzle-orm";
 import { db, pool } from "./db";
 
+/**
+ * Normalize a phone number to digits-only for comparison.
+ * Handles: +1(555)123-4567, (555) 123-4567, 5551234567, +15551234567, etc.
+ * Returns just the last 10 digits (US number without country code).
+ */
+export function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  // If 11 digits starting with 1, strip the country code
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return digits.substring(1);
+  }
+  return digits;
+}
+
 // Storage interface for all operations
 export interface IStorage {
   // Session store for authentication
@@ -348,12 +362,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCustomerByPhone(phone: string, businessId: number): Promise<Customer | undefined> {
-    const [customer] = await db.select().from(customers)
+    // First try exact match
+    const [exact] = await db.select().from(customers)
       .where(and(
         eq(customers.phone, phone),
         eq(customers.businessId, businessId)
       ));
-    return customer;
+    if (exact) return exact;
+
+    // Normalize and try common formats
+    const digits = normalizePhone(phone);
+    if (digits.length < 10) return undefined;
+
+    const formats = [
+      digits,                                                          // 5551234567
+      `+1${digits}`,                                                   // +15551234567
+      `1${digits}`,                                                    // 15551234567
+      `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`, // (555) 123-4567
+      `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`,  // 555-123-4567
+    ];
+
+    const [normalized] = await db.select().from(customers)
+      .where(and(
+        or(...formats.map(f => eq(customers.phone, f))),
+        eq(customers.businessId, businessId)
+      ));
+    return normalized;
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {

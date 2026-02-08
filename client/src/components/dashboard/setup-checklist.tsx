@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle, ChevronRight, X, Loader2 } from 'lucide-react';
+import { formatPhoneNumber } from '@/lib/utils';
 
 interface SetupStatus {
   businessProfile: boolean;
@@ -131,7 +132,7 @@ export function SetupChecklist() {
           <ChecklistItem
             title="Set up virtual receptionist"
             subtitle={completedItems.receptionist
-              ? `Connected${setupStatus?.details?.twilioPhoneNumber ? ` • ${setupStatus.details.twilioPhoneNumber}` : ''}`
+              ? `Connected${setupStatus?.details?.twilioPhoneNumber ? ` • ${formatPhoneNumber(setupStatus.details.twilioPhoneNumber)}` : ''}`
               : 'AI phone assistant for your business'}
             isCompleted={completedItems.receptionist}
             onClick={() => setLocation('/settings?tab=profile')}
