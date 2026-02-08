@@ -304,7 +304,7 @@ export function setupAuth(app: Express) {
       });
 
       // Build the reset link
-      const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const baseUrl = process.env.BASE_URL || (process.env.NODE_ENV === 'production' ? '' : `http://localhost:${process.env.PORT || 5000}`);
       const resetLink = `${baseUrl}/reset-password?token=${token}`;
 
       // Send the email

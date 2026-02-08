@@ -54,7 +54,7 @@ export function RecurringScheduleForm({ schedule, onSuccess, onCancel }: Recurri
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const businessId = user?.businessId;
+  const businessId = user?.businessId ?? undefined;
 
   const [frequency, setFrequency] = useState(schedule?.frequency || "monthly");
   const [autoCreateInvoice, setAutoCreateInvoice] = useState(schedule?.autoCreateInvoice ?? true);

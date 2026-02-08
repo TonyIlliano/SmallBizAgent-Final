@@ -12,7 +12,7 @@ const QUICKBOOKS_CLIENT_ID = process.env.QUICKBOOKS_CLIENT_ID;
 const QUICKBOOKS_CLIENT_SECRET = process.env.QUICKBOOKS_CLIENT_SECRET;
 const REDIRECT_URI = process.env.BASE_URL
   ? `${process.env.BASE_URL}/api/quickbooks/callback`
-  : 'http://localhost:5000/api/quickbooks/callback';
+  : (process.env.NODE_ENV === 'production' ? '/api/quickbooks/callback' : 'http://localhost:5000/api/quickbooks/callback');
 
 // Check if QuickBooks is configured
 export function isQuickBooksConfigured(): boolean {

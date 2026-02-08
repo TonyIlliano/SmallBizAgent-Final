@@ -45,7 +45,7 @@ export function CreateCustomerDialog({ onCreate }: { onCreate: (customer: any) =
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
-  const businessId = user?.businessId;
+  const businessId = user?.businessId ?? undefined;
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),

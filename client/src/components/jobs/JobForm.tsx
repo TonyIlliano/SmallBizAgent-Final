@@ -70,7 +70,7 @@ export function JobForm({ job, isEdit = false }: JobFormProps) {
   const [, navigate] = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { user } = useAuth();
-  const businessId = user?.businessId;
+  const businessId = user?.businessId ?? undefined;
 
   // Fetch customers and staff for dropdowns
   const { data: customers = [] } = useQuery<any[]>({

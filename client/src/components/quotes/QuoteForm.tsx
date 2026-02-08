@@ -97,7 +97,7 @@ export function QuoteForm({ defaultValues, quoteId }: QuoteFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const businessId = user?.businessId;
+  const businessId = user?.businessId ?? undefined;
   const isEditing = !!quoteId;
 
   const { data: customers } = useQuery({

@@ -289,6 +289,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get real setup status for the business (replaces localStorage-based checklist)
+  app.get("/api/business/setup-status", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      if (businessId === 0) {
+        return res.json({
+          businessProfile: false,
+          services: false,
+          receptionist: false,
+          calendar: false,
+          allComplete: false,
+        });
+      }
+
+      const business = await storage.getBusiness(businessId);
+      if (!business) {
+        return res.json({
+          businessProfile: false,
+          services: false,
+          receptionist: false,
+          calendar: false,
+          allComplete: false,
+        });
+      }
+
+      // Check business profile: must have name, phone, and email at minimum
+      const businessProfile = !!(business.name && business.phone && business.email);
+
+      // Check services: must have at least one service
+      const services = await storage.getServices(businessId);
+      const hasServices = services.length > 0;
+
+      // Check receptionist: must have a VAPI assistant created
+      const hasReceptionist = !!(business.vapiAssistantId);
+
+      // Check calendar/integrations: has business hours configured OR has a phone number
+      const businessHours = await storage.getBusinessHours(businessId);
+      const hasCalendar = businessHours.length > 0;
+
+      const allComplete = businessProfile && hasServices && hasReceptionist && hasCalendar;
+
+      res.json({
+        businessProfile,
+        services: hasServices,
+        receptionist: hasReceptionist,
+        calendar: hasCalendar,
+        allComplete,
+        details: {
+          businessName: business.name || null,
+          businessPhone: business.phone || null,
+          businessEmail: business.email || null,
+          serviceCount: services.length,
+          vapiAssistantId: business.vapiAssistantId || null,
+          twilioPhoneNumber: business.twilioPhoneNumber || null,
+          businessHoursDays: businessHours.length,
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching setup status:", error);
+      res.status(500).json({ message: "Error fetching setup status" });
+    }
+  });
+
   // Endpoint to manually provision a business (useful for businesses created before this feature)
   app.post("/api/business/:id/provision", isAuthenticated, async (req: Request, res: Response) => {
     try {
@@ -1346,7 +1409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateInvoice(id, { accessToken });
 
       // Build the public URL
-      const baseUrl = process.env.BASE_URL || `http://localhost:5000`;
+      const baseUrl = process.env.BASE_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
       const publicUrl = `${baseUrl}/portal/invoice/${accessToken}`;
 
       res.json({

@@ -48,12 +48,12 @@ export function CustomerForm({ customer, isEdit = false }: CustomerFormProps) {
   const [, navigate] = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { user } = useAuth();
-  const businessId = user?.businessId;
+  const businessId = user?.businessId ?? undefined;
 
   const form = useForm<CustomerFormData>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
-      businessId,
+      businessId: businessId,
       firstName: customer?.firstName || "",
       lastName: customer?.lastName || "",
       email: customer?.email || "",

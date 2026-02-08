@@ -76,7 +76,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const { user } = useAuth();
-  const businessId = user?.businessId;
+  const businessId = user?.businessId ?? undefined;
 
   // State
   const [isSubmitting, setIsSubmitting] = useState(false);

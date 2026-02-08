@@ -22,12 +22,20 @@ function validateEnvironment() {
   ];
 
   const recommended = [
+    'BASE_URL',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
     'TWILIO_ACCOUNT_SID',
     'TWILIO_AUTH_TOKEN',
     'VAPI_API_KEY',
   ];
+
+  // In production, BASE_URL is critical for webhooks, password reset links, etc.
+  if (process.env.NODE_ENV === 'production' && !process.env.BASE_URL) {
+    console.error('⚠️  CRITICAL WARNING: BASE_URL not set in production!');
+    console.error('   Password reset, invoice sharing, Twilio webhooks will NOT work.');
+    console.error('   Set BASE_URL to your Railway URL (e.g., https://web-production-76c5e.up.railway.app)');
+  }
 
   const missing = required.filter(key => !process.env[key]);
   if (missing.length > 0) {

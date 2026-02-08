@@ -88,7 +88,7 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedService, setSelectedService] = useState<any>(null);
   const { user } = useAuth();
-  const businessId = user?.businessId;
+  const businessId = user?.businessId ?? undefined;
 
   // Fetch customers, staff, and services for dropdowns
   const { data: customers = [] } = useQuery<any[]>({
