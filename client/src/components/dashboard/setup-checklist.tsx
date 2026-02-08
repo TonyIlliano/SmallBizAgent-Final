@@ -42,7 +42,19 @@ export function SetupChecklist() {
   };
   
   const navigateToOnboarding = () => {
-    setLocation('/onboarding');
+    // Navigate directly to the settings tab for the first incomplete item
+    // instead of /onboarding (which redirects back if already complete)
+    if (!completedItems.business) {
+      setLocation('/settings?tab=profile');
+    } else if (!completedItems.services) {
+      setLocation('/settings?tab=services');
+    } else if (!completedItems.receptionist) {
+      setLocation('/settings?tab=profile'); // Receptionist setup is in the Profile tab
+    } else if (!completedItems.calendar) {
+      setLocation('/settings?tab=integrations');
+    } else {
+      setLocation('/settings');
+    }
   };
   
   // Return null if not visible
@@ -78,21 +90,25 @@ export function SetupChecklist() {
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          <ChecklistItem 
-            title="Complete your business profile" 
+          <ChecklistItem
+            title="Complete your business profile"
             isCompleted={completedItems.business || false}
+            onClick={() => setLocation('/settings?tab=profile')}
           />
-          <ChecklistItem 
-            title="Add your services" 
+          <ChecklistItem
+            title="Add your services"
             isCompleted={completedItems.services || false}
+            onClick={() => setLocation('/settings?tab=services')}
           />
-          <ChecklistItem 
-            title="Set up virtual receptionist" 
+          <ChecklistItem
+            title="Set up virtual receptionist"
             isCompleted={completedItems.receptionist || false}
+            onClick={() => setLocation('/settings?tab=profile')}
           />
-          <ChecklistItem 
-            title="Connect your calendar" 
+          <ChecklistItem
+            title="Connect your calendar"
             isCompleted={completedItems.calendar || false}
+            onClick={() => setLocation('/settings?tab=integrations')}
           />
         </div>
       </CardContent>
@@ -110,9 +126,12 @@ export function SetupChecklist() {
   );
 }
 
-function ChecklistItem({ title, isCompleted }: { title: string; isCompleted: boolean }) {
+function ChecklistItem({ title, isCompleted, onClick }: { title: string; isCompleted: boolean; onClick?: () => void }) {
   return (
-    <div className="flex items-center">
+    <div
+      className={`flex items-center ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
+      onClick={onClick}
+    >
       <div className={`flex-shrink-0 w-6 h-6 rounded-full ${
         isCompleted ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-500'
       } flex items-center justify-center mr-3`}>

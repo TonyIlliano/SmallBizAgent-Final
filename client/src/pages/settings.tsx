@@ -165,7 +165,10 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState("profile");
+  // Read tab from URL query param (e.g. /settings?tab=services)
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialTab = urlParams.get('tab') || "profile";
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingService, setEditingService] = useState<any>(null);
 
