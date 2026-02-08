@@ -77,10 +77,12 @@ function formatBusinessHoursFromDB(hours: any[]): string {
 /**
  * Determine if business is currently open based on hours
  */
-function isBusinessOpenNow(hours: any[]): { isOpen: boolean; todayHours: string } {
-  const now = new Date();
-  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const today = dayNames[now.getDay()];
+function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'): { isOpen: boolean; todayHours: string } {
+  // Use business timezone to determine what day it is (not server UTC)
+  const today = new Date().toLocaleDateString('en-US', {
+    timeZone: timezone,
+    weekday: 'long'
+  }).toLowerCase();
 
   const todayHours = hours?.find(h => h.day === today);
   if (!todayHours || todayHours.isClosed || (!todayHours.open && !todayHours.close)) {
@@ -99,20 +101,32 @@ function generateSystemPrompt(business: Business, services: Service[], businessH
     ? services.map(s => `- ${s.name}: $${s.price}, ${s.duration || 60} minutes${s.description ? ` - ${s.description}` : ''}`).join('\n')
     : '- General services (call getServices for current list)';
 
+  // Determine business timezone FIRST (needed by date/time functions below)
+  // Railway servers run in UTC, so new Date() would give wrong day for US businesses at night
+  const businessTimezone = business.timezone || 'America/New_York';
+
   // Use hours from database if provided, otherwise fall back to business field
   const businessHours = businessHoursFromDB && businessHoursFromDB.length > 0
     ? formatBusinessHoursFromDB(businessHoursFromDB)
     : (business.businessHours || 'Monday-Friday 9am-5pm');
 
-  // Check if open today
+  // Check if open today (using business timezone)
   const { isOpen, todayHours } = businessHoursFromDB
-    ? isBusinessOpenNow(businessHoursFromDB)
+    ? isBusinessOpenNow(businessHoursFromDB, businessTimezone)
     : { isOpen: true, todayHours: '' };
 
-  // Get current date for context
-  const now = new Date();
-  const currentDate = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const currentYear = now.getFullYear();
+  // Get current date in the BUSINESS timezone (not server UTC)
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    timeZone: businessTimezone,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  const currentYear = new Date().toLocaleDateString('en-US', {
+    timeZone: businessTimezone,
+    year: 'numeric'
+  });
 
   // Base personality and rules
   const basePrompt = `You are Alex, a friendly and professional receptionist for ${business.name}.

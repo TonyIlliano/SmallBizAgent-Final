@@ -256,10 +256,65 @@ function getNowInTimezone(timezone: string): Date {
 
 /**
  * Get today's date at midnight in a specific timezone.
+ * Returns a "wall clock" Date (year/month/day match the timezone, but hours are 0).
  */
 function getTodayInTimezone(timezone: string): Date {
   const now = getNowInTimezone(timezone);
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+/**
+ * Create a proper UTC Date from "wall clock" components in a specific timezone.
+ *
+ * Problem: On Railway (UTC server), `new Date(2025, 1, 12, 14, 0)` creates 14:00 UTC,
+ * but if the business is in America/New_York, 2pm ET = 7pm UTC (19:00 UTC).
+ *
+ * Solution: Calculate the UTC offset for the given timezone and adjust accordingly.
+ * This ensures that when Drizzle/Postgres stores the Date, the correct absolute time is saved.
+ *
+ * Example: createDateInTimezone(2025, 1, 12, 14, 0, 'America/New_York')
+ *  → Returns Date representing 2025-02-12T19:00:00.000Z (2pm ET = 7pm UTC)
+ */
+function createDateInTimezone(year: number, month: number, day: number, hours: number, minutes: number, timezone: string): Date {
+  // Create a date string in ISO-like format, then use Intl to find the offset
+  // Step 1: Create a "guess" date in UTC
+  const utcGuess = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
+
+  // Step 2: Format that UTC instant in the target timezone to see what local time it maps to
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const parts = formatter.formatToParts(utcGuess);
+  const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0');
+
+  // Step 3: Calculate the offset: how many minutes difference between UTC and local
+  const localAtUtcGuess = new Date(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+  const offsetMs = utcGuess.getTime() - localAtUtcGuess.getTime();
+
+  // Step 4: The desired local time as if it were UTC, then add offset to get true UTC
+  const desiredAsUtc = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
+  const result = new Date(desiredAsUtc.getTime() + offsetMs);
+
+  // Step 5: Verify - the offset might be slightly wrong if we crossed a DST boundary
+  // Re-check: format the result in the target timezone and verify hours match
+  const verifyParts = formatter.formatToParts(result);
+  const verifyHour = parseInt(verifyParts.find(p => p.type === 'hour')?.value || '0');
+  const verifyMin = parseInt(verifyParts.find(p => p.type === 'minute')?.value || '0');
+
+  if (verifyHour !== hours || verifyMin !== minutes) {
+    // DST edge case: recalculate with the corrected offset
+    const correction = ((hours - verifyHour) * 60 + (minutes - verifyMin)) * 60 * 1000;
+    return new Date(result.getTime() + correction);
+  }
+
+  return result;
 }
 
 /**
@@ -883,13 +938,11 @@ async function getAvailableSlotsForDay(
     if (!isBooked) {
       const hour = Math.floor(slotStart / 60);
       const minute = slotStart % 60;
-      const displayTime = new Date(date);
-      displayTime.setHours(hour, minute);
-      availableSlots.push(displayTime.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      }));
+      // Format time directly without Date object to avoid UTC/timezone issues on Railway
+      const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+      const amPm = hour < 12 ? 'AM' : 'PM';
+      const minuteStr = minute.toString().padStart(2, '0');
+      availableSlots.push(`${hour12}:${minuteStr} ${amPm}`);
     }
   }
 
@@ -1400,10 +1453,22 @@ async function bookAppointment(
 
   // Parse date and time using natural language parser (in business timezone)
   const businessTimezone = business.timezone || 'America/New_York';
-  const appointmentDate = parseNaturalDate(params.date, businessTimezone);
+  const parsedDate = parseNaturalDate(params.date, businessTimezone);
   const timeStr = parseNaturalTime(params.time);
   const [hours, minutes] = timeStr.split(':').map(Number);
-  appointmentDate.setHours(hours, minutes, 0, 0);
+
+  // CRITICAL: Create a proper UTC Date that represents the desired local time in the business timezone.
+  // On Railway (UTC server), setHours(14,0) would create 14:00 UTC = 9:00 AM ET — wrong!
+  // createDateInTimezone ensures 2pm ET is stored as 19:00 UTC (correct).
+  const appointmentDate = createDateInTimezone(
+    parsedDate.getFullYear(),
+    parsedDate.getMonth(),
+    parsedDate.getDate(),
+    hours,
+    minutes,
+    businessTimezone
+  );
+  console.log(`Booking: ${params.date} at ${params.time} → parsed as ${appointmentDate.toISOString()} (${businessTimezone})`);
 
   // Calculate duration: prefer DB service duration, then AI estimate, then default 60min
   let duration = 60;
@@ -1442,6 +1507,7 @@ async function bookAppointment(
 
   if (conflictingAppointment) {
     const conflictTime = new Date(conflictingAppointment.startDate).toLocaleTimeString('en-US', {
+      timeZone: businessTimezone,
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
@@ -1473,13 +1539,15 @@ async function bookAppointment(
     // Invalidate appointments cache after creating new appointment
     dataCache.invalidate(businessId, 'appointments');
 
-    // Format confirmation message
+    // Format confirmation message (using business timezone for display)
     const dateStr = appointmentDate.toLocaleDateString('en-US', {
+      timeZone: businessTimezone,
       weekday: 'long',
       month: 'long',
       day: 'numeric'
     });
     const timeStr = appointmentDate.toLocaleTimeString('en-US', {
+      timeZone: businessTimezone,
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
@@ -1918,19 +1986,29 @@ async function rescheduleAppointment(
     };
   }
 
-  // Parse new date and time using natural language parser
-  const newDateTime = parseNaturalDate(params.newDate);
+  // Parse new date and time using natural language parser (in business timezone)
+  const businessTimezone = business?.timezone || 'America/New_York';
+  const parsedNewDate = parseNaturalDate(params.newDate, businessTimezone);
   const timeStr = parseNaturalTime(params.newTime);
   const [hours, minutes] = timeStr.split(':').map(Number);
-  newDateTime.setHours(hours, minutes, 0, 0);
+  // Use timezone-aware date construction (same fix as bookAppointment)
+  const newDateTime = createDateInTimezone(
+    parsedNewDate.getFullYear(),
+    parsedNewDate.getMonth(),
+    parsedNewDate.getDate(),
+    hours,
+    minutes,
+    businessTimezone
+  );
 
   // Calculate end time based on original duration
   const originalDuration = (new Date(appointment.endDate).getTime() - new Date(appointment.startDate).getTime()) / 60000;
   const newEndTime = new Date(newDateTime);
   newEndTime.setMinutes(newEndTime.getMinutes() + originalDuration);
 
-  // Store old date for the message
+  // Store old date for the message (display in business timezone)
   const oldDateStr = new Date(appointment.startDate).toLocaleDateString('en-US', {
+    timeZone: businessTimezone,
     weekday: 'long',
     month: 'long',
     day: 'numeric'
@@ -1945,11 +2023,13 @@ async function rescheduleAppointment(
     });
 
     const newDateStr = newDateTime.toLocaleDateString('en-US', {
+      timeZone: businessTimezone,
       weekday: 'long',
       month: 'long',
       day: 'numeric'
     });
     const newTimeStr = newDateTime.toLocaleTimeString('en-US', {
+      timeZone: businessTimezone,
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
@@ -2026,12 +2106,15 @@ async function cancelAppointment(
     };
   }
 
+  const cancelTimezone = business?.timezone || 'America/New_York';
   const dateStr = new Date(appointment.startDate).toLocaleDateString('en-US', {
+    timeZone: cancelTimezone,
     weekday: 'long',
     month: 'long',
     day: 'numeric'
   });
   const timeStr = new Date(appointment.startDate).toLocaleTimeString('en-US', {
+    timeZone: cancelTimezone,
     hour: 'numeric',
     minute: '2-digit',
     hour12: true
@@ -2416,12 +2499,14 @@ async function getUpcomingAppointments(
     };
   }
 
+  const custBusiness = await getCachedBusiness(businessId);
+  const custTimezone = custBusiness?.timezone || 'America/New_York';
   const appointmentList = upcoming.map(apt => {
     const date = new Date(apt.startDate);
     return {
       id: apt.id,
-      date: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
-      time: date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+      date: date.toLocaleDateString('en-US', { timeZone: custTimezone, weekday: 'long', month: 'long', day: 'numeric' }),
+      time: date.toLocaleTimeString('en-US', { timeZone: custTimezone, hour: 'numeric', minute: '2-digit', hour12: true }),
       notes: apt.notes
     };
   });
@@ -2468,22 +2553,24 @@ async function scheduleCallback(
   }
 
   // Parse preferred callback time
+  // Format times directly to avoid UTC/timezone offset issues on Railway
+  const formatTime12h = (h: number, m: number) => {
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const amPm = h < 12 ? 'AM' : 'PM';
+    return `${hour12}:${m.toString().padStart(2, '0')} ${amPm}`;
+  };
+
   let callbackTime = 'as soon as possible';
   if (params.preferredDate && params.preferredTime) {
     const date = parseNaturalDate(params.preferredDate);
     const time = parseNaturalTime(params.preferredTime);
     const dateStr = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
     const [h, m] = time.split(':').map(Number);
-    const timeDate = new Date();
-    timeDate.setHours(h, m);
-    const timeStr = timeDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-    callbackTime = `${dateStr} around ${timeStr}`;
+    callbackTime = `${dateStr} around ${formatTime12h(h, m)}`;
   } else if (params.preferredTime) {
     const time = parseNaturalTime(params.preferredTime);
     const [h, m] = time.split(':').map(Number);
-    const timeDate = new Date();
-    timeDate.setHours(h, m);
-    callbackTime = `around ${timeDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+    callbackTime = `around ${formatTime12h(h, m)}`;
   }
 
   try {
@@ -2592,11 +2679,14 @@ async function recognizeCaller(
   let greeting = `Hi ${customer.firstName}! Great to hear from you.`;
   let context = '';
 
+  const recogBusiness = await getCachedBusiness(businessId);
+  const recogTimezone = recogBusiness?.timezone || 'America/New_York';
+
   if (upcoming.length > 0) {
     const nextApt = upcoming[0];
     const aptDate = new Date(nextApt.startDate);
-    const dateStr = aptDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-    const timeStr = aptDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: recogTimezone, weekday: 'long', month: 'long', day: 'numeric' });
+    const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: recogTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
 
     // Check if appointment is today
     if (aptDate.toDateString() === now.toDateString()) {
@@ -2730,7 +2820,8 @@ async function checkWaitTime(businessId: number): Promise<FunctionResult> {
     nextAvailable.setMinutes(nextAvailable.getMinutes() + 30);
   }
 
-  const nextTimeStr = nextAvailable.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const waitTimezone = business?.timezone || 'America/New_York';
+  const nextTimeStr = nextAvailable.toLocaleTimeString('en-US', { timeZone: waitTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
   const waitMinutes = Math.round((nextAvailable.getTime() - now.getTime()) / 60000);
 
   return {
@@ -2781,9 +2872,11 @@ async function confirmAppointment(
     };
   }
 
+  const confirmBusiness = await getCachedBusiness(businessId);
+  const confirmTimezone = confirmBusiness?.timezone || 'America/New_York';
   const aptDate = new Date(appointment.startDate);
-  const dateStr = aptDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  const timeStr = aptDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: confirmTimezone, weekday: 'long', month: 'long', day: 'numeric' });
+  const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: confirmTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
 
   try {
     if (params.confirmed) {
