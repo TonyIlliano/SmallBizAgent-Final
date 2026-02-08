@@ -18,10 +18,11 @@ import vapiProvisioningService from './vapiProvisioningService';
  * @returns The provisioning result
  */
 export async function provisionBusiness(
-  businessId: number, 
-  options?: { 
+  businessId: number,
+  options?: {
     preferredAreaCode?: string,
-    skipTwilioProvisioning?: boolean 
+    specificPhoneNumber?: string,
+    skipTwilioProvisioning?: boolean
   }
 ) {
   try {
@@ -66,13 +67,23 @@ export async function provisionBusiness(
           results.twilioProvisioned = false;
           results.twilioProvisioningSkipped = true;
         } else {
-          console.log(`[Provisioning] Business ${businessId}: Provisioning NEW Twilio phone number...`);
-          // Get a phone number in the preferred area code if specified
-          const phoneNumber = await twilioProvisioningService.provisionPhoneNumber(
-            business,
-            options?.preferredAreaCode
-          );
-          console.log(`[Provisioning] Business ${businessId}: Got NEW phone number ${phoneNumber.phoneNumber} (SID: ${phoneNumber.phoneNumberSid})`);
+          let phoneNumber;
+          if (options?.specificPhoneNumber) {
+            // User selected a specific phone number
+            console.log(`[Provisioning] Business ${businessId}: Provisioning SPECIFIC phone number ${options.specificPhoneNumber}...`);
+            phoneNumber = await twilioProvisioningService.provisionSpecificPhoneNumber(
+              businessId,
+              options.specificPhoneNumber
+            );
+          } else {
+            // Auto-search for a number in the preferred area code
+            console.log(`[Provisioning] Business ${businessId}: Provisioning NEW Twilio phone number...`);
+            phoneNumber = await twilioProvisioningService.provisionPhoneNumber(
+              business,
+              options?.preferredAreaCode
+            );
+          }
+          console.log(`[Provisioning] Business ${businessId}: Got phone number ${phoneNumber.phoneNumber} (SID: ${phoneNumber.phoneNumberSid})`);
 
           // Update the business with the new phone number
           await storage.updateBusiness(businessId, {

@@ -65,7 +65,12 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw, Search, ChevronDown, ChevronUp, MapPin, ArrowRight, Info } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -513,16 +518,79 @@ export default function Settings() {
     },
   });
 
-  // Provision AI Receptionist (get new phone number and create assistant)
+  // Phone provisioning dialog state
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
+  const [phoneDialogTab, setPhoneDialogTab] = useState<"new" | "existing">("new");
+  const [searchAreaCode, setSearchAreaCode] = useState("");
+  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
+  const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [forwardingInfoOpen, setForwardingInfoOpen] = useState(false);
+
+  // Pre-fill area code from business phone
+  useEffect(() => {
+    if (business?.phone && !searchAreaCode) {
+      const digits = business.phone.replace(/\D/g, "");
+      if (digits.length >= 3) {
+        setSearchAreaCode(digits.substring(0, 3));
+      }
+    }
+  }, [business?.phone]);
+
+  // Search available phone numbers
+  const searchNumbers = async () => {
+    if (!searchAreaCode || searchAreaCode.length !== 3 || !/^\d{3}$/.test(searchAreaCode)) {
+      toast({
+        title: "Invalid area code",
+        description: "Please enter a 3-digit area code",
+        variant: "destructive",
+      });
+      return;
+    }
+    setIsSearching(true);
+    setSelectedPhoneNumber(null);
+    try {
+      const response = await apiRequest("GET", `/api/business/${businessId}/available-numbers?areaCode=${searchAreaCode}`);
+      const data = await response.json();
+      setAvailableNumbers(data.phoneNumbers || []);
+      if ((data.phoneNumbers || []).length === 0) {
+        toast({
+          title: "No numbers found",
+          description: `No phone numbers available in area code ${searchAreaCode}. Try a different area code.`,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Search failed",
+        description: "Failed to search for available numbers. Please try again.",
+        variant: "destructive",
+      });
+      setAvailableNumbers([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Provision AI Receptionist with optional specific number
   const provisionMutation = useMutation({
-    mutationFn: async () => {
-      // Get area code from business phone if available
-      const areaCode = business?.phone?.replace(/\D/g, "").substring(0, 3) || "212";
-      const response = await apiRequest("POST", `/api/business/${businessId}/receptionist/provision`, { areaCode });
+    mutationFn: async (params?: { phoneNumber?: string; areaCode?: string }) => {
+      const body: any = {};
+      if (params?.phoneNumber) {
+        body.phoneNumber = params.phoneNumber;
+      } else if (params?.areaCode) {
+        body.areaCode = params.areaCode;
+      } else {
+        // Default: use area code from business phone
+        body.areaCode = business?.phone?.replace(/\D/g, "").substring(0, 3) || "212";
+      }
+      const response = await apiRequest("POST", `/api/business/${businessId}/receptionist/provision`, body);
       return response.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/business"] });
+      setPhoneDialogOpen(false);
+      setAvailableNumbers([]);
+      setSelectedPhoneNumber(null);
       toast({
         title: "AI Receptionist Activated!",
         description: `Your new phone number is ${data.phoneNumber}`,
@@ -889,14 +957,65 @@ export default function Settings() {
                           </AlertDialogContent>
                         </AlertDialog>
                       </div>
+
+                      {/* Call Forwarding Instructions */}
+                      <Collapsible open={forwardingInfoOpen} onOpenChange={setForwardingInfoOpen}>
+                        <CollapsibleTrigger asChild>
+                          <Button variant="ghost" className="w-full justify-between" size="sm">
+                            <span className="flex items-center gap-2">
+                              <Info className="h-4 w-4" />
+                              Call Forwarding Setup
+                            </span>
+                            {forwardingInfoOpen ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="mt-2 p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800 space-y-3">
+                            <p className="text-sm font-medium">
+                              Want calls to your existing business number to reach this AI receptionist?
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Set up call forwarding from your current business phone to this number:
+                            </p>
+                            <div className="flex items-center gap-2 p-2 bg-white dark:bg-background rounded border font-mono text-lg">
+                              <Phone className="h-4 w-4 text-primary flex-shrink-0" />
+                              {business.twilioPhoneNumber}
+                            </div>
+                            <div className="space-y-2 text-sm">
+                              <p className="font-medium">How to set up forwarding:</p>
+                              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                                <li>
+                                  <strong>Most carriers:</strong> Dial <code className="bg-muted px-1 rounded">*72</code> followed by{" "}
+                                  <code className="bg-muted px-1 rounded">{business.twilioPhoneNumber}</code>
+                                </li>
+                                <li>
+                                  <strong>To disable forwarding:</strong> Dial <code className="bg-muted px-1 rounded">*73</code>
+                                </li>
+                                <li>
+                                  <strong>Alternative:</strong> Contact your phone provider and ask to forward calls to{" "}
+                                  {business.twilioPhoneNumber}
+                                </li>
+                              </ul>
+                            </div>
+                            <p className="text-xs text-muted-foreground italic">
+                              Forwarding codes may vary by carrier. Check with your provider if *72/*73 don't work.
+                            </p>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
                     </div>
                   </div>
                 ) : (
+                  <>
                   <div className="text-center py-6">
                     <Phone className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
                     <h3 className="font-semibold text-lg mb-1">No Phone Number Assigned</h3>
                     <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
-                      A dedicated phone number has not been provisioned for your business yet.
+                      Get a dedicated phone number for your AI receptionist, or forward your existing business number.
                     </p>
 
                     {/* Show provisioning progress */}
@@ -915,7 +1034,12 @@ export default function Settings() {
                     )}
 
                     <Button
-                      onClick={() => provisionMutation.mutate()}
+                      onClick={() => {
+                        setPhoneDialogOpen(true);
+                        setPhoneDialogTab("new");
+                        setAvailableNumbers([]);
+                        setSelectedPhoneNumber(null);
+                      }}
                       disabled={provisionMutation.isPending || provisioningStatus?.provisioningStatus === 'in_progress'}
                     >
                       {(provisionMutation.isPending || provisioningStatus?.provisioningStatus === 'in_progress') ? (
@@ -931,6 +1055,225 @@ export default function Settings() {
                       )}
                     </Button>
                   </div>
+
+                  {/* Phone Number Provisioning Dialog */}
+                  <Dialog open={phoneDialogOpen} onOpenChange={setPhoneDialogOpen}>
+                    <DialogContent className="sm:max-w-[550px]">
+                      <DialogHeader>
+                        <DialogTitle>Set Up Your AI Receptionist Phone</DialogTitle>
+                        <DialogDescription>
+                          Choose how you'd like to connect your AI receptionist
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      {/* Tab selector */}
+                      <div className="flex gap-2 border-b pb-3">
+                        <Button
+                          variant={phoneDialogTab === "new" ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setPhoneDialogTab("new")}
+                        >
+                          <Phone className="mr-2 h-4 w-4" />
+                          Get a New Number
+                        </Button>
+                        <Button
+                          variant={phoneDialogTab === "existing" ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setPhoneDialogTab("existing")}
+                        >
+                          <ArrowRight className="mr-2 h-4 w-4" />
+                          Use My Existing Number
+                        </Button>
+                      </div>
+
+                      {/* Tab: Get a New Number */}
+                      {phoneDialogTab === "new" && (
+                        <div className="space-y-4">
+                          <p className="text-sm text-muted-foreground">
+                            Search for a phone number in your preferred area code, or let us pick one for you.
+                          </p>
+
+                          {/* Area code search */}
+                          <div className="flex gap-2">
+                            <div className="flex-1">
+                              <Input
+                                placeholder="Area code (e.g. 443)"
+                                value={searchAreaCode}
+                                onChange={(e) => {
+                                  const val = e.target.value.replace(/\D/g, "").substring(0, 3);
+                                  setSearchAreaCode(val);
+                                }}
+                                maxLength={3}
+                              />
+                            </div>
+                            <Button
+                              onClick={searchNumbers}
+                              disabled={isSearching || searchAreaCode.length !== 3}
+                            >
+                              {isSearching ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Search className="h-4 w-4" />
+                              )}
+                              <span className="ml-2">Search</span>
+                            </Button>
+                          </div>
+
+                          {/* Available numbers list */}
+                          {availableNumbers.length > 0 && (
+                            <div className="max-h-[250px] overflow-y-auto border rounded-lg">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Phone Number</TableHead>
+                                    <TableHead>Location</TableHead>
+                                    <TableHead className="w-[80px]"></TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {availableNumbers.map((num: any) => (
+                                    <TableRow
+                                      key={num.phoneNumber}
+                                      className={selectedPhoneNumber === num.phoneNumber ? "bg-primary/10" : ""}
+                                    >
+                                      <TableCell className="font-mono">
+                                        {num.phoneNumber}
+                                      </TableCell>
+                                      <TableCell className="text-sm text-muted-foreground">
+                                        <span className="flex items-center gap-1">
+                                          <MapPin className="h-3 w-3" />
+                                          {num.locality ? `${num.locality}, ${num.region}` : num.region || "US"}
+                                        </span>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Button
+                                          size="sm"
+                                          variant={selectedPhoneNumber === num.phoneNumber ? "default" : "outline"}
+                                          onClick={() => setSelectedPhoneNumber(num.phoneNumber)}
+                                        >
+                                          {selectedPhoneNumber === num.phoneNumber ? "Selected" : "Select"}
+                                        </Button>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          )}
+
+                          <DialogFooter className="flex-col sm:flex-row gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                provisionMutation.mutate({
+                                  areaCode: searchAreaCode.length === 3 ? searchAreaCode : undefined,
+                                });
+                              }}
+                              disabled={provisionMutation.isPending}
+                            >
+                              {provisionMutation.isPending ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : null}
+                              Just Assign Me One
+                            </Button>
+                            {selectedPhoneNumber && (
+                              <Button
+                                onClick={() => {
+                                  provisionMutation.mutate({ phoneNumber: selectedPhoneNumber });
+                                }}
+                                disabled={provisionMutation.isPending}
+                              >
+                                {provisionMutation.isPending ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Phone className="mr-2 h-4 w-4" />
+                                )}
+                                Use {selectedPhoneNumber}
+                              </Button>
+                            )}
+                          </DialogFooter>
+                        </div>
+                      )}
+
+                      {/* Tab: Use My Existing Number */}
+                      {phoneDialogTab === "existing" && (
+                        <div className="space-y-4">
+                          <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <p className="text-sm font-medium mb-2">How it works:</p>
+                            <div className="space-y-3 text-sm text-muted-foreground">
+                              <div className="flex items-start gap-3">
+                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">1</span>
+                                <p>We'll provision an AI receptionist number for you</p>
+                              </div>
+                              <div className="flex items-start gap-3">
+                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">2</span>
+                                <p>Set up call forwarding from your existing business number to the new AI number</p>
+                              </div>
+                              <div className="flex items-start gap-3">
+                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">3</span>
+                                <p>Calls to your business number will automatically be answered by your AI receptionist</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Preferred area code (optional)</label>
+                            <Input
+                              placeholder="Area code (e.g. 443)"
+                              value={searchAreaCode}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/\D/g, "").substring(0, 3);
+                                setSearchAreaCode(val);
+                              }}
+                              maxLength={3}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              We'll try to get a number in this area code. Leave blank for any available number.
+                            </p>
+                          </div>
+
+                          <div className="p-3 bg-muted rounded-lg text-sm">
+                            <p className="font-medium mb-1">After setup, you'll forward your existing number:</p>
+                            <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                              <li>
+                                <strong>Most carriers:</strong> Dial <code className="bg-background px-1 rounded">*72</code> + your new AI number
+                              </li>
+                              <li>
+                                <strong>To disable:</strong> Dial <code className="bg-background px-1 rounded">*73</code>
+                              </li>
+                              <li>
+                                Or contact your phone provider to set up forwarding
+                              </li>
+                            </ul>
+                          </div>
+
+                          <DialogFooter>
+                            <Button
+                              onClick={() => {
+                                provisionMutation.mutate({
+                                  areaCode: searchAreaCode.length === 3 ? searchAreaCode : undefined,
+                                });
+                              }}
+                              disabled={provisionMutation.isPending}
+                            >
+                              {provisionMutation.isPending ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Provisioning...
+                                </>
+                              ) : (
+                                <>
+                                  <Phone className="mr-2 h-4 w-4" />
+                                  Provision AI Number
+                                </>
+                              )}
+                            </Button>
+                          </DialogFooter>
+                        </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
+                  </>
                 )}
               </CardContent>
             </Card>

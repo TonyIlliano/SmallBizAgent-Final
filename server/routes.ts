@@ -3434,11 +3434,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Search available phone numbers for a business (user-facing)
+  app.get("/api/business/:id/available-numbers", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = parseInt(req.params.id);
+
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ error: 'Not authorized' });
+      }
+
+      const areaCode = req.query.areaCode as string;
+      if (!areaCode || areaCode.length !== 3 || !/^\d{3}$/.test(areaCode)) {
+        return res.status(400).json({
+          error: "Invalid area code. Please provide a 3-digit area code."
+        });
+      }
+
+      if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+        return res.status(503).json({
+          error: "Phone number service is not configured"
+        });
+      }
+
+      const phoneNumbers = await twilioProvisioningService.searchAvailablePhoneNumbers(areaCode);
+      res.json({ phoneNumbers });
+    } catch (error) {
+      console.error("Error searching for available phone numbers:", error);
+      res.status(500).json({
+        error: "Error searching for available phone numbers",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
   // Re-provision receptionist (provisions new Twilio number and creates Vapi assistant)
   app.post("/api/business/:id/receptionist/provision", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
-      const { areaCode } = req.body;
+      const { areaCode, phoneNumber } = req.body;
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
         return res.status(403).json({ error: 'Not authorized' });
@@ -3456,8 +3489,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Call the provisioning service
-      const result = await businessProvisioningService.provisionBusiness(businessId, areaCode);
+      // Call the provisioning service with options
+      const result = await businessProvisioningService.provisionBusiness(businessId, {
+        preferredAreaCode: areaCode,
+        specificPhoneNumber: phoneNumber
+      });
 
       // Enable the receptionist
       await storage.updateBusiness(businessId, {
