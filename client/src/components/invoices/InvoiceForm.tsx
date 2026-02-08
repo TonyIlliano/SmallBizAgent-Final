@@ -49,7 +49,7 @@ const invoiceItemSchema = z.object({
 });
 
 const invoiceSchema = z.object({
-  businessId: z.number().default(1),
+  businessId: z.number(),
   customerId: z.string().min(1, "Customer is required"),
   jobId: z.string().optional(),
   invoiceNumber: z.string().min(1, "Invoice number is required"),

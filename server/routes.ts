@@ -134,10 +134,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register analytics routes
   registerAnalyticsRoutes(app);
   
-  // Register data import routes
-  app.post("/api/import/customers", isAuthenticated, importCustomers);
-  app.post("/api/import/services", isAuthenticated, importServices);
-  app.post("/api/import/appointments", isAuthenticated, importAppointments);
+  // Register data import routes (with business ownership verification)
+  const importAuthCheck = (req: Request, res: Response, next: Function) => {
+    const { businessId } = req.body;
+    if (businessId && !checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+      return res.status(403).json({ message: "Not authorized to import data for this business" });
+    }
+    next();
+  };
+  app.post("/api/import/customers", isAuthenticated, importAuthCheck, importCustomers);
+  app.post("/api/import/services", isAuthenticated, importAuthCheck, importServices);
+  app.post("/api/import/appointments", isAuthenticated, importAuthCheck, importAppointments);
   
   // Helper function to get businessId from authenticated user
   // Returns 0 if no business is associated (caller must handle this)
@@ -415,6 +422,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/business-hours", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const validatedData = insertBusinessHoursSchema.parse(req.body);
+
+      // Authorization: user must belong to the business they're creating hours for
+      if (validatedData.businessId && !checkIsAdmin(req) && !checkBelongsToBusiness(req, validatedData.businessId)) {
+        return res.status(403).json({ message: "Not authorized to create hours for this business" });
+      }
+
       const hours = await storage.createBusinessHours(validatedData);
 
       // Invalidate cache for this business's hours
@@ -450,6 +463,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/business-hours/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+
+      // Authorization: if businessId is in the body, verify user belongs to that business
+      // Otherwise, the update is scoped by the hours record ID (which was created under their business)
+      const reqBusinessId = req.body.businessId || getBusinessId(req);
+      if (reqBusinessId && !checkIsAdmin(req) && !checkBelongsToBusiness(req, reqBusinessId)) {
+        return res.status(403).json({ message: "Not authorized to update these business hours" });
+      }
+
       const validatedData = insertBusinessHoursSchema.partial().parse(req.body);
       const hours = await storage.updateBusinessHours(id, validatedData);
 
@@ -3245,12 +3266,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Connect Twilio phone number to Vapi
-  app.post("/api/vapi/connect-phone", isAdmin, async (req: Request, res: Response) => {
+  app.post("/api/vapi/connect-phone", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { businessId } = req.body;
 
       if (!businessId) {
         return res.status(400).json({ error: 'Business ID required' });
+      }
+
+      // Authorization: user must be admin or belong to this business
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ error: 'Not authorized to connect phone for this business' });
       }
 
       const business = await storage.getBusiness(businessId);

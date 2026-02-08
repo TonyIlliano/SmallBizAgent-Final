@@ -32,7 +32,7 @@ import { Plus, X } from "lucide-react";
 
 // Zod schema for form validation
 const receptionistConfigSchema = z.object({
-  businessId: z.number().default(1),
+  businessId: z.number(),
   greeting: z.string().min(10, "Greeting must be at least 10 characters"),
   afterHoursMessage: z.string().min(10, "After hours message must be at least 10 characters"),
   emergencyKeywords: z.array(z.string()).optional(),
@@ -60,7 +60,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
 
   // Convert JSON data to proper form values
   const getDefaultValues = (): ReceptionistConfigFormData => {
-    const safeBusinessId = businessId ?? 1;
+    const safeBusinessId = businessId ?? 0;
     if (!config) {
       return {
         businessId: safeBusinessId,

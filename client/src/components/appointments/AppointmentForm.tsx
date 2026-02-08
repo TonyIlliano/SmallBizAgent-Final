@@ -62,7 +62,7 @@ const calculateEndTime = (startTime: string, durationMinutes: number = 60): stri
 };
 
 const appointmentSchema = z.object({
-  businessId: z.number().default(1),
+  businessId: z.number(),
   customerId: z.string().min(1, "Customer is required"),
   staffId: z.string().optional(),
   serviceId: z.string().optional(),

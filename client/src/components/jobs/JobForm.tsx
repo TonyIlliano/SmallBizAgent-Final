@@ -43,7 +43,7 @@ import { cn, formatDate } from "@/lib/utils";
 import { CalendarIcon } from "lucide-react";
 
 const jobSchema = z.object({
-  businessId: z.number().default(1),
+  businessId: z.number(),
   customerId: z.string().min(1, "Customer is required"),
   staffId: z.string().optional(),
   appointmentId: z.string().optional(),

@@ -95,12 +95,14 @@ app.use(helmet({
 }));
 
 // CORS - Configure allowed origins
+// In production, BASE_URL should be set to your Railway URL
+// localhost entries only used in development (see CORS handler below)
 const allowedOrigins = [
-  'http://localhost:5000',
-  'http://localhost:3000',
-  'https://web-production-76c5e.up.railway.app',
   process.env.BASE_URL,
-].filter(Boolean);
+  process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null,
+  process.env.NODE_ENV !== 'production' ? 'http://localhost:5000' : null,
+  process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : null,
+].filter(Boolean) as string[];
 
 app.use(cors({
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
