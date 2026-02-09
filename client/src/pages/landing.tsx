@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -164,7 +164,7 @@ function LandingAuthForm() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const { loginMutation, registerMutation } = useAuth();
-  const [, setLocation] = useLocation();
+
 
   // Login form state
   const [loginUsername, setLoginUsername] = useState("");
@@ -190,7 +190,9 @@ function LandingAuthForm() {
     loginMutation.mutate(
       { username: loginUsername, password: loginPassword },
       {
-        onSuccess: () => setLocation("/"),
+        onSuccess: () => {
+              window.location.href = "/";
+            },
         onError: (error: Error) => {
           if (error.message.includes("Invalid") || error.message.includes("401")) {
             setLoginError("Invalid username or password.");
