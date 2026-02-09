@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { ScheduleCard } from "@/components/dashboard/ScheduleCard";
@@ -7,8 +8,10 @@ import { JobsTable } from "@/components/dashboard/JobsTable";
 import { CallsCard } from "@/components/dashboard/CallsCard";
 import { InvoicesCard } from "@/components/dashboard/InvoicesCard";
 import { SetupChecklist } from "@/components/dashboard/setup-checklist";
-import { SkeletonStats, SkeletonCard, SkeletonTable } from "@/components/ui/skeleton-loader";
+import { SkeletonStats } from "@/components/ui/skeleton-loader";
+import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
+import { formatCurrency } from "@/lib/utils";
 
 import {
   CheckSquare,
@@ -19,7 +22,9 @@ import {
   Clock,
   Repeat,
   Users,
-  Briefcase
+  Briefcase,
+  FileText,
+  UserPlus
 } from "lucide-react";
 
 // Analytics data interface
@@ -71,12 +76,32 @@ interface BusinessAnalytics {
   };
 }
 
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+const quickActions = [
+  { label: "Appointments", icon: CalendarIcon, href: "/appointments", color: "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" },
+  { label: "Jobs", icon: Briefcase, href: "/jobs", color: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400" },
+  { label: "Create Invoice", icon: FileText, href: "/invoices/create", color: "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400" },
+  { label: "Customers", icon: UserPlus, href: "/customers", color: "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400" },
+];
+
 export default function Dashboard() {
   const [showSetupChecklist, setShowSetupChecklist] = useState(true);
   const { user } = useAuth();
 
   // Get business ID from authenticated user
   const businessId = user?.businessId;
+
+  // Fetch business info for greeting
+  const { data: business } = useQuery<any>({
+    queryKey: ['/api/business'],
+    enabled: !!businessId,
+  });
 
   // Check if onboarding is complete
   useEffect(() => {
@@ -108,103 +133,145 @@ export default function Dashboard() {
     enabled: !!businessId,
   });
 
-  // Fetch analytics data
+  // Fetch analytics data (endpoint uses session auth, no need to pass businessId)
   const { data: analytics, isLoading: analyticsLoading } = useQuery<BusinessAnalytics>({
-    queryKey: ['/api/analytics', { businessId, period: 'month' }],
+    queryKey: ['/api/analytics', { period: 'month' }],
     enabled: !!businessId,
   });
 
   // Calculate monthly revenue (fallback method if analytics not available)
   const calculateMonthlyRevenue = () => {
     if (!invoices?.length) return 0;
-    
+
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
-    
+
     return invoices
       .filter((invoice: any) => {
         const invoiceDate = new Date(invoice.createdAt);
-        return invoiceDate.getMonth() === currentMonth && 
+        return invoiceDate.getMonth() === currentMonth &&
                invoiceDate.getFullYear() === currentYear &&
                invoice.status === 'paid';
       })
       .reduce((sum: number, invoice: any) => sum + invoice.total, 0);
   };
-  
+
   // Format the performance metrics for display
   const formatPercentage = (value: number) => {
+    if (!value && value !== 0) return '0%';
     return `${Math.round(value * 100)}%`;
   };
+
+  const revenueValue = analytics?.revenue
+    ? formatCurrency(analytics.revenue.paidRevenue)
+    : formatCurrency(calculateMonthlyRevenue());
 
   return (
     <PageLayout title="Dashboard">
       <div className="space-y-6">
+        {/* Welcome Greeting */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-foreground">
+              {getGreeting()}, {user?.username || 'there'}
+            </h2>
+            <p className="text-muted-foreground mt-1">
+              {business?.name
+                ? `Here's what's happening at ${business.name} today.`
+                : "Here's your business overview for today."}
+            </p>
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          </div>
+        </div>
+
         {/* Setup Checklist */}
         {showSetupChecklist && (
-          <div className="mb-6">
-            <SetupChecklist />
+          <SetupChecklist />
+        )}
+
+        {/* Quick Actions */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {quickActions.map((action) => (
+            <Link key={action.href} href={action.href}>
+              <Card className="border-border bg-card hover:bg-muted/50 hover:shadow-md transition-all duration-200 cursor-pointer group h-full">
+                <CardContent className="flex items-center gap-3 p-4">
+                  <div className={`flex-shrink-0 p-2.5 rounded-xl ${action.color}`}>
+                    <action.icon className="h-5 w-5" />
+                  </div>
+                  <span className="text-sm font-medium text-foreground group-hover:text-foreground/90">{action.label}</span>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+
+        {/* Top Section - Analytics Cards */}
+        {analyticsLoading ? (
+          <SkeletonStats />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              title="Completed Jobs"
+              value={analytics?.jobs?.completedJobs ?? jobs?.length ?? 0}
+              icon={<CheckSquare />}
+              iconBgColor="bg-emerald-100 dark:bg-emerald-900/30"
+              iconColor="text-emerald-600 dark:text-emerald-400"
+              changeText={analytics?.jobs?.totalJobs
+                ? `${analytics.jobs.totalJobs} total`
+                : undefined}
+              changeType="neutral"
+              linkText="View all jobs"
+              linkHref="/jobs"
+            />
+
+            <StatCard
+              title="Revenue MTD"
+              value={revenueValue}
+              icon={<DollarSign />}
+              iconBgColor="bg-blue-100 dark:bg-blue-900/30"
+              iconColor="text-blue-600 dark:text-blue-400"
+              changeText={analytics?.revenue?.pendingRevenue
+                ? `${formatCurrency(analytics.revenue.pendingRevenue)} pending`
+                : undefined}
+              changeType={analytics?.revenue?.pendingRevenue ? "neutral" : "neutral"}
+              linkText="View invoices"
+              linkHref="/invoices"
+            />
+
+            <StatCard
+              title="Upcoming Appointments"
+              value={analytics?.appointments?.upcomingAppointments ?? appointments?.length ?? 0}
+              icon={<CalendarIcon />}
+              iconBgColor="bg-amber-100 dark:bg-amber-900/30"
+              iconColor="text-amber-600 dark:text-amber-400"
+              changeText={analytics?.appointments?.completedAppointments
+                ? `${analytics.appointments.completedAppointments} completed`
+                : (appointments?.length === 0 ? "No appointments" : "Today")}
+              changeType="neutral"
+              linkText="View schedule"
+              linkHref="/appointments"
+            />
+
+            <StatCard
+              title="Calls This Month"
+              value={analytics?.calls?.totalCalls ?? calls?.length ?? 0}
+              icon={<Phone />}
+              iconBgColor="bg-indigo-100 dark:bg-indigo-900/30"
+              iconColor="text-indigo-600 dark:text-indigo-400"
+              changeText={analytics?.calls?.answeredCalls
+                ? `${analytics.calls.answeredCalls} answered`
+                : (calls.length > 0 ? `${calls.filter((call: any) =>
+                  new Date(call.callTime) > new Date(Date.now() - 24 * 60 * 60 * 1000)
+                ).length} today` : "No recent calls")}
+              changeType={analytics?.calls?.answeredCalls ? "increase" : "neutral"}
+              linkText="View call logs"
+              linkHref="/receptionist"
+            />
           </div>
         )}
-        
-        {/* Top Section - Analytics Cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="Completed Jobs"
-            value={analytics?.jobs?.completedJobs ?? jobs?.length ?? 0}
-            icon={<CheckSquare />}
-            iconBgColor="bg-primary-100"
-            iconColor="text-primary-600"
-            change={analytics?.jobs?.completedJobs ? Math.round((analytics.jobs.completedJobs / (analytics.jobs.totalJobs || 1)) * 100) : 0}
-            changeType="increase"
-            linkText="View all"
-            linkHref="/jobs"
-          />
-          
-          <StatCard
-            title="Revenue MTD"
-            value={analytics?.revenue 
-              ? `$${Math.round(analytics.revenue.paidRevenue)}` 
-              : `$${Math.round(calculateMonthlyRevenue())}`}
-            icon={<DollarSign />}
-            iconBgColor="bg-indigo-100"
-            iconColor="text-indigo-600"
-            change={analytics?.revenue ? Math.round((analytics.revenue.paidRevenue / (analytics.revenue.totalRevenue || 1)) * 100) : 0}
-            changeType="increase"
-            linkText="View details"
-            linkHref="/invoices"
-          />
-          
-          <StatCard
-            title="Appointments"
-            value={analytics?.appointments?.upcomingAppointments ?? appointments?.length ?? 0}
-            icon={<CalendarIcon />}
-            iconBgColor="bg-green-100"
-            iconColor="text-green-600"
-            changeText={analytics?.appointments?.completedAppointments 
-              ? `${analytics.appointments.completedAppointments} completed` 
-              : (appointments?.length === 0 ? "No appointments" : "Today")}
-            changeType="neutral"
-            linkText="View schedule"
-            linkHref="/appointments"
-          />
-          
-          <StatCard
-            title="Calls This Week"
-            value={analytics?.calls?.totalCalls ?? calls?.length ?? 0}
-            icon={<Phone />}
-            iconBgColor="bg-amber-100"
-            iconColor="text-amber-600"
-            changeText={analytics?.calls?.answeredCalls 
-              ? `${analytics.calls.answeredCalls} answered` 
-              : (calls.length > 0 ? `${calls.filter((call: any) => 
-                new Date(call.callTime) > new Date(Date.now() - 24 * 60 * 60 * 1000)
-              ).length} new` : "No recent calls")}
-            changeType={analytics?.calls?.answeredCalls ? "increase" : "neutral"}
-            linkText="View logs"
-            linkHref="/receptionist"
-          />
-        </div>
-        
+
         {/* Middle Section - Appointments and Jobs */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Today's Schedule */}
@@ -217,146 +284,7 @@ export default function Dashboard() {
             <JobsTable businessId={businessId} limit={3} />
           </div>
         </div>
-        
-        {/* Advanced Analytics Section */}
-        {analytics && (
-          <>
-            <div className="p-6 rounded-xl border border-border bg-card shadow-sm">
-              <h2 className="text-lg font-semibold mb-6 text-foreground">Performance Metrics</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
-                  <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 mb-3">
-                    <TrendingUp className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Revenue Per Job</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">${Math.round(analytics.performance.revenuePerJob)}</p>
-                </div>
 
-                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
-                  <div className="p-3 rounded-xl bg-blue-100 dark:bg-blue-900/30 mb-3">
-                    <CheckSquare className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Completion Rate</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">{formatPercentage(analytics.performance.jobCompletionRate)}</p>
-                </div>
-
-                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
-                  <div className="p-3 rounded-xl bg-amber-100 dark:bg-amber-900/30 mb-3">
-                    <Clock className="w-6 h-6 text-amber-600 dark:text-amber-400" />
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Avg Duration</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">{analytics.performance.averageJobDuration} hrs</p>
-                </div>
-
-                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
-                  <div className="p-3 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 mb-3">
-                    <Phone className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Call Conversion</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">{formatPercentage(analytics.performance.callConversionRate)}</p>
-                </div>
-
-                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
-                  <div className="p-3 rounded-xl bg-purple-100 dark:bg-purple-900/30 mb-3">
-                    <Repeat className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Appt. Completion</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">{formatPercentage(analytics.performance.appointmentCompletionRate)}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Customer Analytics */}
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <div className="p-6 rounded-xl border border-border bg-card shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                    <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <h2 className="text-lg font-semibold text-foreground">Customer Insights</h2>
-                </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Total Customers</span>
-                    <span className="font-semibold text-foreground">{analytics.customers.totalCustomers}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">New Customers (30 days)</span>
-                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">+{analytics.customers.newCustomers}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-muted-foreground">Returning Customers</span>
-                    <span className="font-semibold text-foreground">{analytics.customers.returningCustomers}</span>
-                  </div>
-                  {analytics.customers.topCustomers.length > 0 && (
-                    <>
-                      <div className="pt-4">
-                        <h3 className="font-medium text-sm text-foreground mb-3 uppercase tracking-wide">Top Customers</h3>
-                        <div className="space-y-3">
-                          {analytics.customers.topCustomers.slice(0, 3).map((customer, index) => (
-                            <div key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                              <div className="flex items-center gap-3">
-                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-foreground">
-                                  {customer.customerName.split(' ').map(n => n[0]).join('').toUpperCase()}
-                                </div>
-                                <span className="font-medium text-foreground">{customer.customerName}</span>
-                              </div>
-                              <span className="font-semibold text-foreground">${Math.round(customer.revenue)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-6 rounded-xl border border-border bg-card shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
-                    <DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                  </div>
-                  <h2 className="text-lg font-semibold text-foreground">Revenue Breakdown</h2>
-                </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Total Revenue</span>
-                    <span className="font-bold text-xl text-foreground">${Math.round(analytics.revenue.totalRevenue).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Paid Revenue</span>
-                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">${Math.round(analytics.revenue.paidRevenue).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Pending Revenue</span>
-                    <span className="font-semibold text-amber-600 dark:text-amber-400">${Math.round(analytics.revenue.pendingRevenue).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-muted-foreground">Overdue Revenue</span>
-                    <span className="font-semibold text-red-600 dark:text-red-400">${Math.round(analytics.revenue.overdueRevenue).toLocaleString()}</span>
-                  </div>
-
-                  {analytics.revenue.revenueByMonth.length > 0 && (
-                    <>
-                      <div className="pt-4">
-                        <h3 className="font-medium text-sm text-foreground mb-3 uppercase tracking-wide">Monthly Trend</h3>
-                        <div className="space-y-2">
-                          {analytics.revenue.revenueByMonth.slice(-3).map((month, index) => (
-                            <div key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                              <span className="font-medium text-foreground">{month.month}</span>
-                              <span className="font-semibold text-foreground">${Math.round(month.revenue).toLocaleString()}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-        
         {/* Bottom Section - Recent Calls and Invoices */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Recent Calls from Virtual Receptionist */}
@@ -365,6 +293,153 @@ export default function Dashboard() {
           {/* Recent Invoices */}
           <InvoicesCard businessId={businessId} limit={3} />
         </div>
+
+        {/* Advanced Analytics Section */}
+        {analytics && (
+          <>
+            <div className="p-6 rounded-xl border border-border bg-card shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <TrendingUp className="h-5 w-5 text-foreground" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-foreground">Performance Metrics</h2>
+                </div>
+                <span className="text-sm text-muted-foreground">Last 30 days</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
+                  <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 mb-3">
+                    <DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide text-center">Revenue Per Job</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{formatCurrency(analytics.performance.revenuePerJob)}</p>
+                </div>
+
+                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
+                  <div className="p-3 rounded-xl bg-blue-100 dark:bg-blue-900/30 mb-3">
+                    <CheckSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide text-center">Completion Rate</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{formatPercentage(analytics.performance.jobCompletionRate)}</p>
+                </div>
+
+                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
+                  <div className="p-3 rounded-xl bg-amber-100 dark:bg-amber-900/30 mb-3">
+                    <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide text-center">Avg Duration</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{analytics.performance.averageJobDuration}h</p>
+                </div>
+
+                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
+                  <div className="p-3 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 mb-3">
+                    <Phone className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide text-center">Call Conversion</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{formatPercentage(analytics.performance.callConversionRate)}</p>
+                </div>
+
+                <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
+                  <div className="p-3 rounded-xl bg-purple-100 dark:bg-purple-900/30 mb-3">
+                    <Repeat className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide text-center">Appt. Completion</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{formatPercentage(analytics.performance.appointmentCompletionRate)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Customer & Revenue Analytics */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <Card className="border-border bg-card shadow-sm rounded-xl overflow-hidden">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                      <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <h2 className="text-lg font-semibold text-foreground">Customer Insights</h2>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center py-2 border-b border-border/50">
+                      <span className="text-sm text-muted-foreground">Total Customers</span>
+                      <span className="font-semibold text-foreground">{analytics.customers.totalCustomers}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-border/50">
+                      <span className="text-sm text-muted-foreground">New Customers (30 days)</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">+{analytics.customers.newCustomers}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-sm text-muted-foreground">Returning Customers</span>
+                      <span className="font-semibold text-foreground">{analytics.customers.returningCustomers}</span>
+                    </div>
+                    {analytics.customers.topCustomers.length > 0 && (
+                      <div className="pt-4">
+                        <h3 className="font-medium text-sm text-foreground mb-3 uppercase tracking-wide">Top Customers</h3>
+                        <div className="space-y-2">
+                          {analytics.customers.topCustomers.slice(0, 3).map((customer, index) => (
+                            <div key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-foreground">
+                                  {customer.customerName.split(' ').map(n => n[0]).join('').toUpperCase()}
+                                </div>
+                                <span className="text-sm font-medium text-foreground">{customer.customerName}</span>
+                              </div>
+                              <span className="text-sm font-semibold text-foreground">{formatCurrency(customer.revenue)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border bg-card shadow-sm rounded-xl overflow-hidden">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                      <DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <h2 className="text-lg font-semibold text-foreground">Revenue Breakdown</h2>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center py-2 border-b border-border/50">
+                      <span className="text-sm text-muted-foreground">Total Revenue</span>
+                      <span className="font-bold text-lg text-foreground">{formatCurrency(analytics.revenue.totalRevenue)}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-border/50">
+                      <span className="text-sm text-muted-foreground">Paid</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(analytics.revenue.paidRevenue)}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-border/50">
+                      <span className="text-sm text-muted-foreground">Pending</span>
+                      <span className="font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(analytics.revenue.pendingRevenue)}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-sm text-muted-foreground">Overdue</span>
+                      <span className="font-semibold text-red-600 dark:text-red-400">{formatCurrency(analytics.revenue.overdueRevenue)}</span>
+                    </div>
+
+                    {analytics.revenue.revenueByMonth.length > 0 && (
+                      <div className="pt-4">
+                        <h3 className="font-medium text-sm text-foreground mb-3 uppercase tracking-wide">Monthly Trend</h3>
+                        <div className="space-y-2">
+                          {analytics.revenue.revenueByMonth.slice(-3).map((month, index) => (
+                            <div key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                              <span className="text-sm font-medium text-foreground">{month.month}</span>
+                              <span className="text-sm font-semibold text-foreground">{formatCurrency(month.revenue)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        )}
       </div>
     </PageLayout>
   );

@@ -13,8 +13,7 @@ const getBusinessId = (req: Request): number => {
   if (req.isAuthenticated() && req.user?.businessId) {
     return req.user.businessId;
   }
-  // Fallback for development
-  return 1;
+  throw new Error('Business ID not found for authenticated user');
 };
 
 /**
