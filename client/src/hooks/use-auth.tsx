@@ -159,8 +159,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         title: "Logged out",
         description: "You have been successfully logged out.",
       });
-      // Redirect to login page
-      window.location.href = "/auth";
+      // Redirect to landing page
+      window.location.href = "/";
     },
     onError: (error: Error) => {
       // Even on error, clear local auth state and redirect
@@ -170,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         title: "Logged out",
         description: "You have been logged out.",
       });
-      window.location.href = "/auth";
+      window.location.href = "/";
     },
   });
 

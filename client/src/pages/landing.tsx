@@ -1,6 +1,12 @@
-import { Link } from "wouter";
+import { useState } from "react";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Phone,
   Calendar,
@@ -14,7 +20,9 @@ import {
   Sparkles,
   Zap,
   Shield,
-  MessageSquare
+  MessageSquare,
+  Loader2,
+  AlertCircle
 } from "lucide-react";
 
 // Robot Logo SVG matching the SmallBizAgent brand
@@ -151,6 +159,218 @@ const pricingPlans = [
   }
 ];
 
+function LandingAuthForm() {
+  const [activeTab, setActiveTab] = useState<string>("register");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+  const { loginMutation, registerMutation } = useAuth();
+  const [, setLocation] = useLocation();
+
+  // Login form state
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+
+  // Register form state
+  const [regUsername, setRegUsername] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regConfirmPassword, setRegConfirmPassword] = useState("");
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    if (loginUsername.length < 3) {
+      setLoginError("Username must be at least 3 characters");
+      return;
+    }
+    if (loginPassword.length < 6) {
+      setLoginError("Password must be at least 6 characters");
+      return;
+    }
+    loginMutation.mutate(
+      { username: loginUsername, password: loginPassword },
+      {
+        onSuccess: () => setLocation("/"),
+        onError: (error: Error) => {
+          if (error.message.includes("Invalid") || error.message.includes("401")) {
+            setLoginError("Invalid username or password.");
+          } else {
+            setLoginError(error.message);
+          }
+        },
+      }
+    );
+  };
+
+  const handleRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegisterError(null);
+    if (regUsername.length < 3) {
+      setRegisterError("Username must be at least 3 characters");
+      return;
+    }
+    if (!regEmail.includes("@")) {
+      setRegisterError("Please enter a valid email");
+      return;
+    }
+    if (regPassword.length < 12) {
+      setRegisterError("Password must be at least 12 characters");
+      return;
+    }
+    if (regPassword !== regConfirmPassword) {
+      setRegisterError("Passwords do not match");
+      return;
+    }
+    registerMutation.mutate(
+      { username: regUsername, email: regEmail, password: regPassword },
+      {
+        onSuccess: () => {
+          window.location.href = "/onboarding/subscription";
+        },
+        onError: (error: Error) => {
+          setRegisterError(error.message);
+        },
+      }
+    );
+  };
+
+  return (
+    <Card className="bg-neutral-900 border-neutral-800">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-white text-xl">Get Started</CardTitle>
+        <CardDescription className="text-neutral-400">
+          Create an account or sign in
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-2 bg-neutral-800">
+            <TabsTrigger value="register" className="data-[state=active]:bg-white data-[state=active]:text-black">
+              Sign Up
+            </TabsTrigger>
+            <TabsTrigger value="login" className="data-[state=active]:bg-white data-[state=active]:text-black">
+              Login
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="register" className="mt-4">
+            <form onSubmit={handleRegister} className="space-y-3">
+              {registerError && (
+                <Alert variant="destructive" className="border-red-800 bg-red-900/30">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{registerError}</AlertDescription>
+                </Alert>
+              )}
+              <div>
+                <Label htmlFor="reg-username" className="text-neutral-300 text-sm">Username</Label>
+                <Input
+                  id="reg-username"
+                  placeholder="yourname"
+                  value={regUsername}
+                  onChange={(e) => { setRegisterError(null); setRegUsername(e.target.value); }}
+                  className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
+                />
+              </div>
+              <div>
+                <Label htmlFor="reg-email" className="text-neutral-300 text-sm">Email</Label>
+                <Input
+                  id="reg-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={regEmail}
+                  onChange={(e) => { setRegisterError(null); setRegEmail(e.target.value); }}
+                  className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
+                />
+              </div>
+              <div>
+                <Label htmlFor="reg-password" className="text-neutral-300 text-sm">Password</Label>
+                <Input
+                  id="reg-password"
+                  type="password"
+                  placeholder="••••••••••••"
+                  value={regPassword}
+                  onChange={(e) => { setRegisterError(null); setRegPassword(e.target.value); }}
+                  className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
+                />
+                <p className="text-xs text-neutral-500 mt-1">12+ chars, uppercase, lowercase, number, special char</p>
+              </div>
+              <div>
+                <Label htmlFor="reg-confirm" className="text-neutral-300 text-sm">Confirm Password</Label>
+                <Input
+                  id="reg-confirm"
+                  type="password"
+                  placeholder="••••••••••••"
+                  value={regConfirmPassword}
+                  onChange={(e) => { setRegisterError(null); setRegConfirmPassword(e.target.value); }}
+                  className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
+                />
+              </div>
+              <Button type="submit" className="w-full bg-white text-black hover:bg-neutral-200" disabled={registerMutation.isPending}>
+                {registerMutation.isPending ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...</>
+                ) : (
+                  <>Start Free Trial <ArrowRight className="ml-2 h-4 w-4" /></>
+                )}
+              </Button>
+            </form>
+          </TabsContent>
+
+          <TabsContent value="login" className="mt-4">
+            <form onSubmit={handleLogin} className="space-y-3">
+              {loginError && (
+                <Alert variant="destructive" className="border-red-800 bg-red-900/30">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{loginError}</AlertDescription>
+                </Alert>
+              )}
+              <div>
+                <Label htmlFor="login-username" className="text-neutral-300 text-sm">Username</Label>
+                <Input
+                  id="login-username"
+                  placeholder="yourname"
+                  value={loginUsername}
+                  onChange={(e) => { setLoginError(null); setLoginUsername(e.target.value); }}
+                  className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
+                />
+              </div>
+              <div>
+                <Label htmlFor="login-password" className="text-neutral-300 text-sm">Password</Label>
+                <Input
+                  id="login-password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={loginPassword}
+                  onChange={(e) => { setLoginError(null); setLoginPassword(e.target.value); }}
+                  className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
+                />
+              </div>
+              <Button type="submit" className="w-full bg-white text-black hover:bg-neutral-200" disabled={loginMutation.isPending}>
+                {loginMutation.isPending ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in...</>
+                ) : (
+                  "Sign In"
+                )}
+              </Button>
+              <div className="text-center">
+                <Link href="/reset-password">
+                  <span className="text-xs text-neutral-500 hover:text-neutral-300 cursor-pointer">
+                    Forgot password?
+                  </span>
+                </Link>
+              </div>
+            </form>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+      <CardFooter className="border-t border-neutral-800 pt-4">
+        <p className="text-xs text-neutral-500 text-center w-full">
+          By continuing, you agree to the terms of service and privacy policy.
+        </p>
+      </CardFooter>
+    </Card>
+  );
+}
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-black text-white">
@@ -168,16 +388,16 @@ export default function LandingPage() {
               <a href="#testimonials" className="text-sm text-neutral-400 hover:text-white transition-colors">Reviews</a>
             </div>
             <div className="flex items-center gap-4">
-              <Link href="/auth">
+              <a href="#get-started">
                 <Button variant="ghost" className="text-neutral-400 hover:text-white">
                   Login
                 </Button>
-              </Link>
-              <Link href="/auth">
+              </a>
+              <a href="#get-started">
                 <Button className="bg-white text-black hover:bg-neutral-200">
                   Get Started
                 </Button>
-              </Link>
+              </a>
             </div>
           </div>
         </div>
@@ -203,16 +423,18 @@ export default function LandingPage() {
               and manages your customers — so you can focus on what you do best.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link href="/auth">
+              <a href="#get-started">
                 <Button size="lg" className="bg-white text-black hover:bg-neutral-200 px-8 py-6 text-lg">
                   Start Free Trial
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
-              </Link>
-              <Button size="lg" variant="outline" className="border-neutral-700 text-white hover:bg-neutral-900 px-8 py-6 text-lg">
-                <Phone className="mr-2 h-5 w-5" />
-                See AI Demo
-              </Button>
+              </a>
+              <a href="#features">
+                <Button size="lg" variant="outline" className="border-neutral-700 text-white hover:bg-neutral-900 px-8 py-6 text-lg">
+                  <Phone className="mr-2 h-5 w-5" />
+                  See Features
+                </Button>
+              </a>
             </div>
             <p className="mt-6 text-sm text-neutral-500">
               No credit card required. 14-day free trial.
@@ -445,7 +667,7 @@ export default function LandingPage() {
                     <span className="text-neutral-500">{plan.period}</span>
                   </div>
                   <p className="text-sm text-neutral-400 mb-6">{plan.description}</p>
-                  <Link href="/auth">
+                  <a href="#get-started">
                     <Button
                       className={`w-full ${
                         plan.popular
@@ -455,7 +677,7 @@ export default function LandingPage() {
                     >
                       {plan.cta}
                     </Button>
-                  </Link>
+                  </a>
                   <ul className="mt-6 space-y-3">
                     {plan.features.map((feature, j) => (
                       <li key={j} className="flex items-center gap-2 text-sm text-neutral-300">
@@ -471,25 +693,36 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-6">
-            Ready to put your business on autopilot?
-          </h2>
-          <p className="text-neutral-400 text-lg mb-10">
-            Join thousands of small businesses using SmallBizAgent to save time,
-            never miss calls, and grow their revenue.
-          </p>
-          <Link href="/auth">
-            <Button size="lg" className="bg-white text-black hover:bg-neutral-200 px-8 py-6 text-lg">
-              Start Your Free Trial
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-          </Link>
-          <p className="mt-6 text-sm text-neutral-500">
-            14-day free trial. No credit card required. Cancel anytime.
-          </p>
+      {/* Sign Up / Login Section */}
+      <section id="get-started" className="py-20 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div>
+              <h2 className="text-3xl md:text-4xl font-bold mb-6">
+                Ready to put your business on autopilot?
+              </h2>
+              <p className="text-neutral-400 text-lg mb-8">
+                Join thousands of small businesses using SmallBizAgent to save time,
+                never miss calls, and grow their revenue.
+              </p>
+              <div className="space-y-4">
+                {[
+                  "14-day free trial, no credit card required",
+                  "Set up in under 15 minutes",
+                  "Cancel anytime, no questions asked",
+                  "AI receptionist included in all plans"
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center gap-3 text-neutral-300">
+                    <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <LandingAuthForm />
+            </div>
+          </div>
         </div>
       </section>
 

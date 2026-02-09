@@ -3,6 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Customers from "@/pages/customers/index";
@@ -41,7 +42,7 @@ import AdminDashboard from "@/pages/admin/index";
 import PhoneManagement from "@/pages/admin/phone-management";
 import LandingPage from "@/pages/landing";
 import { SidebarProvider } from "./context/SidebarContext";
-import { AuthProvider } from "./hooks/use-auth";
+import { AuthProvider, useAuth } from "./hooks/use-auth";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { ProtectedAdminRoute } from "./components/auth/ProtectedAdminRoute";
 import { AppNav } from "./components/navigation/AppNav";
@@ -49,11 +50,29 @@ import { ServiceWorkerNotification } from "@/components/ui/ServiceWorkerNotifica
 import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
 import { ContextHelp } from "@/components/ui/context-help";
 
+// Smart home: shows dashboard if logged in, landing page if not
+function HomePage() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return user ? <Dashboard /> : <LandingPage />;
+}
+
 function Router() {
   return (
     <Switch>
+      {/* Home - landing page or dashboard based on auth */}
+      <Route path="/" component={HomePage} />
+
       {/* Regular user routes */}
-      <ProtectedRoute path="/" component={Dashboard} />
+      <ProtectedRoute path="/dashboard" component={Dashboard} />
       <ProtectedRoute path="/customers" component={Customers} />
       <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
       <ProtectedRoute path="/appointments" component={Appointments} />
