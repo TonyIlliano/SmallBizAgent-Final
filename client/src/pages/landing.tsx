@@ -188,7 +188,7 @@ function LandingAuthForm() {
       return;
     }
     loginMutation.mutate(
-      { username: loginUsername, password: loginPassword },
+      { username: loginUsername.trim(), password: loginPassword },
       {
         onSuccess: () => {
               window.location.href = "/";
@@ -329,6 +329,7 @@ function LandingAuthForm() {
                 <Label htmlFor="login-username" className="text-neutral-300 text-sm">Username</Label>
                 <Input
                   id="login-username"
+                  autoComplete="username"
                   placeholder="yourname"
                   value={loginUsername}
                   onChange={(e) => { setLoginError(null); setLoginUsername(e.target.value); }}
@@ -340,6 +341,7 @@ function LandingAuthForm() {
                 <Input
                   id="login-password"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="••••••••"
                   value={loginPassword}
                   onChange={(e) => { setLoginError(null); setLoginPassword(e.target.value); }}
