@@ -256,7 +256,7 @@ function LandingAuthForm() {
           </TabsList>
 
           <TabsContent value="register" className="mt-4">
-            <form onSubmit={handleRegister} className="space-y-3">
+            <form onSubmit={handleRegister} className="space-y-3" autoComplete="off">
               {registerError && (
                 <Alert variant="destructive" className="border-red-800 bg-red-900/30">
                   <AlertCircle className="h-4 w-4" />
@@ -288,7 +288,9 @@ function LandingAuthForm() {
                 <Label htmlFor="reg-password" className="text-neutral-300 text-sm">Password</Label>
                 <Input
                   id="reg-password"
+                  name="reg-password"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="••••••••••••"
                   value={regPassword}
                   onChange={(e) => { setRegisterError(null); setRegPassword(e.target.value); }}
@@ -300,7 +302,9 @@ function LandingAuthForm() {
                 <Label htmlFor="reg-confirm" className="text-neutral-300 text-sm">Confirm Password</Label>
                 <Input
                   id="reg-confirm"
+                  name="reg-confirm"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="••••••••••••"
                   value={regConfirmPassword}
                   onChange={(e) => { setRegisterError(null); setRegConfirmPassword(e.target.value); }}
@@ -329,6 +333,7 @@ function LandingAuthForm() {
                 <Label htmlFor="login-username" className="text-neutral-300 text-sm">Username</Label>
                 <Input
                   id="login-username"
+                  name="login-username"
                   autoComplete="username"
                   placeholder="yourname"
                   value={loginUsername}
@@ -340,6 +345,7 @@ function LandingAuthForm() {
                 <Label htmlFor="login-password" className="text-neutral-300 text-sm">Password</Label>
                 <Input
                   id="login-password"
+                  name="login-password"
                   type="password"
                   autoComplete="current-password"
                   placeholder="••••••••"
