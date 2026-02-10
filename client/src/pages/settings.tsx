@@ -14,6 +14,7 @@ import ReviewSettings from "@/components/reviews/ReviewSettings";
 import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
 import { StaffScheduleManager } from "@/components/settings/StaffScheduleManager";
 import BookingSettings from "@/components/settings/BookingSettings";
+import NotificationSettingsPanel from "@/components/settings/NotificationSettings";
 import {
   Dialog,
   DialogContent,
@@ -638,12 +639,13 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-9 mb-6">
+          <TabsList className="grid w-full grid-cols-5 md:grid-cols-10 mb-6">
             <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="team">Team</TabsTrigger>
             <TabsTrigger value="hours">Hours</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
             <TabsTrigger value="booking">Booking</TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="reviews">Reviews</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="subscription">Subscription</TabsTrigger>
@@ -1569,6 +1571,10 @@ export default function Settings() {
 
           <TabsContent value="booking" className="space-y-4">
             {business && <BookingSettings business={business} />}
+          </TabsContent>
+
+          <TabsContent value="notifications" className="space-y-4">
+            {businessId && <NotificationSettingsPanel businessId={businessId} />}
           </TabsContent>
 
           <TabsContent value="reviews" className="space-y-4">

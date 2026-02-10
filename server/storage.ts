@@ -15,7 +15,9 @@ import {
   CallLog, InsertCallLog, callLogs,
   Quote, InsertQuote, quotes,
   QuoteItem, InsertQuoteItem, quoteItems,
-  PasswordResetToken, InsertPasswordResetToken, passwordResetTokens
+  PasswordResetToken, InsertPasswordResetToken, passwordResetTokens,
+  NotificationSettings, InsertNotificationSettings, notificationSettings,
+  NotificationLog, InsertNotificationLog, notificationLog
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -177,6 +179,14 @@ export interface IStorage {
   getQuoteItems(quoteId: number): Promise<QuoteItem[]>;
   createQuoteItem(item: InsertQuoteItem): Promise<QuoteItem>;
   deleteQuoteItems(quoteId: number): Promise<void>;
+
+  // Notification Settings
+  getNotificationSettings(businessId: number): Promise<NotificationSettings | undefined>;
+  upsertNotificationSettings(settings: InsertNotificationSettings): Promise<NotificationSettings>;
+
+  // Notification Log
+  createNotificationLog(entry: InsertNotificationLog): Promise<NotificationLog>;
+  getNotificationLogs(businessId: number, limit?: number): Promise<NotificationLog[]>;
 
   // Password Reset Tokens
   createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken>;
@@ -1105,6 +1115,39 @@ export class DatabaseStorage implements IStorage {
     });
 
     return invoice;
+  }
+
+  // Notification Settings methods
+  async getNotificationSettings(businessId: number): Promise<NotificationSettings | undefined> {
+    const [settings] = await db.select().from(notificationSettings)
+      .where(eq(notificationSettings.businessId, businessId));
+    return settings;
+  }
+
+  async upsertNotificationSettings(settings: InsertNotificationSettings): Promise<NotificationSettings> {
+    const existing = await this.getNotificationSettings(settings.businessId);
+    if (existing) {
+      const [updated] = await db.update(notificationSettings)
+        .set({ ...settings, updatedAt: new Date() })
+        .where(eq(notificationSettings.businessId, settings.businessId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(notificationSettings).values(settings).returning();
+    return created;
+  }
+
+  // Notification Log methods
+  async createNotificationLog(entry: InsertNotificationLog): Promise<NotificationLog> {
+    const [log] = await db.insert(notificationLog).values(entry).returning();
+    return log;
+  }
+
+  async getNotificationLogs(businessId: number, limit: number = 50): Promise<NotificationLog[]> {
+    return db.select().from(notificationLog)
+      .where(eq(notificationLog.businessId, businessId))
+      .orderBy(desc(notificationLog.sentAt))
+      .limit(limit);
   }
 
   // Password Reset Token methods

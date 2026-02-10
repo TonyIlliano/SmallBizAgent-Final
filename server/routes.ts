@@ -49,6 +49,9 @@ import {
 import reminderService from "./services/reminderService";
 import schedulerService from "./services/schedulerService";
 
+// Notification service
+import notificationService from "./services/notificationService";
+
 // Stripe setup
 import Stripe from "stripe";
 // SECURITY: Stripe key is required - no fallback
@@ -964,6 +967,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Invalidate appointments cache
       dataCache.invalidate(businessId, 'appointments');
 
+      // Send appointment confirmation notification (fire-and-forget)
+      notificationService.sendAppointmentConfirmation(appointment.id, businessId).catch(err =>
+        console.error('Background notification error:', err)
+      );
+
       res.status(201).json(appointment);
     } catch (error) {
       console.error('Error creating appointment:', error);
@@ -1106,6 +1114,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const validatedData = insertJobSchema.partial().parse(req.body);
       const job = await storage.updateJob(id, validatedData);
+
+      // Send job completed notification if status changed to completed
+      if (validatedData.status === 'completed' && existing.status !== 'completed') {
+        notificationService.sendJobCompletedNotification(job.id, existing.businessId).catch(err =>
+          console.error('Background notification error:', err)
+        );
+      }
+
       res.json(job);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1363,6 +1379,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Send invoice created notification (fire-and-forget)
+      notificationService.sendInvoiceCreatedNotification(invoice.id, businessId).catch(err =>
+        console.error('Background notification error:', err)
+      );
+
       res.status(201).json(invoice);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1381,6 +1402,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const validatedData = insertInvoiceSchema.partial().parse(req.body);
       const invoice = await storage.updateInvoice(id, validatedData);
+
+      // Send payment confirmation if status changed to paid
+      if (validatedData.status === 'paid' && existing.status !== 'paid') {
+        notificationService.sendPaymentConfirmation(invoice.id, existing.businessId).catch(err =>
+          console.error('Background notification error:', err)
+        );
+      }
+
       res.json(invoice);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1994,6 +2023,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error running reminder check:", error);
       res.status(500).json({ message: "Error running reminder check" });
+    }
+  });
+
+  // =================== NOTIFICATION SETTINGS ===================
+
+  // Get notification settings for the business
+  app.get("/api/notification-settings", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const settings = await storage.getNotificationSettings(businessId);
+      // Return defaults if none exist yet
+      if (!settings) {
+        return res.json({
+          businessId,
+          appointmentConfirmationEmail: true,
+          appointmentConfirmationSms: true,
+          appointmentReminderEmail: true,
+          appointmentReminderSms: true,
+          appointmentReminderHours: 24,
+          invoiceCreatedEmail: true,
+          invoiceCreatedSms: false,
+          invoiceReminderEmail: true,
+          invoiceReminderSms: true,
+          invoicePaymentConfirmationEmail: true,
+          jobCompletedEmail: true,
+          jobCompletedSms: true,
+        });
+      }
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching notification settings:", error);
+      res.status(500).json({ message: "Error fetching notification settings" });
+    }
+  });
+
+  // Update notification settings
+  app.put("/api/notification-settings", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const settings = await storage.upsertNotificationSettings({
+        businessId,
+        ...req.body,
+      });
+      res.json(settings);
+    } catch (error) {
+      console.error("Error updating notification settings:", error);
+      res.status(500).json({ message: "Error updating notification settings" });
+    }
+  });
+
+  // Get notification log
+  app.get("/api/notification-log", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const limit = parseInt(req.query.limit as string) || 50;
+      const logs = await storage.getNotificationLogs(businessId, limit);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching notification log:", error);
+      res.status(500).json({ message: "Error fetching notification log" });
+    }
+  });
+
+  // Send a test notification (email or SMS)
+  app.post("/api/notification-settings/test", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { channel, recipient } = req.body; // channel: 'email' or 'sms'
+      const business = await storage.getBusiness(businessId);
+      if (!business) {
+        return res.status(404).json({ message: "Business not found" });
+      }
+
+      if (channel === 'sms' && recipient) {
+        const { sendSms } = await import("./services/twilioService");
+        await sendSms(recipient, `Test notification from ${business.name}. Your SMS notifications are working!`);
+        return res.json({ success: true, message: "Test SMS sent" });
+      }
+
+      if (channel === 'email' && recipient) {
+        const { sendEmail } = await import("./emailService");
+        await sendEmail({
+          to: recipient,
+          subject: `Test Notification - ${business.name}`,
+          text: `This is a test notification from ${business.name}. Your email notifications are working!`,
+          html: `<div style="font-family: Arial, sans-serif; padding: 20px;"><h2>Test Notification</h2><p>This is a test notification from <strong>${business.name}</strong>.</p><p>Your email notifications are working!</p></div>`,
+        });
+        return res.json({ success: true, message: "Test email sent" });
+      }
+
+      res.status(400).json({ message: "Please provide channel (email/sms) and recipient" });
+    } catch (error) {
+      console.error("Error sending test notification:", error);
+      res.status(500).json({ message: "Error sending test notification" });
     }
   });
 

@@ -384,6 +384,46 @@ export const recurringJobHistory = pgTable("recurring_job_history", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Notification Settings (per-business preferences for email/SMS notifications)
+export const notificationSettings = pgTable("notification_settings", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  // Appointment notifications
+  appointmentConfirmationEmail: boolean("appointment_confirmation_email").default(true),
+  appointmentConfirmationSms: boolean("appointment_confirmation_sms").default(true),
+  appointmentReminderEmail: boolean("appointment_reminder_email").default(true),
+  appointmentReminderSms: boolean("appointment_reminder_sms").default(true),
+  appointmentReminderHours: integer("appointment_reminder_hours").default(24), // hours before appointment
+  // Invoice notifications
+  invoiceCreatedEmail: boolean("invoice_created_email").default(true),
+  invoiceCreatedSms: boolean("invoice_created_sms").default(false),
+  invoiceReminderEmail: boolean("invoice_reminder_email").default(true),
+  invoiceReminderSms: boolean("invoice_reminder_sms").default(true),
+  invoicePaymentConfirmationEmail: boolean("invoice_payment_confirmation_email").default(true),
+  // Job notifications
+  jobCompletedEmail: boolean("job_completed_email").default(true),
+  jobCompletedSms: boolean("job_completed_sms").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Notification Log (tracks all sent notifications)
+export const notificationLog = pgTable("notification_log", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id"),
+  type: text("type").notNull(), // appointment_confirmation, appointment_reminder, invoice_created, invoice_reminder, payment_confirmation, job_completed
+  channel: text("channel").notNull(), // email, sms
+  recipient: text("recipient").notNull(), // phone number or email
+  subject: text("subject"),
+  message: text("message"),
+  status: text("status").default("sent"), // sent, failed, delivered
+  referenceType: text("reference_type"), // appointment, invoice, job
+  referenceId: integer("reference_id"),
+  error: text("error"),
+  sentAt: timestamp("sent_at").defaultNow(),
+});
+
 // Password Reset Tokens
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: serial("id").primaryKey(),
@@ -447,6 +487,8 @@ export const insertReviewRequestSchema = createInsertSchema(reviewRequests).omit
 export const insertRecurringScheduleSchema = createInsertSchema(recurringSchedules).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertRecurringScheduleItemSchema = createInsertSchema(recurringScheduleItems).omit({ id: true });
 export const insertRecurringJobHistorySchema = createInsertSchema(recurringJobHistory).omit({ id: true, createdAt: true });
+export const insertNotificationSettingsSchema = createInsertSchema(notificationSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertNotificationLogSchema = createInsertSchema(notificationLog).omit({ id: true, sentAt: true });
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
 
 // Types
@@ -518,6 +560,12 @@ export type InsertRecurringScheduleItem = z.infer<typeof insertRecurringSchedule
 
 export type RecurringJobHistory = typeof recurringJobHistory.$inferSelect;
 export type InsertRecurringJobHistory = z.infer<typeof insertRecurringJobHistorySchema>;
+
+export type NotificationSettings = typeof notificationSettings.$inferSelect;
+export type InsertNotificationSettings = z.infer<typeof insertNotificationSettingsSchema>;
+
+export type NotificationLog = typeof notificationLog.$inferSelect;
+export type InsertNotificationLog = z.infer<typeof insertNotificationLogSchema>;
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
