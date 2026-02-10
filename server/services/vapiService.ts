@@ -6,6 +6,7 @@
  */
 
 import { Business, Service } from '@shared/schema';
+import { getCachedMenu, formatMenuForPrompt, type CachedMenu } from './cloverService';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
@@ -95,7 +96,7 @@ function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'):
 /**
  * Generate a smart system prompt based on business type
  */
-function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[]): string {
+function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[], menuData?: CachedMenu | null): string {
   const businessType = business.industry?.toLowerCase() || 'general';
   const serviceList = services.length > 0
     ? services.map(s => `- ${s.name}: $${s.price}, ${s.duration || 60} minutes${s.description ? ` - ${s.description}` : ''}`).join('\n')
@@ -420,22 +421,51 @@ FITNESS/GYM GUIDANCE:
   * Parking information
 `,
     'restaurant': `
-RESTAURANT GUIDANCE:
-- Reservation handling:
-  * Party size
-  * Date and preferred time
-  * Special occasions (birthday, anniversary)
-  * Dietary restrictions or allergies
-  * Indoor/outdoor/bar preference
-- Common questions:
-  * Menu and prices → Direct to website or read specials
-  * Hours and location
-  * Parking availability
-  * Private events/catering
-- Wait list management:
-  * Current wait time
-  * Call-ahead seating
-  * Callback when table is ready
+RESTAURANT AI ORDERING & RESERVATIONS:
+
+You can take food orders over the phone AND handle reservations. You have access to the restaurant's full menu via the getMenu function.
+
+PHONE ORDERING FLOW:
+1. Greet the caller warmly. Ask if they'd like to place an order or make a reservation.
+2. If ordering: Ask what they'd like. If they're unsure, suggest popular items or read categories.
+3. For each item: Confirm the item name, handle any required modifiers (size, toppings, cooking temp, etc.), and note special requests.
+4. Upsell naturally: "Would you like to add a drink with that?" or "We have great appetizers if you'd like to start with something."
+5. When they're done ordering, read back the complete order with all items and modifiers.
+6. Confirm the order is correct.
+7. Ask for their name and phone number for the order.
+8. Ask if it's pickup or delivery.
+9. Call the createOrder function to place the order in the system.
+10. Confirm the order was placed and give them an estimated time if possible.
+
+HANDLING MODIFIERS:
+- When an item has REQUIRED modifiers (like size or cooking temperature), you MUST ask the customer to choose.
+- For optional modifiers (like toppings or add-ons), mention them: "Would you like to add anything to that?"
+- Read modifier options clearly with prices if applicable.
+
+MENU TIPS:
+- Use getMenu to see the full menu with categories, items, prices, and modifiers.
+- Use getMenuCategory to read a specific section (e.g., "What appetizers do you have?").
+- Always quote prices in dollars (the menu shows them formatted).
+- If an item isn't on the menu, apologize and suggest alternatives.
+
+RESERVATION HANDLING:
+- Party size
+- Date and preferred time
+- Special occasions (birthday, anniversary)
+- Dietary restrictions or allergies
+- Indoor/outdoor/bar preference
+
+COMMON QUESTIONS:
+- Hours and location
+- Parking availability
+- Private events/catering
+- Delivery area and fees
+
+IMPORTANT:
+- NEVER guess at menu items or prices — always use the getMenu function.
+- If the order seems complex, read it back carefully before confirming.
+- Be patient with customers who are deciding — suggest favorites or popular items.
+- For large orders (10+ items), confirm the order in sections.
 `,
     'retail': `
 RETAIL GUIDANCE:
@@ -492,17 +522,32 @@ GENERAL SERVICE GUIDANCE:
     }
   }
 
-  return basePrompt + industryPrompt + `
+  // For restaurants with Clover connected, append the full menu to the prompt
+  let menuSection = '';
+  if (businessType.includes('restaurant') && menuData) {
+    menuSection = '\n\n' + formatMenuForPrompt(menuData);
+  }
 
-FUNCTION CALLING:
-You have access to these functions to help customers:
-
+  // Build function documentation based on business type
+  let functionDocs = `
 APPOINTMENT MANAGEMENT:
 - checkAvailability: Check available appointment slots for a specific date
 - bookAppointment: Book a new appointment after confirming details
 - rescheduleAppointment: Change an existing appointment to a new date/time
 - cancelAppointment: Cancel an existing appointment
-- getUpcomingAppointments: Look up the caller's upcoming appointments
+- getUpcomingAppointments: Look up the caller's upcoming appointments`;
+
+  // Add restaurant-specific functions for restaurants with Clover
+  if (businessType.includes('restaurant') && menuData) {
+    functionDocs += `
+
+RESTAURANT ORDERING (Clover POS):
+- getMenu: Get the full restaurant menu with categories, items, prices, and modifiers
+- getMenuCategory: Get items in a specific category (e.g., appetizers, entrees, drinks)
+- createOrder: Place an order in the restaurant's POS system. Use after confirming the complete order with the caller.`;
+  }
+
+  functionDocs += `
 
 CUSTOMER & BUSINESS INFO:
 - getCustomerInfo: Look up existing customer by phone number
@@ -511,7 +556,13 @@ CUSTOMER & BUSINESS INFO:
 - getEstimate: Get price estimates for specific services
 
 COMMUNICATION:
-- transferToHuman: Connect caller to a staff member (use when requested or for complex issues)
+- transferToHuman: Connect caller to a staff member (use when requested or for complex issues)`;
+
+  return basePrompt + industryPrompt + menuSection + `
+
+FUNCTION CALLING:
+You have access to these functions to help customers:
+` + functionDocs + `
 - leaveMessage: Record a message for callback
 
 SMART BEHAVIORS:
@@ -732,6 +783,74 @@ function getAssistantFunctions() {
 }
 
 /**
+ * Get restaurant-specific functions for VAPI (Clover ordering)
+ */
+function getRestaurantFunctions() {
+  return [
+    {
+      name: 'getMenu',
+      description: 'Get the full restaurant menu with categories, items, prices, and modifiers. Call this when a customer asks about the menu, what you serve, or prices.',
+      parameters: {
+        type: 'object',
+        properties: {}
+      }
+    },
+    {
+      name: 'getMenuCategory',
+      description: 'Get items in a specific menu category. Use when the customer asks about a specific section like "appetizers", "entrees", "drinks", "desserts", etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          categoryName: {
+            type: 'string',
+            description: 'The category name to look up (e.g., "appetizers", "entrees", "drinks", "desserts", "sides")'
+          }
+        },
+        required: ['categoryName']
+      }
+    },
+    {
+      name: 'createOrder',
+      description: 'Place an order in the restaurant POS system. Call this ONLY after reading back the complete order and getting customer confirmation. The order will appear on the restaurant\'s POS device immediately.',
+      parameters: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            description: 'Array of items to order',
+            items: {
+              type: 'object',
+              properties: {
+                cloverItemId: { type: 'string', description: 'The Clover item ID from the menu' },
+                quantity: { type: 'number', description: 'Number of this item to order' },
+                modifiers: {
+                  type: 'array',
+                  description: 'Selected modifiers for this item',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      cloverId: { type: 'string', description: 'The Clover modifier ID' }
+                    },
+                    required: ['cloverId']
+                  }
+                },
+                notes: { type: 'string', description: 'Special instructions for this item' }
+              },
+              required: ['cloverItemId', 'quantity']
+            }
+          },
+          callerPhone: { type: 'string', description: 'Customer phone number' },
+          callerName: { type: 'string', description: 'Customer name' },
+          orderType: { type: 'string', description: 'Type of order: pickup, delivery, or dine_in' },
+          orderNotes: { type: 'string', description: 'General notes for the order' }
+        },
+        required: ['items', 'callerName']
+      }
+    }
+  ];
+}
+
+/**
  * Create or update a Vapi assistant for a business
  */
 export async function createAssistantForBusiness(
@@ -743,7 +862,18 @@ export async function createAssistantForBusiness(
     return { assistantId: '', error: 'Vapi API key not configured' };
   }
 
-  const systemPrompt = generateSystemPrompt(business, services, businessHours);
+  // For restaurants, try to load cached Clover menu data for the prompt
+  let menuData: CachedMenu | null = null;
+  const isRestaurant = business.industry?.toLowerCase()?.includes('restaurant');
+  if (isRestaurant && business.cloverMerchantId) {
+    try {
+      menuData = await getCachedMenu(business.id);
+    } catch (e) {
+      console.warn(`Could not load Clover menu for business ${business.id}:`, e);
+    }
+  }
+
+  const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData);
 
   const assistantConfig = {
     name: `${business.name} Receptionist`,
@@ -1080,7 +1210,9 @@ export async function createAssistantForBusiness(
             },
             required: ['serviceName']
           }
-        }
+        },
+        // Restaurant ordering functions (Clover POS) — conditionally added
+        ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
       ]
     },
     voice: {

@@ -18,14 +18,15 @@ import {
 } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 
-const navItems = [
+const allNavItems = [
   { path: "/", label: "Dashboard", icon: Home },
   { path: "/customers", label: "Customers", icon: Users },
   { path: "/appointments", label: "Appointments", icon: Calendar },
-  { path: "/jobs", label: "Jobs", icon: Briefcase },
-  { path: "/recurring", label: "Recurring", icon: RefreshCw },
+  { path: "/jobs", label: "Jobs", icon: Briefcase, hideForIndustries: ['restaurant'] },
+  { path: "/recurring", label: "Recurring", icon: RefreshCw, hideForIndustries: ['restaurant'] },
   { path: "/quotes", label: "Quotes", icon: Receipt },
   { path: "/invoices", label: "Invoices", icon: FileText },
   { path: "/receptionist", label: "AI Receptionist", icon: Bot },
@@ -71,6 +72,19 @@ export function Sidebar() {
   const [location] = useLocation();
   const { isSidebarOpen, toggleSidebar } = useSidebar();
   const { user, logoutMutation } = useAuth();
+
+  // Fetch business to check industry for conditional nav items
+  const { data: business } = useQuery<any>({
+    queryKey: ['/api/business'],
+    enabled: !!user?.businessId,
+  });
+
+  // Filter nav items based on business industry
+  const businessIndustry = business?.industry?.toLowerCase() || '';
+  const navItems = allNavItems.filter(item => {
+    if (!item.hideForIndustries) return true;
+    return !item.hideForIndustries.some(ind => businessIndustry.includes(ind));
+  });
 
   // Get user initials for avatar
   const getInitials = () => {

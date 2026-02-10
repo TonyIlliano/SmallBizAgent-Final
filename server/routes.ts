@@ -122,6 +122,7 @@ import quoteRoutes from "./routes/quoteRoutes";
 import customerRoutes from "./routes/customerRoutes";
 import recurringRoutes from "./routes/recurring";
 import bookingRoutes from "./routes/bookingRoutes";
+import cloverRoutes from "./routes/cloverRoutes";
 
 // Import training and analytics routes
 import { registerTrainingRoutes } from './routes/trainingRoutes';
@@ -3850,6 +3851,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register recurring schedules routes
   app.use('/api/recurring-schedules', recurringRoutes);
+
+  // Register Clover POS integration routes
+  app.use('/api/clover', cloverRoutes);
 
   // Register public booking routes (no auth required for customer-facing pages)
   app.use('/api', bookingRoutes);

@@ -17,7 +17,9 @@ import {
   QuoteItem, InsertQuoteItem, quoteItems,
   PasswordResetToken, InsertPasswordResetToken, passwordResetTokens,
   NotificationSettings, InsertNotificationSettings, notificationSettings,
-  NotificationLog, InsertNotificationLog, notificationLog
+  NotificationLog, InsertNotificationLog, notificationLog,
+  CloverMenuCache, InsertCloverMenuCache, cloverMenuCache,
+  CloverOrderLog, InsertCloverOrderLog, cloverOrderLog
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -187,6 +189,25 @@ export interface IStorage {
   // Notification Log
   createNotificationLog(entry: InsertNotificationLog): Promise<NotificationLog>;
   getNotificationLogs(businessId: number, limit?: number): Promise<NotificationLog[]>;
+
+  // Clover Menu Cache
+  getCloverMenuCache(businessId: number): Promise<CloverMenuCache | undefined>;
+  upsertCloverMenuCache(businessId: number, menuData: any): Promise<CloverMenuCache>;
+
+  // Clover Order Log
+  createCloverOrderLog(entry: InsertCloverOrderLog): Promise<CloverOrderLog>;
+  getCloverOrderLogs(businessId: number, limit?: number): Promise<CloverOrderLog[]>;
+  getCloverOrderLog(id: number): Promise<CloverOrderLog | undefined>;
+
+  // Clover Token Management
+  updateBusinessCloverTokens(businessId: number, tokens: {
+    cloverMerchantId?: string;
+    cloverAccessToken?: string;
+    cloverRefreshToken?: string;
+    cloverTokenExpiry?: Date;
+    cloverEnvironment?: string;
+  }): Promise<Business>;
+  clearBusinessCloverConnection(businessId: number): Promise<Business>;
 
   // Password Reset Tokens
   createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken>;
@@ -1148,6 +1169,79 @@ export class DatabaseStorage implements IStorage {
       .where(eq(notificationLog.businessId, businessId))
       .orderBy(desc(notificationLog.sentAt))
       .limit(limit);
+  }
+
+  // Clover Menu Cache methods
+  async getCloverMenuCache(businessId: number): Promise<CloverMenuCache | undefined> {
+    const [cache] = await db.select().from(cloverMenuCache)
+      .where(eq(cloverMenuCache.businessId, businessId));
+    return cache;
+  }
+
+  async upsertCloverMenuCache(businessId: number, menuData: any): Promise<CloverMenuCache> {
+    // Try to update existing cache first
+    const existing = await this.getCloverMenuCache(businessId);
+    if (existing) {
+      const [updated] = await db.update(cloverMenuCache)
+        .set({ menuData, lastSyncedAt: new Date() })
+        .where(eq(cloverMenuCache.businessId, businessId))
+        .returning();
+      return updated;
+    }
+    // Create new cache entry
+    const [created] = await db.insert(cloverMenuCache)
+      .values({ businessId, menuData, lastSyncedAt: new Date() })
+      .returning();
+    return created;
+  }
+
+  // Clover Order Log methods
+  async createCloverOrderLog(entry: InsertCloverOrderLog): Promise<CloverOrderLog> {
+    const [log] = await db.insert(cloverOrderLog).values(entry).returning();
+    return log;
+  }
+
+  async getCloverOrderLogs(businessId: number, limit: number = 50): Promise<CloverOrderLog[]> {
+    return db.select().from(cloverOrderLog)
+      .where(eq(cloverOrderLog.businessId, businessId))
+      .orderBy(desc(cloverOrderLog.createdAt))
+      .limit(limit);
+  }
+
+  async getCloverOrderLog(id: number): Promise<CloverOrderLog | undefined> {
+    const [log] = await db.select().from(cloverOrderLog)
+      .where(eq(cloverOrderLog.id, id));
+    return log;
+  }
+
+  // Clover Token Management methods
+  async updateBusinessCloverTokens(businessId: number, tokens: {
+    cloverMerchantId?: string;
+    cloverAccessToken?: string;
+    cloverRefreshToken?: string;
+    cloverTokenExpiry?: Date;
+    cloverEnvironment?: string;
+  }): Promise<Business> {
+    const [updated] = await db.update(businesses)
+      .set({ ...tokens, updatedAt: new Date() })
+      .where(eq(businesses.id, businessId))
+      .returning();
+    return updated;
+  }
+
+  async clearBusinessCloverConnection(businessId: number): Promise<Business> {
+    const [updated] = await db.update(businesses)
+      .set({
+        cloverMerchantId: null,
+        cloverAccessToken: null,
+        cloverRefreshToken: null,
+        cloverTokenExpiry: null,
+        cloverEnvironment: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(businesses.id, businessId))
+      .returning();
+    return updated;
   }
 
   // Password Reset Token methods

@@ -7,6 +7,7 @@
 
 import { storage } from '../storage';
 import twilioService from './twilioService';
+import { getCachedMenu, createOrder as createCloverOrder, formatMenuForPrompt, type CachedMenu } from './cloverService';
 
 /**
  * ===========================================
@@ -759,6 +760,16 @@ async function handleFunctionCall(
 
       case 'getServiceDetails':
         return await getServiceDetails(businessId, parameters.serviceName);
+
+      // ========== Restaurant Ordering Functions (Clover POS) ==========
+      case 'getMenu':
+        return await handleGetMenu(businessId);
+
+      case 'getMenuCategory':
+        return await handleGetMenuCategory(businessId, parameters.categoryName);
+
+      case 'createOrder':
+        return await handleCreateOrder(businessId, parameters as any, callerPhone);
 
       default:
         return { error: `Unknown function: ${name}` };
@@ -3056,6 +3067,215 @@ async function handleEndOfCall(
   }
 
   return null;
+}
+
+// ========== Restaurant Ordering Handler Functions (Clover POS) ==========
+
+/**
+ * Handle getMenu function call — returns the full cached menu formatted for voice
+ */
+async function handleGetMenu(businessId: number): Promise<any> {
+  try {
+    const menu = await getCachedMenu(businessId);
+    if (!menu) {
+      return {
+        result: {
+          error: 'Menu not available',
+          message: "I'm sorry, I don't have the menu loaded right now. Let me transfer you to someone who can help with your order.",
+          shouldTransfer: true
+        }
+      };
+    }
+
+    // Format menu for voice — organize by category
+    const menuSummary = menu.categories.map(cat => {
+      const items = cat.items.map(item => {
+        let itemStr = `${item.name} - ${item.priceFormatted}`;
+        if (item.modifierGroups.length > 0) {
+          const modInfo = item.modifierGroups.map(g => {
+            const options = g.modifiers.map(m => m.name).join(', ');
+            return `${g.name}: ${options}`;
+          }).join('; ');
+          itemStr += ` (Options: ${modInfo})`;
+        }
+        return itemStr;
+      }).join('\n    ');
+
+      return `  ${cat.name}:\n    ${items}`;
+    }).join('\n\n');
+
+    return {
+      result: {
+        menu: menuSummary,
+        categories: menu.categories.map(c => c.name),
+        totalItems: menu.categories.reduce((sum, c) => sum + c.items.length, 0),
+        message: `Here's our menu. We have ${menu.categories.length} categories: ${menu.categories.map(c => c.name).join(', ')}. What would you like to hear about?`
+      }
+    };
+  } catch (error) {
+    console.error(`Error getting menu for business ${businessId}:`, error);
+    return {
+      result: {
+        error: 'Failed to load menu',
+        message: "I'm having trouble loading the menu right now. Would you like me to transfer you to someone who can help?"
+      }
+    };
+  }
+}
+
+/**
+ * Handle getMenuCategory function call — returns items in a specific category
+ */
+async function handleGetMenuCategory(businessId: number, categoryName: string): Promise<any> {
+  try {
+    const menu = await getCachedMenu(businessId);
+    if (!menu) {
+      return {
+        result: {
+          error: 'Menu not available',
+          message: "I'm sorry, I don't have the menu loaded right now."
+        }
+      };
+    }
+
+    // Find the category (fuzzy match)
+    const searchName = (categoryName || '').toLowerCase();
+    const category = menu.categories.find(c =>
+      c.name.toLowerCase().includes(searchName) ||
+      searchName.includes(c.name.toLowerCase())
+    );
+
+    if (!category) {
+      const availableCategories = menu.categories.map(c => c.name).join(', ');
+      return {
+        result: {
+          error: 'Category not found',
+          availableCategories,
+          message: `I don't see a "${categoryName}" category. Our menu categories are: ${availableCategories}. Which would you like to hear about?`
+        }
+      };
+    }
+
+    const items = category.items.map(item => {
+      let itemStr = `${item.name} - ${item.priceFormatted}`;
+      if (item.modifierGroups.length > 0) {
+        const modInfo = item.modifierGroups.map(g => {
+          const required = g.minRequired && g.minRequired > 0 ? ' (required)' : '';
+          const options = g.modifiers.map(m =>
+            m.price > 0 ? `${m.name} ${m.priceFormatted}` : m.name
+          ).join(', ');
+          return `${g.name}${required}: ${options}`;
+        }).join('; ');
+        itemStr += ` | Options: ${modInfo}`;
+      }
+      return itemStr;
+    });
+
+    return {
+      result: {
+        categoryName: category.name,
+        items: items,
+        itemCount: items.length,
+        // Also include structured data for order creation
+        itemDetails: category.items.map(item => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          priceFormatted: item.priceFormatted,
+          modifierGroups: item.modifierGroups
+        })),
+        message: `In our ${category.name} section, we have ${items.length} items: ${items.join('. ')}. What would you like?`
+      }
+    };
+  } catch (error) {
+    console.error(`Error getting menu category for business ${businessId}:`, error);
+    return {
+      result: {
+        error: 'Failed to load menu category',
+        message: "I'm having trouble loading that part of the menu. Would you like to try a different category?"
+      }
+    };
+  }
+}
+
+/**
+ * Handle createOrder function call — creates an order in Clover POS
+ */
+async function handleCreateOrder(
+  businessId: number,
+  parameters: {
+    items: Array<{
+      cloverItemId: string;
+      quantity: number;
+      modifiers?: Array<{ cloverId: string }>;
+      notes?: string;
+    }>;
+    callerPhone?: string;
+    callerName?: string;
+    orderType?: string;
+    orderNotes?: string;
+  },
+  callerPhone?: string
+): Promise<any> {
+  try {
+    // Validate we have items
+    if (!parameters.items || parameters.items.length === 0) {
+      return {
+        result: {
+          error: 'No items in order',
+          message: "It seems like the order is empty. What would you like to order?"
+        }
+      };
+    }
+
+    // Use caller phone from VAPI if not provided in parameters
+    const phone = parameters.callerPhone || callerPhone;
+
+    console.log(`Creating Clover order for business ${businessId}:`, JSON.stringify(parameters));
+
+    const result = await createCloverOrder(businessId, {
+      items: parameters.items,
+      callerPhone: phone,
+      callerName: parameters.callerName,
+      orderType: (parameters.orderType as 'pickup' | 'delivery' | 'dine_in') || 'pickup',
+      orderNotes: parameters.orderNotes,
+    });
+
+    if (result.success) {
+      const totalFormatted = result.orderTotal ? `$${(result.orderTotal / 100).toFixed(2)}` : 'calculated at pickup';
+      return {
+        result: {
+          success: true,
+          orderId: result.orderId,
+          total: totalFormatted,
+          message: `Great news! Your order has been placed successfully. Your order total is ${totalFormatted}. ${
+            parameters.orderType === 'pickup'
+              ? "It'll be ready for pickup shortly. We'll have it waiting for you!"
+              : parameters.orderType === 'delivery'
+              ? "Your delivery is being prepared. You'll receive it soon!"
+              : "Your order has been sent to the kitchen!"
+          } Is there anything else I can help you with?`
+        }
+      };
+    } else {
+      console.error(`Clover order failed for business ${businessId}:`, result.error);
+      return {
+        result: {
+          success: false,
+          error: result.error,
+          message: "I'm sorry, I had trouble placing your order in our system. Would you like me to transfer you to someone who can take your order directly?"
+        }
+      };
+    }
+  } catch (error) {
+    console.error(`Error creating order for business ${businessId}:`, error);
+    return {
+      result: {
+        error: 'Order creation failed',
+        message: "I'm sorry, there was an issue placing your order. Let me transfer you to a staff member who can help. One moment please."
+      }
+    };
+  }
 }
 
 export default {

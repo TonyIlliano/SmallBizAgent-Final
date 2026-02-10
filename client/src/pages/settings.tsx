@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
 import QuickBooksIntegration from "@/components/quickbooks/QuickBooksIntegration";
+import CloverIntegration from "@/components/clover/CloverIntegration";
 import ReviewSettings from "@/components/reviews/ReviewSettings";
 import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
 import { StaffScheduleManager } from "@/components/settings/StaffScheduleManager";
@@ -178,6 +179,29 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingService, setEditingService] = useState<any>(null);
+
+  // Handle Clover OAuth callback redirect
+  useEffect(() => {
+    const cloverParam = urlParams.get('clover');
+    if (cloverParam === 'connected') {
+      toast({
+        title: "Clover Connected!",
+        description: "Your Clover POS has been connected successfully. Menu has been synced.",
+      });
+      setActiveTab('integrations');
+      // Clean up URL params
+      window.history.replaceState({}, '', '/settings?tab=integrations');
+    } else if (cloverParam === 'error') {
+      const message = urlParams.get('message') || 'Connection failed';
+      toast({
+        title: "Clover Connection Failed",
+        description: decodeURIComponent(message),
+        variant: "destructive",
+      });
+      setActiveTab('integrations');
+      window.history.replaceState({}, '', '/settings?tab=integrations');
+    }
+  }, []);
 
   // Get businessId from authenticated user
   const businessId = user?.businessId;
@@ -1594,6 +1618,7 @@ export default function Settings() {
                   <TabsList className="mb-4">
                     <TabsTrigger value="calendar">Calendar</TabsTrigger>
                     <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
+                    <TabsTrigger value="clover">Clover POS</TabsTrigger>
                   </TabsList>
                   
                   <TabsContent value="calendar">
@@ -1613,6 +1638,17 @@ export default function Settings() {
                         Connect with QuickBooks to sync invoices, customers, and payments
                       </p>
                       {businessId && <QuickBooksIntegration businessId={businessId} />}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="clover">
+                    <div className="mb-6">
+                      <h3 className="text-lg font-medium mb-2">Clover POS Integration</h3>
+                      <p className="text-muted-foreground mb-4">
+                        Connect your Clover POS for AI-powered phone ordering. Your menu syncs automatically
+                        and phone orders go directly to your POS system.
+                      </p>
+                      {businessId && <CloverIntegration businessId={businessId} />}
                     </div>
                   </TabsContent>
                 </Tabs>

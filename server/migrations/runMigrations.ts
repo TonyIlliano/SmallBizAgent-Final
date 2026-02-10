@@ -337,6 +337,42 @@ async function fixExistingTables() {
     );
   `);
 
+  // Fix businesses table - add Clover POS integration columns
+  await addColumnIfNotExists('businesses', 'clover_merchant_id', 'TEXT');
+  await addColumnIfNotExists('businesses', 'clover_access_token', 'TEXT');
+  await addColumnIfNotExists('businesses', 'clover_refresh_token', 'TEXT');
+  await addColumnIfNotExists('businesses', 'clover_token_expiry', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'clover_environment', 'TEXT');
+
+  // Create clover_menu_cache table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clover_menu_cache (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      menu_data JSONB,
+      last_synced_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create clover_order_log table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clover_order_log (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      clover_order_id TEXT,
+      caller_phone TEXT,
+      caller_name TEXT,
+      items JSONB,
+      total_amount INTEGER,
+      status TEXT DEFAULT 'created',
+      vapi_call_id TEXT,
+      order_type TEXT,
+      error_message TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Fix subscription_plans table - add missing columns
   await addColumnIfNotExists('subscription_plans', 'description', 'TEXT');
   await addColumnIfNotExists('subscription_plans', 'stripe_product_id', 'TEXT');
@@ -479,6 +515,11 @@ async function createBaseTables() {
       quickbooks_access_token TEXT,
       quickbooks_refresh_token TEXT,
       quickbooks_token_expiry TIMESTAMP,
+      clover_merchant_id TEXT,
+      clover_access_token TEXT,
+      clover_refresh_token TEXT,
+      clover_token_expiry TIMESTAMP,
+      clover_environment TEXT,
       subscription_status TEXT DEFAULT 'inactive',
       subscription_plan_id TEXT,
       stripe_plan_id INTEGER,
@@ -899,6 +940,35 @@ async function createBaseTables() {
       reference_id INTEGER,
       error TEXT,
       sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create clover_menu_cache table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clover_menu_cache (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      menu_data JSONB,
+      last_synced_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create clover_order_log table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clover_order_log (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      clover_order_id TEXT,
+      caller_phone TEXT,
+      caller_name TEXT,
+      items JSONB,
+      total_amount INTEGER,
+      status TEXT DEFAULT 'created',
+      vapi_call_id TEXT,
+      order_type TEXT,
+      error_message TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 

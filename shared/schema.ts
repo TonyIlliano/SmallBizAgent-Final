@@ -63,6 +63,12 @@ export const businesses = pgTable("businesses", {
   quickbooksAccessToken: text("quickbooks_access_token"),
   quickbooksRefreshToken: text("quickbooks_refresh_token"),
   quickbooksTokenExpiry: timestamp("quickbooks_token_expiry"),
+  // Clover POS integration
+  cloverMerchantId: text("clover_merchant_id"),
+  cloverAccessToken: text("clover_access_token"),
+  cloverRefreshToken: text("clover_refresh_token"),
+  cloverTokenExpiry: timestamp("clover_token_expiry"),
+  cloverEnvironment: text("clover_environment"), // 'sandbox' or 'production'
   // Subscription information
   subscriptionStatus: text("subscription_status").default("inactive"),
   subscriptionPlanId: text("subscription_plan_id"),
@@ -424,6 +430,31 @@ export const notificationLog = pgTable("notification_log", {
   sentAt: timestamp("sent_at").defaultNow(),
 });
 
+// Clover Menu Cache (synced from Clover POS — one row per business)
+export const cloverMenuCache = pgTable("clover_menu_cache", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  menuData: jsonb("menu_data"), // Full menu JSON: categories, items, modifiers, prices
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Clover Order Log (records of orders placed via AI → Clover API)
+export const cloverOrderLog = pgTable("clover_order_log", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  cloverOrderId: text("clover_order_id"), // Order ID returned by Clover
+  callerPhone: text("caller_phone"),
+  callerName: text("caller_name"),
+  items: jsonb("items"), // Snapshot of what was ordered
+  totalAmount: integer("total_amount"), // In cents (Clover convention)
+  status: text("status").default("created"), // created, failed
+  vapiCallId: text("vapi_call_id"), // Link to the VAPI call that triggered this
+  orderType: text("order_type"), // pickup, delivery, dine_in
+  errorMessage: text("error_message"), // If Clover API failed
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Password Reset Tokens
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: serial("id").primaryKey(),
@@ -489,6 +520,8 @@ export const insertRecurringScheduleItemSchema = createInsertSchema(recurringSch
 export const insertRecurringJobHistorySchema = createInsertSchema(recurringJobHistory).omit({ id: true, createdAt: true });
 export const insertNotificationSettingsSchema = createInsertSchema(notificationSettings).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertNotificationLogSchema = createInsertSchema(notificationLog).omit({ id: true, sentAt: true });
+export const insertCloverMenuCacheSchema = createInsertSchema(cloverMenuCache).omit({ id: true, createdAt: true });
+export const insertCloverOrderLogSchema = createInsertSchema(cloverOrderLog).omit({ id: true, createdAt: true });
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
 
 // Types
@@ -566,6 +599,12 @@ export type InsertNotificationSettings = z.infer<typeof insertNotificationSettin
 
 export type NotificationLog = typeof notificationLog.$inferSelect;
 export type InsertNotificationLog = z.infer<typeof insertNotificationLogSchema>;
+
+export type CloverMenuCache = typeof cloverMenuCache.$inferSelect;
+export type InsertCloverMenuCache = z.infer<typeof insertCloverMenuCacheSchema>;
+
+export type CloverOrderLog = typeof cloverOrderLog.$inferSelect;
+export type InsertCloverOrderLog = z.infer<typeof insertCloverOrderLogSchema>;
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
