@@ -6,6 +6,7 @@ export type OnboardingStep =
   | 'welcome'
   | 'business'
   | 'services'
+  | 'clover'
   | 'receptionist'
   | 'calendar'
   | 'final';
@@ -32,6 +33,7 @@ const defaultProgress: OnboardingProgress = {
     welcome: 'not_started',
     business: 'not_started',
     services: 'not_started',
+    clover: 'not_started',
     receptionist: 'not_started',
     calendar: 'not_started',
     final: 'not_started'
@@ -193,7 +195,7 @@ export function useOnboardingProgress() {
   
   // Get next incomplete step
   const getNextIncompleteStep = (): OnboardingStep => {
-    const steps: OnboardingStep[] = ['welcome', 'business', 'services', 'receptionist', 'calendar', 'final'];
+    const steps: OnboardingStep[] = ['welcome', 'business', 'services', 'clover', 'receptionist', 'calendar', 'final'];
 
     for (const step of steps) {
       const status = progress.stepStatuses[step];

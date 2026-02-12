@@ -1618,7 +1618,9 @@ export default function Settings() {
                   <TabsList className="mb-4">
                     <TabsTrigger value="calendar">Calendar</TabsTrigger>
                     <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
-                    <TabsTrigger value="clover">Clover POS</TabsTrigger>
+                    {business?.industry?.toLowerCase() === 'restaurant' && (
+                      <TabsTrigger value="clover">Clover POS</TabsTrigger>
+                    )}
                   </TabsList>
                   
                   <TabsContent value="calendar">

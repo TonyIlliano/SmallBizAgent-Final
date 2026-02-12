@@ -4,9 +4,11 @@ import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useOnboardingProgress, type OnboardingStep } from '@/hooks/use-onboarding-progress';
 
+import { useQuery } from '@tanstack/react-query';
 import Welcome from './steps/welcome';
 import BusinessSetup from './steps/business-setup';
 import ServicesSetup from './steps/services-setup';
+import CloverSetup from './steps/clover-setup';
 import VirtualReceptionistSetup from './steps/virtual-receptionist-setup';
 import CalendarSetup from './steps/calendar-setup';
 import FinalSetup from './steps/final-setup';
@@ -30,11 +32,21 @@ export default function OnboardingPage() {
     resetProgress
   } = useOnboardingProgress();
   
+  // Fetch business data to check industry for conditional steps
+  const { data: business } = useQuery<{ industry?: string }>({
+    queryKey: [`/api/business/${user?.businessId}`],
+    enabled: !!user?.businessId,
+  });
+
+  const isRestaurant = business?.industry?.toLowerCase() === 'restaurant';
+
   // Define the steps with mapping to our progress tracking
+  // Clover POS step only shows for restaurant businesses
   const steps = [
     { id: 'welcome' as OnboardingStep, label: 'Welcome', component: Welcome },
     { id: 'business' as OnboardingStep, label: 'Business Profile', component: BusinessSetup },
     { id: 'services' as OnboardingStep, label: 'Services', component: ServicesSetup },
+    ...(isRestaurant ? [{ id: 'clover' as OnboardingStep, label: 'Clover POS', component: CloverSetup }] : []),
     { id: 'receptionist' as OnboardingStep, label: 'Virtual Receptionist', component: VirtualReceptionistSetup },
     { id: 'calendar' as OnboardingStep, label: 'Calendar Integration', component: CalendarSetup },
     { id: 'final' as OnboardingStep, label: 'Complete', component: FinalSetup },
@@ -132,6 +144,7 @@ export default function OnboardingPage() {
     updateStepStatus('welcome', 'completed');
     updateStepStatus('business', 'completed');
     updateStepStatus('services', 'completed');
+    updateStepStatus('clover', 'skipped');
     updateStepStatus('receptionist', 'skipped');
     updateStepStatus('calendar', 'skipped');
     updateStepStatus('final', 'completed');
