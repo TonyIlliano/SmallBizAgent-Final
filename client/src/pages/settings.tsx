@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
 import QuickBooksIntegration from "@/components/quickbooks/QuickBooksIntegration";
-import CloverIntegration from "@/components/clover/CloverIntegration";
+import RestaurantSettings from "@/components/restaurant/RestaurantSettings";
 import ReviewSettings from "@/components/reviews/ReviewSettings";
 import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
 import { StaffScheduleManager } from "@/components/settings/StaffScheduleManager";
@@ -188,9 +188,9 @@ export default function Settings() {
         title: "Clover Connected!",
         description: "Your Clover POS has been connected successfully. Menu has been synced.",
       });
-      setActiveTab('integrations');
+      setActiveTab('restaurant');
       // Clean up URL params
-      window.history.replaceState({}, '', '/settings?tab=integrations');
+      window.history.replaceState({}, '', '/settings?tab=restaurant');
     } else if (cloverParam === 'error') {
       const message = urlParams.get('message') || 'Connection failed';
       toast({
@@ -198,8 +198,8 @@ export default function Settings() {
         description: decodeURIComponent(message),
         variant: "destructive",
       });
-      setActiveTab('integrations');
-      window.history.replaceState({}, '', '/settings?tab=integrations');
+      setActiveTab('restaurant');
+      window.history.replaceState({}, '', '/settings?tab=restaurant');
     }
   }, []);
 
@@ -211,6 +211,9 @@ export default function Settings() {
     queryKey: ['/api/business'],
     enabled: !!businessId,
   });
+
+  // Check if this is a restaurant business for conditional tab rendering
+  const isRestaurant = business?.industry?.toLowerCase() === 'restaurant';
 
   // Fetch business hours
   const { data: businessHours = [], isLoading: isLoadingHours } = useQuery<any[]>({
@@ -663,7 +666,7 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5 md:grid-cols-10 mb-6">
+          <TabsList className={`grid w-full grid-cols-5 ${isRestaurant ? 'md:grid-cols-11' : 'md:grid-cols-10'} mb-6`}>
             <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="team">Team</TabsTrigger>
             <TabsTrigger value="hours">Hours</TabsTrigger>
@@ -671,6 +674,7 @@ export default function Settings() {
             <TabsTrigger value="booking">Booking</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="reviews">Reviews</TabsTrigger>
+            {isRestaurant && <TabsTrigger value="restaurant">Restaurant</TabsTrigger>}
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="subscription">Subscription</TabsTrigger>
             <TabsTrigger value="pwa">App</TabsTrigger>
@@ -1605,6 +1609,12 @@ export default function Settings() {
             {businessId && <ReviewSettings businessId={businessId} />}
           </TabsContent>
 
+          {isRestaurant && (
+            <TabsContent value="restaurant" className="space-y-4">
+              {businessId && <RestaurantSettings businessId={businessId} />}
+            </TabsContent>
+          )}
+
           <TabsContent value="integrations" className="space-y-4">
             <Card>
               <CardHeader>
@@ -1618,11 +1628,8 @@ export default function Settings() {
                   <TabsList className="mb-4">
                     <TabsTrigger value="calendar">Calendar</TabsTrigger>
                     <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
-                    {business?.industry?.toLowerCase() === 'restaurant' && (
-                      <TabsTrigger value="clover">Clover POS</TabsTrigger>
-                    )}
                   </TabsList>
-                  
+
                   <TabsContent value="calendar">
                     <div className="mb-6">
                       <h3 className="text-lg font-medium mb-2">Calendar Integrations</h3>
@@ -1640,17 +1647,6 @@ export default function Settings() {
                         Connect with QuickBooks to sync invoices, customers, and payments
                       </p>
                       {businessId && <QuickBooksIntegration businessId={businessId} />}
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="clover">
-                    <div className="mb-6">
-                      <h3 className="text-lg font-medium mb-2">Clover POS Integration</h3>
-                      <p className="text-muted-foreground mb-4">
-                        Connect your Clover POS for AI-powered phone ordering. Your menu syncs automatically
-                        and phone orders go directly to your POS system.
-                      </p>
-                      {businessId && <CloverIntegration businessId={businessId} />}
                     </div>
                   </TabsContent>
                 </Tabs>

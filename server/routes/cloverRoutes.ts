@@ -94,7 +94,7 @@ router.get('/callback', async (req, res) => {
     const { code, merchant_id, state } = req.query;
 
     if (!code || !merchant_id || !state) {
-      return res.redirect('/settings?clover=error&message=Missing+OAuth+parameters');
+      return res.redirect('/settings?clover=error&message=Missing+OAuth+parameters&tab=restaurant');
     }
 
     await handleCloverOAuthCallback(
@@ -104,10 +104,10 @@ router.get('/callback', async (req, res) => {
     );
 
     // Redirect back to settings page with success message
-    res.redirect('/settings?clover=connected&tab=integrations');
+    res.redirect('/settings?clover=connected&tab=restaurant');
   } catch (error: any) {
     console.error('Clover OAuth callback error:', error);
-    res.redirect(`/settings?clover=error&message=${encodeURIComponent(error.message)}&tab=integrations`);
+    res.redirect(`/settings?clover=error&message=${encodeURIComponent(error.message)}&tab=restaurant`);
   }
 });
 
