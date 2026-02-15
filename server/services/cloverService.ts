@@ -147,7 +147,7 @@ export function getCloverAuthUrl(businessId: number, environment: string = 'sand
   }
 
   const urls = getCloverUrls(environment);
-  const redirectUri = `${process.env.APP_URL || 'http://localhost:5000'}/api/integrations/clover/callback`;
+  const redirectUri = `${process.env.APP_URL || 'http://localhost:5000'}/api/clover/callback`;
 
   // State parameter encodes businessId and environment for the callback
   const state = Buffer.from(JSON.stringify({ businessId, environment })).toString('base64');
