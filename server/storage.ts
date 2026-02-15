@@ -19,7 +19,9 @@ import {
   NotificationSettings, InsertNotificationSettings, notificationSettings,
   NotificationLog, InsertNotificationLog, notificationLog,
   CloverMenuCache, InsertCloverMenuCache, cloverMenuCache,
-  CloverOrderLog, InsertCloverOrderLog, cloverOrderLog
+  CloverOrderLog, InsertCloverOrderLog, cloverOrderLog,
+  SquareMenuCache, InsertSquareMenuCache, squareMenuCache,
+  SquareOrderLog, InsertSquareOrderLog, squareOrderLog
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -208,6 +210,26 @@ export interface IStorage {
     cloverEnvironment?: string;
   }): Promise<Business>;
   clearBusinessCloverConnection(businessId: number): Promise<Business>;
+
+  // Square Menu Cache
+  getSquareMenuCache(businessId: number): Promise<SquareMenuCache | undefined>;
+  upsertSquareMenuCache(businessId: number, menuData: any): Promise<SquareMenuCache>;
+
+  // Square Order Log
+  createSquareOrderLog(entry: InsertSquareOrderLog): Promise<SquareOrderLog>;
+  getSquareOrderLogs(businessId: number, limit?: number): Promise<SquareOrderLog[]>;
+  getSquareOrderLog(id: number): Promise<SquareOrderLog | undefined>;
+
+  // Square Token Management
+  updateBusinessSquareTokens(businessId: number, tokens: {
+    squareMerchantId?: string;
+    squareAccessToken?: string;
+    squareRefreshToken?: string;
+    squareTokenExpiry?: Date;
+    squareLocationId?: string;
+    squareEnvironment?: string;
+  }): Promise<Business>;
+  clearBusinessSquareConnection(businessId: number): Promise<Business>;
 
   // Password Reset Tokens
   createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken>;
@@ -1237,6 +1259,79 @@ export class DatabaseStorage implements IStorage {
         cloverRefreshToken: null,
         cloverTokenExpiry: null,
         cloverEnvironment: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(businesses.id, businessId))
+      .returning();
+    return updated;
+  }
+
+  // Square Menu Cache methods
+  async getSquareMenuCache(businessId: number): Promise<SquareMenuCache | undefined> {
+    const [cache] = await db.select().from(squareMenuCache)
+      .where(eq(squareMenuCache.businessId, businessId));
+    return cache;
+  }
+
+  async upsertSquareMenuCache(businessId: number, menuData: any): Promise<SquareMenuCache> {
+    const existing = await this.getSquareMenuCache(businessId);
+    if (existing) {
+      const [updated] = await db.update(squareMenuCache)
+        .set({ menuData, lastSyncedAt: new Date() })
+        .where(eq(squareMenuCache.businessId, businessId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(squareMenuCache)
+      .values({ businessId, menuData, lastSyncedAt: new Date() })
+      .returning();
+    return created;
+  }
+
+  // Square Order Log methods
+  async createSquareOrderLog(entry: InsertSquareOrderLog): Promise<SquareOrderLog> {
+    const [log] = await db.insert(squareOrderLog).values(entry).returning();
+    return log;
+  }
+
+  async getSquareOrderLogs(businessId: number, limit: number = 50): Promise<SquareOrderLog[]> {
+    return db.select().from(squareOrderLog)
+      .where(eq(squareOrderLog.businessId, businessId))
+      .orderBy(desc(squareOrderLog.createdAt))
+      .limit(limit);
+  }
+
+  async getSquareOrderLog(id: number): Promise<SquareOrderLog | undefined> {
+    const [log] = await db.select().from(squareOrderLog)
+      .where(eq(squareOrderLog.id, id));
+    return log;
+  }
+
+  // Square Token Management methods
+  async updateBusinessSquareTokens(businessId: number, tokens: {
+    squareMerchantId?: string;
+    squareAccessToken?: string;
+    squareRefreshToken?: string;
+    squareTokenExpiry?: Date;
+    squareLocationId?: string;
+    squareEnvironment?: string;
+  }): Promise<Business> {
+    const [updated] = await db.update(businesses)
+      .set({ ...tokens, updatedAt: new Date() })
+      .where(eq(businesses.id, businessId))
+      .returning();
+    return updated;
+  }
+
+  async clearBusinessSquareConnection(businessId: number): Promise<Business> {
+    const [updated] = await db.update(businesses)
+      .set({
+        squareMerchantId: null,
+        squareAccessToken: null,
+        squareRefreshToken: null,
+        squareTokenExpiry: null,
+        squareLocationId: null,
+        squareEnvironment: null,
         updatedAt: new Date(),
       })
       .where(eq(businesses.id, businessId))

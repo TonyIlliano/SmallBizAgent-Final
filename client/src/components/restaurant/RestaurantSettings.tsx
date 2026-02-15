@@ -1,4 +1,5 @@
 import CloverIntegration from "@/components/clover/CloverIntegration";
+import SquareIntegration from "@/components/square/SquareIntegration";
 import { PosIntegrationCard } from "./PosIntegrationCard";
 import { ReservationPlatformCard } from "./ReservationPlatformCard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -74,20 +75,23 @@ export default function RestaurantSettings({ businessId }: RestaurantSettingsPro
             ]}
           />
 
-          {/* Square for Restaurants - Coming Soon */}
-          <PosIntegrationCard
-            name="Square for Restaurants"
-            description="Connect Square POS for menu management and order processing"
-            icon={<Store className="w-5 h-5 text-blue-600" />}
-            accentColor="blue"
-            comingSoon
-            features={[
-              "Square menu import",
-              "Order and payment sync",
-              "Inventory updates",
-              "Multi-location support",
-            ]}
-          />
+          {/* Square for Restaurants - Real Integration */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <Store className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Square for Restaurants</CardTitle>
+                  <CardDescription className="text-xs">AI-powered phone ordering</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <SquareIntegration businessId={businessId} />
+            </CardContent>
+          </Card>
         </div>
       </div>
 

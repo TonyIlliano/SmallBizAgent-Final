@@ -6,7 +6,8 @@
  */
 
 import { Business, Service } from '@shared/schema';
-import { getCachedMenu, formatMenuForPrompt, type CachedMenu } from './cloverService';
+import { getCachedMenu as getCloverCachedMenu, formatMenuForPrompt, type CachedMenu } from './cloverService';
+import { getCachedMenu as getSquareCachedMenu } from './squareService';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
@@ -537,11 +538,11 @@ APPOINTMENT MANAGEMENT:
 - cancelAppointment: Cancel an existing appointment
 - getUpcomingAppointments: Look up the caller's upcoming appointments`;
 
-  // Add restaurant-specific functions for restaurants with Clover
+  // Add restaurant-specific functions for restaurants with a connected POS
   if (businessType.includes('restaurant') && menuData) {
     functionDocs += `
 
-RESTAURANT ORDERING (Clover POS):
+RESTAURANT ORDERING (POS):
 - getMenu: Get the full restaurant menu with categories, items, prices, and modifiers
 - getMenuCategory: Get items in a specific category (e.g., appetizers, entrees, drinks)
 - createOrder: Place an order in the restaurant's POS system. Use after confirming the complete order with the caller.`;
@@ -821,7 +822,7 @@ function getRestaurantFunctions() {
             items: {
               type: 'object',
               properties: {
-                cloverItemId: { type: 'string', description: 'The Clover item ID from the menu' },
+                itemId: { type: 'string', description: 'The item ID from the menu' },
                 quantity: { type: 'number', description: 'Number of this item to order' },
                 modifiers: {
                   type: 'array',
@@ -829,14 +830,14 @@ function getRestaurantFunctions() {
                   items: {
                     type: 'object',
                     properties: {
-                      cloverId: { type: 'string', description: 'The Clover modifier ID' }
+                      modifierId: { type: 'string', description: 'The modifier ID' }
                     },
-                    required: ['cloverId']
+                    required: ['modifierId']
                   }
                 },
                 notes: { type: 'string', description: 'Special instructions for this item' }
               },
-              required: ['cloverItemId', 'quantity']
+              required: ['itemId', 'quantity']
             }
           },
           callerPhone: { type: 'string', description: 'Customer phone number' },
@@ -862,14 +863,18 @@ export async function createAssistantForBusiness(
     return { assistantId: '', error: 'Vapi API key not configured' };
   }
 
-  // For restaurants, try to load cached Clover menu data for the prompt
+  // For restaurants, try to load cached menu data from connected POS (Square or Clover)
   let menuData: CachedMenu | null = null;
   const isRestaurant = business.industry?.toLowerCase()?.includes('restaurant');
-  if (isRestaurant && business.cloverMerchantId) {
+  if (isRestaurant) {
     try {
-      menuData = await getCachedMenu(business.id);
+      if (business.squareAccessToken) {
+        menuData = await getSquareCachedMenu(business.id);
+      } else if (business.cloverMerchantId) {
+        menuData = await getCloverCachedMenu(business.id);
+      }
     } catch (e) {
-      console.warn(`Could not load Clover menu for business ${business.id}:`, e);
+      console.warn(`Could not load POS menu for business ${business.id}:`, e);
     }
   }
 

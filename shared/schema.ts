@@ -69,6 +69,13 @@ export const businesses = pgTable("businesses", {
   cloverRefreshToken: text("clover_refresh_token"),
   cloverTokenExpiry: timestamp("clover_token_expiry"),
   cloverEnvironment: text("clover_environment"), // 'sandbox' or 'production'
+  // Square POS integration
+  squareMerchantId: text("square_merchant_id"),
+  squareAccessToken: text("square_access_token"),
+  squareRefreshToken: text("square_refresh_token"),
+  squareTokenExpiry: timestamp("square_token_expiry"),
+  squareLocationId: text("square_location_id"),
+  squareEnvironment: text("square_environment"), // 'sandbox' or 'production'
   // Subscription information
   subscriptionStatus: text("subscription_status").default("inactive"),
   subscriptionPlanId: text("subscription_plan_id"),
@@ -455,6 +462,31 @@ export const cloverOrderLog = pgTable("clover_order_log", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Square Menu Cache (synced from Square POS — one row per business)
+export const squareMenuCache = pgTable("square_menu_cache", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  menuData: jsonb("menu_data"), // Full menu JSON: categories, items, modifiers, prices
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Square Order Log (records of orders placed via AI → Square API)
+export const squareOrderLog = pgTable("square_order_log", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  squareOrderId: text("square_order_id"), // Order ID returned by Square
+  callerPhone: text("caller_phone"),
+  callerName: text("caller_name"),
+  items: jsonb("items"), // Snapshot of what was ordered
+  totalAmount: integer("total_amount"), // In cents
+  status: text("status").default("created"), // created, failed
+  vapiCallId: text("vapi_call_id"), // Link to the VAPI call that triggered this
+  orderType: text("order_type"), // pickup, delivery, dine_in
+  errorMessage: text("error_message"), // If Square API failed
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Password Reset Tokens
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: serial("id").primaryKey(),
@@ -522,6 +554,8 @@ export const insertNotificationSettingsSchema = createInsertSchema(notificationS
 export const insertNotificationLogSchema = createInsertSchema(notificationLog).omit({ id: true, sentAt: true });
 export const insertCloverMenuCacheSchema = createInsertSchema(cloverMenuCache).omit({ id: true, createdAt: true });
 export const insertCloverOrderLogSchema = createInsertSchema(cloverOrderLog).omit({ id: true, createdAt: true });
+export const insertSquareMenuCacheSchema = createInsertSchema(squareMenuCache).omit({ id: true, createdAt: true });
+export const insertSquareOrderLogSchema = createInsertSchema(squareOrderLog).omit({ id: true, createdAt: true });
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
 
 // Types
@@ -605,6 +639,12 @@ export type InsertCloverMenuCache = z.infer<typeof insertCloverMenuCacheSchema>;
 
 export type CloverOrderLog = typeof cloverOrderLog.$inferSelect;
 export type InsertCloverOrderLog = z.infer<typeof insertCloverOrderLogSchema>;
+
+export type SquareMenuCache = typeof squareMenuCache.$inferSelect;
+export type InsertSquareMenuCache = z.infer<typeof insertSquareMenuCacheSchema>;
+
+export type SquareOrderLog = typeof squareOrderLog.$inferSelect;
+export type InsertSquareOrderLog = z.infer<typeof insertSquareOrderLogSchema>;
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;

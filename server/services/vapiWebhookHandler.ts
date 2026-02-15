@@ -7,7 +7,8 @@
 
 import { storage } from '../storage';
 import twilioService from './twilioService';
-import { getCachedMenu, createOrder as createCloverOrder, formatMenuForPrompt, type CachedMenu } from './cloverService';
+import { getCachedMenu as getCloverCachedMenu, createOrder as createCloverOrder, formatMenuForPrompt, type CachedMenu } from './cloverService';
+import { getCachedMenu as getSquareCachedMenu, createOrder as createSquareOrder } from './squareService';
 
 /**
  * ===========================================
@@ -3069,14 +3070,42 @@ async function handleEndOfCall(
   return null;
 }
 
-// ========== Restaurant Ordering Handler Functions (Clover POS) ==========
+// ========== Restaurant Ordering Handler Functions (POS Integration) ==========
+
+/**
+ * Detect which POS system a business uses and return the cached menu.
+ * Checks Square first (newer), then Clover.
+ */
+async function getPOSCachedMenu(businessId: number): Promise<CachedMenu | null> {
+  const business = await storage.getBusiness(businessId);
+  if (!business) return null;
+
+  if (business.squareAccessToken) {
+    return getSquareCachedMenu(businessId);
+  }
+  if (business.cloverAccessToken) {
+    return getCloverCachedMenu(businessId);
+  }
+  return null;
+}
+
+/**
+ * Detect which POS system a business uses: 'square', 'clover', or null
+ */
+async function detectPOSType(businessId: number): Promise<'square' | 'clover' | null> {
+  const business = await storage.getBusiness(businessId);
+  if (!business) return null;
+  if (business.squareAccessToken) return 'square';
+  if (business.cloverAccessToken) return 'clover';
+  return null;
+}
 
 /**
  * Handle getMenu function call — returns the full cached menu formatted for voice
  */
 async function handleGetMenu(businessId: number): Promise<any> {
   try {
-    const menu = await getCachedMenu(businessId);
+    const menu = await getPOSCachedMenu(businessId);
     if (!menu) {
       return {
         result: {
@@ -3128,7 +3157,7 @@ async function handleGetMenu(businessId: number): Promise<any> {
  */
 async function handleGetMenuCategory(businessId: number, categoryName: string): Promise<any> {
   try {
-    const menu = await getCachedMenu(businessId);
+    const menu = await getPOSCachedMenu(businessId);
     if (!menu) {
       return {
         result: {
@@ -3199,15 +3228,16 @@ async function handleGetMenuCategory(businessId: number, categoryName: string): 
 }
 
 /**
- * Handle createOrder function call — creates an order in Clover POS
+ * Handle createOrder function call — creates an order in the connected POS (Clover or Square)
  */
 async function handleCreateOrder(
   businessId: number,
   parameters: {
     items: Array<{
-      cloverItemId: string;
+      itemId?: string;
+      cloverItemId?: string; // Legacy field — kept for backward compatibility
       quantity: number;
-      modifiers?: Array<{ cloverId: string }>;
+      modifiers?: Array<{ modifierId?: string; cloverId?: string }>;
       notes?: string;
     }>;
     callerPhone?: string;
@@ -3230,16 +3260,40 @@ async function handleCreateOrder(
 
     // Use caller phone from VAPI if not provided in parameters
     const phone = parameters.callerPhone || callerPhone;
+    const posType = await detectPOSType(businessId);
 
-    console.log(`Creating Clover order for business ${businessId}:`, JSON.stringify(parameters));
+    console.log(`Creating ${posType} order for business ${businessId}:`, JSON.stringify(parameters));
 
-    const result = await createCloverOrder(businessId, {
-      items: parameters.items,
-      callerPhone: phone,
-      callerName: parameters.callerName,
-      orderType: (parameters.orderType as 'pickup' | 'delivery' | 'dine_in') || 'pickup',
-      orderNotes: parameters.orderNotes,
-    });
+    let result: { success: boolean; orderId?: string; orderTotal?: number; error?: string };
+
+    if (posType === 'square') {
+      result = await createSquareOrder(businessId, {
+        items: parameters.items.map(item => ({
+          itemId: item.itemId || item.cloverItemId || '',
+          quantity: item.quantity,
+          modifiers: item.modifiers?.map(m => ({ modifierId: m.modifierId || m.cloverId || '' })),
+          notes: item.notes,
+        })),
+        callerPhone: phone,
+        callerName: parameters.callerName,
+        orderType: (parameters.orderType as 'pickup' | 'delivery' | 'dine_in') || 'pickup',
+        orderNotes: parameters.orderNotes,
+      });
+    } else {
+      // Default to Clover
+      result = await createCloverOrder(businessId, {
+        items: parameters.items.map(item => ({
+          cloverItemId: item.cloverItemId || item.itemId || '',
+          quantity: item.quantity,
+          modifiers: item.modifiers?.map(m => ({ cloverId: m.cloverId || m.modifierId || '' })),
+          notes: item.notes,
+        })),
+        callerPhone: phone,
+        callerName: parameters.callerName,
+        orderType: (parameters.orderType as 'pickup' | 'delivery' | 'dine_in') || 'pickup',
+        orderNotes: parameters.orderNotes,
+      });
+    }
 
     if (result.success) {
       const totalFormatted = result.orderTotal ? `$${(result.orderTotal / 100).toFixed(2)}` : 'calculated at pickup';
@@ -3258,7 +3312,7 @@ async function handleCreateOrder(
         }
       };
     } else {
-      console.error(`Clover order failed for business ${businessId}:`, result.error);
+      console.error(`POS order failed for business ${businessId}:`, result.error);
       return {
         result: {
           success: false,
