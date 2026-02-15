@@ -323,6 +323,17 @@ export default function Settings() {
     },
   });
   
+  // Reset hours form when business hours data loads from API
+  useEffect(() => {
+    if (businessHours && businessHours.length > 0) {
+      const formatted = formatBusinessHours();
+      if (formatted) {
+        hoursForm.reset(formatted);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessHours]);
+
   // Update profile mutation
   const updateProfileMutation = useMutation({
     mutationFn: (data: z.infer<typeof businessProfileSchema>) => {
