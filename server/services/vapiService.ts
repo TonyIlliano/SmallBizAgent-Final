@@ -1283,10 +1283,28 @@ export async function updateAssistant(
     return { success: false, error: 'Vapi API key not configured' };
   }
 
-  const systemPrompt = generateSystemPrompt(business, services, businessHours);
+  // Load menu data for restaurants with connected POS
+  const isRestaurant = business.industry?.toLowerCase()?.includes('restaurant');
+  let menuData: CachedMenu | null = null;
+  if (isRestaurant) {
+    try {
+      if (business.squareAccessToken) {
+        menuData = await getSquareCachedMenu(business.id);
+      } else if (business.cloverMerchantId) {
+        menuData = await getCloverCachedMenu(business.id);
+      }
+    } catch (e) {
+      console.warn(`Could not load POS menu for business ${business.id} during assistant update:`, e);
+    }
+  }
 
-  // Get the same functions used in createAssistantForBusiness
-  const functions = getAssistantFunctions();
+  const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData);
+
+  // Get functions — include restaurant functions if menu data is available
+  const functions = [
+    ...getAssistantFunctions(),
+    ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
+  ];
 
   try {
     const response = await fetch(`${VAPI_BASE_URL}/assistant/${assistantId}`, {
