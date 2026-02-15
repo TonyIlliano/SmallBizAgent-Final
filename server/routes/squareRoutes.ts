@@ -15,6 +15,7 @@ import {
   disconnectSquare,
   getCachedMenu,
 } from '../services/squareService';
+import { debouncedUpdateVapiAssistant } from '../services/vapiProvisioningService';
 
 const router = Router();
 
@@ -97,10 +98,18 @@ router.get('/callback', async (req, res) => {
       return res.redirect('/settings?square=error&message=Missing+OAuth+parameters&tab=restaurant');
     }
 
-    await handleSquareOAuthCallback(
+    const business = await handleSquareOAuthCallback(
       code as string,
       state as string
     );
+
+    // Auto-refresh VAPI assistant so it picks up the synced menu
+    try {
+      debouncedUpdateVapiAssistant(business.id);
+      console.log(`Triggered VAPI assistant refresh after Square connection for business ${business.id}`);
+    } catch (e) {
+      console.error('Failed to trigger VAPI refresh after Square connection:', e);
+    }
 
     // Redirect back to settings page with success message
     res.redirect('/settings?square=connected&tab=restaurant');
@@ -124,6 +133,14 @@ router.post('/sync-menu', isAuthenticated, async (req, res) => {
 
     const menu = await syncMenu(businessId);
     const totalItems = menu.categories.reduce((sum, cat) => sum + cat.items.length, 0);
+
+    // Auto-refresh VAPI assistant so it picks up the updated menu
+    try {
+      debouncedUpdateVapiAssistant(businessId);
+      console.log(`Triggered VAPI assistant refresh after Square menu sync for business ${businessId}`);
+    } catch (e) {
+      console.error('Failed to trigger VAPI refresh after menu sync:', e);
+    }
 
     res.json({
       success: true,
