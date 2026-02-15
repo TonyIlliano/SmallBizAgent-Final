@@ -344,6 +344,14 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'clover_token_expiry', 'TIMESTAMP');
   await addColumnIfNotExists('businesses', 'clover_environment', 'TEXT');
 
+  // Fix businesses table - add Square POS integration columns
+  await addColumnIfNotExists('businesses', 'square_merchant_id', 'TEXT');
+  await addColumnIfNotExists('businesses', 'square_access_token', 'TEXT');
+  await addColumnIfNotExists('businesses', 'square_refresh_token', 'TEXT');
+  await addColumnIfNotExists('businesses', 'square_token_expiry', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'square_location_id', 'TEXT');
+  await addColumnIfNotExists('businesses', 'square_environment', 'TEXT');
+
   // Create clover_menu_cache table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clover_menu_cache (
@@ -361,6 +369,35 @@ async function fixExistingTables() {
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
       clover_order_id TEXT,
+      caller_phone TEXT,
+      caller_name TEXT,
+      items JSONB,
+      total_amount INTEGER,
+      status TEXT DEFAULT 'created',
+      vapi_call_id TEXT,
+      order_type TEXT,
+      error_message TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create square_menu_cache table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS square_menu_cache (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      menu_data JSONB,
+      last_synced_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create square_order_log table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS square_order_log (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      square_order_id TEXT,
       caller_phone TEXT,
       caller_name TEXT,
       items JSONB,
