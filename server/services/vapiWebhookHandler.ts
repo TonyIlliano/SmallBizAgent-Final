@@ -3293,29 +3293,54 @@ async function handleCreateOrder(
     const menu = await getPOSCachedMenu(businessId);
     const allMenuItems = menu?.categories.flatMap(cat => cat.items) || [];
 
+    console.log(`Menu has ${allMenuItems.length} items: ${allMenuItems.map(mi => mi.name).join(', ')}`);
+
     const resolvedItems = parameters.items.map(item => {
       const rawId = item.itemId || item.cloverItemId || '';
       // Check if this looks like a real POS ID (alphanumeric, typically 13+ chars)
-      // If not, try to match by name against the cached menu
       const looksLikeRealId = /^[A-Z0-9]{10,}$/.test(rawId);
       if (looksLikeRealId) {
         return item; // Already a real ID
       }
 
-      // Try fuzzy name match against menu items
-      const searchName = rawId.toLowerCase().replace(/[_-]/g, ' ');
-      const matched = allMenuItems.find(mi =>
-        mi.name.toLowerCase() === searchName ||
-        mi.name.toLowerCase().includes(searchName) ||
-        searchName.includes(mi.name.toLowerCase())
-      );
+      // Try fuzzy name match against menu items (progressively looser matching)
+      const searchName = rawId.toLowerCase().replace(/[_-]/g, ' ').trim();
+      const searchWords = searchName.split(/\s+/);
+
+      // 1. Exact match
+      let matched = allMenuItems.find(mi => mi.name.toLowerCase() === searchName);
+
+      // 2. Contains match (either direction)
+      if (!matched) {
+        matched = allMenuItems.find(mi =>
+          mi.name.toLowerCase().includes(searchName) ||
+          searchName.includes(mi.name.toLowerCase())
+        );
+      }
+
+      // 3. Word overlap — any word from the search appears in the item name or vice versa
+      if (!matched) {
+        matched = allMenuItems.find(mi => {
+          const itemWords = mi.name.toLowerCase().split(/\s+/);
+          return searchWords.some(sw => sw.length > 2 && itemWords.some(iw => iw.includes(sw) || sw.includes(iw)));
+        });
+      }
+
+      // 4. Singular/plural — try adding/removing trailing 's'
+      if (!matched) {
+        const variants = searchWords.map(w => w.endsWith('s') ? w.slice(0, -1) : w + 's');
+        matched = allMenuItems.find(mi => {
+          const itemLower = mi.name.toLowerCase();
+          return variants.some(v => itemLower.includes(v));
+        });
+      }
 
       if (matched) {
         console.log(`Resolved item name "${rawId}" to POS ID "${matched.id}" (${matched.name})`);
         return { ...item, itemId: matched.id, cloverItemId: matched.id };
       }
 
-      console.warn(`Could not resolve item "${rawId}" to a POS ID — passing through as-is`);
+      console.warn(`Could not resolve item "${rawId}" to any of ${allMenuItems.length} menu items — passing through as-is`);
       return item;
     });
 
