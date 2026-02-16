@@ -434,7 +434,7 @@ PHONE ORDERING FLOW:
 5. When they're done ordering, read back the complete order with all items and modifiers.
 6. Confirm the order is correct.
 7. Ask for their name and phone number for the order.
-8. Ask if it's pickup or delivery.
+8. {{ORDER_TYPE_STEP}}
 9. Call the createOrder function to place the order in the system.
 10. Confirm the order was placed and give them an estimated time if possible.
 
@@ -521,6 +521,25 @@ GENERAL SERVICE GUIDANCE:
       industryPrompt = prompt;
       break;
     }
+  }
+
+  // Replace {{ORDER_TYPE_STEP}} with dynamic order type instructions
+  if (businessType.includes('restaurant')) {
+    const pickupEnabled = business.restaurantPickupEnabled ?? true;
+    const deliveryEnabled = business.restaurantDeliveryEnabled ?? false;
+
+    let orderTypeStep: string;
+    if (pickupEnabled && deliveryEnabled) {
+      orderTypeStep = 'Ask if it\'s for pickup or delivery.';
+    } else if (pickupEnabled) {
+      orderTypeStep = 'All orders are for pickup. Confirm this is for pickup — do NOT offer delivery.';
+    } else if (deliveryEnabled) {
+      orderTypeStep = 'All orders are for delivery. Confirm this is for delivery — do NOT offer pickup.';
+    } else {
+      orderTypeStep = 'All orders are for pickup. Confirm this is for pickup.';
+    }
+
+    industryPrompt = industryPrompt.replace('{{ORDER_TYPE_STEP}}', orderTypeStep);
   }
 
   // For restaurants with Clover connected, append the full menu to the prompt

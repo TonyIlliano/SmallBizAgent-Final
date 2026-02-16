@@ -352,6 +352,10 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'square_location_id', 'TEXT');
   await addColumnIfNotExists('businesses', 'square_environment', 'TEXT');
 
+  // Fix businesses table - add restaurant order type settings
+  await addColumnIfNotExists('businesses', 'restaurant_pickup_enabled', 'BOOLEAN DEFAULT true');
+  await addColumnIfNotExists('businesses', 'restaurant_delivery_enabled', 'BOOLEAN DEFAULT false');
+
   // Create clover_menu_cache table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clover_menu_cache (

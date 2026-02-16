@@ -3273,6 +3273,19 @@ async function handleCreateOrder(
     const phone = parameters.callerPhone || callerPhone;
     const posType = await detectPOSType(businessId);
 
+    // Validate order type against business settings — default to first enabled type
+    const business = await storage.getBusiness(businessId);
+    const pickupEnabled = business?.restaurantPickupEnabled ?? true;
+    const deliveryEnabled = business?.restaurantDeliveryEnabled ?? false;
+    let orderType = (parameters.orderType || 'pickup') as string;
+    if (orderType === 'delivery' && !deliveryEnabled) {
+      console.log(`Delivery not enabled for business ${businessId}, defaulting to pickup`);
+      orderType = 'pickup';
+    } else if (orderType === 'pickup' && !pickupEnabled && deliveryEnabled) {
+      console.log(`Pickup not enabled for business ${businessId}, defaulting to delivery`);
+      orderType = 'delivery';
+    }
+
     console.log(`Creating ${posType} order for business ${businessId}:`, JSON.stringify(parameters));
 
     // Resolve item names to real POS IDs if the AI passed names instead of IDs
@@ -3317,7 +3330,7 @@ async function handleCreateOrder(
         })),
         callerPhone: phone,
         callerName: parameters.callerName,
-        orderType: (parameters.orderType as 'pickup' | 'delivery' | 'dine_in') || 'pickup',
+        orderType: orderType as 'pickup' | 'delivery' | 'dine_in',
         orderNotes: parameters.orderNotes,
       });
     } else {
@@ -3331,7 +3344,7 @@ async function handleCreateOrder(
         })),
         callerPhone: phone,
         callerName: parameters.callerName,
-        orderType: (parameters.orderType as 'pickup' | 'delivery' | 'dine_in') || 'pickup',
+        orderType: orderType as 'pickup' | 'delivery' | 'dine_in',
         orderNotes: parameters.orderNotes,
       });
     }
@@ -3344,9 +3357,9 @@ async function handleCreateOrder(
           orderId: result.orderId,
           total: totalFormatted,
           message: `Great news! Your order has been placed successfully. Your order total is ${totalFormatted}. ${
-            parameters.orderType === 'pickup'
+            orderType === 'pickup'
               ? "It'll be ready for pickup shortly. We'll have it waiting for you!"
-              : parameters.orderType === 'delivery'
+              : orderType === 'delivery'
               ? "Your delivery is being prepared. You'll receive it soon!"
               : "Your order has been sent to the kitchen!"
           } Is there anything else I can help you with?`

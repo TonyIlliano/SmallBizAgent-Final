@@ -260,8 +260,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertBusinessSchema.partial().parse(req.body);
       const business = await storage.updateBusiness(id, validatedData);
 
-      // Update Vapi assistant if business name, industry, or hours changed (debounced)
-      if (validatedData.name || validatedData.industry || validatedData.businessHours) {
+      // Update Vapi assistant if business name, industry, hours, or restaurant order types changed (debounced)
+      if (validatedData.name || validatedData.industry || validatedData.businessHours ||
+          validatedData.restaurantPickupEnabled !== undefined || validatedData.restaurantDeliveryEnabled !== undefined) {
         vapiProvisioningService.debouncedUpdateVapiAssistant(id);
       }
 

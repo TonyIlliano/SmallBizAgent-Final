@@ -76,6 +76,9 @@ export const businesses = pgTable("businesses", {
   squareTokenExpiry: timestamp("square_token_expiry"),
   squareLocationId: text("square_location_id"),
   squareEnvironment: text("square_environment"), // 'sandbox' or 'production'
+  // Restaurant order type settings
+  restaurantPickupEnabled: boolean("restaurant_pickup_enabled").default(true),
+  restaurantDeliveryEnabled: boolean("restaurant_delivery_enabled").default(false),
   // Subscription information
   subscriptionStatus: text("subscription_status").default("inactive"),
   subscriptionPlanId: text("subscription_plan_id"),
