@@ -14,7 +14,7 @@ const { VoiceResponse } = twilio.twiml;
 // Initialize Twilio client with environment variables
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
-const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '+15555555555';
+const configuredPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '';
 
 // Check if Twilio is properly configured
 const isTwilioConfigured = accountSid && authToken && accountSid.startsWith('AC');
@@ -26,6 +26,43 @@ if (isTwilioConfigured) {
 } else {
   console.warn('⚠️  Twilio credentials not configured or invalid. SMS/Call features will be disabled.');
   console.warn('   Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in your .env file.');
+}
+
+// Cache for auto-discovered SMS-capable number (looked up once from account)
+let discoveredSmsNumber: string | null = null;
+
+/**
+ * Get an SMS-capable phone number from this Twilio account.
+ * Prefers the TWILIO_PHONE_NUMBER env var. If not set, looks up the first
+ * SMS-capable number on the account and caches it.
+ */
+async function getSmsFromNumber(): Promise<string | null> {
+  // 1. Use configured env var if it looks like a real number
+  if (configuredPhoneNumber && configuredPhoneNumber.startsWith('+1')) {
+    return configuredPhoneNumber;
+  }
+
+  // 2. Return cached discovery
+  if (discoveredSmsNumber) return discoveredSmsNumber;
+
+  // 3. Look up from Twilio account
+  if (!client) return null;
+  try {
+    const numbers = await client.incomingPhoneNumbers.list({
+      smsEnabled: true,
+      limit: 5,
+    });
+    if (numbers.length > 0) {
+      discoveredSmsNumber = numbers[0].phoneNumber;
+      console.log(`Auto-discovered SMS-capable number: ${discoveredSmsNumber}`);
+      return discoveredSmsNumber;
+    }
+    console.warn('No SMS-capable numbers found on Twilio account');
+    return null;
+  } catch (err) {
+    console.error('Failed to discover SMS number from Twilio account:', err);
+    return null;
+  }
 }
 
 /**
@@ -41,12 +78,21 @@ export async function sendSms(to: string, body: string, from?: string) {
     return { sid: 'mock-sid', status: 'mock' };
   }
   try {
+    // Resolve the from number: explicit param > env var > auto-discover from account
+    const fromNumber = from || await getSmsFromNumber();
+    if (!fromNumber) {
+      console.error('No SMS-capable from number available. Set TWILIO_PHONE_NUMBER or ensure account has SMS-capable numbers.');
+      throw new Error('No SMS from number configured');
+    }
+
+    console.log(`Sending SMS: from=${fromNumber} to=${to} body="${body.substring(0, 60)}..."`);
     const message = await client.messages.create({
       body,
-      from: from || twilioPhoneNumber,
+      from: fromNumber,
       to
     });
 
+    console.log(`SMS sent successfully: sid=${message.sid} status=${message.status}`);
     return message;
   } catch (error) {
     console.error('Error sending SMS:', error);
@@ -67,9 +113,10 @@ export async function makeCall(to: string, url: string) {
     return { sid: 'mock-call-sid', status: 'mock' };
   }
   try {
+    const fromNumber = await getSmsFromNumber() || configuredPhoneNumber;
     const call = await client.calls.create({
       url,
-      from: twilioPhoneNumber,
+      from: fromNumber,
       to
     });
 
