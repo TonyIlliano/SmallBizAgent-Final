@@ -3372,8 +3372,10 @@ async function handleCreateOrder(
             `Type: ${orderType === 'delivery' ? 'Delivery' : 'Pickup'}\n\n` +
             `Thank you${parameters.callerName ? ', ' + parameters.callerName : ''}!`;
 
-          const smsFrom = business?.twilioPhoneNumber || undefined;
-          twilioService.sendSms(phone, smsBody, smsFrom).catch(err => {
+          // Use the default Twilio number (TWILIO_PHONE_NUMBER env var) for SMS.
+          // The business's twilioPhoneNumber is imported into VAPI for voice and may
+          // not be registered for A2P 10DLC SMS, causing carrier rejections (error 30034).
+          twilioService.sendSms(phone, smsBody).catch(err => {
             console.error(`Failed to send order confirmation SMS to ${phone}:`, err);
           });
         } catch (smsError) {
