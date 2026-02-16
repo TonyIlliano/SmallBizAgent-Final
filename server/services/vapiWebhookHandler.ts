@@ -3352,6 +3352,34 @@ async function handleCreateOrder(
 
     if (result.success) {
       const totalFormatted = result.orderTotal ? `$${(result.orderTotal / 100).toFixed(2)}` : 'calculated at pickup';
+
+      // Send order confirmation SMS to the caller (fire and forget — don't block the AI response)
+      if (phone) {
+        try {
+          // Build readable item list from menu cache
+          const itemLines = resolvedItems.map(item => {
+            const id = item.itemId || item.cloverItemId || '';
+            const menuItem = allMenuItems.find(mi => mi.id === id);
+            const name = menuItem?.name || id;
+            const qty = item.quantity > 1 ? `${item.quantity}x ` : '';
+            return `${qty}${name}`;
+          });
+
+          const businessName = business?.name || 'the restaurant';
+          const smsBody = `Order confirmed from ${businessName}!\n\n` +
+            `${itemLines.join('\n')}\n` +
+            `Total: ${totalFormatted}\n` +
+            `Type: ${orderType === 'delivery' ? 'Delivery' : 'Pickup'}\n\n` +
+            `Thank you${parameters.callerName ? ', ' + parameters.callerName : ''}!`;
+
+          twilioService.sendSms(phone, smsBody).catch(err => {
+            console.error(`Failed to send order confirmation SMS to ${phone}:`, err);
+          });
+        } catch (smsError) {
+          console.error('Error building order confirmation SMS:', smsError);
+        }
+      }
+
       return {
         result: {
           success: true,
