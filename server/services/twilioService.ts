@@ -35,7 +35,7 @@ if (isTwilioConfigured) {
  * @param body Message content
  * @returns Promise with message response
  */
-export async function sendSms(to: string, body: string) {
+export async function sendSms(to: string, body: string, from?: string) {
   if (!client) {
     console.warn('Twilio not configured - SMS would be sent to:', to, 'Message:', body.substring(0, 50));
     return { sid: 'mock-sid', status: 'mock' };
@@ -43,7 +43,7 @@ export async function sendSms(to: string, body: string) {
   try {
     const message = await client.messages.create({
       body,
-      from: twilioPhoneNumber,
+      from: from || twilioPhoneNumber,
       to
     });
 

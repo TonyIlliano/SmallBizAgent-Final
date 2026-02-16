@@ -3372,7 +3372,8 @@ async function handleCreateOrder(
             `Type: ${orderType === 'delivery' ? 'Delivery' : 'Pickup'}\n\n` +
             `Thank you${parameters.callerName ? ', ' + parameters.callerName : ''}!`;
 
-          twilioService.sendSms(phone, smsBody).catch(err => {
+          const smsFrom = business?.twilioPhoneNumber || undefined;
+          twilioService.sendSms(phone, smsBody, smsFrom).catch(err => {
             console.error(`Failed to send order confirmation SMS to ${phone}:`, err);
           });
         } catch (smsError) {
