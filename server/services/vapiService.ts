@@ -833,7 +833,7 @@ function getRestaurantFunctions() {
     },
     {
       name: 'createOrder',
-      description: 'Place an order in the restaurant POS system. Call this ONLY after reading back the complete order and getting customer confirmation. The order will appear on the restaurant\'s POS device immediately.',
+      description: 'Place an order in the restaurant POS system. Call this ONLY after reading back the complete order and getting customer confirmation. IMPORTANT: Each item\'s itemId must be the EXACT item name from the menu (e.g. "lemonade", "buffalo wings", "classic burger") — NOT the category name (never use "drinks", "entree", "appetizer" as an itemId).',
       parameters: {
         type: 'object',
         properties: {
@@ -843,7 +843,7 @@ function getRestaurantFunctions() {
             items: {
               type: 'object',
               properties: {
-                itemId: { type: 'string', description: 'The item ID from the menu' },
+                itemId: { type: 'string', description: 'The EXACT item name from the menu (e.g. "lemonade", "caesar salad"). Must be a specific item, NOT a category name.' },
                 quantity: { type: 'number', description: 'Number of this item to order' },
                 modifiers: {
                   type: 'array',

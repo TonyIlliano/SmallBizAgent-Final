@@ -3340,7 +3340,13 @@ async function handleCreateOrder(
         return { ...item, itemId: matched.id, cloverItemId: matched.id };
       }
 
-      console.warn(`Could not resolve item "${rawId}" to any of ${allMenuItems.length} menu items — passing through as-is`);
+      // Check if the AI accidentally passed a category name instead of an item name
+      const categoryNames = menu?.categories.map(c => c.name.toLowerCase()) || [];
+      if (categoryNames.includes(searchName)) {
+        console.warn(`AI passed category name "${rawId}" instead of an item name — will fail on POS`);
+      } else {
+        console.warn(`Could not resolve item "${rawId}" to any of ${allMenuItems.length} menu items — passing through as-is`);
+      }
       return item;
     });
 
