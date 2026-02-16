@@ -3138,6 +3138,17 @@ async function handleGetMenu(businessId: number): Promise<any> {
         menu: menuSummary,
         categories: menu.categories.map(c => c.name),
         totalItems: menu.categories.reduce((sum, c) => sum + c.items.length, 0),
+        // Include structured item data with IDs so createOrder can reference real POS item IDs
+        itemDetails: menu.categories.flatMap(cat =>
+          cat.items.map(item => ({
+            id: item.id,
+            name: item.name,
+            category: cat.name,
+            price: item.price,
+            priceFormatted: item.priceFormatted,
+            modifierGroups: item.modifierGroups
+          }))
+        ),
         message: `Here's our menu. We have ${menu.categories.length} categories: ${menu.categories.map(c => c.name).join(', ')}. What would you like to hear about?`
       }
     };
@@ -3264,11 +3275,41 @@ async function handleCreateOrder(
 
     console.log(`Creating ${posType} order for business ${businessId}:`, JSON.stringify(parameters));
 
+    // Resolve item names to real POS IDs if the AI passed names instead of IDs
+    const menu = await getPOSCachedMenu(businessId);
+    const allMenuItems = menu?.categories.flatMap(cat => cat.items) || [];
+
+    const resolvedItems = parameters.items.map(item => {
+      const rawId = item.itemId || item.cloverItemId || '';
+      // Check if this looks like a real POS ID (alphanumeric, typically 13+ chars)
+      // If not, try to match by name against the cached menu
+      const looksLikeRealId = /^[A-Z0-9]{10,}$/.test(rawId);
+      if (looksLikeRealId) {
+        return item; // Already a real ID
+      }
+
+      // Try fuzzy name match against menu items
+      const searchName = rawId.toLowerCase().replace(/[_-]/g, ' ');
+      const matched = allMenuItems.find(mi =>
+        mi.name.toLowerCase() === searchName ||
+        mi.name.toLowerCase().includes(searchName) ||
+        searchName.includes(mi.name.toLowerCase())
+      );
+
+      if (matched) {
+        console.log(`Resolved item name "${rawId}" to POS ID "${matched.id}" (${matched.name})`);
+        return { ...item, itemId: matched.id, cloverItemId: matched.id };
+      }
+
+      console.warn(`Could not resolve item "${rawId}" to a POS ID — passing through as-is`);
+      return item;
+    });
+
     let result: { success: boolean; orderId?: string; orderTotal?: number; error?: string };
 
     if (posType === 'square') {
       result = await createSquareOrder(businessId, {
-        items: parameters.items.map(item => ({
+        items: resolvedItems.map(item => ({
           itemId: item.itemId || item.cloverItemId || '',
           quantity: item.quantity,
           modifiers: item.modifiers?.map(m => ({ modifierId: m.modifierId || m.cloverId || '' })),
@@ -3282,7 +3323,7 @@ async function handleCreateOrder(
     } else {
       // Default to Clover
       result = await createCloverOrder(businessId, {
-        items: parameters.items.map(item => ({
+        items: resolvedItems.map(item => ({
           cloverItemId: item.cloverItemId || item.itemId || '',
           quantity: item.quantity,
           modifiers: item.modifiers?.map(m => ({ cloverId: m.cloverId || m.modifierId || '' })),
