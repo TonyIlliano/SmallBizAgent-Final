@@ -258,11 +258,16 @@ export async function refreshCloverToken(businessId: number): Promise<string> {
   const data = await response.json() as {
     access_token: string;
     access_token_expiration: number;
+    refresh_token?: string;
+    refresh_token_expiration?: number;
   };
 
+  // Clover uses refresh token rotation — each refresh returns a NEW refresh token
+  // and the old one is immediately invalidated. We must save the new one.
   await storage.updateBusinessCloverTokens(businessId, {
     cloverAccessToken: data.access_token,
     cloverTokenExpiry: new Date(data.access_token_expiration * 1000),
+    ...(data.refresh_token ? { cloverRefreshToken: data.refresh_token } : {}),
   });
 
   return data.access_token;
