@@ -3018,6 +3018,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   };
 
+  // ==================== Order History API ====================
+
+  /**
+   * GET /api/orders
+   * Fetch AI order history (Clover + Square) for a business
+   * Query params: businessId (required), limit (optional, default 50)
+   */
+  app.get("/api/orders", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = parseInt(req.query.businessId as string, 10);
+      const limit = parseInt(req.query.limit as string, 10) || 50;
+
+      if (isNaN(businessId)) {
+        return res.status(400).json({ error: "Invalid business ID" });
+      }
+
+      if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      // Fetch from both POS order logs
+      const [cloverOrders, squareOrders] = await Promise.all([
+        storage.getCloverOrderLogs(businessId, limit),
+        storage.getSquareOrderLogs(businessId, limit),
+      ]);
+
+      // Normalize into a unified format
+      const orders = [
+        ...cloverOrders.map(o => ({
+          id: o.id,
+          posType: 'clover' as const,
+          posOrderId: o.cloverOrderId,
+          callerPhone: o.callerPhone,
+          callerName: o.callerName,
+          items: o.items,
+          totalAmount: o.totalAmount,
+          status: o.status,
+          orderType: o.orderType,
+          errorMessage: o.errorMessage,
+          createdAt: o.createdAt,
+        })),
+        ...squareOrders.map(o => ({
+          id: o.id,
+          posType: 'square' as const,
+          posOrderId: o.squareOrderId,
+          callerPhone: o.callerPhone,
+          callerName: o.callerName,
+          items: o.items,
+          totalAmount: o.totalAmount,
+          status: o.status,
+          orderType: o.orderType,
+          errorMessage: o.errorMessage,
+          createdAt: o.createdAt,
+        })),
+      ].sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      }).slice(0, limit);
+
+      // Calculate stats
+      const successfulOrders = orders.filter(o => o.status === 'created');
+      const totalRevenue = successfulOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayOrders = successfulOrders.filter(o =>
+        o.createdAt && new Date(o.createdAt) >= today
+      );
+      const todayRevenue = todayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+
+      res.json({
+        orders,
+        stats: {
+          totalOrders: successfulOrders.length,
+          failedOrders: orders.length - successfulOrders.length,
+          totalRevenue,
+          todayOrders: todayOrders.length,
+          todayRevenue,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching order history:", error);
+      res.status(500).json({ error: "Failed to fetch order history" });
+    }
+  });
+
   // Vapi webhook for function calls and events
   app.post("/api/vapi/webhook", validateVapiWebhook, async (req: Request, res: Response) => {
     try {

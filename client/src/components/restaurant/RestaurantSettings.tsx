@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import CloverIntegration from "@/components/clover/CloverIntegration";
 import SquareIntegration from "@/components/square/SquareIntegration";
+import OrderHistory from "./OrderHistory";
 import { PosIntegrationCard } from "./PosIntegrationCard";
 import { ReservationPlatformCard } from "./ReservationPlatformCard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -108,6 +109,9 @@ export default function RestaurantSettings({ businessId }: RestaurantSettingsPro
           </div>
         </CardHeader>
       </Card>
+
+      {/* Order History Section */}
+      <OrderHistory businessId={businessId} />
 
       {/* Order Types Section */}
       <div className="space-y-4">

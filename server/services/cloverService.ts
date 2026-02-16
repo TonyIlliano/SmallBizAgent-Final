@@ -538,13 +538,31 @@ export async function createOrder(
     const orderId = result.id;
     const orderTotal = result.total;
 
+    // Build enriched items list with names from the Clover response
+    const enrichedItems = (result.lineItems?.elements || []).map((li: any) => ({
+      name: li.name || li.item?.name || 'Unknown item',
+      price: li.price,
+      cloverItemId: li.item?.id,
+    }));
+    // Group duplicates (quantity > 1 was duplicated as separate line items)
+    const itemCounts = new Map<string, { name: string; price: number; quantity: number; cloverItemId?: string }>();
+    for (const item of enrichedItems) {
+      const key = item.cloverItemId || item.name;
+      if (itemCounts.has(key)) {
+        itemCounts.get(key)!.quantity += 1;
+      } else {
+        itemCounts.set(key, { name: item.name, price: item.price, quantity: 1, cloverItemId: item.cloverItemId });
+      }
+    }
+    const logItems = Array.from(itemCounts.values());
+
     // Log the successful order
     await storage.createCloverOrderLog({
       businessId,
       cloverOrderId: orderId,
       callerPhone: orderRequest.callerPhone || null,
       callerName: orderRequest.callerName || null,
-      items: orderRequest.items as any,
+      items: (logItems.length > 0 ? logItems : orderRequest.items) as any,
       totalAmount: orderTotal,
       status: 'created',
       vapiCallId: orderRequest.vapiCallId || null,
