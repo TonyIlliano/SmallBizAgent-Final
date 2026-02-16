@@ -3269,8 +3269,9 @@ async function handleCreateOrder(
       };
     }
 
-    // Use caller phone from VAPI if not provided in parameters
-    const phone = parameters.callerPhone || callerPhone;
+    // Always prefer the real caller ID from VAPI over whatever the AI puts in the function args
+    // The AI sometimes passes the business phone number or a wrong number in callerPhone
+    const phone = callerPhone || parameters.callerPhone;
     const posType = await detectPOSType(businessId);
 
     // Validate order type against business settings — default to first enabled type
