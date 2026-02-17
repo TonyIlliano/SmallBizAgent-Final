@@ -356,6 +356,16 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'restaurant_pickup_enabled', 'BOOLEAN DEFAULT true');
   await addColumnIfNotExists('businesses', 'restaurant_delivery_enabled', 'BOOLEAN DEFAULT false');
 
+  // Fix businesses table - add multi-location tracking
+  await addColumnIfNotExists('businesses', 'number_of_locations', 'INTEGER DEFAULT 1');
+
+  // Fix users table - add email verification columns
+  await addColumnIfNotExists('users', 'email_verified', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('users', 'email_verification_code', 'TEXT');
+  await addColumnIfNotExists('users', 'email_verification_expiry', 'TIMESTAMP');
+  // Auto-verify existing users who already have a business (so they don't get locked out)
+  await pool.query(`UPDATE users SET email_verified = true WHERE business_id IS NOT NULL AND email_verified = false`);
+
   // Create clover_menu_cache table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clover_menu_cache (

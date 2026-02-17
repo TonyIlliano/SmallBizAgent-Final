@@ -111,8 +111,8 @@ export default function AuthPage() {
     const { confirmPassword, ...userData } = values;
     registerMutation.mutate(userData, {
       onSuccess: () => {
-        // Redirect to subscription selection page after successful registration
-        window.location.href = '/onboarding/subscription';
+        // Redirect to email verification page after successful registration
+        window.location.href = '/verify-email';
       },
       onError: (error: Error) => {
         // Display the error message from the hook (already user-friendly)

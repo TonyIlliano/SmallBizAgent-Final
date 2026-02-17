@@ -31,6 +31,7 @@ import CalendarSettings from "@/pages/settings/calendar";
 import PWAInstallationGuide from "@/pages/settings/pwa-installation";
 import RecurringSchedules from "@/pages/recurring/index";
 import AuthPage from "@/pages/auth/index";
+import VerifyEmailPage from "@/pages/auth/verify-email";
 import ResetPasswordPage from "@/pages/reset-password";
 // Customer Portal pages (public)
 import CustomerPortal from "@/pages/portal/index";
@@ -105,6 +106,7 @@ function Router() {
       {/* Public routes */}
       <Route path="/welcome" component={LandingPage} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/verify-email" component={VerifyEmailPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/portal" component={CustomerPortal} />
       <Route path="/portal/invoice/:token" component={PortalInvoice} />

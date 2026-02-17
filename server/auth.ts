@@ -6,7 +6,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User, InsertUser } from "@shared/schema";
-import { sendPasswordResetEmail } from "./emailService";
+import { sendPasswordResetEmail, sendVerificationCodeEmail } from "./emailService";
 
 // Extend Express Request type to include user property
 declare global {
@@ -19,6 +19,9 @@ declare global {
       role: string | null;
       businessId: number | null;
       active: boolean | null;
+      emailVerified: boolean | null;
+      emailVerificationCode: string | null;
+      emailVerificationExpiry: Date | null;
       lastLogin: Date | null;
       createdAt: Date | null;
       updatedAt: Date | null;
@@ -212,16 +215,118 @@ export function setupAuth(app: Express) {
 
       const user = await storage.createUser(userData);
 
+      // Generate 6-digit verification code
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const verificationExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Save verification code to user record
+      await storage.updateUser(user.id, {
+        emailVerificationCode: verificationCode,
+        emailVerificationExpiry: verificationExpiry,
+      });
+
+      // Send verification email (don't block registration if email fails)
+      try {
+        await sendVerificationCodeEmail(user.email, user.username, verificationCode);
+        console.log(`Verification code sent to ${user.email}`);
+      } catch (emailError) {
+        console.error(`Failed to send verification email to ${user.email}:`, emailError);
+      }
+
       // Log the user in
       req.login(user, (err) => {
         if (err) return next(err);
-        
+
         // Don't send the password back to the client
         const { password, ...userWithoutPassword } = user;
         return res.status(201).json(userWithoutPassword);
       });
     } catch (error) {
       next(error);
+    }
+  });
+
+  // Verify email with 6-digit code
+  app.post("/api/verify-email", async (req, res) => {
+    try {
+      const { email, code } = req.body;
+      if (!email || !code) {
+        return res.status(400).json({ error: "Email and verification code are required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.emailVerified) {
+        return res.json({ success: true, message: "Email already verified" });
+      }
+
+      if (!user.emailVerificationCode || !user.emailVerificationExpiry) {
+        return res.status(400).json({ error: "No verification code found. Please request a new one." });
+      }
+
+      if (new Date() > new Date(user.emailVerificationExpiry)) {
+        return res.status(400).json({ error: "Verification code has expired. Please request a new one." });
+      }
+
+      if (user.emailVerificationCode !== code) {
+        return res.status(400).json({ error: "Invalid verification code" });
+      }
+
+      // Mark email as verified and clear the code
+      await storage.updateUser(user.id, {
+        emailVerified: true,
+        emailVerificationCode: null,
+        emailVerificationExpiry: null,
+      });
+
+      return res.json({ success: true, message: "Email verified successfully" });
+    } catch (error) {
+      console.error("Error verifying email:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Resend verification code
+  app.post("/api/resend-verification", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.emailVerified) {
+        return res.json({ success: true, message: "Email already verified" });
+      }
+
+      // Generate new code
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const verificationExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+      await storage.updateUser(user.id, {
+        emailVerificationCode: verificationCode,
+        emailVerificationExpiry: verificationExpiry,
+      });
+
+      try {
+        await sendVerificationCodeEmail(user.email, user.username, verificationCode);
+        console.log(`Resent verification code to ${user.email}`);
+      } catch (emailError) {
+        console.error(`Failed to resend verification email:`, emailError);
+        return res.status(500).json({ error: "Failed to send verification email" });
+      }
+
+      return res.json({ success: true, message: "Verification code sent" });
+    } catch (error) {
+      console.error("Error resending verification:", error);
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 

@@ -151,6 +151,61 @@ SmallBizAgent Team
 }
 
 /**
+ * Send an email verification code
+ */
+export async function sendVerificationCodeEmail(
+  email: string,
+  username: string,
+  code: string
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const subject = `Your verification code: ${code} - SmallBizAgent`;
+  const text = `
+Hello ${username},
+
+Your SmallBizAgent verification code is: ${code}
+
+Enter this code to verify your email address and complete your account setup.
+
+This code expires in 10 minutes.
+
+If you did not create a SmallBizAgent account, please ignore this email.
+
+Thank you,
+SmallBizAgent Team
+  `.trim();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #333;">Verify your email</h2>
+      <p>Hello ${username},</p>
+      <p>Your verification code is:</p>
+
+      <div style="margin: 30px 0; text-align: center;">
+        <span style="display: inline-block; background-color: #f4f4f5; color: #000; padding: 16px 32px; font-size: 32px; font-weight: 700; letter-spacing: 8px; border-radius: 8px; font-family: monospace;">
+          ${code}
+        </span>
+      </div>
+
+      <p>Enter this code to verify your email address and complete your account setup.</p>
+
+      <p style="color: #666; font-size: 14px;">This code expires in 10 minutes.</p>
+
+      <p style="color: #666; font-size: 14px;">If you did not create a SmallBizAgent account, please ignore this email.</p>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">Thank you,<br>SmallBizAgent Team</p>
+    </div>
+  `;
+
+  return sendEmail({
+    to: email,
+    subject,
+    text,
+    html
+  });
+}
+
+/**
  * Send an appointment confirmation email
  */
 export async function sendAppointmentConfirmationEmail(

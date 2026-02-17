@@ -27,7 +27,12 @@ export function ProtectedRoute({
         if (!user) {
           return <Redirect to="/auth" />;
         }
-        
+
+        // Redirect unverified users to email verification page
+        if (user.emailVerified === false) {
+          return <Redirect to="/verify-email" />;
+        }
+
         return <Component {...params} />;
       }}
     </Route>

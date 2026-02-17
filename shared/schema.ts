@@ -11,6 +11,10 @@ export const users = pgTable("users", {
   role: text("role").default("user"), // admin, user, staff
   businessId: integer("business_id"),
   active: boolean("active").default(true),
+  // Email verification
+  emailVerified: boolean("email_verified").default(false),
+  emailVerificationCode: text("email_verification_code"),
+  emailVerificationExpiry: timestamp("email_verification_expiry"),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -79,6 +83,8 @@ export const businesses = pgTable("businesses", {
   // Restaurant order type settings
   restaurantPickupEnabled: boolean("restaurant_pickup_enabled").default(true),
   restaurantDeliveryEnabled: boolean("restaurant_delivery_enabled").default(false),
+  // Multi-location tracking
+  numberOfLocations: integer("number_of_locations").default(1),
   // Subscription information
   subscriptionStatus: text("subscription_status").default("inactive"),
   subscriptionPlanId: text("subscription_plan_id"),
@@ -517,7 +523,7 @@ export const subscriptionPlans = pgTable("subscription_plans", {
 });
 
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true, emailVerified: true, emailVerificationCode: true, emailVerificationExpiry: true });
 export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBusinessHoursSchema = createInsertSchema(businessHours).omit({ id: true });
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
