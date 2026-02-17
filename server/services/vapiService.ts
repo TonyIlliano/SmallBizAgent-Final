@@ -578,14 +578,14 @@ CUSTOMER & BUSINESS INFO:
 - getEstimate: Get price estimates for specific services
 
 COMMUNICATION:
-- transferToHuman: Connect caller to a staff member (use when requested or for complex issues)`;
+- transferCall: Transfer the call to a human staff member (VAPI will perform a real phone transfer — use ONLY as a last resort after trying to help)
+- leaveMessage: Record a message for callback`;
 
   return basePrompt + industryPrompt + menuSection + `
 
 FUNCTION CALLING:
 You have access to these functions to help customers:
 ` + functionDocs + `
-- leaveMessage: Record a message for callback
 
 SMART BEHAVIORS:
 
@@ -608,7 +608,10 @@ When caller asks "how much for..." or "what's the price?":
 - Call getEstimate with service description
 
 When caller says "I need to speak with someone" or "can I talk to a person?":
-- Call transferToHuman (don't argue, just transfer)
+- DO NOT immediately transfer. First say: "I can help with most things — booking appointments, checking availability, pricing, placing orders, and more. What can I help you with today?"
+- Try your best to handle their request with the tools available to you
+- If the caller INSISTS on speaking to a human after you've offered to help, or asks a SECOND time, use the transferCall tool immediately — no more pushback
+- For complaints, billing disputes, or "I already spoke to someone about this" — use transferCall right away without trying to help first
 
 When caller reaches voicemail or after hours:
 - Offer to take a message using leaveMessage
@@ -674,7 +677,7 @@ IMPORTANT REMINDERS:
 - ALWAYS start calls with recognizeCaller for personalization
 - ALWAYS use getUpcomingAppointments before trying to reschedule/cancel
 - NEVER make up prices - always call getServices or getEstimate
-- If customer seems frustrated or asks for manager, use transferToHuman immediately
+- If customer seems frustrated or asks for manager, use transferCall immediately
 - For emergencies (water leak, car breakdown, etc.), prioritize and offer earliest available
 - Understand natural language dates: "next week", "tomorrow", "this Friday"
 
@@ -873,12 +876,50 @@ function getRestaurantFunctions() {
 }
 
 /**
+ * Build the native VAPI transferCall tool for real call transfers.
+ * Returns an array with one tool if transfer numbers exist, or empty array if none.
+ */
+function buildTransferCallTool(
+  transferPhoneNumbers: string[],
+  businessPhone?: string | null
+): any[] {
+  // Determine effective transfer numbers — use configured numbers, fallback to business phone
+  const numbers = transferPhoneNumbers.length > 0
+    ? transferPhoneNumbers
+    : (businessPhone ? [businessPhone] : []);
+
+  if (numbers.length === 0) {
+    return []; // No transfer numbers — don't include the tool
+  }
+
+  // Normalize to E.164 format
+  const normalizedNumbers = numbers.map(num => {
+    const digits = num.replace(/\D/g, '');
+    if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
+    if (digits.length === 10) return `+1${digits}`;
+    return num.startsWith('+') ? num : `+${digits}`;
+  });
+
+  return [
+    {
+      type: 'transferCall',
+      destinations: normalizedNumbers.map(num => ({
+        type: 'number',
+        number: num,
+        message: 'I am transferring your call now. Please hold for just a moment.',
+      })),
+    }
+  ];
+}
+
+/**
  * Create or update a Vapi assistant for a business
  */
 export async function createAssistantForBusiness(
   business: Business,
   services: Service[],
-  businessHours?: any[]
+  businessHours?: any[],
+  transferPhoneNumbers?: string[]
 ): Promise<{ assistantId: string; error?: string }> {
   if (!VAPI_API_KEY) {
     return { assistantId: '', error: 'Vapi API key not configured' };
@@ -1241,6 +1282,8 @@ export async function createAssistantForBusiness(
         ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
       ]
     },
+    // Native VAPI transferCall tool for real call transfers to a human
+    tools: buildTransferCallTool(transferPhoneNumbers || [], business.phone),
     voice: {
       provider: '11labs',
       voiceId: 'paula', // Professional, friendly female voice
@@ -1298,7 +1341,8 @@ export async function updateAssistant(
   assistantId: string,
   business: Business,
   services: Service[],
-  businessHours?: any[]
+  businessHours?: any[],
+  transferPhoneNumbers?: string[]
 ): Promise<{ success: boolean; error?: string }> {
   if (!VAPI_API_KEY) {
     return { success: false, error: 'Vapi API key not configured' };
@@ -1342,6 +1386,8 @@ export async function updateAssistant(
           systemPrompt: systemPrompt,
           functions: functions
         },
+        // Native VAPI transferCall tool for real call transfers to a human
+        tools: buildTransferCallTool(transferPhoneNumbers || [], business.phone),
         firstMessage: `Thank you for calling ${business.name}, this is Alex. How can I help you today?`,
         serverUrl: `${BASE_URL}/api/vapi/webhook`,
         metadata: {

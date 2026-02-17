@@ -2388,16 +2388,16 @@ async function transferToHuman(
     }
   }
 
+  // Note: The actual call transfer is handled by VAPI's native transferCall tool.
+  // This function serves as a logging/tracking mechanism for transfer requests.
   return {
     result: {
-      canTransfer: true,
+      logged: true,
       transferNumber: transferNumbers[0],
       message: params.urgent
-        ? "I understand this is urgent. Let me connect you with someone right away. Please hold for just a moment."
-        : "Absolutely, let me connect you with someone who can help. Please hold for just a moment.",
-      // This tells Vapi to perform the transfer
-      action: 'transfer',
-      destination: transferNumbers[0]
+        ? "Transfer request logged as urgent. The native transferCall tool will handle the actual transfer."
+        : "Transfer request logged. The native transferCall tool will handle the actual transfer.",
+      reason: params.reason || 'Customer requested to speak with someone'
     }
   };
 }

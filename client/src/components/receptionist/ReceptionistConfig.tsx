@@ -28,7 +28,8 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X } from "lucide-react";
+import { Plus, X, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Zod schema for form validation
 const receptionistConfigSchema = z.object({
@@ -55,6 +56,12 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
   // Fetch existing configuration
   const { data: config, isLoading } = useQuery<any>({
     queryKey: [`/api/receptionist-config/${businessId}`],
+    enabled: !!businessId,
+  });
+
+  // Fetch business data to check for forwarding loop risk
+  const { data: business } = useQuery<any>({
+    queryKey: [`/api/business/${businessId}`],
     enabled: !!businessId,
   });
 
@@ -368,7 +375,22 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
             </div>
             
             <FormItem>
-              <FormLabel>Emergency Transfer Numbers</FormLabel>
+              <FormLabel>Call Transfer Numbers</FormLabel>
+              <FormDescription className="mb-2">
+                When a caller insists on speaking to a person, the AI will transfer the call to these numbers. Use a cell phone or direct line — <strong>not</strong> your main business number if it forwards to the AI (this would create a loop).
+              </FormDescription>
+              {/* Forwarding loop warning */}
+              {business?.phone && form.watch("transferPhoneNumbers")?.some((num: string) => {
+                const normalizeNum = (n: string) => n.replace(/\D/g, '').slice(-10);
+                return normalizeNum(num) === normalizeNum(business.phone);
+              }) && (
+                <Alert variant="destructive" className="mb-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    One of your transfer numbers matches your business phone number. If your business phone forwards to the AI, this will create an infinite loop. Use a different number like a cell phone.
+                  </AlertDescription>
+                </Alert>
+              )}
               <div className="flex flex-wrap gap-2 mb-2">
                 {form.watch("transferPhoneNumbers")?.map((number) => (
                   <Badge key={number} className="px-3 py-1">
@@ -385,7 +407,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                   </Badge>
                 ))}
                 {(!form.watch("transferPhoneNumbers") || (form.watch("transferPhoneNumbers") ?? []).length === 0) && (
-                  <span className="text-sm text-gray-500">No transfer numbers added</span>
+                  <span className="text-sm text-gray-500">No transfer numbers added — AI will offer to take a message instead</span>
                 )}
               </div>
               <div className="flex gap-2">
@@ -403,9 +425,6 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                   Add
                 </Button>
               </div>
-              <FormDescription>
-                Phone numbers for transferring emergency calls
-              </FormDescription>
             </FormItem>
             
             <div className="flex justify-end">

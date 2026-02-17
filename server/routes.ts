@@ -447,7 +447,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (business?.vapiAssistantId) {
           const services = await storage.getServices(hours.businessId);
           const allHours = await storage.getBusinessHours(hours.businessId);
-          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours)
+          const rcConfig = await storage.getReceptionistConfig(hours.businessId);
+          const transferNums: string[] = Array.isArray(rcConfig?.transferPhoneNumbers) ? rcConfig.transferPhoneNumbers as string[] : [];
+          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours, transferNums)
             .then(result => {
               if (result.success) {
                 console.log(`Auto-refreshed Vapi assistant after business hours creation`);
@@ -491,7 +493,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (business?.vapiAssistantId) {
           const services = await storage.getServices(hours.businessId);
           const allHours = await storage.getBusinessHours(hours.businessId);
-          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours)
+          const rcConfig = await storage.getReceptionistConfig(hours.businessId);
+          const transferNums: string[] = Array.isArray(rcConfig?.transferPhoneNumbers) ? rcConfig.transferPhoneNumbers as string[] : [];
+          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours, transferNums)
             .then(result => {
               if (result.success) {
                 console.log(`Auto-refreshed Vapi assistant after business hours update`);
@@ -1825,6 +1829,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const businessId = getBusinessId(req);
       const validatedData = insertReceptionistConfigSchema.parse({ ...req.body, businessId });
       const config = await storage.createReceptionistConfig(validatedData);
+
+      // Auto-refresh VAPI assistant when receptionist config is created (syncs transfer numbers etc.)
+      vapiProvisioningService.debouncedUpdateVapiAssistant(businessId);
+
       res.status(201).json(config);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1844,6 +1852,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const validatedData = insertReceptionistConfigSchema.partial().parse(req.body);
       const config = await storage.updateReceptionistConfig(id, validatedData);
+
+      // Auto-refresh VAPI assistant when receptionist config changes (syncs transfer numbers etc.)
+      if (existing.businessId) {
+        vapiProvisioningService.debouncedUpdateVapiAssistant(existing.businessId);
+      }
+
       res.json(config);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3382,7 +3396,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const services = await storage.getServices(businessId);
       const businessHours = await storage.getBusinessHours(businessId);
-      console.log(`Updating assistant ${business.vapiAssistantId} with ${services.length} services and ${businessHours.length} hour entries`);
+      const rcConfig = await storage.getReceptionistConfig(businessId);
+      const transferNums: string[] = Array.isArray(rcConfig?.transferPhoneNumbers) ? rcConfig.transferPhoneNumbers as string[] : [];
+      console.log(`Updating assistant ${business.vapiAssistantId} with ${services.length} services, ${businessHours.length} hour entries, ${transferNums.length} transfer numbers`);
       console.log(`BASE_URL is: ${process.env.BASE_URL}`);
       console.log(`Webhook URL will be: ${process.env.BASE_URL}/api/vapi/webhook`);
 
@@ -3390,7 +3406,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         business.vapiAssistantId,
         business,
         services,
-        businessHours
+        businessHours,
+        transferNums
       );
 
       if (!result.success) {
@@ -3432,6 +3449,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const services = await storage.getServices(businessId);
       const businessHours = await storage.getBusinessHours(businessId);
+      const rcConfig = await storage.getReceptionistConfig(businessId);
+      const transferNums: string[] = Array.isArray(rcConfig?.transferPhoneNumbers) ? rcConfig.transferPhoneNumbers as string[] : [];
 
       // Check if business already has a Vapi assistant
       if (business.vapiAssistantId) {
@@ -3440,7 +3459,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           business.vapiAssistantId,
           business,
           services,
-          businessHours
+          businessHours,
+          transferNums
         );
 
         if (!result.success) {
@@ -3454,7 +3474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } else {
         // Create new assistant
-        const result = await vapiService.createAssistantForBusiness(business, services, businessHours);
+        const result = await vapiService.createAssistantForBusiness(business, services, businessHours, transferNums);
 
         if (!result.assistantId) {
           return res.status(500).json({ error: result.error });
