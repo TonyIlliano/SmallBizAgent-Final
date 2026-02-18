@@ -346,10 +346,11 @@ export default function Settings() {
         description: "Business profile updated successfully",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      console.error("Business profile update error:", error);
       toast({
         title: "Error",
-        description: "Failed to update business profile",
+        description: error?.message || "Failed to update business profile",
         variant: "destructive",
       });
     },
