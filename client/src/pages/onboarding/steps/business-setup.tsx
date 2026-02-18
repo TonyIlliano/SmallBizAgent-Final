@@ -84,7 +84,8 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
   const updateBusinessMutation = useMutation({
     mutationFn: async (data: FormValues) => {
       // The database column is "zip" but the form uses "zipCode"
-      const { zipCode, ...rest } = data;
+      // Also remove "description" since it's not a businesses table column
+      const { zipCode, description, ...rest } = data;
       const apiData = { ...rest, zip: zipCode };
 
       let response;
@@ -136,10 +137,11 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
       // Move to next step (progress is tracked by the onboarding index)
       onComplete();
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error('Business profile save error:', error);
       toast({
         title: 'Error',
-        description: 'There was a problem updating your business profile',
+        description: error?.message || 'There was a problem updating your business profile',
         variant: 'destructive',
       });
       setIsLoading(false);

@@ -194,7 +194,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/business", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const validatedData = insertBusinessSchema.parse(req.body);
+      // Clean up empty strings and non-existent fields before validation
+      const body = { ...req.body };
+      if (body.website === '') body.website = null;
+      if (body.zip === '') body.zip = null;
+      if (body.address === '') body.address = null;
+      if (body.city === '') body.city = null;
+      if (body.state === '') body.state = null;
+      if (body.industry === '') body.industry = null;
+      if (body.phone === '') body.phone = null;
+      // Remove fields that don't exist in the businesses table
+      delete body.description;
+      delete body.zipCode;
+
+      console.log('Business create request:', JSON.stringify(body));
+      const validatedData = insertBusinessSchema.parse(body);
       const business = await storage.createBusiness(validatedData);
 
       // Link the authenticated user to this business
@@ -242,9 +256,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ errors: error.format() });
+        const fieldErrors = error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ');
+        console.error('Business create validation error:', fieldErrors);
+        return res.status(400).json({
+          message: `Validation error: ${fieldErrors}`,
+          errors: error.format()
+        });
       }
-      res.status(500).json({ message: "Error creating business" });
+      console.error('Business create error:', error);
+      res.status(500).json({ message: `Error creating business: ${error instanceof Error ? error.message : 'Unknown error'}` });
     }
   });
 
@@ -257,16 +277,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Not authorized to update this business" });
       }
 
-      // Clean up empty strings for optional URL/nullable fields before validation
+      // Clean up empty strings for optional/nullable fields before validation
       const body = { ...req.body };
       if (body.website === '') body.website = null;
       if (body.zip === '') body.zip = null;
       if (body.address === '') body.address = null;
       if (body.city === '') body.city = null;
       if (body.state === '') body.state = null;
+      if (body.industry === '') body.industry = null;
+      if (body.phone === '') body.phone = null;
+      if (body.logoUrl === '') body.logoUrl = null;
+      // Remove fields that don't exist in the businesses table
+      delete body.description;
+      delete body.zipCode;
 
       console.log(`Business update request for id ${id}:`, JSON.stringify(body));
       const validatedData = insertBusinessSchema.partial().parse(body);
+      console.log(`Business update validated data for id ${id}:`, JSON.stringify(validatedData));
       const business = await storage.updateBusiness(id, validatedData);
 
       // Update Vapi assistant if business name, industry, hours, or restaurant order types changed (debounced)
@@ -279,10 +306,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) {
         console.error('Business update validation error:', JSON.stringify(error.format()));
-        return res.status(400).json({ errors: error.format() });
+        // Extract human-readable error messages from Zod format
+        const fieldErrors = error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ');
+        return res.status(400).json({
+          message: `Validation error: ${fieldErrors}`,
+          errors: error.format()
+        });
       }
       console.error('Business update error:', error);
-      res.status(500).json({ message: "Error updating business" });
+      res.status(500).json({ message: `Error updating business: ${error instanceof Error ? error.message : 'Unknown error'}` });
     }
   });
   
