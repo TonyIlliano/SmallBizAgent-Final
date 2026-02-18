@@ -260,7 +260,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Clean up empty strings for optional URL/nullable fields before validation
       const body = { ...req.body };
       if (body.website === '') body.website = null;
+      if (body.zip === '') body.zip = null;
+      if (body.address === '') body.address = null;
+      if (body.city === '') body.city = null;
+      if (body.state === '') body.state = null;
 
+      console.log(`Business update request for id ${id}:`, JSON.stringify(body));
       const validatedData = insertBusinessSchema.partial().parse(body);
       const business = await storage.updateBusiness(id, validatedData);
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { Redirect } from "wouter";
+import { Redirect, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,6 +11,7 @@ import { useQueryClient } from "@tanstack/react-query";
 export default function VerifyEmailPage() {
   const { user, isLoading } = useAuth();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -72,12 +73,13 @@ export default function VerifyEmailPage() {
       }
 
       setVerified(true);
-      // Refresh user data so emailVerified is true
+      // Refresh user data so emailVerified is true BEFORE redirecting
       await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/user"] });
 
-      // Redirect after a brief success message
+      // Redirect after a brief success message using router navigation
       setTimeout(() => {
-        window.location.href = "/onboarding/subscription";
+        navigate("/onboarding/subscription");
       }, 1500);
     } catch (err) {
       setError("Something went wrong. Please try again.");

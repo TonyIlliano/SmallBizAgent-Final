@@ -99,22 +99,31 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
       // If we have a stored plan selection, create the subscription now
       const selectedPlanId = localStorage.getItem('selectedPlanId');
       if (selectedPlanId && business.id) {
-        try {
-          await apiRequest('POST', '/api/subscription/create-subscription', {
-            businessId: business.id,
-            planId: parseInt(selectedPlanId)
-          });
+        const parsedPlanId = parseInt(selectedPlanId);
+        if (!isNaN(parsedPlanId) && parsedPlanId > 0) {
+          try {
+            await apiRequest('POST', '/api/subscription/create-subscription', {
+              businessId: business.id,
+              planId: parsedPlanId
+            });
+            localStorage.removeItem('selectedPlanId');
+          } catch (subError) {
+            console.error('Error creating subscription:', subError);
+            toast({
+              title: 'Subscription notice',
+              description: 'Your business was saved, but we had trouble setting up your subscription. You can set it up from Settings later.',
+              variant: 'destructive',
+            });
+          }
+        } else {
           localStorage.removeItem('selectedPlanId');
-        } catch (subError) {
-          console.error('Error creating subscription:', subError);
-          // Continue anyway - subscription can be set up later
         }
       }
 
-      // Invalidate and WAIT for user query to refresh so businessId is available
+      // Invalidate and WAIT for user + business queries to refresh
       await queryClient.invalidateQueries({ queryKey: ['/api/user'] });
       await queryClient.refetchQueries({ queryKey: ['/api/user'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/business'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/business'] });
 
       toast({
         title: 'Business profile updated',

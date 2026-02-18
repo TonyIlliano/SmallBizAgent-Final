@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { Redirect } from "wouter";
+import { Redirect, useLocation } from "wouter";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -61,6 +61,7 @@ export default function AuthPage() {
   const [registerError, setRegisterError] = useState<string | null>(null);
   const { user, loginMutation, registerMutation } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginFormSchema),
@@ -112,7 +113,7 @@ export default function AuthPage() {
     registerMutation.mutate(userData, {
       onSuccess: () => {
         // Redirect to email verification page after successful registration
-        window.location.href = '/verify-email';
+        navigate('/verify-email');
       },
       onError: (error: Error) => {
         // Display the error message from the hook (already user-friendly)
