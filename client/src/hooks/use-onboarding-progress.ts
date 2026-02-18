@@ -93,6 +93,7 @@ export function useOnboardingProgress() {
               welcome: 'completed',
               business: businessComplete ? 'completed' : 'not_started',
               services: servicesComplete ? 'completed' : 'not_started',
+              clover: 'not_started', // Clover is restaurant-only, legacy users can set up later
               receptionist: receptionistComplete ? 'completed' :
                            receptionistSkipped ? 'skipped' : 'not_started',
               calendar: calendarComplete ? 'completed' :
