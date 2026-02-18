@@ -257,7 +257,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Not authorized to update this business" });
       }
 
-      const validatedData = insertBusinessSchema.partial().parse(req.body);
+      // Clean up empty strings for optional URL/nullable fields before validation
+      const body = { ...req.body };
+      if (body.website === '') body.website = null;
+
+      const validatedData = insertBusinessSchema.partial().parse(body);
       const business = await storage.updateBusiness(id, validatedData);
 
       // Update Vapi assistant if business name, industry, hours, or restaurant order types changed (debounced)
@@ -269,8 +273,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(business);
     } catch (error) {
       if (error instanceof z.ZodError) {
+        console.error('Business update validation error:', JSON.stringify(error.format()));
         return res.status(400).json({ errors: error.format() });
       }
+      console.error('Business update error:', error);
       res.status(500).json({ message: "Error updating business" });
     }
   });
