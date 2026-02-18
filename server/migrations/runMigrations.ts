@@ -195,9 +195,17 @@ async function fixExistingTables() {
       transcription_enabled BOOLEAN DEFAULT true,
       max_call_length_minutes INTEGER DEFAULT 15,
       transfer_phone_numbers JSONB,
+      voice_id TEXT DEFAULT 'paula',
+      assistant_name TEXT DEFAULT 'Alex',
+      custom_instructions TEXT,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Add voice_id, assistant_name, and custom_instructions columns to existing receptionist_config tables
+  await addColumnIfNotExists('receptionist_config', 'voice_id', "TEXT DEFAULT 'paula'");
+  await addColumnIfNotExists('receptionist_config', 'assistant_name', "TEXT DEFAULT 'Alex'");
+  await addColumnIfNotExists('receptionist_config', 'custom_instructions', "TEXT");
 
   // Create quotes table
   await pool.query(`
@@ -760,6 +768,9 @@ async function createBaseTables() {
       transcription_enabled BOOLEAN DEFAULT true,
       max_call_length_minutes INTEGER DEFAULT 15,
       transfer_phone_numbers JSONB,
+      voice_id TEXT DEFAULT 'paula',
+      assistant_name TEXT DEFAULT 'Alex',
+      custom_instructions TEXT,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);

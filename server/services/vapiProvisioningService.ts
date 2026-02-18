@@ -68,23 +68,20 @@ export async function provisionVapiForBusiness(businessId: number): Promise<{
       return { success: false, error: 'Business not found' };
     }
 
-    // Get services, business hours, and transfer numbers for this business
+    // Get services, business hours, and full receptionist config for this business
     const services = await storage.getServices(businessId);
     const businessHours = await storage.getBusinessHours(businessId);
     const receptionistConfig = await storage.getReceptionistConfig(businessId);
-    const transferPhoneNumbers: string[] = Array.isArray(receptionistConfig?.transferPhoneNumbers)
-      ? receptionistConfig.transferPhoneNumbers as string[]
-      : [];
 
     // Check if assistant already exists
     if (business.vapiAssistantId) {
-      // Update existing assistant
+      // Update existing assistant with full config
       const updateResult = await vapiService.updateAssistant(
         business.vapiAssistantId,
         business,
         services,
         businessHours,
-        transferPhoneNumbers
+        receptionistConfig
       );
 
       if (!updateResult.success) {
@@ -98,8 +95,8 @@ export async function provisionVapiForBusiness(businessId: number): Promise<{
       };
     }
 
-    // Create new assistant
-    const result = await vapiService.createAssistantForBusiness(business, services, businessHours, transferPhoneNumbers);
+    // Create new assistant with full config
+    const result = await vapiService.createAssistantForBusiness(business, services, businessHours, receptionistConfig);
 
     if (!result.assistantId) {
       return { success: false, error: result.error || 'Failed to create assistant' };
@@ -205,21 +202,18 @@ export async function updateVapiAssistant(businessId: number): Promise<{
       return { success: result.success, error: result.error };
     }
 
-    // Get current services, business hours, and transfer numbers
+    // Get current services, business hours, and full receptionist config
     const services = await storage.getServices(businessId);
     const businessHours = await storage.getBusinessHours(businessId);
     const receptionistConfig = await storage.getReceptionistConfig(businessId);
-    const transferPhoneNumbers: string[] = Array.isArray(receptionistConfig?.transferPhoneNumbers)
-      ? receptionistConfig.transferPhoneNumbers as string[]
-      : [];
 
-    // Update the assistant
+    // Update the assistant with full config
     const result = await vapiService.updateAssistant(
       business.vapiAssistantId,
       business,
       services,
       businessHours,
-      transferPhoneNumbers
+      receptionistConfig
     );
 
     if (!result.success) {

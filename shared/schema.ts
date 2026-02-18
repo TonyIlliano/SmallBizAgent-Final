@@ -255,6 +255,9 @@ export const receptionistConfig = pgTable("receptionist_config", {
   transcriptionEnabled: boolean("transcription_enabled").default(true),
   maxCallLengthMinutes: integer("max_call_length_minutes").default(15),
   transferPhoneNumbers: jsonb("transfer_phone_numbers"),
+  voiceId: text("voice_id").default("paula"),           // ElevenLabs voice ID
+  assistantName: text("assistant_name").default("Alex"), // Name the AI introduces itself as
+  customInstructions: text("custom_instructions"),       // Free-form instructions injected into the AI prompt
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

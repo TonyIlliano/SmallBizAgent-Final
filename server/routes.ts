@@ -101,8 +101,6 @@ const validateTwilioWebhook = (req: Request, res: Response, next: Function) => {
   next();
 };
 
-// AWS Lex setup (legacy - keeping for fallback)
-import lexService from "./services/lexService";
 import twilioService from "./services/twilioService";
 import * as virtualReceptionistService from "./services/virtualReceptionistService";
 
@@ -125,16 +123,12 @@ import bookingRoutes from "./routes/bookingRoutes";
 import cloverRoutes from "./routes/cloverRoutes";
 import squareRoutes from "./routes/squareRoutes";
 
-// Import training and analytics routes
-import { registerTrainingRoutes } from './routes/trainingRoutes';
+// Import analytics routes
 import { registerAnalyticsRoutes } from './routes/analyticsRoutes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication first
   setupAuth(app);
-  
-  // Register training routes after authentication is set up
-  registerTrainingRoutes(app);
   
   // Register analytics routes
   registerAnalyticsRoutes(app);
@@ -492,8 +486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const services = await storage.getServices(hours.businessId);
           const allHours = await storage.getBusinessHours(hours.businessId);
           const rcConfig = await storage.getReceptionistConfig(hours.businessId);
-          const transferNums: string[] = Array.isArray(rcConfig?.transferPhoneNumbers) ? rcConfig.transferPhoneNumbers as string[] : [];
-          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours, transferNums)
+          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours, rcConfig)
             .then(result => {
               if (result.success) {
                 console.log(`Auto-refreshed Vapi assistant after business hours creation`);
@@ -538,8 +531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const services = await storage.getServices(hours.businessId);
           const allHours = await storage.getBusinessHours(hours.businessId);
           const rcConfig = await storage.getReceptionistConfig(hours.businessId);
-          const transferNums: string[] = Array.isArray(rcConfig?.transferPhoneNumbers) ? rcConfig.transferPhoneNumbers as string[] : [];
-          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours, transferNums)
+          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours, rcConfig)
             .then(result => {
               if (result.success) {
                 console.log(`Auto-refreshed Vapi assistant after business hours update`);
@@ -2363,217 +2355,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Twilio webhook for transcription callback
-  app.post("/api/twilio/transcription-callback", validateTwilioWebhook, async (req: Request, res: Response) => {
-    try {
-      const { businessId, callSid } = req.query;
-      const { TranscriptionText, From } = req.body;
-      
-      // Get business info and type for context
-      const business = await storage.getBusiness(parseInt(businessId as string));
-      const businessType = business?.type || 'general';
-      
-      // Find the call log and update it
-      const callLogs = await storage.getCallLogs(parseInt(businessId as string));
-      const callLog = callLogs.find(log => log.callerId === From);
-      
-      if (callLog && TranscriptionText) {
-        // Use Lex service to analyze the transcription for intent and emergency detection
-        const analysis = lexService.analyzeText(TranscriptionText, businessType);
-        
-        // Update the call log with enhanced information
-        await storage.updateCallLog(callLog.id, {
-          transcript: TranscriptionText,
-          intentDetected: analysis.intent,
-          isEmergency: analysis.isEmergency
-        });
-        
-        // Log the analysis for debugging
-        console.log('Transcription analysis:', {
-          transcript: TranscriptionText,
-          intent: analysis.intent,
-          isEmergency: analysis.isEmergency,
-          confidence: analysis.confidence
-        });
-      }
-      
-      res.status(200).send('OK');
-    } catch (error) {
-      console.error('Error handling transcription callback:', error);
-      res.status(500).json({ message: "Error handling transcription callback" });
-    }
-  });
-
-  // Twilio webhook for gather callback
-  app.post("/api/twilio/gather-callback", validateTwilioWebhook, async (req: Request, res: Response) => {
-    try {
-      const { businessId, callSid } = req.query;
-      const { SpeechResult, Digits, From } = req.body;
-      
-      // Get business info and type for context
-      const business = await storage.getBusiness(parseInt(businessId as string));
-      const businessType = business?.type || 'general';
-      
-      // Find the call log
-      const callLogs = await storage.getCallLogs(parseInt(businessId as string));
-      const callLog = callLogs.find(log => log.callerId === From);
-      
-      // User input from speech or digits
-      const userInput = SpeechResult || Digits || '';
-      
-      // Process input with Lex service
-      const lexResponse = await lexService.sendVoiceInput(
-        From || 'anonymous-caller', 
-        userInput, 
-        callSid as string || `session-${Date.now()}`,
-        businessType
-      );
-      
-      // Update call log with transcript and detected intent
-      if (callLog) {
-        await storage.updateCallLog(callLog.id, {
-          transcript: userInput,
-          intentDetected: lexResponse.intentName || 'general',
-          isEmergency: lexResponse.isEmergency || false
-        });
-      }
-      
-      // Generate TwiML response based on Lex response
-      const twiml = new twilio.twiml.VoiceResponse();
-      
-      if (lexResponse.isEmergency) {
-        // Handle emergency case
-        twiml.say({ voice: 'alice' }, lexResponse.message || "I understand this is an emergency. Let me connect you with our on-call staff right away.");
-
-        // Get emergency contact number from business config
-        const config = await storage.getReceptionistConfig(parseInt(businessId as string));
-        const business = await storage.getBusiness(parseInt(businessId as string));
-
-        // Get transfer numbers, validating they are real phone numbers
-        let transferNumbers: string[] = [];
-        if (config?.transferPhoneNumbers) {
-          try {
-            const parsed = typeof config.transferPhoneNumbers === 'string'
-              ? JSON.parse(config.transferPhoneNumbers)
-              : config.transferPhoneNumbers;
-            if (Array.isArray(parsed)) {
-              // Filter to valid phone numbers (basic E.164 or US format validation)
-              transferNumbers = parsed.filter((num: string) => {
-                if (!num || typeof num !== 'string') return false;
-                const cleaned = num.replace(/\D/g, '');
-                return cleaned.length >= 10 && cleaned.length <= 15;
-              });
-            }
-          } catch (e) {
-            console.error('Error parsing transfer phone numbers:', e);
-          }
-        }
-
-        // Fall back to business phone if no transfer numbers configured
-        if (transferNumbers.length === 0 && business?.phone) {
-          const cleanedBusinessPhone = business.phone.replace(/\D/g, '');
-          if (cleanedBusinessPhone.length >= 10) {
-            transferNumbers = [business.phone];
-          }
-        }
-
-        if (transferNumbers.length > 0) {
-          // Use Dial with simultaneous ringing to all emergency contacts
-          const dial = twiml.dial({ timeout: 30 });
-          transferNumbers.forEach((num: string) => {
-            dial.number({}, num);
-          });
-
-          // After dial attempt, offer voicemail if no answer
-          twiml.say({ voice: 'alice' }, "I was unable to reach our emergency staff. Please leave a message after the beep and someone will call you back immediately.");
-          twiml.record({
-            action: `/api/twilio/voicemail-complete?businessId=${businessId}`,
-            maxLength: 120,
-            transcribe: true,
-            transcribeCallback: `/api/twilio/transcription-callback?businessId=${businessId}`
-          });
-        } else {
-          // No valid transfer number - take a message
-          twiml.say({ voice: 'alice' }, "I apologize, but I cannot transfer your call at this moment. Please leave a detailed message and we will call you back immediately.");
-          twiml.record({
-            action: `/api/twilio/voicemail-complete?businessId=${businessId}`,
-            maxLength: 120,
-            transcribe: true,
-            transcribeCallback: `/api/twilio/transcription-callback?businessId=${businessId}`
-          });
-        }
-
-        // Update call log to mark as emergency
-        const callLogs = await storage.getCallLogs(parseInt(businessId as string));
-        const callLog = callLogs.find(log => log.callerId === From);
-        if (callLog) {
-          await storage.updateCallLog(callLog.id, {
-            isEmergency: true,
-            intentDetected: 'emergency'
-          });
-        }
-      } else if (lexResponse.intentName === 'appointment') {
-        // Handle appointment scheduling intent - check actual availability
-        const parsedBusinessId = parseInt(businessId as string);
-
-        // Get next available slots
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + 3); // Check next 3 days
-
-        const { findAvailableTimeSlots } = await import('./services/appointmentService');
-        const availableSlots = await findAvailableTimeSlots(parsedBusinessId, startDate, endDate);
-        const openSlots = availableSlots.filter(slot => slot.available).slice(0, 3);
-
-        if (openSlots.length > 0) {
-          const slotDescriptions = openSlots.map(slot => {
-            const d = new Date(slot.date);
-            const day = d.toLocaleDateString('en-US', { weekday: 'long' });
-            const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-            return `${day} at ${time}`;
-          }).join(', or ');
-
-          twiml.say({ voice: 'alice' }, lexResponse.message || "I'd be happy to help you schedule an appointment.");
-          twiml.say({ voice: 'alice' }, `We have openings ${slotDescriptions}. Which would work for you?`);
-        } else {
-          twiml.say({ voice: 'alice' }, "I'd be happy to help you schedule an appointment, but I don't see any immediate openings. What day and time would work best for you?");
-        }
-        
-        twiml.gather({
-          input: ['speech', 'dtmf'],
-          action: `/api/twilio/appointment-callback?businessId=${businessId}&callSid=${callSid}`,
-          speechTimeout: 'auto',
-          speechModel: 'phone_call'
-        });
-      } else if (lexResponse.dialogState === 'Fulfilled' || lexResponse.dialogState === 'ReadyForFulfillment') {
-        // Intent fulfilled, provide the response and ask if they need anything else
-        twiml.say({ voice: 'alice' }, lexResponse.message || "I've processed your request. Is there anything else I can help you with?");
-        
-        twiml.gather({
-          input: ['speech', 'dtmf'],
-          action: `/api/twilio/general-callback?businessId=${businessId}&callSid=${callSid}`,
-          speechTimeout: 'auto',
-          speechModel: 'phone_call'
-        });
-      } else {
-        // Intent not fulfilled, continue the conversation
-        twiml.say({ voice: 'alice' }, lexResponse.message || "How else can I assist you today?");
-        
-        twiml.gather({
-          input: ['speech', 'dtmf'],
-          action: `/api/twilio/gather-callback?businessId=${businessId}&callSid=${callSid}`,
-          speechTimeout: 'auto',
-          speechModel: 'phone_call'
-        });
-      }
-      
-      res.type('text/xml');
-      res.send(twiml.toString());
-    } catch (error) {
-      console.error('Error handling gather callback:', error);
-      res.status(500).json({ message: "Error handling gather callback" });
-    }
-  });
 
   // Twilio webhook for incoming SMS
   app.post("/api/twilio/sms", validateTwilioWebhook, async (req: Request, res: Response) => {
@@ -3441,8 +3222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const services = await storage.getServices(businessId);
       const businessHours = await storage.getBusinessHours(businessId);
       const rcConfig = await storage.getReceptionistConfig(businessId);
-      const transferNums: string[] = Array.isArray(rcConfig?.transferPhoneNumbers) ? rcConfig.transferPhoneNumbers as string[] : [];
-      console.log(`Updating assistant ${business.vapiAssistantId} with ${services.length} services, ${businessHours.length} hour entries, ${transferNums.length} transfer numbers`);
+      console.log(`Updating assistant ${business.vapiAssistantId} with ${services.length} services, ${businessHours.length} hour entries`);
       console.log(`BASE_URL is: ${process.env.BASE_URL}`);
       console.log(`Webhook URL will be: ${process.env.BASE_URL}/api/vapi/webhook`);
 
@@ -3451,7 +3231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         business,
         services,
         businessHours,
-        transferNums
+        rcConfig
       );
 
       if (!result.success) {
@@ -3494,7 +3274,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const services = await storage.getServices(businessId);
       const businessHours = await storage.getBusinessHours(businessId);
       const rcConfig = await storage.getReceptionistConfig(businessId);
-      const transferNums: string[] = Array.isArray(rcConfig?.transferPhoneNumbers) ? rcConfig.transferPhoneNumbers as string[] : [];
 
       // Check if business already has a Vapi assistant
       if (business.vapiAssistantId) {
@@ -3504,7 +3283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           business,
           services,
           businessHours,
-          transferNums
+          rcConfig
         );
 
         if (!result.success) {
@@ -3518,7 +3297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } else {
         // Create new assistant
-        const result = await vapiService.createAssistantForBusiness(business, services, businessHours, transferNums);
+        const result = await vapiService.createAssistantForBusiness(business, services, businessHours, rcConfig);
 
         if (!result.assistantId) {
           return res.status(500).json({ error: result.error });

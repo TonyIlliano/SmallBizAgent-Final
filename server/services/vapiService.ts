@@ -5,7 +5,7 @@
  * Creates intelligent, human-like phone conversations for businesses
  */
 
-import { Business, Service } from '@shared/schema';
+import { Business, Service, ReceptionistConfig } from '@shared/schema';
 import { getCachedMenu as getCloverCachedMenu, formatMenuForPrompt, type CachedMenu } from './cloverService';
 import { getCachedMenu as getSquareCachedMenu } from './squareService';
 
@@ -19,6 +19,20 @@ if (!BASE_URL) {
   console.warn('Vapi webhooks will not work without a publicly accessible URL.');
   console.warn('Set BASE_URL to your public domain (e.g., https://your-app.railway.app)');
 }
+
+/** Curated ElevenLabs voices available for VAPI assistants */
+export const VOICE_OPTIONS: Array<{ id: string; name: string; gender: string }> = [
+  { id: 'paula', name: 'Paula', gender: 'Female' },
+  { id: 'rachel', name: 'Rachel', gender: 'Female' },
+  { id: 'domi', name: 'Domi', gender: 'Female' },
+  { id: 'bella', name: 'Bella', gender: 'Female' },
+  { id: 'elli', name: 'Elli', gender: 'Female' },
+  { id: 'adam', name: 'Adam', gender: 'Male' },
+  { id: 'antoni', name: 'Antoni', gender: 'Male' },
+  { id: 'josh', name: 'Josh', gender: 'Male' },
+  { id: 'arnold', name: 'Arnold', gender: 'Male' },
+  { id: 'sam', name: 'Sam', gender: 'Male' },
+];
 
 interface VapiAssistant {
   id: string;
@@ -97,7 +111,14 @@ function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'):
 /**
  * Generate a smart system prompt based on business type
  */
-function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[], menuData?: CachedMenu | null): string {
+interface PromptOptions {
+  assistantName?: string;
+  customInstructions?: string;
+  afterHoursMessage?: string;
+  voicemailEnabled?: boolean;
+}
+
+function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[], menuData?: CachedMenu | null, options?: PromptOptions): string {
   const businessType = business.industry?.toLowerCase() || 'general';
   const serviceList = services.length > 0
     ? services.map(s => `- ${s.name}: $${s.price}, ${s.duration || 60} minutes${s.description ? ` - ${s.description}` : ''}`).join('\n')
@@ -131,7 +152,8 @@ function generateSystemPrompt(business: Business, services: Service[], businessH
   });
 
   // Base personality and rules
-  const basePrompt = `You are Alex, a friendly and professional receptionist for ${business.name}.
+  const assistantName = options?.assistantName || 'Alex';
+  const basePrompt = `You are ${assistantName}, a friendly and professional receptionist for ${business.name}.
 
 TODAY'S DATE: ${currentDate}
 CURRENT YEAR: ${currentYear}
@@ -613,9 +635,12 @@ When caller says "I need to speak with someone" or "can I talk to a person?":
 - If the caller INSISTS on speaking to a human after you've offered to help, or asks a SECOND time, use the transferCall tool immediately — no more pushback
 - For complaints, billing disputes, or "I already spoke to someone about this" — use transferCall right away without trying to help first
 
-When caller reaches voicemail or after hours:
-- Offer to take a message using leaveMessage
-- Always ask if they want a callback
+When caller reaches you after hours:
+${options?.afterHoursMessage ? `- Tell the caller: "${options.afterHoursMessage}"` : '- Let them know you are currently closed and tell them the next time you will be open'}
+- PROACTIVELY offer to schedule an appointment: "I can check our next available opening and book you an appointment right now if you'd like."
+- Use checkAvailability to find the next available slot during business hours
+- If the caller wants to schedule, proceed with the normal booking flow using bookAppointment
+${options?.voicemailEnabled !== false ? '- If the caller prefers not to schedule, offer to take a message using leaveMessage and ask if they want a callback' : '- If the caller does not want to schedule, thank them and let them know what hours they can call back'}
 
 ADDITIONAL FUNCTIONS:
 - scheduleCallback: Schedule a callback for later (preferred time/date)
@@ -680,7 +705,10 @@ IMPORTANT REMINDERS:
 - If customer seems frustrated or asks for manager, use transferCall immediately
 - For emergencies (water leak, car breakdown, etc.), prioritize and offer earliest available
 - Understand natural language dates: "next week", "tomorrow", "this Friday"
-
+${options?.customInstructions ? `
+CUSTOM BUSINESS INSTRUCTIONS (follow these closely — the business owner wrote them):
+${options.customInstructions}
+` : ''}
 Remember: You're not just booking appointments - you're providing excellent customer service that reflects well on ${business.name}. Make every caller feel valued and heard. Personalization is key - use their name when you know it!`;
 }
 
@@ -919,7 +947,7 @@ export async function createAssistantForBusiness(
   business: Business,
   services: Service[],
   businessHours?: any[],
-  transferPhoneNumbers?: string[]
+  receptionistConfig?: ReceptionistConfig | null
 ): Promise<{ assistantId: string; error?: string }> {
   if (!VAPI_API_KEY) {
     return { assistantId: '', error: 'Vapi API key not configured' };
@@ -940,7 +968,31 @@ export async function createAssistantForBusiness(
     }
   }
 
-  const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData);
+  // Extract config values with sensible defaults
+  const configVoiceId = receptionistConfig?.voiceId || 'paula';
+  const configAssistantName = receptionistConfig?.assistantName || 'Alex';
+  const configGreeting = receptionistConfig?.greeting || `Thank you for calling ${business.name}, this is ${configAssistantName}. How can I help you today?`;
+  const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
+  const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
+  const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
+  const configAfterHoursMessage = receptionistConfig?.afterHoursMessage || '';
+  const configCustomInstructions = receptionistConfig?.customInstructions || '';
+  const transferPhoneNumbers: string[] = Array.isArray(receptionistConfig?.transferPhoneNumbers)
+    ? receptionistConfig.transferPhoneNumbers as string[]
+    : [];
+
+  const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
+    assistantName: configAssistantName,
+    customInstructions: configCustomInstructions,
+    afterHoursMessage: configAfterHoursMessage,
+    voicemailEnabled: configVoicemailEnabled,
+  });
+
+  // Build functions list — conditionally exclude leaveMessage if voicemail is disabled
+  const baseFunctions = getAssistantFunctions();
+  const functions = configVoicemailEnabled
+    ? baseFunctions
+    : baseFunctions.filter(f => f.name !== 'leaveMessage');
 
   const assistantConfig = {
     name: `${business.name} Receptionist`,
@@ -950,358 +1002,31 @@ export async function createAssistantForBusiness(
       temperature: 0.7, // Natural variability
       systemPrompt: systemPrompt,
       functions: [
-        {
-          name: 'checkAvailability',
-          description: 'Check available appointment slots. Supports natural language dates like "tomorrow", "next Tuesday", "next week", "this Friday". For "next week" or general availability requests, returns multiple available days. For salons/barbershops, can filter by specific staff member.',
-          parameters: {
-            type: 'object',
-            properties: {
-              date: {
-                type: 'string',
-                description: 'The date to check - can be YYYY-MM-DD format OR natural language like "tomorrow", "next Tuesday", "next week", "this Friday", "in 3 days". Use "next week" to get availability across multiple days.'
-              },
-              serviceId: {
-                type: 'number',
-                description: 'Optional service ID to check specific service availability and use correct duration'
-              },
-              staffId: {
-                type: 'number',
-                description: 'Optional staff member ID (barber, stylist, technician) to check availability for a specific person. Get staff IDs from getStaffMembers function.'
-              },
-              staffName: {
-                type: 'string',
-                description: 'Optional staff member name (e.g., "Mike", "Sarah") - system will look up their ID'
-              }
-            },
-            required: ['date']
-          }
-        },
-        {
-          name: 'bookAppointment',
-          description: 'Book an appointment for a customer. For salons/barbershops, can assign to a specific staff member.',
-          parameters: {
-            type: 'object',
-            properties: {
-              customerId: {
-                type: 'number',
-                description: 'The customer ID'
-              },
-              customerName: {
-                type: 'string',
-                description: 'Customer name if new customer'
-              },
-              customerPhone: {
-                type: 'string',
-                description: 'Customer phone number'
-              },
-              customerEmail: {
-                type: 'string',
-                description: 'Customer email (optional)'
-              },
-              date: {
-                type: 'string',
-                description: 'Appointment date - can be YYYY-MM-DD or natural language like "tomorrow", "next Tuesday", "Monday"'
-              },
-              time: {
-                type: 'string',
-                description: 'Appointment time - can be HH:MM (24hr), "2pm", "2:30pm", "morning", "afternoon"'
-              },
-              serviceId: {
-                type: 'number',
-                description: 'Service ID if known'
-              },
-              serviceName: {
-                type: 'string',
-                description: 'Service name/description'
-              },
-              staffId: {
-                type: 'number',
-                description: 'Staff member ID (barber, stylist, etc.) to assign this appointment to. Get staff IDs from getStaffMembers function.'
-              },
-              staffName: {
-                type: 'string',
-                description: 'Staff member name (e.g., "Mike") - system will look up their ID'
-              },
-              notes: {
-                type: 'string',
-                description: 'Detailed notes about the appointment, customer issue, or special requests'
-              },
-              estimatedDuration: {
-                type: 'number',
-                description: 'Estimated duration in minutes'
-              }
-            },
-            required: ['customerPhone', 'date', 'time']
-          }
-        },
-        {
-          name: 'getCustomerInfo',
-          description: 'Look up existing customer information by phone number',
-          parameters: {
-            type: 'object',
-            properties: {
-              phoneNumber: {
-                type: 'string',
-                description: 'Customer phone number'
-              }
-            },
-            required: ['phoneNumber']
-          }
-        },
-        {
-          name: 'getServices',
-          description: 'Get the list of services offered by the business with prices and durations. ALWAYS call this when a customer asks about services, pricing, or what you offer. Returns service names, prices, and descriptions.',
-          parameters: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'getStaffMembers',
-          description: 'Get the list of staff members (barbers, stylists, technicians, etc.) who work at this business. Use this when a customer asks for a specific person by name, or to offer them a choice of who they want to see. Returns names, specialties, and IDs needed for booking.',
-          parameters: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'getStaffSchedule',
-          description: 'Get a specific staff member\'s working hours and schedule. Use this when a customer asks "when does [name] work?", "what are [name]\'s hours?", "what days does [name] work?". Returns their working days and hours.',
-          parameters: {
-            type: 'object',
-            properties: {
-              staffName: {
-                type: 'string',
-                description: 'Name of the staff member (e.g., "Josh", "Sarah")'
-              },
-              staffId: {
-                type: 'number',
-                description: 'Staff member ID if known'
-              }
-            }
-          }
-        },
-        {
-          name: 'rescheduleAppointment',
-          description: 'Reschedule an existing appointment to a new date/time',
-          parameters: {
-            type: 'object',
-            properties: {
-              appointmentId: {
-                type: 'number',
-                description: 'The appointment ID if known'
-              },
-              newDate: {
-                type: 'string',
-                description: 'The new date - can be YYYY-MM-DD or natural language like "tomorrow", "next Wednesday"'
-              },
-              newTime: {
-                type: 'string',
-                description: 'The new time - can be HH:MM (24hr), "3pm", "morning", "afternoon"'
-              },
-              reason: {
-                type: 'string',
-                description: 'Reason for rescheduling'
-              }
-            },
-            required: ['newDate', 'newTime']
-          }
-        },
-        {
-          name: 'cancelAppointment',
-          description: 'Cancel an existing appointment',
-          parameters: {
-            type: 'object',
-            properties: {
-              appointmentId: {
-                type: 'number',
-                description: 'The appointment ID if known'
-              },
-              reason: {
-                type: 'string',
-                description: 'Reason for cancellation'
-              }
-            }
-          }
-        },
-        {
-          name: 'getBusinessHours',
-          description: 'Get the business hours and check if currently open',
-          parameters: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'getEstimate',
-          description: 'Get a price estimate for requested services',
-          parameters: {
-            type: 'object',
-            properties: {
-              serviceNames: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'List of service names to get estimates for'
-              },
-              description: {
-                type: 'string',
-                description: 'Description of work needed for matching services'
-              }
-            }
-          }
-        },
-        {
-          name: 'transferToHuman',
-          description: 'Transfer the call to a human staff member',
-          parameters: {
-            type: 'object',
-            properties: {
-              reason: {
-                type: 'string',
-                description: 'Why the customer wants to speak with a human'
-              },
-              urgent: {
-                type: 'boolean',
-                description: 'Whether this is urgent'
-              }
-            }
-          }
-        },
-        {
-          name: 'leaveMessage',
-          description: 'Record a message for the business to call back',
-          parameters: {
-            type: 'object',
-            properties: {
-              message: {
-                type: 'string',
-                description: 'The message to leave'
-              },
-              urgent: {
-                type: 'boolean',
-                description: 'Whether this message is urgent'
-              },
-              callbackRequested: {
-                type: 'boolean',
-                description: 'Whether the customer wants a callback'
-              }
-            },
-            required: ['message']
-          }
-        },
-        {
-          name: 'getUpcomingAppointments',
-          description: 'Get the caller\'s upcoming appointments',
-          parameters: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'scheduleCallback',
-          description: 'Schedule a callback for the customer at their preferred time',
-          parameters: {
-            type: 'object',
-            properties: {
-              preferredDate: {
-                type: 'string',
-                description: 'Preferred date for callback (can be natural language like "tomorrow")'
-              },
-              preferredTime: {
-                type: 'string',
-                description: 'Preferred time for callback (can be natural language like "afternoon")'
-              },
-              reason: {
-                type: 'string',
-                description: 'Reason for the callback request'
-              },
-              urgent: {
-                type: 'boolean',
-                description: 'Whether this is an urgent callback request'
-              }
-            }
-          }
-        },
-        {
-          name: 'recognizeCaller',
-          description: 'Check if caller is a returning customer and get their info - CALL THIS AT THE START OF EVERY CALL',
-          parameters: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'getDirections',
-          description: 'Get business address and directions info',
-          parameters: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'checkWaitTime',
-          description: 'Check current wait time and next available appointment slot',
-          parameters: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'confirmAppointment',
-          description: 'Confirm or acknowledge an upcoming appointment',
-          parameters: {
-            type: 'object',
-            properties: {
-              appointmentId: {
-                type: 'number',
-                description: 'The appointment ID if known'
-              },
-              confirmed: {
-                type: 'boolean',
-                description: 'Whether the customer is confirming (true) or wants to reschedule (false)'
-              }
-            },
-            required: ['confirmed']
-          }
-        },
-        {
-          name: 'getServiceDetails',
-          description: 'Get detailed information about a specific service',
-          parameters: {
-            type: 'object',
-            properties: {
-              serviceName: {
-                type: 'string',
-                description: 'The name or description of the service to look up'
-              }
-            },
-            required: ['serviceName']
-          }
-        },
+        ...functions,
         // Restaurant ordering functions (Clover POS) — conditionally added
         ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
       ]
     },
     // Native VAPI transferCall tool for real call transfers to a human
-    tools: buildTransferCallTool(transferPhoneNumbers || [], business.phone),
+    tools: buildTransferCallTool(transferPhoneNumbers, business.phone),
     voice: {
       provider: '11labs',
-      voiceId: 'paula', // Professional, friendly female voice
+      voiceId: configVoiceId,
       stability: 0.5,
       similarityBoost: 0.8,
       style: 0.3, // Slightly more expressive
       useSpeakerBoost: true
     },
-    firstMessage: `Thank you for calling ${business.name}, this is Alex. How can I help you today?`,
+    firstMessage: configGreeting,
     serverUrl: `${BASE_URL}/api/vapi/webhook`,
     endCallFunctionEnabled: true,
-    recordingEnabled: true,
+    recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
     silenceTimeoutSeconds: 30,
     responseDelaySeconds: 0.5, // Slight delay for natural feel
     llmRequestDelaySeconds: 0.1,
     numWordsToInterruptAssistant: 2, // Allow interruptions
-    maxDurationSeconds: 600, // 10 min max call
+    maxDurationSeconds: configMaxCallMinutes * 60,
     backgroundSound: 'off',
     metadata: {
       businessId: business.id.toString()
@@ -1342,7 +1067,7 @@ export async function updateAssistant(
   business: Business,
   services: Service[],
   businessHours?: any[],
-  transferPhoneNumbers?: string[]
+  receptionistConfig?: ReceptionistConfig | null
 ): Promise<{ success: boolean; error?: string }> {
   if (!VAPI_API_KEY) {
     return { success: false, error: 'Vapi API key not configured' };
@@ -1363,11 +1088,33 @@ export async function updateAssistant(
     }
   }
 
-  const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData);
+  // Extract config values with sensible defaults
+  const configVoiceId = receptionistConfig?.voiceId || 'paula';
+  const configAssistantName = receptionistConfig?.assistantName || 'Alex';
+  const configGreeting = receptionistConfig?.greeting || `Thank you for calling ${business.name}, this is ${configAssistantName}. How can I help you today?`;
+  const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
+  const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
+  const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
+  const configAfterHoursMessage = receptionistConfig?.afterHoursMessage || '';
+  const configCustomInstructions = receptionistConfig?.customInstructions || '';
+  const transferPhoneNumbers: string[] = Array.isArray(receptionistConfig?.transferPhoneNumbers)
+    ? receptionistConfig.transferPhoneNumbers as string[]
+    : [];
 
-  // Get functions — include restaurant functions if menu data is available
+  const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
+    assistantName: configAssistantName,
+    customInstructions: configCustomInstructions,
+    afterHoursMessage: configAfterHoursMessage,
+    voicemailEnabled: configVoicemailEnabled,
+  });
+
+  // Get functions — conditionally exclude leaveMessage if voicemail is disabled
+  const baseFunctions = getAssistantFunctions();
+  const filteredFunctions = configVoicemailEnabled
+    ? baseFunctions
+    : baseFunctions.filter(f => f.name !== 'leaveMessage');
   const functions = [
-    ...getAssistantFunctions(),
+    ...filteredFunctions,
     ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
   ];
 
@@ -1387,8 +1134,18 @@ export async function updateAssistant(
           functions: functions
         },
         // Native VAPI transferCall tool for real call transfers to a human
-        tools: buildTransferCallTool(transferPhoneNumbers || [], business.phone),
-        firstMessage: `Thank you for calling ${business.name}, this is Alex. How can I help you today?`,
+        tools: buildTransferCallTool(transferPhoneNumbers, business.phone),
+        voice: {
+          provider: '11labs',
+          voiceId: configVoiceId,
+          stability: 0.5,
+          similarityBoost: 0.8,
+          style: 0.3,
+          useSpeakerBoost: true
+        },
+        firstMessage: configGreeting,
+        recordingEnabled: configRecordingEnabled,
+        maxDurationSeconds: configMaxCallMinutes * 60,
         serverUrl: `${BASE_URL}/api/vapi/webhook`,
         metadata: {
           businessId: business.id.toString()

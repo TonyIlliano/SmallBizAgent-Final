@@ -25,7 +25,6 @@ import SubscriptionSuccess from "@/pages/subscription-success";
 import OnboardingSubscription from "@/pages/onboarding/subscription";
 import OnboardingFlow from "@/pages/onboarding/index";
 import Receptionist from "@/pages/receptionist/index";
-import ReceptionistTraining from "@/pages/receptionist/training";
 import Settings from "@/pages/settings";
 import CalendarSettings from "@/pages/settings/calendar";
 import PWAInstallationGuide from "@/pages/settings/pwa-installation";
@@ -99,7 +98,6 @@ function Router() {
       <ProtectedRoute path="/onboarding" component={OnboardingFlow} />
       <ProtectedRoute path="/onboarding/subscription" component={OnboardingSubscription} />
       <ProtectedRoute path="/receptionist" component={Receptionist} />
-      <ProtectedRoute path="/receptionist/training" component={ReceptionistTraining} />
       <ProtectedRoute path="/recurring" component={RecurringSchedules} />
       <ProtectedRoute path="/settings" component={Settings} />
       <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />

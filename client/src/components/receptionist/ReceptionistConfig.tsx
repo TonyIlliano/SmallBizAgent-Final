@@ -28,15 +28,38 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, X, AlertTriangle } from "lucide-react";
+
+/** Curated ElevenLabs voices available for VAPI assistants (must match server VOICE_OPTIONS) */
+const VOICE_OPTIONS = [
+  { id: 'paula', name: 'Paula', gender: 'Female' },
+  { id: 'rachel', name: 'Rachel', gender: 'Female' },
+  { id: 'domi', name: 'Domi', gender: 'Female' },
+  { id: 'bella', name: 'Bella', gender: 'Female' },
+  { id: 'elli', name: 'Elli', gender: 'Female' },
+  { id: 'adam', name: 'Adam', gender: 'Male' },
+  { id: 'antoni', name: 'Antoni', gender: 'Male' },
+  { id: 'josh', name: 'Josh', gender: 'Male' },
+  { id: 'arnold', name: 'Arnold', gender: 'Male' },
+  { id: 'sam', name: 'Sam', gender: 'Male' },
+];
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Zod schema for form validation
 const receptionistConfigSchema = z.object({
   businessId: z.number(),
+  assistantName: z.string().min(1, "Assistant name is required").max(30, "Name cannot exceed 30 characters").default("Alex"),
+  voiceId: z.string().default("paula"),
   greeting: z.string().min(10, "Greeting must be at least 10 characters"),
   afterHoursMessage: z.string().min(10, "After hours message must be at least 10 characters"),
-  emergencyKeywords: z.array(z.string()).optional(),
+  customInstructions: z.string().max(2000, "Custom instructions cannot exceed 2000 characters").optional().default(""),
   voicemailEnabled: z.boolean().default(true),
   callRecordingEnabled: z.boolean().default(false),
   transcriptionEnabled: z.boolean().default(true),
@@ -50,7 +73,6 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [newKeyword, setNewKeyword] = useState("");
   const [newPhoneNumber, setNewPhoneNumber] = useState("");
 
   // Fetch existing configuration
@@ -71,9 +93,11 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
     if (!config) {
       return {
         businessId: safeBusinessId,
+        assistantName: "Alex",
+        voiceId: "paula",
         greeting: "Thank you for calling. How may I help you today?",
         afterHoursMessage: "I'm sorry, our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff. Otherwise, I'd be happy to schedule an appointment for you.",
-        emergencyKeywords: ["emergency", "urgent", "immediately", "critical", "asap"],
+        customInstructions: "",
         voicemailEnabled: true,
         callRecordingEnabled: false,
         transcriptionEnabled: true,
@@ -84,9 +108,11 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
 
     return {
       businessId: safeBusinessId,
+      assistantName: config.assistantName || "Alex",
+      voiceId: config.voiceId || "paula",
       greeting: config.greeting || "Thank you for calling. How may I help you today?",
       afterHoursMessage: config.afterHoursMessage || "I'm sorry, our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff. Otherwise, I'd be happy to schedule an appointment for you.",
-      emergencyKeywords: config.emergencyKeywords || [],
+      customInstructions: config.customInstructions || "",
       voicemailEnabled: config.voicemailEnabled,
       callRecordingEnabled: config.callRecordingEnabled,
       transcriptionEnabled: config.transcriptionEnabled,
@@ -107,26 +133,6 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
-
-  // Add emergency keyword
-  const addEmergencyKeyword = () => {
-    if (!newKeyword.trim()) return;
-    
-    const currentKeywords = form.getValues("emergencyKeywords") || [];
-    if (!currentKeywords.includes(newKeyword.trim())) {
-      form.setValue("emergencyKeywords", [...currentKeywords, newKeyword.trim()]);
-    }
-    setNewKeyword("");
-  };
-
-  // Remove emergency keyword
-  const removeEmergencyKeyword = (keyword: string) => {
-    const currentKeywords = form.getValues("emergencyKeywords") || [];
-    form.setValue(
-      "emergencyKeywords", 
-      currentKeywords.filter(k => k !== keyword)
-    );
-  };
 
   // Add phone number
   const addPhoneNumber = () => {
@@ -204,6 +210,56 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="assistantName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Assistant Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Alex"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      The name your AI receptionist introduces itself as
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="voiceId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Voice</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a voice" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {VOICE_OPTIONS.map((voice) => (
+                          <SelectItem key={voice.id} value={voice.id}>
+                            {voice.name} ({voice.gender})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Choose the voice for your AI receptionist
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <FormField
               control={form.control}
               name="greeting"
@@ -246,46 +302,26 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
               )}
             />
             
-            <FormItem>
-              <FormLabel>Emergency Keywords</FormLabel>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {form.watch("emergencyKeywords")?.map((keyword) => (
-                  <Badge key={keyword} className="px-3 py-1">
-                    {keyword}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-4 w-4 p-0 ml-2 text-gray-500 hover:text-gray-700"
-                      onClick={() => removeEmergencyKeyword(keyword)}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </Badge>
-                ))}
-                {(!form.watch("emergencyKeywords") || (form.watch("emergencyKeywords") ?? []).length === 0) && (
-                  <span className="text-sm text-gray-500">No emergency keywords added</span>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Add emergency keyword"
-                  value={newKeyword}
-                  onChange={(e) => setNewKeyword(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  onClick={addEmergencyKeyword}
-                  disabled={!newKeyword.trim()}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add
-                </Button>
-              </div>
-              <FormDescription>
-                These words will trigger emergency handling if detected in a call
-              </FormDescription>
-            </FormItem>
+            <FormField
+              control={form.control}
+              name="customInstructions"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Custom Instructions</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder={"Examples:\n• Always mention our 10% new customer discount\n• If someone mentions a water leak or gas smell, transfer to a human immediately\n• We deliver within 5 miles — let callers know\n• Never book appointments on Sundays\n• Try to upsell our premium package on every call"}
+                      className="min-h-[120px]"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Tell your AI receptionist what to say, how to behave, or when to take action. These rules are followed on every call — use them for promotions, emergency handling, upsells, restrictions, or anything specific to your business.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
