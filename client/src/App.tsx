@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -63,7 +63,13 @@ function HomePage() {
     );
   }
 
-  return user ? <Dashboard /> : <LandingPage />;
+  // Not logged in — show landing page
+  if (!user) return <LandingPage />;
+
+  // Logged in but email not verified — redirect to verification
+  if (!user.emailVerified) return <Redirect to="/verify-email" />;
+
+  return <Dashboard />;
 }
 
 function Router() {

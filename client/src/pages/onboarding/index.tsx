@@ -52,19 +52,12 @@ export default function OnboardingPage() {
     { id: 'final' as OnboardingStep, label: 'Complete', component: FinalSetup },
   ];
   
+  // Get the active step IDs for the current flow (excludes clover for non-restaurants)
+  const activeStepIds = steps.map(s => s.id);
+
   // Find current step index based on progress
   const currentStepIndex = steps.findIndex(step => step.id === progress.currentStep);
   const currentStep = steps[currentStepIndex >= 0 ? currentStepIndex : 0];
-
-  // Debug logging
-  console.log('Onboarding Debug:', {
-    progressCurrentStep: progress.currentStep,
-    currentStepIndex,
-    currentStepId: currentStep?.id,
-    isComplete: progress.isComplete,
-    userBusinessId: user?.businessId,
-    stepStatuses: progress.stepStatuses
-  });
   
   // Reset onboarding if localStorage says complete but user has no business
   // This handles cases where localStorage persists across different user accounts
@@ -89,15 +82,16 @@ export default function OnboardingPage() {
     }
   }, [user, isLoading, setLocation]);
   
-  // On first mount, check if we need to resume at a specific step
+  // On first mount or when steps change, check if we need to resume at a specific step
   useEffect(() => {
-    const nextStep = getNextIncompleteStep();
+    const nextStep = getNextIncompleteStep(activeStepIds);
     const stepIndex = steps.findIndex(step => step.id === nextStep);
-    
+
     if (stepIndex >= 0 && progress.currentStep !== nextStep) {
       setCurrentStep(nextStep);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRestaurant]);
   
   const handleNext = () => {
     if (currentStepIndex < steps.length - 1) {
@@ -140,10 +134,20 @@ export default function OnboardingPage() {
   };
   
   const handleSkip = () => {
-    // Mark all steps as skipped or completed
+    // Only allow skipping if business profile has been created (most critical step)
+    if (!user?.businessId) {
+      toast({
+        title: 'Business profile required',
+        description: 'Please complete your business profile before skipping the rest of setup. You can configure other settings later from the Settings page.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Mark required steps as completed and optional steps as skipped
     updateStepStatus('welcome', 'completed');
     updateStepStatus('business', 'completed');
-    updateStepStatus('services', 'completed');
+    updateStepStatus('services', 'skipped');
     updateStepStatus('clover', 'skipped');
     updateStepStatus('receptionist', 'skipped');
     updateStepStatus('calendar', 'skipped');

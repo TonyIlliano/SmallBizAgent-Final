@@ -2,7 +2,7 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual, randomInt } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User, InsertUser } from "@shared/schema";
@@ -206,17 +206,20 @@ export function setupAuth(app: Express) {
       }
 
       // Create new user with hashed password
+      // SECURITY: Only pick safe fields from req.body — never spread req.body directly
+      // to prevent privilege escalation (e.g., setting role: "admin" or businessId)
       const hashedPassword = await hashPassword(req.body.password);
       const userData: InsertUser = {
-        ...req.body,
         username: normalizedUsername,
+        email: req.body.email,
         password: hashedPassword,
+        role: 'user', // Always force 'user' role for public registration
       };
 
       const user = await storage.createUser(userData);
 
       // Generate 6-digit verification code
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const verificationCode = randomInt(100000, 999999).toString();
       const verificationExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       // Save verification code to user record
@@ -307,7 +310,7 @@ export function setupAuth(app: Express) {
       }
 
       // Generate new code
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const verificationCode = randomInt(100000, 999999).toString();
       const verificationExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
       await storage.updateUser(user.id, {

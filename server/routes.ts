@@ -296,8 +296,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Business update validated data for id ${id}:`, JSON.stringify(validatedData));
       const business = await storage.updateBusiness(id, validatedData);
 
-      // Update Vapi assistant if business name, industry, hours, or restaurant order types changed (debounced)
+      // Update Vapi assistant if any business info that affects the AI prompt changed (debounced)
       if (validatedData.name || validatedData.industry || validatedData.businessHours ||
+          validatedData.phone || validatedData.address || validatedData.city || validatedData.state || validatedData.zip ||
           validatedData.restaurantPickupEnabled !== undefined || validatedData.restaurantDeliveryEnabled !== undefined) {
         vapiProvisioningService.debouncedUpdateVapiAssistant(id);
       }
@@ -1888,18 +1889,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/receptionist-config/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
-      // Get the config and verify ownership
-      const existing = await storage.getReceptionistConfig(id);
-      if (!existing || !verifyBusinessOwnership(existing, req)) {
+      // Verify ownership: look up config by the user's businessId (NOT by the URL param id)
+      // because getReceptionistConfig queries by businessId, not by config record id
+      const userBusinessId = getBusinessId(req);
+      const existing = await storage.getReceptionistConfig(userBusinessId);
+      if (!existing || existing.id !== id) {
         return res.status(404).json({ message: "Receptionist configuration not found" });
       }
       const validatedData = insertReceptionistConfigSchema.partial().parse(req.body);
       const config = await storage.updateReceptionistConfig(id, validatedData);
 
       // Auto-refresh VAPI assistant when receptionist config changes (syncs transfer numbers etc.)
-      if (existing.businessId) {
-        vapiProvisioningService.debouncedUpdateVapiAssistant(existing.businessId);
-      }
+      vapiProvisioningService.debouncedUpdateVapiAssistant(userBusinessId);
 
       res.json(config);
     } catch (error) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -100,12 +100,13 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
     defaultValues: getDefaultValues()
   });
 
-  // Update form when data is loaded
-  useState(() => {
+  // Update form when config data is loaded from API
+  useEffect(() => {
     if (config) {
       form.reset(getDefaultValues());
     }
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config]);
 
   // Add emergency keyword
   const addEmergencyKeyword = () => {

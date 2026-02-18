@@ -29,7 +29,8 @@ export function ProtectedRoute({
         }
 
         // Redirect unverified users to email verification page
-        if (user.emailVerified === false) {
+        // Use !user.emailVerified to also catch null/undefined (not just false)
+        if (!user.emailVerified) {
           return <Redirect to="/verify-email" />;
         }
 

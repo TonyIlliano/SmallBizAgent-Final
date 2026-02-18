@@ -195,10 +195,12 @@ export function useOnboardingProgress() {
   };
   
   // Get next incomplete step
-  const getNextIncompleteStep = (): OnboardingStep => {
-    const steps: OnboardingStep[] = ['welcome', 'business', 'services', 'clover', 'receptionist', 'calendar', 'final'];
+  // Pass activeSteps to filter out steps not in the current flow (e.g., 'clover' for non-restaurants)
+  const getNextIncompleteStep = (activeSteps?: OnboardingStep[]): OnboardingStep => {
+    const allSteps: OnboardingStep[] = ['welcome', 'business', 'services', 'clover', 'receptionist', 'calendar', 'final'];
+    const stepsToCheck = activeSteps || allSteps;
 
-    for (const step of steps) {
+    for (const step of stepsToCheck) {
       const status = progress.stepStatuses[step];
       if (status === 'not_started' || status === 'in_progress') {
         return step;
