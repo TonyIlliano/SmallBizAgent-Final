@@ -221,6 +221,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log('Business created without authenticated user - no linking performed');
       }
 
+      // Start reminder scheduler for the new business
+      schedulerService.startReminderScheduler(business.id);
+
       // Automatically provision business resources
       try {
         // Get area code from request if available

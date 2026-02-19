@@ -117,11 +117,15 @@ async function runRecurringJobsCheck(): Promise<void> {
  */
 export async function startAllSchedulers(): Promise<void> {
   try {
-    // Get all businesses (in a real app, you'd filter by active subscription)
-    // For now, we'll start for business 1 as a demo
-    const business = await storage.getBusiness(1);
-    if (business) {
-      startReminderScheduler(1);
+    // Get all businesses and start a reminder scheduler for each
+    const allBusinesses = await storage.getAllBusinesses();
+
+    for (const business of allBusinesses) {
+      startReminderScheduler(business.id);
+    }
+
+    if (allBusinesses.length === 0) {
+      console.log('No businesses found — reminder schedulers skipped');
     }
 
     // Start recurring jobs scheduler (runs globally, not per-business)
