@@ -376,6 +376,56 @@ export async function sendPaymentConfirmationEmail(
 /**
  * Send job completion email
  */
+/**
+ * Send a staff invite email
+ */
+export async function sendStaffInviteEmail(
+  staffEmail: string,
+  staffName: string,
+  businessName: string,
+  inviteUrl: string
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const subject = `You're invited to join ${businessName} on SmallBizAgent`;
+  const text = `
+Hi ${staffName},
+
+You've been invited to join ${businessName} on SmallBizAgent!
+
+Click the link below to create your account and access your schedule, appointments, and more:
+${inviteUrl}
+
+This invite link expires in 7 days.
+
+If you weren't expecting this invite, you can safely ignore this email.
+
+Thank you,
+${businessName}
+  `.trim();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #333;">You're Invited!</h2>
+      <p>Hi ${staffName},</p>
+      <p>You've been invited to join <strong>${businessName}</strong> on SmallBizAgent.</p>
+      <p>Create your account to access your personal dashboard where you can view your schedule, upcoming appointments, and more.</p>
+
+      <p style="margin: 30px 0; text-align: center;">
+        <a href="${inviteUrl}" style="display: inline-block; background-color: #000; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+          Join ${businessName}
+        </a>
+      </p>
+
+      <p style="color: #666; font-size: 14px;">This invite link expires in 7 days.</p>
+      <p style="color: #666; font-size: 14px;">If you weren't expecting this invite, you can safely ignore this email.</p>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">Thank you,<br>${businessName}</p>
+    </div>
+  `;
+
+  return sendEmail({ to: staffEmail, subject, text, html });
+}
+
 export async function sendJobCompletedEmail(
   customerEmail: string,
   customerName: string,

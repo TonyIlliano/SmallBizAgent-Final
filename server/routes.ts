@@ -1043,6 +1043,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateStaffMember(staffId, { email: req.body.email });
       }
 
+      // Send invite email to staff member
+      const business = await storage.getBusiness(staffMember.businessId);
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const fullInviteUrl = `${baseUrl}/staff/join/${inviteCode}`;
+      const staffName = `${staffMember.firstName}${staffMember.lastName ? ` ${staffMember.lastName}` : ""}`;
+
+      try {
+        const { sendStaffInviteEmail } = await import("./emailService");
+        await sendStaffInviteEmail(email, staffName, business?.name || "Your Team", fullInviteUrl);
+        console.log(`Staff invite email sent to ${email} for business ${staffMember.businessId}`);
+      } catch (emailError) {
+        console.error("Failed to send invite email (invite still created):", emailError);
+      }
+
       res.status(201).json({
         ...invite,
         inviteUrl: `/staff/join/${inviteCode}`,
