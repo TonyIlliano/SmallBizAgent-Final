@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -35,20 +35,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, X, AlertTriangle } from "lucide-react";
+import { Plus, X, AlertTriangle, Volume2, VolumeX, Loader2 } from "lucide-react";
 
 /** Curated ElevenLabs voices available for VAPI assistants (must match server VOICE_OPTIONS) */
 const VOICE_OPTIONS = [
-  { id: 'paula', name: 'Paula', gender: 'Female' },
-  { id: 'rachel', name: 'Rachel', gender: 'Female' },
-  { id: 'domi', name: 'Domi', gender: 'Female' },
-  { id: 'bella', name: 'Bella', gender: 'Female' },
-  { id: 'elli', name: 'Elli', gender: 'Female' },
-  { id: 'adam', name: 'Adam', gender: 'Male' },
-  { id: 'antoni', name: 'Antoni', gender: 'Male' },
-  { id: 'josh', name: 'Josh', gender: 'Male' },
-  { id: 'arnold', name: 'Arnold', gender: 'Male' },
-  { id: 'sam', name: 'Sam', gender: 'Male' },
+  { id: 'paula', name: 'Paula', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/dff5d82d-d16d-45b9-ae73-be2ad8850855.mp3' }, // Paula uses Rachel's voice model
+  { id: 'rachel', name: 'Rachel', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/dff5d82d-d16d-45b9-ae73-be2ad8850855.mp3' },
+  { id: 'domi', name: 'Domi', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/AZnzlk1XvdvUeBnXmlld/53bd2f5f-bb59-4146-9922-245b2a466c80.mp3' },
+  { id: 'bella', name: 'Bella', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/53bd2f5f-bb59-4146-8822-245b2a466c80.mp3' },
+  { id: 'elli', name: 'Elli', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/MF3mGyEYCl7XYWbV9V6O/bea2dc16-9abf-4162-b011-66531458e022.mp3' },
+  { id: 'adam', name: 'Adam', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3' },
+  { id: 'antoni', name: 'Antoni', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/ErXwobaYiN019PkySvjV/53bd2f5f-bb59-1111-8822-225b2a466c80.mp3' },
+  { id: 'josh', name: 'Josh', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/TxGEqnHWrfWFTfGW9XjX/bdc4303c-a20d-4cec-97eb-dca625044eac.mp3' },
+  { id: 'arnold', name: 'Arnold', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/VR6AewLTigWG4xSOukaG/2c4395e7-91b1-44cd-8f0f-e4aebd292461.mp3' },
+  { id: 'sam', name: 'Sam', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/yoZ06aMxZJJ28mfd3POQ/1c4d417c-ba80-4de8-874a-a1c57987ea63.mp3' },
 ];
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -74,6 +74,73 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newPhoneNumber, setNewPhoneNumber] = useState("");
+  const [playingVoice, setPlayingVoice] = useState<string | null>(null);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Play/stop voice preview
+  const toggleVoicePreview = (voiceId: string) => {
+    const voice = VOICE_OPTIONS.find(v => v.id === voiceId);
+    if (!voice?.previewUrl) return;
+
+    // If same voice is playing, stop it
+    if (playingVoice === voiceId) {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      setPlayingVoice(null);
+      setAudioLoading(false);
+      return;
+    }
+
+    // Stop any currently playing audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    // Play new voice
+    setAudioLoading(true);
+    const audio = new Audio(voice.previewUrl);
+    audioRef.current = audio;
+
+    audio.addEventListener('canplaythrough', () => {
+      setAudioLoading(false);
+      setPlayingVoice(voiceId);
+    }, { once: true });
+
+    audio.addEventListener('ended', () => {
+      setPlayingVoice(null);
+      audioRef.current = null;
+    });
+
+    audio.addEventListener('error', () => {
+      setAudioLoading(false);
+      setPlayingVoice(null);
+      audioRef.current = null;
+      toast({
+        title: "Preview unavailable",
+        description: "Could not load voice preview. Try selecting the voice and making a test call.",
+        variant: "destructive",
+      });
+    });
+
+    audio.play().catch(() => {
+      setAudioLoading(false);
+      setPlayingVoice(null);
+      audioRef.current = null;
+    });
+    setPlayingVoice(voiceId);
+  };
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   // Fetch existing configuration
   const { data: config, isLoading } = useQuery<any>({
@@ -237,22 +304,41 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Voice</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a voice" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {VOICE_OPTIONS.map((voice) => (
-                          <SelectItem key={voice.id} value={voice.id}>
-                            {voice.name} ({voice.gender})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex gap-2">
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a voice" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {VOICE_OPTIONS.map((voice) => (
+                            <SelectItem key={voice.id} value={voice.id}>
+                              {voice.name} ({voice.gender})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant={playingVoice === field.value ? "destructive" : "outline"}
+                        size="icon"
+                        className="shrink-0"
+                        onClick={() => toggleVoicePreview(field.value)}
+                        disabled={audioLoading}
+                        title={playingVoice === field.value ? "Stop preview" : "Preview voice"}
+                      >
+                        {audioLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : playingVoice === field.value ? (
+                          <VolumeX className="h-4 w-4" />
+                        ) : (
+                          <Volume2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                     <FormDescription>
-                      Choose the voice for your AI receptionist
+                      Choose the voice for your AI receptionist — click the speaker icon to preview
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
