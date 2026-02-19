@@ -601,7 +601,7 @@ CUSTOMER & BUSINESS INFO:
 
 COMMUNICATION:
 - transferCall: Transfer the call to a human staff member (VAPI will perform a real phone transfer — use ONLY as a last resort after trying to help)
-- leaveMessage: Record a message for callback`;
+- leaveMessage: Record a message for the business owner (ONLY use if caller explicitly asks to leave a message — always try to help them directly first)`;
 
   return basePrompt + industryPrompt + menuSection + `
 
@@ -636,11 +636,19 @@ When caller says "I need to speak with someone" or "can I talk to a person?":
 - For complaints, billing disputes, or "I already spoke to someone about this" — use transferCall right away without trying to help first
 
 When caller reaches you after hours:
-${options?.afterHoursMessage ? `- Tell the caller: "${options.afterHoursMessage}"` : '- Let them know you are currently closed and tell them the next time you will be open'}
-- PROACTIVELY offer to schedule an appointment: "I can check our next available opening and book you an appointment right now if you'd like."
+${options?.afterHoursMessage ? `- Tell the caller: "${options.afterHoursMessage}"` : '- Let them know the office is currently closed but that YOU can still help them right now'}
+- You are FULLY capable of helping after hours. Do NOT act like a voicemail machine. You can:
+  • Book appointments for the next available time
+  • Answer questions about services and pricing
+  • Place orders (for restaurants)
+  • Provide directions and business info
+  • Get price estimates
+- PROACTIVELY offer help: "Even though we're closed right now, I can still book you an appointment, answer questions about our services, or help with pricing. What can I do for you?"
 - Use checkAvailability to find the next available slot during business hours
 - If the caller wants to schedule, proceed with the normal booking flow using bookAppointment
-${options?.voicemailEnabled !== false ? '- If the caller prefers not to schedule, offer to take a message using leaveMessage and ask if they want a callback' : '- If the caller does not want to schedule, thank them and let them know what hours they can call back'}
+- KEEP the conversation going — answer their questions, schedule their appointment, give them pricing info
+- Do NOT offer to "take a message" or suggest they "call back during business hours" unless the caller specifically says "I just want to leave a message for the owner"
+${options?.voicemailEnabled !== false ? '- ONLY if the caller explicitly asks to leave a message for the owner (not you), use leaveMessage' : '- If the caller asks to leave a message, let them know you can handle most things and ask what they need help with'}
 
 ADDITIONAL FUNCTIONS:
 - scheduleCallback: Schedule a callback for later (preferred time/date)
@@ -681,9 +689,10 @@ NATURAL DATE/TIME UNDERSTANDING:
 
 PROACTIVE SUGGESTIONS:
 - If they call about pricing, offer to schedule after giving the price
-- If closed today, suggest tomorrow's first available
-- If they seem unsure, offer to have someone call them back
-- If wait is long, offer to schedule or callback
+- If closed today, suggest tomorrow's first available — don't just say "call back"
+- If they seem unsure, offer specific options: "I can book you an appointment, give you a price estimate, or answer any questions about our services"
+- If wait is long, offer to schedule for a specific time
+- ALWAYS try to convert the call into a booked appointment or completed action — your job is to help, not take messages
 
 HANDLING DIRECTIONS:
 - When asked "where are you located?" call getDirections
@@ -822,7 +831,7 @@ function getAssistantFunctions() {
     },
     {
       name: 'leaveMessage',
-      description: 'Leave a message for callback',
+      description: 'Leave a message for the business owner. ONLY use this if the caller explicitly asks to leave a message — always try to help them directly first by booking, answering questions, or providing info.',
       parameters: {
         type: 'object',
         properties: {

@@ -1928,6 +1928,33 @@ async function createCustomer(
   }
 
   try {
+    // Check for existing customer by phone to prevent duplicates
+    const existingCustomer = await storage.getCustomerByPhone(params.phone, businessId);
+    if (existingCustomer) {
+      // Update name/email if we now have better info
+      const updates: any = {};
+      if (firstName && firstName !== 'New' && (existingCustomer.firstName === 'Caller' || existingCustomer.firstName === 'New')) {
+        updates.firstName = firstName;
+      }
+      if (lastName && lastName !== 'Customer' && (existingCustomer.lastName === 'Customer' || /^\d{4}$/.test(existingCustomer.lastName || ''))) {
+        updates.lastName = lastName;
+      }
+      if (params.email && !existingCustomer.email) {
+        updates.email = params.email;
+      }
+      if (Object.keys(updates).length > 0) {
+        await storage.updateCustomer(existingCustomer.id, updates);
+      }
+
+      return {
+        result: {
+          success: true,
+          customerId: existingCustomer.id,
+          message: `Found existing customer record for ${existingCustomer.firstName} ${existingCustomer.lastName}`
+        }
+      };
+    }
+
     const customer = await storage.createCustomer({
       businessId,
       firstName: firstName || 'New',
@@ -3049,10 +3076,12 @@ async function handleEndOfCall(
 
   // Log the call in the database
   if (businessId && message.call) {
+    const callerPhone = message.call.customer?.number || null;
+
     try {
       await storage.createCallLog({
         businessId,
-        callerId: message.call.customer?.number || 'Unknown',
+        callerId: callerPhone || 'Unknown',
         callerName: '',
         transcript: message.transcript || null,
         intentDetected: 'vapi-ai-call',
@@ -3064,6 +3093,28 @@ async function handleEndOfCall(
       });
     } catch (error) {
       console.error('Error logging call:', error);
+    }
+
+    // Auto-create customer record for every caller so they appear in the CRM
+    // (bookAppointment already does this, but voicemails/inquiries/hangups don't)
+    if (callerPhone && callerPhone !== 'Unknown') {
+      try {
+        const existingCustomer = await storage.getCustomerByPhone(callerPhone, businessId);
+        if (!existingCustomer) {
+          await storage.createCustomer({
+            businessId,
+            firstName: 'Caller',
+            lastName: callerPhone.replace(/\D/g, '').slice(-4), // Last 4 digits as placeholder
+            phone: callerPhone,
+            email: '',
+            address: '',
+            notes: 'Auto-created from phone call — update name after follow-up'
+          });
+          console.log(`Auto-created customer record for caller ${callerPhone} (business ${businessId})`);
+        }
+      } catch (error) {
+        console.error('Error auto-creating customer from call:', error);
+      }
     }
   }
 
