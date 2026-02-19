@@ -40,14 +40,18 @@ router.get('/google/callback', async (req, res) => {
     
     res.send(`
       <html>
-        <body>
-          <h1>Google Calendar Connected</h1>
-          <p>Your Google Calendar has been successfully connected to SmallBizAgent.</p>
-          <p>You can close this window and return to the application.</p>
+        <body style="font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb;">
+          <div style="text-align: center; padding: 40px;">
+            <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
+            <h1 style="color: #333; margin-bottom: 8px;">Google Calendar Connected!</h1>
+            <p style="color: #666;">Your appointments will now sync automatically.</p>
+            <p style="color: #999; font-size: 14px;">This window will close shortly...</p>
+          </div>
           <script>
-            setTimeout(function() {
-              window.close();
-            }, 3000);
+            if (window.opener) {
+              window.opener.postMessage({ type: 'calendar-connected', provider: 'google' }, '*');
+            }
+            setTimeout(function() { window.close(); }, 2000);
           </script>
         </body>
       </html>

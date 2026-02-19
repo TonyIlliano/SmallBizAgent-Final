@@ -1287,6 +1287,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('Background notification error:', err)
       );
 
+      // Sync to Google Calendar if connected (fire-and-forget)
+      const { CalendarService } = await import("./services/calendarService");
+      const calendarService = new CalendarService();
+      calendarService.syncAppointment(appointment.id).catch(err =>
+        console.error('Background calendar sync error:', err)
+      );
+
       res.status(201).json(appointment);
     } catch (error) {
       console.error('Error creating appointment:', error);
@@ -1314,6 +1321,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Invalidate appointments cache
       dataCache.invalidate(existing.businessId, 'appointments');
 
+      // Re-sync to Google Calendar if connected (fire-and-forget)
+      const { CalendarService } = await import("./services/calendarService");
+      const calendarServiceUpdate = new CalendarService();
+      calendarServiceUpdate.syncAppointment(appointment.id).catch(err =>
+        console.error('Background calendar sync error:', err)
+      );
+
       res.json(appointment);
     } catch (error) {
       console.error('Error updating appointment:', error);
@@ -1333,6 +1347,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Appointment not found" });
       }
       const businessId = existing.businessId;
+
+      // Delete from Google Calendar if synced (fire-and-forget)
+      if (existing.googleCalendarEventId) {
+        const { CalendarService } = await import("./services/calendarService");
+        const calendarServiceDel = new CalendarService();
+        calendarServiceDel.deleteAppointment(id).catch(err =>
+          console.error('Background calendar delete error:', err)
+        );
+      }
+
       await storage.deleteAppointment(id);
 
       // Invalidate appointments cache

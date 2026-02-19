@@ -1551,6 +1551,17 @@ async function bookAppointment(
     // Invalidate appointments cache after creating new appointment
     dataCache.invalidate(businessId, 'appointments');
 
+    // Sync to Google Calendar if connected (fire-and-forget)
+    try {
+      const { CalendarService } = await import("./calendarService");
+      const calendarService = new CalendarService();
+      calendarService.syncAppointment(appointment.id).catch(err =>
+        console.error('Background calendar sync error (VAPI):', err)
+      );
+    } catch (calErr) {
+      console.error('Calendar sync import error:', calErr);
+    }
+
     // Format confirmation message (using business timezone for display)
     const dateStr = appointmentDate.toLocaleDateString('en-US', {
       timeZone: businessTimezone,

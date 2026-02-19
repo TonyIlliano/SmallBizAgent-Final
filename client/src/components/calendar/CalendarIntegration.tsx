@@ -23,6 +23,21 @@ export function CalendarIntegration({ businessId }: { businessId: number }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
 
+  // Listen for OAuth callback messages from popup windows
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'calendar-connected') {
+        queryClient.invalidateQueries({ queryKey: ['/api/calendar/status', businessId] });
+        toast({
+          title: 'Calendar Connected!',
+          description: `Your ${event.data.provider} calendar is now syncing appointments automatically.`,
+        });
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [businessId, toast]);
+
   // Get calendar integration status
   const {
     data: status,
