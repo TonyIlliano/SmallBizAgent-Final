@@ -34,6 +34,11 @@ export function ProtectedRoute({
           return <Redirect to="/verify-email" />;
         }
 
+        // Staff users can only access /staff/* routes
+        if (user.role === "staff" && !path.startsWith("/staff/")) {
+          return <Redirect to="/staff/dashboard" />;
+        }
+
         return <Component {...params} />;
       }}
     </Route>

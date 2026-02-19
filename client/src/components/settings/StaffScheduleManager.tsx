@@ -25,11 +25,12 @@ import {
 } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { UserPlus, Edit2, Trash2, Clock, Loader2, Calendar } from "lucide-react";
+import { UserPlus, Edit2, Trash2, Clock, Loader2, Calendar, Mail, Copy, Check, ExternalLink } from "lucide-react";
 
 interface Staff {
   id: number;
   businessId: number;
+  userId?: number | null;
   firstName: string;
   lastName: string;
   email?: string;
@@ -38,6 +39,15 @@ interface Staff {
   specialty?: string;
   bio?: string;
   active: boolean;
+}
+
+interface StaffInvite {
+  id: number;
+  staffId: number;
+  email: string;
+  inviteCode: string;
+  status: string;
+  inviteUrl?: string;
 }
 
 interface StaffHours {
@@ -61,8 +71,13 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
 
   const [staffDialogOpen, setStaffDialogOpen] = useState(false);
   const [hoursDialogOpen, setHoursDialogOpen] = useState(false);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const [selectedStaffForHours, setSelectedStaffForHours] = useState<Staff | null>(null);
+  const [invitingStaff, setInvitingStaff] = useState<Staff | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [lastInvite, setLastInvite] = useState<StaffInvite | null>(null);
 
   // Staff form state
   const [staffForm, setStaffForm] = useState({
@@ -184,6 +199,43 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
     },
   });
 
+  // Invite staff mutation
+  const inviteStaffMutation = useMutation({
+    mutationFn: async ({ staffId, email }: { staffId: number; email: string }) => {
+      const res = await apiRequest('POST', `/api/staff/${staffId}/invite`, { email });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setLastInvite(data);
+      queryClient.invalidateQueries({ queryKey: ['/api/staff'] });
+      toast({ title: 'Invite Created', description: 'Share the link with your team member so they can create their account.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to create invite', variant: 'destructive' });
+    },
+  });
+
+  const openInviteDialog = (member: Staff) => {
+    setInvitingStaff(member);
+    setInviteEmail(member.email || '');
+    setLastInvite(null);
+    setCopiedLink(false);
+    setInviteDialogOpen(true);
+  };
+
+  const handleSendInvite = () => {
+    if (!invitingStaff || !inviteEmail) return;
+    inviteStaffMutation.mutate({ staffId: invitingStaff.id, email: inviteEmail });
+  };
+
+  const copyInviteLink = async () => {
+    if (!lastInvite?.inviteUrl) return;
+    const fullUrl = `${window.location.origin}${lastInvite.inviteUrl}`;
+    await navigator.clipboard.writeText(fullUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
   const resetStaffForm = () => {
     setStaffForm({
       firstName: '',
@@ -300,11 +352,25 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={member.active ? "default" : "secondary"}>
-                      {member.active ? "Active" : "Inactive"}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={member.active ? "default" : "secondary"}>
+                        {member.active ? "Active" : "Inactive"}
+                      </Badge>
+                      {member.userId ? (
+                        <Badge variant="outline" className="text-green-600 border-green-600">
+                          <ExternalLink className="h-3 w-3 mr-1" />
+                          Portal
+                        </Badge>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
+                    {!member.userId && (
+                      <Button variant="ghost" size="sm" onClick={() => openInviteDialog(member)} title="Invite to Portal">
+                        <Mail className="h-4 w-4 mr-1" />
+                        Invite
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => openHoursDialog(member)}>
                       <Clock className="h-4 w-4 mr-1" />
                       Schedule
@@ -404,6 +470,65 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
                 )}
                 {editingStaff ? 'Save Changes' : 'Add Member'}
               </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Invite Dialog */}
+        <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                Invite {invitingStaff ? `${invitingStaff.firstName} ${invitingStaff.lastName}` : 'Team Member'} to Portal
+              </DialogTitle>
+              <DialogDescription>
+                Send an invite link so they can create their own account and view their schedule, appointments, and more.
+              </DialogDescription>
+            </DialogHeader>
+            {lastInvite ? (
+              <div className="space-y-4 py-4">
+                <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                  <p className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">✓ Invite link created!</p>
+                  <p className="text-xs text-green-600 dark:text-green-400 mb-3">Share this link with {invitingStaff?.firstName}. It expires in 7 days.</p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      readOnly
+                      value={`${window.location.origin}${lastInvite.inviteUrl}`}
+                      className="text-xs font-mono"
+                    />
+                    <Button size="sm" variant="outline" onClick={copyInviteLink}>
+                      {copiedLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>Email Address</Label>
+                  <Input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="staff@example.com"
+                  />
+                  <p className="text-xs text-muted-foreground">We'll associate this email with their account.</p>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
+                {lastInvite ? 'Done' : 'Cancel'}
+              </Button>
+              {!lastInvite && (
+                <Button
+                  onClick={handleSendInvite}
+                  disabled={!inviteEmail || inviteStaffMutation.isPending}
+                >
+                  {inviteStaffMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Create Invite Link
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

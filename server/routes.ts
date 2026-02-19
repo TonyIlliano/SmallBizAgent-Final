@@ -18,13 +18,15 @@ import {
 } from "@shared/schema";
 
 // Setup authentication
-import { 
-  setupAuth, 
-  isAuthenticated, 
-  isAdmin, 
-  belongsToBusiness, 
-  checkIsAdmin, 
-  checkBelongsToBusiness 
+import {
+  setupAuth,
+  isAuthenticated,
+  isAdmin,
+  belongsToBusiness,
+  checkIsAdmin,
+  checkBelongsToBusiness,
+  hashPassword,
+  validatePassword
 } from "./auth";
 
 // Analytics service
@@ -760,6 +762,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =================== STAFF API ===================
+
+  // Staff portal: Get my profile (staff only) — MUST be before /api/staff/:id
+  app.get("/api/staff/me", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      if (req.user?.role !== "staff") {
+        return res.status(403).json({ message: "Staff access only" });
+      }
+
+      const staffMember = await storage.getStaffMemberByUserId(req.user.id);
+      if (!staffMember) {
+        return res.status(404).json({ message: "Staff profile not found" });
+      }
+
+      // Get the business info
+      const business = await storage.getBusiness(staffMember.businessId);
+
+      // Get staff hours
+      const hours = await storage.getStaffHours(staffMember.id);
+
+      res.json({
+        ...staffMember,
+        businessName: business?.name || "Unknown",
+        hours,
+      });
+    } catch (error) {
+      console.error("Error fetching staff profile:", error);
+      res.status(500).json({ message: "Error fetching staff profile" });
+    }
+  });
+
+  // Staff portal: Get my appointments (staff only) — MUST be before /api/staff/:id
+  app.get("/api/staff/me/appointments", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      if (req.user?.role !== "staff") {
+        return res.status(403).json({ message: "Staff access only" });
+      }
+
+      const staffMember = await storage.getStaffMemberByUserId(req.user.id);
+      if (!staffMember) {
+        return res.status(404).json({ message: "Staff profile not found" });
+      }
+
+      const params: any = { staffId: staffMember.id };
+
+      if (req.query.startDate) {
+        params.startDate = new Date(req.query.startDate as string);
+      }
+      if (req.query.endDate) {
+        params.endDate = new Date(req.query.endDate as string);
+      }
+
+      const appointments = await storage.getAppointments(staffMember.businessId, params);
+
+      // Populate with customer + service data
+      const populatedAppointments = await Promise.all(
+        appointments.map(async (appointment) => {
+          const customer = await storage.getCustomer(appointment.customerId);
+          const service = appointment.serviceId ? await storage.getService(appointment.serviceId) : null;
+          return {
+            ...appointment,
+            customer: customer || null,
+            service: service || null,
+          };
+        })
+      );
+
+      res.json(populatedAppointments);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching staff appointments" });
+    }
+  });
+
   app.get("/api/staff", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
@@ -926,6 +1000,171 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error getting available staff:', error);
       res.status(500).json({ message: "Error getting available staff" });
+    }
+  });
+
+  // =================== STAFF PORTAL API ===================
+
+  // Send invite to a staff member (owner only)
+  app.post("/api/staff/:id/invite", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const staffId = parseInt(req.params.id);
+      const staffMember = await storage.getStaffMember(staffId);
+      if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+
+      const email = req.body.email || staffMember.email;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required to send an invite" });
+      }
+
+      // Generate unique invite code
+      const { randomBytes } = await import("crypto");
+      const inviteCode = randomBytes(24).toString("hex");
+
+      // Create invite with 7-day expiry
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      const invite = await storage.createStaffInvite({
+        businessId: staffMember.businessId,
+        staffId: staffMember.id,
+        email,
+        inviteCode,
+        status: "pending",
+        expiresAt,
+      });
+
+      // Update staff email if provided
+      if (req.body.email && req.body.email !== staffMember.email) {
+        await storage.updateStaffMember(staffId, { email: req.body.email });
+      }
+
+      res.status(201).json({
+        ...invite,
+        inviteUrl: `/staff/join/${inviteCode}`,
+      });
+    } catch (error) {
+      console.error("Error creating staff invite:", error);
+      res.status(500).json({ message: "Error creating staff invite" });
+    }
+  });
+
+  // Get invites for a business (owner only)
+  app.get("/api/staff-invites", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const invites = await storage.getStaffInvitesByBusiness(businessId);
+      res.json(invites);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching invites" });
+    }
+  });
+
+  // Validate invite code (public - no auth needed)
+  app.get("/api/staff-invite/:code", async (req: Request, res: Response) => {
+    try {
+      const invite = await storage.getStaffInviteByCode(req.params.code);
+      if (!invite) {
+        return res.status(404).json({ message: "Invalid invite code" });
+      }
+
+      if (invite.status !== "pending") {
+        return res.status(400).json({ message: "This invite has already been used" });
+      }
+
+      if (new Date() > invite.expiresAt) {
+        return res.status(400).json({ message: "This invite has expired" });
+      }
+
+      // Get business and staff info for the registration page
+      const business = await storage.getBusiness(invite.businessId);
+      const staffMember = await storage.getStaffMember(invite.staffId);
+
+      res.json({
+        valid: true,
+        businessName: business?.name || "Unknown Business",
+        staffName: staffMember ? `${staffMember.firstName} ${staffMember.lastName}` : "Staff",
+        email: invite.email,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Error validating invite" });
+    }
+  });
+
+  // Accept invite - register as staff member (public - no auth)
+  app.post("/api/staff-invite/:code/accept", async (req: Request, res: Response) => {
+    try {
+      const invite = await storage.getStaffInviteByCode(req.params.code);
+      if (!invite) {
+        return res.status(404).json({ message: "Invalid invite code" });
+      }
+
+      if (invite.status !== "pending") {
+        return res.status(400).json({ message: "This invite has already been used" });
+      }
+
+      if (new Date() > invite.expiresAt) {
+        return res.status(400).json({ message: "This invite has expired" });
+      }
+
+      const { username, password, email } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+
+      // Validate password strength
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.valid) {
+        return res.status(400).json({
+          message: "Password does not meet security requirements",
+          details: passwordValidation.errors,
+        });
+      }
+
+      // Check if username already exists
+      const existingUser = await storage.getUserByUsername(username.toLowerCase());
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+
+      // Check if email already exists
+      const existingEmail = await storage.getUserByEmail(email || invite.email);
+      if (existingEmail) {
+        return res.status(400).json({ message: "Email already in use" });
+      }
+
+      // Create the user account with staff role
+      const hashedPassword = await hashPassword(password);
+      const user = await storage.createUser({
+        username: username.toLowerCase(),
+        email: email || invite.email,
+        password: hashedPassword,
+        role: "staff",
+        businessId: invite.businessId,
+      });
+
+      // Mark email as verified (they accepted an invite, so we trust the email)
+      await storage.updateUser(user.id, { emailVerified: true });
+
+      // Link user to staff record
+      await storage.updateStaffMember(invite.staffId, { userId: user.id });
+
+      // Mark invite as accepted
+      await storage.updateStaffInvite(invite.id, { status: "accepted" });
+
+      // Log them in
+      req.login(user, (err: Error | null) => {
+        if (err) {
+          return res.status(500).json({ message: "Account created but login failed" });
+        }
+        const { password: _, ...userWithoutPassword } = user;
+        return res.status(201).json(userWithoutPassword);
+      });
+    } catch (error) {
+      console.error("Error accepting staff invite:", error);
+      res.status(500).json({ message: "Error creating staff account" });
     }
   });
 

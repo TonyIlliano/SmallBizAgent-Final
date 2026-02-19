@@ -21,7 +21,8 @@ import {
   CloverMenuCache, InsertCloverMenuCache, cloverMenuCache,
   CloverOrderLog, InsertCloverOrderLog, cloverOrderLog,
   SquareMenuCache, InsertSquareMenuCache, squareMenuCache,
-  SquareOrderLog, InsertSquareOrderLog, squareOrderLog
+  SquareOrderLog, InsertSquareOrderLog, squareOrderLog,
+  StaffInvite, InsertStaffInvite, staffInvites
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -86,9 +87,16 @@ export interface IStorage {
   // Staff
   getStaff(businessId: number): Promise<Staff[]>;
   getStaffMember(id: number): Promise<Staff | undefined>;
+  getStaffMemberByUserId(userId: number): Promise<Staff | undefined>;
   createStaffMember(staff: InsertStaff): Promise<Staff>;
   updateStaffMember(id: number, staff: Partial<Staff>): Promise<Staff>;
   deleteStaffMember(id: number): Promise<void>;
+
+  // Staff Invites
+  createStaffInvite(invite: InsertStaffInvite): Promise<StaffInvite>;
+  getStaffInviteByCode(code: string): Promise<StaffInvite | undefined>;
+  getStaffInvitesByBusiness(businessId: number): Promise<StaffInvite[]>;
+  updateStaffInvite(id: number, data: Partial<StaffInvite>): Promise<StaffInvite>;
 
   // Staff Hours
   getStaffHours(staffId: number): Promise<StaffHours[]>;
@@ -500,6 +508,39 @@ export class DatabaseStorage implements IStorage {
 
   async deleteStaffMember(id: number): Promise<void> {
     await db.delete(staff).where(eq(staff.id, id));
+  }
+
+  async getStaffMemberByUserId(userId: number): Promise<Staff | undefined> {
+    const [staffMember] = await db.select().from(staff).where(eq(staff.userId, userId));
+    return staffMember;
+  }
+
+  // Staff Invites
+  async createStaffInvite(invite: InsertStaffInvite): Promise<StaffInvite> {
+    const [newInvite] = await db.insert(staffInvites).values({
+      ...invite,
+      createdAt: new Date(),
+    }).returning();
+    return newInvite;
+  }
+
+  async getStaffInviteByCode(code: string): Promise<StaffInvite | undefined> {
+    const [invite] = await db.select().from(staffInvites).where(eq(staffInvites.inviteCode, code));
+    return invite;
+  }
+
+  async getStaffInvitesByBusiness(businessId: number): Promise<StaffInvite[]> {
+    return db.select().from(staffInvites)
+      .where(eq(staffInvites.businessId, businessId))
+      .orderBy(desc(staffInvites.createdAt));
+  }
+
+  async updateStaffInvite(id: number, data: Partial<StaffInvite>): Promise<StaffInvite> {
+    const [updated] = await db.update(staffInvites)
+      .set(data)
+      .where(eq(staffInvites.id, id))
+      .returning();
+    return updated;
   }
 
   // Staff Hours

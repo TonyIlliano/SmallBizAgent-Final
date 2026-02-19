@@ -53,11 +53,12 @@ export function AppNav() {
     logoutMutation.mutate();
   };
 
-  // Hide nav on public routes
-  const publicRoutes = ['/auth', '/welcome', '/reset-password', '/portal'];
+  // Hide nav on public routes and staff portal
+  const publicRoutes = ['/auth', '/welcome', '/reset-password', '/portal', '/staff/join'];
   const isPublicRoute = publicRoutes.some(route => location.startsWith(route)) || location === '/welcome';
+  const isStaffUser = user?.role === "staff";
 
-  if (!user || isPublicRoute) return null;
+  if (!user || isPublicRoute || isStaffUser) return null;
 
   return (
     <>

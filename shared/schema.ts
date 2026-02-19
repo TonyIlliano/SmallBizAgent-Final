@@ -141,6 +141,7 @@ export const customers = pgTable("customers", {
 export const staff = pgTable("staff", {
   id: serial("id").primaryKey(),
   businessId: integer("business_id").notNull(),
+  userId: integer("user_id"), // Links to users table when staff member has an account
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(), // Required to distinguish staff (e.g., two "Mikes")
   email: text("email"),
@@ -151,6 +152,18 @@ export const staff = pgTable("staff", {
   active: boolean("active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Staff Invites (owner invites staff to create accounts)
+export const staffInvites = pgTable("staff_invites", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  staffId: integer("staff_id").notNull(), // Links to the staff record
+  email: text("email").notNull(), // Email to send invite to
+  inviteCode: text("invite_code").notNull(), // Unique code for accepting
+  status: text("status").default("pending"), // pending, accepted, expired
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Staff Working Hours (individual schedules for each staff member)
@@ -533,6 +546,7 @@ export const insertServiceSchema = createInsertSchema(services).omit({ id: true 
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStaffHoursSchema = createInsertSchema(staffHours).omit({ id: true });
+export const insertStaffInviteSchema = createInsertSchema(staffInvites).omit({ id: true, createdAt: true });
 
 // Create appointment schema with date coercion to handle ISO strings from API
 const baseInsertAppointmentSchema = createInsertSchema(appointments).omit({ id: true, createdAt: true, updatedAt: true });
@@ -591,6 +605,9 @@ export type InsertStaff = z.infer<typeof insertStaffSchema>;
 
 export type StaffHours = typeof staffHours.$inferSelect;
 export type InsertStaffHours = z.infer<typeof insertStaffHoursSchema>;
+
+export type StaffInvite = typeof staffInvites.$inferSelect;
+export type InsertStaffInvite = z.infer<typeof insertStaffInviteSchema>;
 
 export type Appointment = typeof appointments.$inferSelect;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;

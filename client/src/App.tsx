@@ -40,6 +40,9 @@ import PublicBooking from "@/pages/book/[slug]";
 // Admin pages
 import AdminDashboard from "@/pages/admin/index";
 import PhoneManagement from "@/pages/admin/phone-management";
+// Staff pages
+import StaffDashboard from "@/pages/staff/dashboard";
+import StaffJoin from "@/pages/staff/join";
 import LandingPage from "@/pages/landing";
 import { SidebarProvider } from "./context/SidebarContext";
 import { AuthProvider, useAuth } from "./hooks/use-auth";
@@ -67,6 +70,9 @@ function HomePage() {
 
   // Logged in but email not verified — redirect to verification
   if (!user.emailVerified) return <Redirect to="/verify-email" />;
+
+  // Staff users go to their portal
+  if (user.role === "staff") return <Redirect to="/staff/dashboard" />;
 
   return <Dashboard />;
 }
@@ -106,8 +112,12 @@ function Router() {
       {/* Admin routes */}
       <ProtectedAdminRoute path="/admin" component={AdminDashboard} />
       <ProtectedAdminRoute path="/admin/phone-management" component={PhoneManagement} />
-      
+
+      {/* Staff routes */}
+      <ProtectedRoute path="/staff/dashboard" component={StaffDashboard} />
+
       {/* Public routes */}
+      <Route path="/staff/join/:code" component={StaffJoin} />
       <Route path="/welcome" component={LandingPage} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/verify-email" component={VerifyEmailPage} />

@@ -360,6 +360,23 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'square_location_id', 'TEXT');
   await addColumnIfNotExists('businesses', 'square_environment', 'TEXT');
 
+  // Fix staff table - add user_id for staff portal
+  await addColumnIfNotExists('staff', 'user_id', 'INTEGER');
+
+  // Create staff_invites table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_invites (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      staff_id INTEGER NOT NULL,
+      email TEXT NOT NULL,
+      invite_code TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      expires_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Fix businesses table - add restaurant order type settings
   await addColumnIfNotExists('businesses', 'restaurant_pickup_enabled', 'BOOLEAN DEFAULT true');
   await addColumnIfNotExists('businesses', 'restaurant_delivery_enabled', 'BOOLEAN DEFAULT false');
@@ -642,6 +659,7 @@ async function createBaseTables() {
     CREATE TABLE IF NOT EXISTS staff (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
+      user_id INTEGER,
       first_name TEXT NOT NULL,
       last_name TEXT NOT NULL,
       email TEXT,
@@ -652,6 +670,20 @@ async function createBaseTables() {
       active BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create staff_invites table (for staff portal invitations)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_invites (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      staff_id INTEGER NOT NULL,
+      email TEXT NOT NULL,
+      invite_code TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      expires_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
