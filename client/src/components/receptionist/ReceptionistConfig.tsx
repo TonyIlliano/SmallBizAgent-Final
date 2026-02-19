@@ -79,7 +79,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Play/stop voice preview
-  const toggleVoicePreview = (voiceId: string) => {
+  const toggleVoicePreview = async (voiceId: string) => {
     const voice = VOICE_OPTIONS.find(v => v.id === voiceId);
     if (!voice?.previewUrl) return;
 
@@ -98,15 +98,11 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
       audioRef.current = null;
     }
 
-    // Play new voice
     setAudioLoading(true);
-    const audio = new Audio(voice.previewUrl);
-    audioRef.current = audio;
+    setPlayingVoice(null);
 
-    audio.addEventListener('canplaythrough', () => {
-      setAudioLoading(false);
-      setPlayingVoice(voiceId);
-    }, { once: true });
+    const audio = new Audio();
+    audioRef.current = audio;
 
     audio.addEventListener('ended', () => {
       setPlayingVoice(null);
@@ -124,12 +120,24 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
       });
     });
 
-    audio.play().catch(() => {
+    // Set source and wait for it to load before playing
+    audio.src = voice.previewUrl;
+    audio.load();
+
+    try {
+      await audio.play();
+      setAudioLoading(false);
+      setPlayingVoice(voiceId);
+    } catch {
       setAudioLoading(false);
       setPlayingVoice(null);
       audioRef.current = null;
-    });
-    setPlayingVoice(voiceId);
+      toast({
+        title: "Preview unavailable",
+        description: "Your browser blocked audio playback. Click the button again to retry.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Cleanup audio on unmount
