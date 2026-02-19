@@ -39,16 +39,16 @@ import { Plus, X, AlertTriangle, Volume2, VolumeX, Loader2 } from "lucide-react"
 
 /** Curated ElevenLabs voices available for VAPI assistants (must match server VOICE_OPTIONS) */
 const VOICE_OPTIONS = [
-  { id: 'paula', name: 'Paula', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/dff5d82d-d16d-45b9-ae73-be2ad8850855.mp3' }, // Paula uses Rachel's voice model
-  { id: 'rachel', name: 'Rachel', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/dff5d82d-d16d-45b9-ae73-be2ad8850855.mp3' },
-  { id: 'domi', name: 'Domi', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/AZnzlk1XvdvUeBnXmlld/53bd2f5f-bb59-4146-9922-245b2a466c80.mp3' },
-  { id: 'bella', name: 'Bella', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/53bd2f5f-bb59-4146-8822-245b2a466c80.mp3' },
-  { id: 'elli', name: 'Elli', gender: 'Female', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/MF3mGyEYCl7XYWbV9V6O/bea2dc16-9abf-4162-b011-66531458e022.mp3' },
-  { id: 'adam', name: 'Adam', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3' },
-  { id: 'antoni', name: 'Antoni', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/ErXwobaYiN019PkySvjV/53bd2f5f-bb59-1111-8822-225b2a466c80.mp3' },
-  { id: 'josh', name: 'Josh', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/TxGEqnHWrfWFTfGW9XjX/bdc4303c-a20d-4cec-97eb-dca625044eac.mp3' },
-  { id: 'arnold', name: 'Arnold', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/VR6AewLTigWG4xSOukaG/2c4395e7-91b1-44cd-8f0f-e4aebd292461.mp3' },
-  { id: 'sam', name: 'Sam', gender: 'Male', previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/yoZ06aMxZJJ28mfd3POQ/1c4d417c-ba80-4de8-874a-a1c57987ea63.mp3' },
+  { id: 'paula', name: 'Paula', gender: 'Female' },
+  { id: 'rachel', name: 'Rachel', gender: 'Female' },
+  { id: 'domi', name: 'Domi', gender: 'Female' },
+  { id: 'bella', name: 'Bella', gender: 'Female' },
+  { id: 'elli', name: 'Elli', gender: 'Female' },
+  { id: 'adam', name: 'Adam', gender: 'Male' },
+  { id: 'antoni', name: 'Antoni', gender: 'Male' },
+  { id: 'josh', name: 'Josh', gender: 'Male' },
+  { id: 'arnold', name: 'Arnold', gender: 'Male' },
+  { id: 'sam', name: 'Sam', gender: 'Male' },
 ];
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -105,11 +105,8 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
     };
   }, []);
 
-  // Play/stop voice preview — reuses a single Audio element for browser autoplay compatibility
+  // Play/stop voice preview — uses server proxy for reliable same-origin audio playback
   const toggleVoicePreview = (voiceId: string) => {
-    const voice = VOICE_OPTIONS.find(v => v.id === voiceId);
-    if (!voice?.previewUrl) return;
-
     const audio = audioRef.current;
 
     // If same voice is playing, stop it
@@ -126,12 +123,12 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
     audio.pause();
     audio.currentTime = 0;
 
-    // Set new source and play
+    // Set new source via server proxy and play
     setAudioLoading(true);
     setPlayingVoice(null);
     playingVoiceRef.current = null;
 
-    audio.src = voice.previewUrl;
+    audio.src = `/api/voice-preview/${voiceId}`;
 
     const playPromise = audio.play();
     if (playPromise !== undefined) {

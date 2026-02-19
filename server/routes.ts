@@ -1841,6 +1841,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =================== VOICE PREVIEW PROXY ===================
+  // Proxy ElevenLabs voice preview audio to avoid browser CORS/autoplay issues
+  const VOICE_PREVIEW_URLS: Record<string, string> = {
+    paula: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/dff5d82d-d16d-45b9-ae73-be2ad8850855.mp3',
+    rachel: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/dff5d82d-d16d-45b9-ae73-be2ad8850855.mp3',
+    domi: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/AZnzlk1XvdvUeBnXmlld/53bd2f5f-bb59-4146-9922-245b2a466c80.mp3',
+    bella: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/53bd2f5f-bb59-4146-8822-245b2a466c80.mp3',
+    elli: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/MF3mGyEYCl7XYWbV9V6O/bea2dc16-9abf-4162-b011-66531458e022.mp3',
+    adam: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3',
+    antoni: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/ErXwobaYiN019PkySvjV/53bd2f5f-bb59-1111-8822-225b2a466c80.mp3',
+    josh: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/TxGEqnHWrfWFTfGW9XjX/bdc4303c-a20d-4cec-97eb-dca625044eac.mp3',
+    arnold: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/VR6AewLTigWG4xSOukaG/2c4395e7-91b1-44cd-8f0f-e4aebd292461.mp3',
+    sam: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/yoZ06aMxZJJ28mfd3POQ/1c4d417c-ba80-4de8-874a-a1c57987ea63.mp3',
+  };
+
+  app.get("/api/voice-preview/:voiceId", async (req: Request, res: Response) => {
+    try {
+      const voiceId = req.params.voiceId.toLowerCase();
+      const url = VOICE_PREVIEW_URLS[voiceId];
+      if (!url) {
+        return res.status(404).json({ error: "Voice not found" });
+      }
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        return res.status(502).json({ error: "Failed to fetch voice preview" });
+      }
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      console.error("Voice preview error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // =================== VIRTUAL RECEPTIONIST API ===================
   app.get("/api/receptionist-config/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
