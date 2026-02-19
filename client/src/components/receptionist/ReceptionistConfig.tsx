@@ -76,79 +76,83 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
   const [newPhoneNumber, setNewPhoneNumber] = useState("");
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(new Audio());
+  const playingVoiceRef = useRef<string | null>(null);
 
-  // Play/stop voice preview
-  const toggleVoicePreview = async (voiceId: string) => {
+  // Set up persistent audio element event listeners once
+  useEffect(() => {
+    const audio = audioRef.current;
+
+    const handleEnded = () => {
+      setPlayingVoice(null);
+      playingVoiceRef.current = null;
+    };
+
+    const handleError = () => {
+      setAudioLoading(false);
+      setPlayingVoice(null);
+      playingVoiceRef.current = null;
+    };
+
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('error', handleError);
+
+    return () => {
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('error', handleError);
+      audio.pause();
+      audio.src = '';
+    };
+  }, []);
+
+  // Play/stop voice preview — reuses a single Audio element for browser autoplay compatibility
+  const toggleVoicePreview = (voiceId: string) => {
     const voice = VOICE_OPTIONS.find(v => v.id === voiceId);
     if (!voice?.previewUrl) return;
 
+    const audio = audioRef.current;
+
     // If same voice is playing, stop it
-    if (playingVoice === voiceId) {
-      audioRef.current?.pause();
-      audioRef.current = null;
+    if (playingVoiceRef.current === voiceId) {
+      audio.pause();
+      audio.currentTime = 0;
       setPlayingVoice(null);
       setAudioLoading(false);
+      playingVoiceRef.current = null;
       return;
     }
 
-    // Stop any currently playing audio
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
+    // Stop any current playback
+    audio.pause();
+    audio.currentTime = 0;
 
+    // Set new source and play
     setAudioLoading(true);
     setPlayingVoice(null);
+    playingVoiceRef.current = null;
 
-    const audio = new Audio();
-    audioRef.current = audio;
-
-    audio.addEventListener('ended', () => {
-      setPlayingVoice(null);
-      audioRef.current = null;
-    });
-
-    audio.addEventListener('error', () => {
-      setAudioLoading(false);
-      setPlayingVoice(null);
-      audioRef.current = null;
-      toast({
-        title: "Preview unavailable",
-        description: "Could not load voice preview. Try selecting the voice and making a test call.",
-        variant: "destructive",
-      });
-    });
-
-    // Set source and wait for it to load before playing
     audio.src = voice.previewUrl;
-    audio.load();
 
-    try {
-      await audio.play();
-      setAudioLoading(false);
-      setPlayingVoice(voiceId);
-    } catch {
-      setAudioLoading(false);
-      setPlayingVoice(null);
-      audioRef.current = null;
-      toast({
-        title: "Preview unavailable",
-        description: "Your browser blocked audio playback. Click the button again to retry.",
-        variant: "destructive",
-      });
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setAudioLoading(false);
+          setPlayingVoice(voiceId);
+          playingVoiceRef.current = voiceId;
+        })
+        .catch(() => {
+          setAudioLoading(false);
+          setPlayingVoice(null);
+          playingVoiceRef.current = null;
+          toast({
+            title: "Preview unavailable",
+            description: "Could not play audio. Please try again.",
+            variant: "destructive",
+          });
+        });
     }
   };
-
-  // Cleanup audio on unmount
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, []);
 
   // Fetch existing configuration
   const { data: config, isLoading } = useQuery<any>({
