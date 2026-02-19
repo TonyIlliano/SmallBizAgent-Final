@@ -1,22 +1,31 @@
 /**
  * Email Service for SmallBizAgent
  *
- * This service handles sending emails for password reset and other notifications
+ * Uses SendGrid as primary email provider, falls back to SMTP/Nodemailer.
+ * In development without either, uses ethereal.email for testing.
  */
 import nodemailer from 'nodemailer';
+import sgMail from '@sendgrid/mail';
 
-// Create a transporter
+// Initialize SendGrid if API key is available
+const useSendGrid = !!process.env.SENDGRID_API_KEY;
+if (useSendGrid) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+  console.log('✅ SendGrid email configured');
+}
+
+// Nodemailer fallback transporter
 let transporter: nodemailer.Transporter | null = null;
 let etherealAccount: { user: string; pass: string } | null = null;
 
-// Initialize email transporter
+// Initialize Nodemailer transporter (fallback when no SendGrid)
 async function initTransporter(): Promise<nodemailer.Transporter> {
   if (transporter) {
     return transporter;
   }
 
-  if (process.env.NODE_ENV === 'production' && process.env.EMAIL_HOST) {
-    // Production transporter configuration
+  if (process.env.EMAIL_HOST) {
+    // Custom SMTP configuration
     transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST,
       port: parseInt(process.env.EMAIL_PORT || '587'),
@@ -27,8 +36,7 @@ async function initTransporter(): Promise<nodemailer.Transporter> {
       }
     });
   } else {
-    // Development transporter configuration - use ethereal.email
-    // This creates a test email account for development
+    // Development fallback - use ethereal.email
     if (!etherealAccount) {
       etherealAccount = await nodemailer.createTestAccount();
       console.log('Ethereal email account created for testing:');
@@ -60,15 +68,37 @@ interface EmailOptions {
 }
 
 /**
- * Send an email
+ * Send an email via SendGrid (primary) or Nodemailer (fallback)
  */
 export async function sendEmail(options: EmailOptions): Promise<{ messageId: string; previewUrl?: string }> {
+  const from = options.from || process.env.EMAIL_FROM || 'no-reply@smallbizagent.com';
+
+  // Use SendGrid if available
+  if (useSendGrid) {
+    try {
+      const [response] = await sgMail.send({
+        to: options.to,
+        from: { email: from, name: 'SmallBizAgent' },
+        subject: options.subject,
+        text: options.text,
+        html: options.html || options.text,
+      });
+
+      const messageId = response.headers['x-message-id'] || `sg-${Date.now()}`;
+      console.log(`Email sent via SendGrid to ${options.to} (${messageId})`);
+
+      return { messageId };
+    } catch (error: any) {
+      console.error('SendGrid error:', error?.response?.body || error.message);
+      throw error;
+    }
+  }
+
+  // Fallback to Nodemailer
   const transport = await initTransporter();
 
-  const from = options.from || `"SmallBizAgent" <${process.env.EMAIL_FROM || 'no-reply@smallbizagent.com'}>`;
-
   const mailOptions = {
-    from,
+    from: `"SmallBizAgent" <${from}>`,
     to: options.to,
     subject: options.subject,
     text: options.text,
@@ -78,7 +108,6 @@ export async function sendEmail(options: EmailOptions): Promise<{ messageId: str
   try {
     const info = await transport.sendMail(mailOptions);
 
-    // Log email preview URL in development
     const previewUrl = nodemailer.getTestMessageUrl(info);
     if (previewUrl) {
       console.log('Email sent: %s', info.messageId);

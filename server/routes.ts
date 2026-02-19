@@ -1049,12 +1049,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fullInviteUrl = `${baseUrl}/staff/join/${inviteCode}`;
       const staffName = `${staffMember.firstName}${staffMember.lastName ? ` ${staffMember.lastName}` : ""}`;
 
+      // Send invite via email
       try {
         const { sendStaffInviteEmail } = await import("./emailService");
         await sendStaffInviteEmail(email, staffName, business?.name || "Your Team", fullInviteUrl);
         console.log(`Staff invite email sent to ${email} for business ${staffMember.businessId}`);
       } catch (emailError) {
         console.error("Failed to send invite email (invite still created):", emailError);
+      }
+
+      // Also send invite via SMS if staff member has a phone number
+      if (staffMember.phone) {
+        try {
+          const twilioService = await import("./services/twilioService");
+          const businessName = business?.name || "Your Team";
+          await twilioService.sendSms(
+            staffMember.phone,
+            `${businessName} has invited you to join their team on SmallBizAgent! Create your account here: ${fullInviteUrl}`
+          );
+          console.log(`Staff invite SMS sent to ${staffMember.phone}`);
+        } catch (smsError) {
+          console.error("Failed to send invite SMS (invite still created):", smsError);
+        }
       }
 
       res.status(201).json({
