@@ -211,7 +211,16 @@ export default function AnalyticsPage() {
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
         </div>
-      ) : analytics ? (
+      ) : !analytics ? (
+        <div className="flex flex-col items-center justify-center h-64 text-center">
+          <BarChart3 className="h-12 w-12 text-muted-foreground/40 mb-4" />
+          <h3 className="text-lg font-semibold mb-2">No analytics data yet</h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Analytics will populate as your business starts receiving appointments,
+            AI calls, and completing jobs. Check back soon!
+          </p>
+        </div>
+      ) : (
         <div className="space-y-6">
           {/* Top-level KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -600,7 +609,7 @@ export default function AnalyticsPage() {
             </Card>
           </div>
         </div>
-      ) : null}
+      )}
     </PageLayout>
   );
 }
