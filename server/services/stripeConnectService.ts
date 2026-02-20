@@ -11,8 +11,8 @@ if (!stripeKey) {
 
 const stripe = stripeKey ? new Stripe(stripeKey) : null;
 
-// Platform fee percentage (2.5%)
-const PLATFORM_FEE_PERCENT = 2.5;
+// Platform fee percentage (1.5%)
+const PLATFORM_FEE_PERCENT = 1.5;
 
 export class StripeConnectService {
   /**

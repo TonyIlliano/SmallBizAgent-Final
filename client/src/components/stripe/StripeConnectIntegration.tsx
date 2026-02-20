@@ -173,7 +173,7 @@ export function StripeConnectIntegration() {
         <AlertDescription>
           <ul className="list-disc list-inside space-y-1 mt-2 text-sm">
             <li>Customer payments go directly to your Stripe account</li>
-            <li>A 2.5% platform fee is automatically deducted per transaction</li>
+            <li>A 1.5% platform fee is automatically deducted per transaction</li>
             <li>You manage payouts, refunds, and disputes through your Stripe dashboard</li>
             <li>If Stripe isn't connected, customers will see "payments not available" on invoices</li>
           </ul>
