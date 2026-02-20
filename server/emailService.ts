@@ -71,7 +71,7 @@ interface EmailOptions {
  * Send an email via SendGrid (primary) or Nodemailer (fallback)
  */
 export async function sendEmail(options: EmailOptions): Promise<{ messageId: string; previewUrl?: string }> {
-  const from = options.from || process.env.EMAIL_FROM || 'no-reply@smallbizagent.com';
+  const from = options.from || process.env.EMAIL_FROM || process.env.SENDGRID_FROM_EMAIL || 'no-reply@smallbizagent.com';
 
   // Use SendGrid if available
   if (useSendGrid) {
