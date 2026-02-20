@@ -12,6 +12,9 @@ const useSendGrid = !!process.env.SENDGRID_API_KEY;
 if (useSendGrid) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
   console.log('✅ SendGrid email configured');
+  console.log(`   SendGrid FROM: ${process.env.EMAIL_FROM || process.env.SENDGRID_FROM_EMAIL || 'no-reply@smallbizagent.com'}`);
+} else {
+  console.log('⚠️ SENDGRID_API_KEY not found — falling back to Ethereal test email');
 }
 
 // Nodemailer fallback transporter
