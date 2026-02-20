@@ -91,6 +91,9 @@ export const businesses = pgTable("businesses", {
   stripePlanId: integer("stripe_plan_id"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  // Stripe Connect (for receiving customer payments)
+  stripeConnectAccountId: text("stripe_connect_account_id"),
+  stripeConnectStatus: text("stripe_connect_status").default("not_connected"),
   subscriptionStartDate: timestamp("subscription_start_date"),
   subscriptionPeriodEnd: timestamp("subscription_period_end"),
   subscriptionEndDate: timestamp("subscription_end_date"),

@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, CreditCard, CheckCircle } from "lucide-react";
+import { ArrowLeft, CreditCard, CheckCircle, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // Load Stripe outside of component to avoid recreating on every render
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
@@ -105,13 +106,14 @@ export default function InvoicePayment() {
   const [, navigate] = useLocation();
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "success" | "error">("idle");
-  
+  const [paymentBlocked, setPaymentBlocked] = useState(false);
+
   // Fetch invoice
   const { data: invoice, isLoading: isLoadingInvoice } = useQuery<any>({
     queryKey: [`/api/invoices/${invoiceId}`],
     enabled: !!invoiceId,
   });
-  
+
   // Create payment intent when invoice is loaded
   useEffect(() => {
     if (invoice && invoiceId) {
@@ -119,9 +121,22 @@ export default function InvoicePayment() {
         amount: invoice.total,
         invoiceId: parseInt(invoiceId)
       })
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) {
+            return res.json().then((data: any) => {
+              if (data.code === 'PAYMENT_BLOCKED') {
+                setPaymentBlocked(true);
+                return null;
+              }
+              throw new Error(data.message || 'Failed to create payment');
+            });
+          }
+          return res.json();
+        })
         .then((data) => {
-          setClientSecret(data.clientSecret);
+          if (data?.clientSecret) {
+            setClientSecret(data.clientSecret);
+          }
         })
         .catch((error) => {
           console.error("Error creating payment intent:", error);
@@ -262,14 +277,29 @@ export default function InvoicePayment() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {clientSecret ? (
-              <Elements 
-                stripe={stripePromise} 
+            {paymentBlocked ? (
+              <Alert className="border-amber-200 bg-amber-50">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                <AlertTitle className="text-amber-800">Online Payments Not Available</AlertTitle>
+                <AlertDescription className="text-amber-700">
+                  To accept online payments, connect your Stripe account in{" "}
+                  <Button
+                    variant="link"
+                    className="h-auto p-0 text-amber-800 underline"
+                    onClick={() => navigate("/settings?tab=integrations")}
+                  >
+                    Settings → Integrations → Payments
+                  </Button>.
+                </AlertDescription>
+              </Alert>
+            ) : clientSecret ? (
+              <Elements
+                stripe={stripePromise}
                 options={{ clientSecret }}
               >
-                <CheckoutForm 
-                  invoice={invoice} 
-                  onSuccess={handlePaymentSuccess} 
+                <CheckoutForm
+                  invoice={invoice}
+                  onSuccess={handlePaymentSuccess}
                 />
               </Elements>
             ) : (

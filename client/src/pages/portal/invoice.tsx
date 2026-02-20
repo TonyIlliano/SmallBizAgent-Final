@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { CreditCard, CheckCircle, FileText, Building, User, Calendar, DollarSign } from "lucide-react";
+import { CreditCard, CheckCircle, FileText, Building, User, Calendar, DollarSign, AlertCircle } from "lucide-react";
 
 // Load Stripe outside of component to avoid recreating on every render
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
@@ -27,6 +27,7 @@ interface InvoiceData {
   notes: string | null;
   dueDate: string | null;
   createdAt: string;
+  paymentsEnabled?: boolean;
   customer: {
     firstName: string;
     lastName: string;
@@ -170,8 +171,8 @@ export default function PortalInvoice() {
         setInvoice(data);
         setIsLoading(false);
 
-        // If invoice is unpaid, create payment intent
-        if (data.status === 'pending' || data.status === 'overdue') {
+        // If invoice is unpaid AND payments are enabled, create payment intent
+        if ((data.status === 'pending' || data.status === 'overdue') && data.paymentsEnabled) {
           return fetch(`/api/portal/invoice/${token}/pay`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
@@ -179,7 +180,9 @@ export default function PortalInvoice() {
         }
       })
       .then(res => {
-        if (res) return res.json();
+        if (res && res.ok) return res.json();
+        // If response is not ok (e.g. 403 PAYMENT_BLOCKED), don't set clientSecret
+        return null;
       })
       .then(data => {
         if (data?.clientSecret) {
@@ -435,6 +438,17 @@ export default function PortalInvoice() {
                     <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
                     <p className="text-green-700 font-medium">This invoice has been paid</p>
                     <p className="text-green-600 text-sm">Thank you!</p>
+                  </div>
+                ) : !invoice.paymentsEnabled ? (
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-700 font-medium">Online payments not available</p>
+                    <p className="text-gray-500 text-sm mt-1">
+                      Please contact {invoice.business.name} directly to arrange payment.
+                    </p>
+                    {invoice.business.phone && (
+                      <p className="text-sm text-primary mt-2">{invoice.business.phone}</p>
+                    )}
                   </div>
                 ) : clientSecret ? (
                   <Elements

@@ -55,6 +55,9 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'subscription_period_end', 'TIMESTAMP');
   await addColumnIfNotExists('businesses', 'subscription_end_date', 'TIMESTAMP');
   await addColumnIfNotExists('businesses', 'trial_ends_at', 'TIMESTAMP');
+  // Stripe Connect (for receiving customer payments)
+  await addColumnIfNotExists('businesses', 'stripe_connect_account_id', 'TEXT');
+  await addColumnIfNotExists('businesses', 'stripe_connect_status', "TEXT DEFAULT 'not_connected'");
   await addColumnIfNotExists('businesses', 'twilio_phone_number_sid', 'TEXT');
   await addColumnIfNotExists('businesses', 'provisioning_status', "TEXT DEFAULT 'pending'");
   await addColumnIfNotExists('businesses', 'provisioning_result', 'TEXT');

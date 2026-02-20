@@ -54,6 +54,10 @@ import schedulerService from "./services/schedulerService";
 // Notification service
 import notificationService from "./services/notificationService";
 
+// Stripe Connect
+import stripeConnectRoutes from "./routes/stripeConnectRoutes";
+import { stripeConnectService } from "./services/stripeConnectService";
+
 // Stripe setup
 import Stripe from "stripe";
 // SECURITY: Stripe key is required - no fallback
@@ -135,6 +139,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register analytics routes
   registerAnalyticsRoutes(app);
   
+  // Register Stripe Connect routes
+  app.use("/api/stripe-connect", isAuthenticated, stripeConnectRoutes);
+
   // Register data import routes (with business ownership verification)
   const importAuthCheck = (req: Request, res: Response, next: Function) => {
     const { businessId } = req.body;
@@ -1837,6 +1844,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         business.zip
       ].filter(Boolean).join(', ') : '';
 
+      // Check if business has Stripe Connect active (for payment gating)
+      const paymentsEnabled = business?.stripeConnectStatus === 'active';
+
       // Return invoice data (without sensitive business info)
       res.json({
         id: invoice.id,
@@ -1848,6 +1858,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: invoice.status,
         notes: invoice.notes,
         createdAt: invoice.createdAt,
+        paymentsEnabled,
         customer: customer ? {
           firstName: customer.firstName,
           lastName: customer.lastName,
@@ -1869,6 +1880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Public endpoint - Create payment intent for portal invoice (NO AUTH REQUIRED)
+  // Uses Stripe Connect destination charges — money goes to business, NOT platform
   app.post("/api/portal/invoice/:token/pay", async (req: Request, res: Response) => {
     try {
       const { token } = req.params;
@@ -1885,30 +1897,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const customer = await storage.getCustomer(invoice.customerId);
 
-      if (!stripe) {
-        return res.status(500).json({ message: "Payment processing is not configured" });
-      }
-
-      // Create payment intent
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round((invoice.total || 0) * 100), // Convert to cents
-        currency: "usd",
-        metadata: {
-          invoiceId: invoice.id.toString(),
-          invoiceNumber: invoice.invoiceNumber,
-          customerName: customer ? `${customer.firstName} ${customer.lastName}` : 'Unknown',
-          portalPayment: 'true'
-        }
+      // Use Stripe Connect service — will REJECT if business has no Connect account
+      const result = await stripeConnectService.createPaymentIntentForInvoice({
+        amount: invoice.total || 0,
+        businessId: invoice.businessId,
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerName: customer ? `${customer.firstName} ${customer.lastName}` : 'Unknown',
+        isPortalPayment: true,
       });
 
       // Update invoice with payment intent ID
       await storage.updateInvoice(invoice.id, {
-        stripePaymentIntentId: paymentIntent.id
+        stripePaymentIntentId: result.paymentIntentId
       });
 
-      res.json({ clientSecret: paymentIntent.client_secret });
-    } catch (error) {
+      res.json({ clientSecret: result.clientSecret });
+    } catch (error: any) {
       console.error("Error creating portal payment:", error);
+      // Return specific message for payment blocked (no Connect account)
+      if (error.message?.includes('PAYMENT_BLOCKED')) {
+        return res.status(403).json({
+          message: "Online payments are not available for this business yet. Please contact the business directly.",
+          code: "PAYMENT_BLOCKED"
+        });
+      }
       res.status(500).json({ message: "Error creating payment" });
     }
   });
@@ -2507,44 +2520,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // =================== PAYMENT API (STRIPE) ===================
+  // =================== PAYMENT API (STRIPE CONNECT) ===================
+  // Uses Stripe Connect destination charges — money goes to business, NOT platform
   app.post("/api/create-payment-intent", async (req: Request, res: Response) => {
     try {
       const { amount, invoiceId } = req.body;
-      
+
       // Fetch invoice to get customer details
       const invoice = await storage.getInvoice(invoiceId);
       if (!invoice) {
         return res.status(404).json({ message: "Invoice not found" });
       }
-      
+
       const customer = await storage.getCustomer(invoice.customerId);
       if (!customer) {
         return res.status(404).json({ message: "Customer not found" });
       }
 
-      if (!stripe) {
-        return res.status(500).json({ message: "Payment processing is not configured" });
-      }
-
-      // Create payment intent
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Convert to cents
-        currency: "usd",
-        metadata: {
-          invoiceId: invoiceId.toString(),
-          invoiceNumber: invoice.invoiceNumber,
-          customerName: `${customer.firstName} ${customer.lastName}`
-        }
+      // Use Stripe Connect service — will REJECT if business has no Connect account
+      const result = await stripeConnectService.createPaymentIntentForInvoice({
+        amount,
+        businessId: invoice.businessId,
+        invoiceId,
+        invoiceNumber: invoice.invoiceNumber,
+        customerName: `${customer.firstName} ${customer.lastName}`,
+        isPortalPayment: false,
       });
-      
+
       // Update invoice with payment intent ID
       await storage.updateInvoice(invoiceId, {
-        stripePaymentIntentId: paymentIntent.id
+        stripePaymentIntentId: result.paymentIntentId
       });
-      
-      res.json({ clientSecret: paymentIntent.client_secret });
-    } catch (error) {
+
+      res.json({ clientSecret: result.clientSecret });
+    } catch (error: any) {
+      console.error("Error creating payment intent:", error);
+      // Return specific message for payment blocked (no Connect account)
+      if (error.message?.includes('PAYMENT_BLOCKED')) {
+        return res.status(403).json({
+          message: "Online payments are not available. Please connect your Stripe account in Settings → Integrations first.",
+          code: "PAYMENT_BLOCKED"
+        });
+      }
       res.status(500).json({ message: "Error creating payment intent" });
     }
   });
@@ -2582,7 +2599,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       case 'payment_intent.succeeded':
         const paymentIntent = event.data.object;
         const invoiceId = parseInt(paymentIntent.metadata.invoiceId);
-        
+
         // Update invoice status to paid
         if (invoiceId) {
           try {
@@ -2592,7 +2609,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         break;
-        
+
+      case 'account.updated':
+        // Stripe Connect: sync connected account status when it changes
+        try {
+          const account = event.data.object;
+          await stripeConnectService.handleAccountUpdated(account);
+        } catch (error) {
+          console.error('Error handling account.updated webhook:', error);
+        }
+        break;
+
       default:
         console.log(`Unhandled event type ${event.type}`);
     }

@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
 import QuickBooksIntegration from "@/components/quickbooks/QuickBooksIntegration";
+import { StripeConnectIntegration } from "@/components/stripe/StripeConnectIntegration";
 import RestaurantSettings from "@/components/restaurant/RestaurantSettings";
 import ReviewSettings from "@/components/reviews/ReviewSettings";
 import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
@@ -200,6 +201,26 @@ export default function Settings() {
       });
       setActiveTab('restaurant');
       window.history.replaceState({}, '', '/settings?tab=restaurant');
+    }
+
+    // Handle Stripe Connect return from onboarding
+    const stripeConnectParam = urlParams.get('stripe_connect');
+    if (stripeConnectParam === 'return') {
+      toast({
+        title: "Stripe Setup",
+        description: "Checking your Stripe account status...",
+      });
+      setActiveTab('integrations');
+      window.history.replaceState({}, '', '/settings?tab=integrations');
+    } else if (stripeConnectParam === 'refresh') {
+      // User needs to re-enter onboarding (link expired)
+      toast({
+        title: "Session Expired",
+        description: "Your Stripe setup session expired. Please try again.",
+        variant: "destructive",
+      });
+      setActiveTab('integrations');
+      window.history.replaceState({}, '', '/settings?tab=integrations');
     }
   }, []);
 
@@ -1636,11 +1657,22 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="calendar">
+                <Tabs defaultValue="payments">
                   <TabsList className="mb-4">
+                    <TabsTrigger value="payments">Payments</TabsTrigger>
                     <TabsTrigger value="calendar">Calendar</TabsTrigger>
                     <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
                   </TabsList>
+
+                  <TabsContent value="payments">
+                    <div className="mb-6">
+                      <h3 className="text-lg font-medium mb-2">Payment Processing</h3>
+                      <p className="text-muted-foreground mb-4">
+                        Connect Stripe to accept online payments from your customers
+                      </p>
+                      <StripeConnectIntegration />
+                    </div>
+                  </TabsContent>
 
                   <TabsContent value="calendar">
                     <div className="mb-6">
