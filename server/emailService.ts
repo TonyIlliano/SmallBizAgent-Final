@@ -1,27 +1,35 @@
 /**
  * Email Service for SmallBizAgent
  *
- * Uses SendGrid as primary email provider, falls back to SMTP/Nodemailer.
- * In development without either, uses ethereal.email for testing.
+ * Priority: Resend (primary) → SendGrid (fallback) → SMTP/Nodemailer → Ethereal (dev)
  */
 import nodemailer from 'nodemailer';
 import sgMail from '@sendgrid/mail';
+import { Resend } from 'resend';
 
-// Initialize SendGrid if API key is available
-const useSendGrid = !!process.env.SENDGRID_API_KEY;
-if (useSendGrid) {
+// Determine which email provider to use
+const useResend = !!process.env.RESEND_API_KEY;
+const useSendGrid = !useResend && !!process.env.SENDGRID_API_KEY;
+
+let resend: Resend | null = null;
+
+if (useResend) {
+  resend = new Resend(process.env.RESEND_API_KEY!);
+  console.log('✅ Resend email configured');
+  console.log(`   Email FROM: ${process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'}`);
+} else if (useSendGrid) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
   console.log('✅ SendGrid email configured');
-  console.log(`   SendGrid FROM: ${process.env.EMAIL_FROM || process.env.SENDGRID_FROM_EMAIL || 'no-reply@smallbizagent.com'}`);
+  console.log(`   Email FROM: ${process.env.EMAIL_FROM || process.env.SENDGRID_FROM_EMAIL || 'no-reply@smallbizagent.com'}`);
 } else {
-  console.log('⚠️ SENDGRID_API_KEY not found — falling back to Ethereal test email');
+  console.log('⚠️ No email API key found (RESEND_API_KEY or SENDGRID_API_KEY) — falling back to Ethereal test email');
 }
 
 // Nodemailer fallback transporter
 let transporter: nodemailer.Transporter | null = null;
 let etherealAccount: { user: string; pass: string } | null = null;
 
-// Initialize Nodemailer transporter (fallback when no SendGrid)
+// Initialize Nodemailer transporter (fallback when no Resend/SendGrid)
 async function initTransporter(): Promise<nodemailer.Transporter> {
   if (transporter) {
     return transporter;
@@ -71,12 +79,37 @@ interface EmailOptions {
 }
 
 /**
- * Send an email via SendGrid (primary) or Nodemailer (fallback)
+ * Send an email via Resend (primary), SendGrid (fallback), or Nodemailer (last resort)
  */
 export async function sendEmail(options: EmailOptions): Promise<{ messageId: string; previewUrl?: string }> {
-  const from = options.from || process.env.EMAIL_FROM || process.env.SENDGRID_FROM_EMAIL || 'no-reply@smallbizagent.com';
+  const from = options.from || process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || process.env.SENDGRID_FROM_EMAIL || 'onboarding@resend.dev';
 
-  // Use SendGrid if available
+  // Use Resend if available (primary)
+  if (useResend && resend) {
+    try {
+      const { data, error } = await resend.emails.send({
+        from: `SmallBizAgent <${from}>`,
+        to: [options.to],
+        subject: options.subject,
+        text: options.text,
+        html: options.html || options.text,
+      });
+
+      if (error) {
+        console.error('Resend error:', error);
+        throw new Error(error.message);
+      }
+
+      const messageId = data?.id || `resend-${Date.now()}`;
+      console.log(`Email sent via Resend to ${options.to} (${messageId})`);
+      return { messageId };
+    } catch (error: any) {
+      console.error('Resend error:', error.message);
+      throw error;
+    }
+  }
+
+  // Use SendGrid if available (fallback)
   if (useSendGrid) {
     try {
       const [response] = await sgMail.send({
@@ -405,9 +438,6 @@ export async function sendPaymentConfirmationEmail(
   return sendEmail({ to: customerEmail, subject, text, html });
 }
 
-/**
- * Send job completion email
- */
 /**
  * Send a staff invite email
  */
