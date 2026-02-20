@@ -49,7 +49,7 @@ import { SidebarProvider } from "./context/SidebarContext";
 import { AuthProvider, useAuth } from "./hooks/use-auth";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { ProtectedAdminRoute } from "./components/auth/ProtectedAdminRoute";
-import { AppNav } from "./components/navigation/AppNav";
+// AppNav removed — Sidebar handles all navigation
 import { ServiceWorkerNotification } from "@/components/ui/ServiceWorkerNotification";
 import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
 import { ContextHelp } from "@/components/ui/context-help";
@@ -143,10 +143,7 @@ function App() {
             <ServiceWorkerNotification />
             <PWAInstallPrompt />
             <ContextHelp />
-            <AppNav />
-            <div className="pt-0 md:pt-14">
-              <Router />
-            </div>
+            <Router />
           </SidebarProvider>
         </AuthProvider>
       </TooltipProvider>
