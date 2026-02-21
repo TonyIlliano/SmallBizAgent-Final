@@ -20,6 +20,7 @@ import Quotes from "@/pages/quotes/index";
 import CreateQuote from "@/pages/quotes/create";
 import QuoteDetail from "@/pages/quotes/[id]/index";
 import EditQuote from "@/pages/quotes/[id]/edit";
+import PrintQuote from "@/pages/quotes/[id]/print";
 import Payment from "@/pages/payment";
 import SubscriptionSuccess from "@/pages/subscription-success";
 import OnboardingSubscription from "@/pages/onboarding/subscription";
@@ -100,6 +101,7 @@ function Router() {
       <ProtectedRoute path="/quotes/create" component={CreateQuote} />
       <ProtectedRoute path="/quotes/:id" component={QuoteDetail} />
       <ProtectedRoute path="/quotes/:id/edit" component={EditQuote} />
+      <ProtectedRoute path="/quotes/:id/print" component={PrintQuote} />
       <ProtectedRoute path="/payment" component={Payment} />
       <ProtectedRoute path="/subscription-success" component={SubscriptionSuccess} />
       <ProtectedRoute path="/onboarding" component={OnboardingFlow} />

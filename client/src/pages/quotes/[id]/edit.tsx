@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { QuoteForm } from "@/components/quotes/QuoteForm";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { PageLayout } from "@/components/layout/PageLayout";
 
 export default function EditQuote() {
   const [match, params] = useRoute("/quotes/:id/edit");
@@ -51,34 +52,36 @@ export default function EditQuote() {
   }
 
   return (
-    <div className="container mx-auto py-6">
-      <div className="mb-6">
-        <Button variant="outline" onClick={() => navigate(`/quotes/${quoteId}`)}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Quote
-        </Button>
+    <PageLayout title="Edit Quote">
+      <div className="space-y-6">
+        <div>
+          <Button variant="outline" onClick={() => navigate(`/quotes/${quoteId}`)}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Quote
+          </Button>
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Edit Quote</h1>
+          <p className="text-muted-foreground mt-2">
+            Update the quote details below.
+          </p>
+        </div>
+        <QuoteForm
+          defaultValues={{
+            customerId: quote.customerId,
+            jobId: quote.jobId,
+            quoteNumber: quote.quoteNumber,
+            items: quote.items.map((item: any) => ({
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+            })),
+            validUntil: quote.validUntil || null,
+            notes: quote.notes,
+          }}
+          quoteId={quoteId}
+        />
       </div>
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">Edit Quote</h1>
-        <p className="text-muted-foreground mt-2">
-          Update the quote details below.
-        </p>
-      </div>
-      <QuoteForm
-        defaultValues={{
-          customerId: quote.customerId,
-          jobId: quote.jobId,
-          quoteNumber: quote.quoteNumber,
-          items: quote.items.map((item: any) => ({
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-          })),
-          validUntil: quote.validUntil || null,
-          notes: quote.notes,
-        }}
-        quoteId={quoteId}
-      />
-    </div>
+    </PageLayout>
   );
 }

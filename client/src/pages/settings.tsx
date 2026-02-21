@@ -69,7 +69,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw, Search, ChevronDown, ChevronUp, MapPin, ArrowRight, Info } from "lucide-react";
+import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw, Search, ChevronDown, ChevronUp, MapPin, ArrowRight, Info, Upload, X, ImageIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -118,6 +118,7 @@ const businessProfileSchema = z.object({
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
   email: z.string().email("Invalid email address"),
   website: z.string().url("Invalid website URL").optional().or(z.literal("")),
+  logoUrl: z.string().optional().or(z.literal("")),
 });
 
 // Business Hours Schema
@@ -282,6 +283,7 @@ export default function Settings() {
       phone: "",
       email: "",
       website: "",
+      logoUrl: "",
     },
   });
   
@@ -298,6 +300,7 @@ export default function Settings() {
         phone: business.phone || "",
         email: business.email || "",
         website: business.website || "",
+        logoUrl: business.logoUrl || "",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -772,6 +775,99 @@ export default function Settings() {
                           )}
                         />
                       </div>
+
+                      {/* Business Logo */}
+                      <FormField
+                        control={businessForm.control}
+                        name="logoUrl"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Business Logo</FormLabel>
+                            <FormDescription>
+                              Your logo will appear on quotes and invoices
+                            </FormDescription>
+                            <FormControl>
+                              <div className="flex items-center gap-4">
+                                {field.value ? (
+                                  <div className="relative">
+                                    <img
+                                      src={field.value}
+                                      alt="Business logo"
+                                      className="h-20 w-20 rounded-lg object-contain border bg-white"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => field.onChange("")}
+                                      className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="h-20 w-20 rounded-lg border-2 border-dashed border-muted-foreground/25 flex items-center justify-center">
+                                    <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
+                                  </div>
+                                )}
+                                <div>
+                                  <label className="cursor-pointer">
+                                    <input
+                                      type="file"
+                                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        if (file.size > 500 * 1024) {
+                                          toast({
+                                            title: "File too large",
+                                            description: "Logo must be under 500KB",
+                                            variant: "destructive",
+                                          });
+                                          return;
+                                        }
+                                        const reader = new FileReader();
+                                        reader.onload = () => {
+                                          // Resize image to max 200x200 to keep payload small
+                                          const img = new Image();
+                                          img.onload = () => {
+                                            const canvas = document.createElement("canvas");
+                                            const maxSize = 200;
+                                            let w = img.width;
+                                            let h = img.height;
+                                            if (w > maxSize || h > maxSize) {
+                                              if (w > h) {
+                                                h = (h / w) * maxSize;
+                                                w = maxSize;
+                                              } else {
+                                                w = (w / h) * maxSize;
+                                                h = maxSize;
+                                              }
+                                            }
+                                            canvas.width = w;
+                                            canvas.height = h;
+                                            const ctx = canvas.getContext("2d");
+                                            ctx?.drawImage(img, 0, 0, w, h);
+                                            field.onChange(canvas.toDataURL("image/png", 0.9));
+                                          };
+                                          img.src = reader.result as string;
+                                        };
+                                        reader.readAsDataURL(file);
+                                        e.target.value = "";
+                                      }}
+                                    />
+                                    <span className="inline-flex items-center gap-2 px-3 py-2 text-sm border rounded-md hover:bg-accent transition-colors">
+                                      <Upload className="h-4 w-4" />
+                                      {field.value ? "Change Logo" : "Upload Logo"}
+                                    </span>
+                                  </label>
+                                  <p className="text-xs text-muted-foreground mt-1">PNG, JPG, SVG, or WebP. Max 500KB.</p>
+                                </div>
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <FormField

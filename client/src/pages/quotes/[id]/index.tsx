@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { PageLayout } from "@/components/layout/PageLayout";
 
 import {
   Card,
@@ -21,6 +22,7 @@ import {
   Calendar,
   Download,
   Edit,
+  Printer,
   FileText,
   MoreHorizontal,
   Send,
@@ -227,7 +229,8 @@ export default function QuoteDetail() {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <PageLayout title="Quote Details">
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center">
           <Button variant="outline" onClick={() => navigate("/quotes")} className="mr-4">
@@ -299,9 +302,9 @@ export default function QuoteDetail() {
                   <DropdownMenuSeparator />
                 </>
               )}
-              <DropdownMenuItem>
-                <Download className="h-4 w-4 mr-2" />
-                Download PDF
+              <DropdownMenuItem onClick={() => window.open(`/quotes/${quoteId}/print`, '_blank')}>
+                <Printer className="h-4 w-4 mr-2" />
+                Print Quote
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -590,6 +593,7 @@ export default function QuoteDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+    </PageLayout>
   );
 }
