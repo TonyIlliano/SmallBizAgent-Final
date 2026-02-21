@@ -439,6 +439,45 @@ export async function sendPaymentConfirmationEmail(
 }
 
 /**
+ * Send a quote email to a customer with a link to view/accept/decline
+ */
+export async function sendQuoteEmail(
+  customerEmail: string,
+  customerName: string,
+  businessName: string,
+  quoteNumber: string,
+  amount: string,
+  validUntil: string,
+  quoteUrl: string,
+  businessPhone: string
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const subject = `Quote #${quoteNumber} from ${businessName}`;
+  const text = `Hi ${customerName},\n\n${businessName} has prepared a quote for you.\n\nQuote: #${quoteNumber}\nAmount: ${amount}\nValid Until: ${validUntil}\n\nView your quote here: ${quoteUrl}\n\nYou can accept or decline this quote directly from the link above.\n\nIf you have questions, please call us at ${businessPhone}.\n\nThank you,\n${businessName}`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #333;">New Quote</h2>
+      <p>Hi ${customerName},</p>
+      <p>${businessName} has prepared a quote for you:</p>
+      <div style="background: #f9f9f9; border-radius: 8px; padding: 16px; margin: 20px 0;">
+        <p style="margin: 4px 0;"><strong>Quote:</strong> #${quoteNumber}</p>
+        <p style="margin: 4px 0;"><strong>Amount:</strong> ${amount}</p>
+        <p style="margin: 4px 0;"><strong>Valid Until:</strong> ${validUntil}</p>
+      </div>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${quoteUrl}" style="background: #000; color: #fff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">View Quote</a>
+      </div>
+      <p style="color: #666; font-size: 14px;">You can accept or decline this quote directly from the link above.</p>
+      <p>If you have questions, please call us at <a href="tel:${businessPhone}">${businessPhone}</a>.</p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">Thank you,<br>${businessName}</p>
+    </div>
+  `;
+
+  return sendEmail({ to: customerEmail, subject, text, html });
+}
+
+/**
  * Send a staff invite email
  */
 export async function sendStaffInviteEmail(

@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { eq, and, desc, like, ilike, or } from "drizzle-orm";
 import { quotes, quoteItems, insertQuoteSchema, insertQuoteItemSchema } from "@shared/schema";
 import { z } from "zod";
+import notificationService from "../services/notificationService";
 
 const router = Router();
 
@@ -406,6 +407,11 @@ router.post("/quotes/:id/generate-link", async (req, res) => {
     // Generate the URL
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
     const quoteUrl = `${baseUrl}/portal/quote/${accessToken}`;
+
+    // Send quote email and SMS to customer (fire-and-forget)
+    notificationService.sendQuoteSentNotification(quoteId, businessId, quoteUrl).catch(err =>
+      console.error('Background quote notification error:', err)
+    );
 
     res.json({
       success: true,

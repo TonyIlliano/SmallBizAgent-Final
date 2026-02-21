@@ -14,6 +14,7 @@ import {
   sendInvoiceReminderEmail,
   sendPaymentConfirmationEmail,
   sendJobCompletedEmail,
+  sendQuoteEmail,
 } from "../emailService";
 
 // Helper to format currency
@@ -496,6 +497,83 @@ export async function sendJobCompletedNotification(jobId: number, businessId: nu
   }
 }
 
+/**
+ * Send quote email to customer with view/accept/decline link
+ */
+export async function sendQuoteSentNotification(
+  quoteId: number,
+  businessId: number,
+  quoteUrl: string
+) {
+  try {
+    const quote = await storage.getQuoteById(quoteId, businessId);
+    if (!quote || !quote.customer) return;
+
+    const customer = quote.customer;
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    const amount = formatCurrency(quote.total || 0);
+    const validUntil = quote.validUntil
+      ? new Date(quote.validUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : 'No expiration';
+
+    // Send email if customer has email
+    if (customer.email) {
+      try {
+        await sendQuoteEmail(
+          customer.email,
+          customer.firstName,
+          business.name,
+          quote.quoteNumber,
+          amount,
+          validUntil,
+          quoteUrl,
+          business.phone || ''
+        );
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'quote_sent',
+          channel: 'email',
+          recipient: customer.email,
+          subject: `Quote #${quote.quoteNumber} from ${business.name}`,
+          status: 'sent',
+          referenceType: 'quote',
+          referenceId: quoteId,
+        });
+        console.log(`Quote #${quote.quoteNumber} email sent to ${customer.email}`);
+      } catch (err) {
+        console.error('Failed to send quote email:', err);
+      }
+    }
+
+    // Send SMS if customer has phone
+    if (customer.phone) {
+      try {
+        const message = `Hi ${customer.firstName}! ${business.name} has sent you a quote #${quote.quoteNumber} for ${amount}. View it here: ${quoteUrl}`;
+        await twilioService.sendSms(customer.phone, message);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'quote_sent',
+          channel: 'sms',
+          recipient: customer.phone,
+          message,
+          status: 'sent',
+          referenceType: 'quote',
+          referenceId: quoteId,
+        });
+        console.log(`Quote #${quote.quoteNumber} SMS sent to ${customer.phone}`);
+      } catch (err) {
+        console.error('Failed to send quote SMS:', err);
+      }
+    }
+  } catch (error) {
+    console.error(`Error in sendQuoteSentNotification for quote ${quoteId}:`, error);
+  }
+}
+
 export default {
   sendAppointmentConfirmation,
   sendAppointmentReminder,
@@ -503,4 +581,5 @@ export default {
   sendInvoiceReminderNotification,
   sendPaymentConfirmation,
   sendJobCompletedNotification,
+  sendQuoteSentNotification,
 };
