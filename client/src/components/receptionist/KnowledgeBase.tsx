@@ -120,8 +120,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   const { data: unansweredQuestions = [], isLoading: loadingQuestions } = useQuery<UnansweredQuestion[]>({
     queryKey: ["/api/unanswered-questions", { status: "pending" }],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/unanswered-questions?status=pending");
-      return res.json();
+      return await apiRequest("GET", "/api/unanswered-questions?status=pending");
     },
     enabled: !!businessId,
   });
@@ -139,8 +138,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   // Trigger website scrape
   const scrapeMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/knowledge/scrape-website");
-      return res.json();
+      return await apiRequest("POST", "/api/knowledge/scrape-website");
     },
     onSuccess: () => {
       toast({ title: "Website scan started", description: "Scanning your website for knowledge..." });
@@ -154,8 +152,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   // Create knowledge entry
   const createMutation = useMutation({
     mutationFn: async (data: { question: string; answer: string; category: string }) => {
-      const res = await apiRequest("POST", "/api/knowledge", data);
-      return res.json();
+      return await apiRequest("POST", "/api/knowledge", data);
     },
     onSuccess: () => {
       toast({ title: "FAQ added", description: "Your AI receptionist will now use this knowledge." });
@@ -173,8 +170,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   // Update knowledge entry
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...data }: { id: number; question?: string; answer?: string }) => {
-      const res = await apiRequest("PUT", `/api/knowledge/${id}`, data);
-      return res.json();
+      return await apiRequest("PUT", `/api/knowledge/${id}`, data);
     },
     onSuccess: () => {
       toast({ title: "Updated", description: "Knowledge entry updated." });
@@ -189,8 +185,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   // Delete knowledge entry
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("DELETE", `/api/knowledge/${id}`);
-      return res.json();
+      return await apiRequest("DELETE", `/api/knowledge/${id}`);
     },
     onSuccess: () => {
       toast({ title: "Deleted", description: "Knowledge entry removed." });
@@ -204,8 +199,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   // Answer unanswered question
   const answerMutation = useMutation({
     mutationFn: async ({ id, answer }: { id: number; answer: string }) => {
-      const res = await apiRequest("POST", `/api/unanswered-questions/${id}/answer`, { answer });
-      return res.json();
+      return await apiRequest("POST", `/api/unanswered-questions/${id}/answer`, { answer });
     },
     onSuccess: () => {
       toast({ title: "Answer saved!", description: "Your AI receptionist will now know this answer." });
@@ -223,8 +217,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   // Dismiss unanswered question
   const dismissMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/unanswered-questions/${id}/dismiss`);
-      return res.json();
+      return await apiRequest("POST", `/api/unanswered-questions/${id}/dismiss`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/unanswered-questions"] });
