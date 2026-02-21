@@ -96,9 +96,6 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // State for website URL
-  const [scrapeUrl, setScrapeUrl] = useState("");
-
   // State for adding new FAQ
   const [isAddingFAQ, setIsAddingFAQ] = useState(false);
   const [newQuestion, setNewQuestion] = useState("");
@@ -152,17 +149,16 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
     prevScrapeStatusRef.current = currentStatus;
   }, [scrapeStatus?.status, queryClient]);
 
-  // Pre-fill URL from last scan
-  useEffect(() => {
-    if (scrapeStatus?.url && !scrapeUrl) {
-      setScrapeUrl(scrapeStatus.url);
-    }
-  }, [scrapeStatus?.url]);
+  // Fetch business profile to get the website URL
+  const { data: business } = useQuery<{ website?: string; name?: string }>({
+    queryKey: ["/api/business"],
+    enabled: !!businessId,
+  });
 
   // Trigger website scrape
   const scrapeMutation = useMutation({
-    mutationFn: async (url?: string) => {
-      return await apiRequest("POST", "/api/knowledge/scrape-website", url ? { url } : undefined);
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/knowledge/scrape-website");
     },
     onSuccess: () => {
       toast({ title: "Website scan started", description: "Scanning your website for knowledge..." });
@@ -312,31 +308,40 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
               </div>
             )}
 
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <Input
-                  placeholder="https://yourbusiness.com"
-                  value={scrapeUrl}
-                  onChange={(e) => setScrapeUrl(e.target.value)}
-                  className="max-w-md"
-                />
-                <Button
-                  onClick={() => scrapeMutation.mutate(scrapeUrl.trim() || undefined)}
-                  disabled={scrapeMutation.isPending || scrapeStatus?.status === "scraping"}
-                  className="gap-2 whitespace-nowrap"
-                >
-                  {scrapeMutation.isPending || scrapeStatus?.status === "scraping" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                  {scrapeStatus?.status === "completed" ? "Re-scan" : "Scan Website"}
-                </Button>
+            {business?.website ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-md text-sm text-gray-700 max-w-md truncate">
+                    <Globe className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    {business.website}
+                  </div>
+                  <Button
+                    onClick={() => scrapeMutation.mutate()}
+                    disabled={scrapeMutation.isPending || scrapeStatus?.status === "scraping"}
+                    className="gap-2 whitespace-nowrap"
+                  >
+                    {scrapeMutation.isPending || scrapeStatus?.status === "scraping" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    {scrapeStatus?.status === "completed" ? "Re-scan Website" : "Scan My Website"}
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Extracts FAQs, policies, service areas, and more from your website
+                </p>
               </div>
-              <p className="text-xs text-gray-500">
-                Enter your business website URL and scan to extract FAQs, policies, service areas, and more
-              </p>
-            </div>
+            ) : (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-yellow-50 border border-yellow-200">
+                <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+                <p className="text-sm text-yellow-700">
+                  No website URL set. Add your website URL in{" "}
+                  <span className="font-medium">Settings → Business Profile</span>{" "}
+                  to enable website scanning.
+                </p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
