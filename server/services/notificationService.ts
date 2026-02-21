@@ -574,12 +574,164 @@ export async function sendQuoteSentNotification(
   }
 }
 
+/**
+ * Send notification when invoice is sent to customer (via generate-link)
+ */
+export async function sendInvoiceSentNotification(
+  invoiceId: number,
+  businessId: number,
+  invoiceUrl: string
+) {
+  try {
+    const invoice = await storage.getInvoice(invoiceId);
+    if (!invoice) return;
+
+    const customer = await storage.getCustomer(invoice.customerId);
+    if (!customer) return;
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    const amount = formatCurrency(invoice.total || 0);
+    const dueDate = invoice.dueDate
+      ? new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : 'Upon receipt';
+
+    if (customer.email) {
+      try {
+        await sendInvoiceEmail(
+          customer.email,
+          customer.firstName,
+          business.name,
+          invoice.invoiceNumber,
+          amount,
+          dueDate,
+          business.phone || ''
+        );
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'invoice_sent',
+          channel: 'email',
+          recipient: customer.email,
+          subject: `Invoice #${invoice.invoiceNumber} from ${business.name}`,
+          status: 'sent',
+          referenceType: 'invoice',
+          referenceId: invoiceId,
+        });
+        console.log(`Invoice #${invoice.invoiceNumber} email sent to ${customer.email}`);
+      } catch (err) {
+        console.error('Failed to send invoice email:', err);
+      }
+    }
+
+    if (customer.phone) {
+      try {
+        const message = `Hi ${customer.firstName}! ${business.name} has sent you invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). View & pay here: ${invoiceUrl}`;
+        await twilioService.sendSms(customer.phone, message);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'invoice_sent',
+          channel: 'sms',
+          recipient: customer.phone,
+          message,
+          status: 'sent',
+          referenceType: 'invoice',
+          referenceId: invoiceId,
+        });
+        console.log(`Invoice #${invoice.invoiceNumber} SMS sent to ${customer.phone}`);
+      } catch (err) {
+        console.error('Failed to send invoice SMS:', err);
+      }
+    }
+  } catch (error) {
+    console.error(`Error in sendInvoiceSentNotification for invoice ${invoiceId}:`, error);
+  }
+}
+
+/**
+ * Send notification when a quote is converted to an invoice
+ */
+export async function sendQuoteConvertedNotification(
+  invoiceId: number,
+  businessId: number
+) {
+  try {
+    const invoice = await storage.getInvoice(invoiceId);
+    if (!invoice) return;
+
+    const customer = await storage.getCustomer(invoice.customerId);
+    if (!customer) return;
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    const amount = formatCurrency(invoice.total || 0);
+    const dueDate = invoice.dueDate
+      ? new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : 'Upon receipt';
+
+    if (customer.email) {
+      try {
+        await sendInvoiceEmail(
+          customer.email,
+          customer.firstName,
+          business.name,
+          invoice.invoiceNumber,
+          amount,
+          dueDate,
+          business.phone || ''
+        );
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'quote_converted',
+          channel: 'email',
+          recipient: customer.email,
+          subject: `Invoice #${invoice.invoiceNumber} from ${business.name}`,
+          status: 'sent',
+          referenceType: 'invoice',
+          referenceId: invoiceId,
+        });
+        console.log(`Quote-to-invoice notification sent to ${customer.email}`);
+      } catch (err) {
+        console.error('Failed to send quote conversion email:', err);
+      }
+    }
+
+    if (customer.phone) {
+      try {
+        const message = `Hi ${customer.firstName}! Your accepted quote from ${business.name} has been converted to invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). Call ${business.phone || 'us'} with any questions.`;
+        await twilioService.sendSms(customer.phone, message);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'quote_converted',
+          channel: 'sms',
+          recipient: customer.phone,
+          message,
+          status: 'sent',
+          referenceType: 'invoice',
+          referenceId: invoiceId,
+        });
+      } catch (err) {
+        console.error('Failed to send quote conversion SMS:', err);
+      }
+    }
+  } catch (error) {
+    console.error(`Error in sendQuoteConvertedNotification for invoice ${invoiceId}:`, error);
+  }
+}
+
 export default {
   sendAppointmentConfirmation,
   sendAppointmentReminder,
   sendInvoiceCreatedNotification,
   sendInvoiceReminderNotification,
+  sendInvoiceSentNotification,
   sendPaymentConfirmation,
   sendJobCompletedNotification,
   sendQuoteSentNotification,
+  sendQuoteConvertedNotification,
 };

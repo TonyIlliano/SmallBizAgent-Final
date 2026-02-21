@@ -169,6 +169,71 @@ async function runVapiRefresh(): Promise<void> {
 }
 
 /**
+ * Start the overdue invoice detection scheduler.
+ * Runs every 6 hours to find pending invoices past their due date
+ * and marks them as "overdue".
+ */
+export function startOverdueInvoiceScheduler(): void {
+  const jobKey = 'overdue-invoices';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Overdue invoice scheduler already running');
+    return;
+  }
+
+  console.log('Starting overdue invoice scheduler');
+
+  // Run immediately on start
+  runOverdueInvoiceCheck();
+
+  // Then run every 6 hours
+  const intervalId = setInterval(() => {
+    runOverdueInvoiceCheck();
+  }, 6 * 60 * 60 * 1000); // Every 6 hours
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+/**
+ * Check all businesses for pending invoices past their due date
+ * and mark them as overdue
+ */
+async function runOverdueInvoiceCheck(): Promise<void> {
+  try {
+    console.log(`[OverdueCheck] Running overdue invoice check at ${new Date().toISOString()}`);
+    const allBusinesses = await storage.getAllBusinesses();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let totalMarked = 0;
+
+    for (const business of allBusinesses) {
+      try {
+        const pendingInvoices = await storage.getInvoices(business.id, { status: 'pending' });
+
+        for (const invoice of pendingInvoices) {
+          if (invoice.dueDate) {
+            const dueDate = new Date(invoice.dueDate);
+            dueDate.setHours(0, 0, 0, 0);
+
+            if (dueDate < today) {
+              await storage.updateInvoice(invoice.id, { status: 'overdue' });
+              totalMarked++;
+              console.log(`[OverdueCheck] Invoice ${invoice.invoiceNumber} (business ${business.id}) marked as overdue`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[OverdueCheck] Error checking business ${business.id}:`, err);
+      }
+    }
+
+    console.log(`[OverdueCheck] Done — ${totalMarked} invoices marked as overdue`);
+  } catch (error) {
+    console.error('[OverdueCheck] Error:', error);
+  }
+}
+
+/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -189,6 +254,9 @@ export async function startAllSchedulers(): Promise<void> {
 
     // Start Vapi daily refresh (keeps TODAY'S DATE current in AI prompts)
     startVapiDailyRefreshScheduler();
+
+    // Start overdue invoice detection (marks pending invoices past due date as overdue)
+    startOverdueInvoiceScheduler();
 
     console.log('All schedulers started');
   } catch (error) {
@@ -212,6 +280,7 @@ export default {
   stopReminderScheduler,
   startRecurringJobsScheduler,
   startVapiDailyRefreshScheduler,
+  startOverdueInvoiceScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

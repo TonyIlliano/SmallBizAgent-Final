@@ -24,7 +24,9 @@ import {
   Users,
   Briefcase,
   FileText,
-  UserPlus
+  UserPlus,
+  AlertTriangle,
+  ArrowRight
 } from "lucide-react";
 
 // Analytics data interface
@@ -133,6 +135,11 @@ export default function Dashboard() {
     enabled: !!businessId,
   });
 
+  const { data: quotes = [] } = useQuery<any[]>({
+    queryKey: ['/api/quotes', { businessId }],
+    enabled: !!businessId,
+  });
+
   // Fetch analytics data (endpoint uses session auth, no need to pass businessId)
   const { data: analytics, isLoading: analyticsLoading } = useQuery<BusinessAnalytics>({
     queryKey: ['/api/analytics', { period: 'month' }],
@@ -165,6 +172,54 @@ export default function Dashboard() {
   const revenueValue = analytics?.revenue
     ? formatCurrency(analytics.revenue.paidRevenue)
     : formatCurrency(calculateMonthlyRevenue());
+
+  // Compute "Needs Attention" items
+  const overdueInvoices = invoices.filter((inv: any) => inv.status === 'overdue');
+  const overdueTotal = overdueInvoices.reduce((sum: number, inv: any) => sum + (inv.total || 0), 0);
+
+  const today = new Date();
+  const sevenDaysFromNow = new Date();
+  sevenDaysFromNow.setDate(today.getDate() + 7);
+  const todayStr = today.toISOString().split('T')[0];
+  const sevenDayStr = sevenDaysFromNow.toISOString().split('T')[0];
+
+  const expiringQuotes = quotes.filter((q: any) =>
+    q.status === 'pending' &&
+    q.validUntil &&
+    q.validUntil >= todayStr &&
+    q.validUntil <= sevenDayStr
+  );
+  const expiringQuotesTotal = expiringQuotes.reduce((sum: number, q: any) => sum + (q.total || 0), 0);
+
+  const pendingInvoices = invoices.filter((inv: any) => inv.status === 'pending');
+  const pendingTotal = pendingInvoices.reduce((sum: number, inv: any) => sum + (inv.total || 0), 0);
+
+  const attentionItems = [
+    ...(overdueInvoices.length > 0 ? [{
+      type: 'overdue' as const,
+      label: `${overdueInvoices.length} overdue invoice${overdueInvoices.length > 1 ? 's' : ''}`,
+      detail: formatCurrency(overdueTotal),
+      href: '/invoices',
+      color: 'text-red-600 dark:text-red-400',
+      bg: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800',
+    }] : []),
+    ...(expiringQuotes.length > 0 ? [{
+      type: 'expiring' as const,
+      label: `${expiringQuotes.length} quote${expiringQuotes.length > 1 ? 's' : ''} expiring soon`,
+      detail: formatCurrency(expiringQuotesTotal),
+      href: '/quotes',
+      color: 'text-amber-600 dark:text-amber-400',
+      bg: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800',
+    }] : []),
+    ...(pendingInvoices.length > 0 ? [{
+      type: 'pending' as const,
+      label: `${pendingInvoices.length} unpaid invoice${pendingInvoices.length > 1 ? 's' : ''}`,
+      detail: formatCurrency(pendingTotal),
+      href: '/invoices',
+      color: 'text-amber-600 dark:text-amber-400',
+      bg: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800',
+    }] : []),
+  ];
 
   return (
     <PageLayout title="Dashboard">
@@ -269,6 +324,29 @@ export default function Dashboard() {
               linkText="View call logs"
               linkHref="/receptionist"
             />
+          </div>
+        )}
+
+        {/* Needs Attention Section */}
+        {attentionItems.length > 0 && (
+          <div className="p-4 rounded-xl border border-border bg-card shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <h3 className="font-semibold text-foreground">Needs Attention</h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {attentionItems.map((item, index) => (
+                <Link key={index} href={item.href}>
+                  <div className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:shadow-sm transition-all ${item.bg}`}>
+                    <div>
+                      <p className={`text-sm font-medium ${item.color}`}>{item.label}</p>
+                      <p className="text-lg font-bold text-foreground">{item.detail}</p>
+                    </div>
+                    <ArrowRight className={`h-4 w-4 ${item.color}`} />
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
         )}
 

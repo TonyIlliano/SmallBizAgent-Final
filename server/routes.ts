@@ -1808,6 +1808,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const baseUrl = process.env.BASE_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
       const publicUrl = `${baseUrl}/portal/invoice/${accessToken}`;
 
+      // Send invoice email and SMS to customer (fire-and-forget)
+      notificationService.sendInvoiceSentNotification(id, existing.businessId, publicUrl).catch(err =>
+        console.error('Background invoice notification error:', err)
+      );
+
       res.json({
         success: true,
         accessToken,

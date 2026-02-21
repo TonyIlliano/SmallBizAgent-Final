@@ -330,6 +330,11 @@ router.post("/quotes/:id/convert", async (req, res) => {
       convertedToInvoiceId: newInvoice.id,
     });
 
+    // Notify customer that their quote has been converted to an invoice
+    notificationService.sendQuoteConvertedNotification(newInvoice.id, businessId).catch(err =>
+      console.error('Background quote conversion notification error:', err)
+    );
+
     res.json({ success: true, invoiceId: newInvoice.id });
   } catch (error) {
     console.error("Error converting quote to invoice:", error);
