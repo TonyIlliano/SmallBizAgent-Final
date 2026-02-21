@@ -375,15 +375,15 @@ function WeekView({
               key={i}
               onClick={() => onSelectDate(day)}
               className={`p-3 text-center border-l transition-colors hover:bg-gray-50 ${
-                today ? "bg-primary/5" : ""
+                today ? "bg-blue-50" : ""
               }`}
             >
-              <div className={`text-xs font-medium uppercase ${today ? "text-primary" : "text-gray-500"}`}>
+              <div className={`text-xs font-medium uppercase ${today ? "text-blue-600" : "text-gray-500"}`}>
                 {formatDayName(day)}
               </div>
               <div
                 className={`mt-1 text-lg font-semibold inline-flex items-center justify-center w-8 h-8 rounded-full ${
-                  today ? "bg-primary text-white" : "text-gray-900"
+                  today ? "bg-blue-600 text-white" : "text-gray-900"
                 }`}
               >
                 {day.getDate()}
@@ -416,7 +416,7 @@ function WeekView({
                 <div
                   key={`cell-${hour}-${dayIdx}`}
                   className={`relative border-l border-b transition-colors hover:bg-gray-50/50 ${
-                    isToday(day) ? "bg-primary/[0.02]" : ""
+                    isToday(day) ? "bg-blue-50/50" : ""
                   }`}
                   style={{ height: HOUR_HEIGHT }}
                   onClick={() => onSelectDate(day)}
