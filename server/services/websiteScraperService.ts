@@ -199,11 +199,15 @@ async function summarizeWithAI(
     return [];
   }
 
+  console.log(`[WebsiteScraper] OpenAI API key found (${apiKey.substring(0, 8)}...), calling summarizeWithAI for "${businessName}" (${industry})`);
+  console.log(`[WebsiteScraper] Raw text length: ${rawText.length} chars`);
+
   const openai = new OpenAI({ apiKey });
 
   try {
     // Truncate raw text to fit in context window
     const truncatedText = rawText.substring(0, 30000);
+    console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to OpenAI gpt-4o-mini...`);
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -247,7 +251,13 @@ If no useful information can be extracted, return: []`
     });
 
     const content = response.choices[0]?.message?.content?.trim();
-    if (!content) return [];
+    console.log(`[WebsiteScraper] OpenAI response received. Content length: ${content?.length || 0}`);
+    console.log(`[WebsiteScraper] OpenAI raw response (first 500 chars): ${content?.substring(0, 500)}`);
+
+    if (!content) {
+      console.error('[WebsiteScraper] OpenAI returned empty content');
+      return [];
+    }
 
     // Parse JSON response — handle potential markdown code blocks
     let jsonStr = content;
@@ -255,18 +265,30 @@ If no useful information can be extracted, return: []`
       jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
 
-    const parsed = JSON.parse(jsonStr);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      console.error(`[WebsiteScraper] JSON parse failed. Raw content: ${content.substring(0, 1000)}`);
+      throw parseErr;
+    }
 
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      console.error(`[WebsiteScraper] Parsed result is not an array, got: ${typeof parsed}`);
+      return [];
+    }
 
     // Validate each entry
-    return parsed.filter((entry: any) =>
+    const validated = parsed.filter((entry: any) =>
       entry && typeof entry.question === 'string' && typeof entry.answer === 'string' &&
       typeof entry.category === 'string' && entry.question.length > 0 && entry.answer.length > 0
     ).slice(0, 20); // Cap at 20 entries
 
+    console.log(`[WebsiteScraper] Parsed ${parsed.length} entries, ${validated.length} valid after filtering`);
+    return validated;
+
   } catch (error) {
-    console.error('Error summarizing website with AI:', error);
+    console.error('[WebsiteScraper] Error summarizing website with AI:', error);
     return [];
   }
 }
@@ -342,17 +364,20 @@ export async function scrapeWebsite(businessId: number, url: string): Promise<{
     // Enforce total character limit
     allText = allText.substring(0, MAX_TOTAL_CHARS);
 
-    console.log(`Scraped ${pagesScraped} pages (${allText.length} chars) for business ${businessId}`);
+    console.log(`[WebsiteScraper] Scraped ${pagesScraped} pages (${allText.length} chars) for business ${businessId}`);
+    console.log(`[WebsiteScraper] First 500 chars of scraped text: ${allText.substring(0, 500)}`);
 
     // Step 3: Get business info for AI context
     const business = await storage.getBusiness(businessId);
     const businessName = business?.name || 'Unknown Business';
     const industry = business?.industry || 'general';
+    console.log(`[WebsiteScraper] Business: "${businessName}", Industry: "${industry}"`);
 
     // Step 4: Summarize with AI
+    console.log(`[WebsiteScraper] Starting AI summarization...`);
     const knowledgeEntries = await summarizeWithAI(allText, businessName, industry);
 
-    console.log(`AI extracted ${knowledgeEntries.length} knowledge entries for business ${businessId}`);
+    console.log(`[WebsiteScraper] AI extracted ${knowledgeEntries.length} knowledge entries for business ${businessId}`);
 
     // Step 5: Clear old website-sourced knowledge and create new entries
     await storage.deleteBusinessKnowledgeBySource(businessId, 'website');
