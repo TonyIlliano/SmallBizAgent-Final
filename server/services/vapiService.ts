@@ -942,21 +942,6 @@ function buildTransferCallTool(
         number: num,
         message: 'I am transferring your call now. Please hold for just a moment.',
       })),
-      function: {
-        name: 'transferCall',
-        description: 'Transfer the call to a human staff member. Use this when the caller needs to speak with a real person.',
-        parameters: {
-          type: 'object',
-          properties: {
-            destination: {
-              type: 'string',
-              enum: normalizedNumbers,
-              description: 'The phone number to transfer the call to.',
-            },
-          },
-          required: ['destination'],
-        },
-      },
     }
   ];
 }
@@ -1033,10 +1018,10 @@ export async function createAssistantForBusiness(
         ...functions,
         // Restaurant ordering functions (Clover POS) — conditionally added
         ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
-      ]
+      ],
+      // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
+      tools: transferTool,
     },
-    // Native VAPI transferCall tool for real call transfers to a human
-    tools: transferTool,
     voice: {
       provider: '11labs',
       voiceId: configVoiceId,
@@ -1166,10 +1151,10 @@ export async function updateAssistant(
           provider: 'openai',
           model: 'gpt-4o-mini',
           systemPrompt: systemPrompt,
-          functions: functions
+          functions: functions,
+          // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
+          tools: transferTool,
         },
-        // Native VAPI transferCall tool for real call transfers to a human
-        tools: transferTool,
         voice: {
           provider: '11labs',
           voiceId: configVoiceId,

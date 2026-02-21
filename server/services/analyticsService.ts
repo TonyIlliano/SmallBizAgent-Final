@@ -406,11 +406,10 @@ export async function getAppointmentAnalytics(businessId: number, dateRange: Dat
 export async function getCallAnalytics(businessId: number, dateRange: DateRange): Promise<CallMetrics> {
   const { startDate, endDate } = dateRange;
   
-  // Get all calls in date range
+  // Get all calls in date range (note: is_emergency column may not exist in older DBs)
   const callData = await db.select({
     id: callLogs.id,
     status: callLogs.status,
-    isEmergency: callLogs.isEmergency,
     intentDetected: callLogs.intentDetected,
     callTime: callLogs.callTime
   })
@@ -422,12 +421,12 @@ export async function getCallAnalytics(businessId: number, dateRange: DateRange)
       lte(callLogs.callTime, endDate)
     )
   );
-  
+
   // Count calls by type
   const totalCalls = callData.length;
   const answeredCalls = callData.filter(call => call.status === 'answered').length;
   const missedCalls = callData.filter(call => call.status === 'missed').length;
-  const emergencyCalls = callData.filter(call => call.isEmergency).length;
+  const emergencyCalls = callData.filter(call => call.intentDetected === 'urgent-transfer').length;
   
   // Group calls by hour of day
   const callsByTimeMap: { [key: number]: number } = {};
