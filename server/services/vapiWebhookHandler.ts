@@ -1433,6 +1433,33 @@ async function bookAppointment(
           }
         };
       }
+    } else if (params.customerName && params.customerName !== 'New Customer') {
+      // Upgrade placeholder names if we now have a real name from the conversation
+      const nameParts = params.customerName.split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      const isPlaceholder = (
+        customer.firstName === 'New' ||
+        customer.firstName === 'Caller' ||
+        (customer.lastName === 'Customer') ||
+        /^\d{4}$/.test(customer.lastName || '')
+      );
+      if (isPlaceholder && firstName && firstName !== 'New' && firstName !== 'Caller') {
+        try {
+          const updates: any = { firstName };
+          if (lastName && lastName !== 'Customer') {
+            updates.lastName = lastName;
+          }
+          if (params.customerEmail && !customer.email) {
+            updates.email = params.customerEmail;
+          }
+          await storage.updateCustomer(customer.id, updates);
+          customer = { ...customer, ...updates };
+          console.log(`Updated placeholder customer ${customer.id} with real name: ${firstName} ${lastName}`);
+        } catch (err) {
+          console.error('Error updating customer name:', err);
+        }
+      }
     }
 
     customerId = customer.id;

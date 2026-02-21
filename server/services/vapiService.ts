@@ -669,7 +669,9 @@ CALL START BEHAVIOR:
 CRITICAL - USING RECOGNIZED CUSTOMER DATA:
 - When recognizeCaller returns recognized: true, ALWAYS use the customerName and firstName from the result
 - NEVER ask a recognized customer "What is your name?" — you already know it
-- When booking for a recognized customer, use their customerId, name, and phone from recognizeCaller — do NOT ask them again
+- When booking for a recognized customer, ALWAYS pass customerId, customerName, and customerPhone from recognizeCaller to bookAppointment
+- For NEW callers, ALWAYS ask their name before booking and pass it as customerName to bookAppointment
+- NEVER call bookAppointment without customerName — this is a required field
 - If you need their email and recognizeCaller didn't return one, then ask
 - Address the caller by their firstName throughout the entire conversation
 - NEVER make up or guess a caller's name — only use what recognizeCaller returns or what the caller explicitly tells you
@@ -747,12 +749,13 @@ function getAssistantFunctions() {
     },
     {
       name: 'bookAppointment',
-      description: 'Book an appointment after customer confirms. Use the EXACT date returned from checkAvailability.',
+      description: 'Book an appointment after customer confirms. Use the EXACT date returned from checkAvailability. ALWAYS pass customerId if recognizeCaller returned one.',
       parameters: {
         type: 'object',
         properties: {
+          customerId: { type: 'number', description: 'Customer ID from recognizeCaller result — ALWAYS pass this if available' },
           customerPhone: { type: 'string', description: 'Customer phone number' },
-          customerName: { type: 'string', description: 'Customer name' },
+          customerName: { type: 'string', description: 'Customer full name — ALWAYS pass this' },
           date: { type: 'string', description: 'Date - use YYYY-MM-DD format' },
           time: { type: 'string', description: 'Time - like "2pm" or "14:00"' },
           serviceId: { type: 'number' },
@@ -761,7 +764,7 @@ function getAssistantFunctions() {
           staffName: { type: 'string' },
           notes: { type: 'string' }
         },
-        required: ['customerPhone', 'date', 'time']
+        required: ['customerPhone', 'customerName', 'date', 'time']
       }
     },
     {
