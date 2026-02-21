@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/api";
@@ -74,6 +74,7 @@ interface ScrapeStatus {
   pagesScraped?: number;
   lastScrapedAt?: string;
   errorMessage?: string;
+  knowledgeEntriesCount?: number;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -131,9 +132,22 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
     enabled: !!businessId,
     refetchInterval: (query) => {
       const data = query.state.data as ScrapeStatus | undefined;
-      return data?.status === "scraping" ? 3000 : false;
+      // Keep polling while scraping is in progress
+      if (data?.status === "scraping") return 3000;
+      return false;
     },
   });
+
+  // When scrape transitions from "scraping" to "completed", refresh knowledge list
+  const prevScrapeStatusRef = useRef<string | undefined>();
+  useEffect(() => {
+    const currentStatus = scrapeStatus?.status;
+    if (prevScrapeStatusRef.current === "scraping" && (currentStatus === "completed" || currentStatus === "failed")) {
+      // Scrape just finished — refresh knowledge entries
+      queryClient.invalidateQueries({ queryKey: ["/api/knowledge"] });
+    }
+    prevScrapeStatusRef.current = currentStatus;
+  }, [scrapeStatus?.status, queryClient]);
 
   // Trigger website scrape
   const scrapeMutation = useMutation({
@@ -273,6 +287,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
                     <span className="text-sm text-gray-600">
                       Last scanned: {scrapeStatus.lastScrapedAt ? new Date(scrapeStatus.lastScrapedAt).toLocaleDateString() : "Unknown"}
                       {scrapeStatus.pagesScraped ? ` (${scrapeStatus.pagesScraped} pages)` : ""}
+                      {scrapeStatus.knowledgeEntriesCount !== undefined ? ` · ${scrapeStatus.knowledgeEntriesCount} knowledge entries extracted` : ""}
                     </span>
                   </>
                 )}

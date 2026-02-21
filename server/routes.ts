@@ -2358,7 +2358,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const businessId = getBusinessId(req);
       const cache = await storage.getWebsiteScrapeCache(businessId);
-      res.json(cache || { status: 'none' });
+      if (!cache) {
+        return res.json({ status: 'none' });
+      }
+      // Also return count of website-sourced knowledge entries
+      const websiteEntries = await storage.getBusinessKnowledge(businessId, { source: 'website' });
+      res.json({ ...cache, knowledgeEntriesCount: websiteEntries.length });
     } catch (error) {
       res.status(500).json({ message: "Error fetching scrape status" });
     }

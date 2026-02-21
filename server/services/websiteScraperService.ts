@@ -17,8 +17,6 @@ import OpenAI from 'openai';
 import { storage } from '../storage';
 import { debouncedUpdateVapiAssistant } from './vapiProvisioningService';
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
 // Max pages to crawl (homepage + internal links)
 const MAX_PAGES = 6;
 // Max characters of raw text per page
@@ -195,12 +193,13 @@ async function summarizeWithAI(
   businessName: string,
   industry: string
 ): Promise<Array<{ question: string; answer: string; category: string }>> {
-  if (!OPENAI_API_KEY) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
     console.error('OPENAI_API_KEY not configured — cannot summarize website');
     return [];
   }
 
-  const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+  const openai = new OpenAI({ apiKey });
 
   try {
     // Truncate raw text to fit in context window

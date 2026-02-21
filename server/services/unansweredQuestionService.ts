@@ -17,8 +17,6 @@ import OpenAI from 'openai';
 import { storage } from '../storage';
 import { debouncedUpdateVapiAssistant } from './vapiProvisioningService';
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
 /**
  * Analyze a call transcript to detect unanswered questions.
  * This runs as fire-and-forget after each call — must not throw.
@@ -29,7 +27,8 @@ export async function analyzeTranscriptForUnansweredQuestions(
   transcript: string,
   callerPhone?: string
 ): Promise<void> {
-  if (!OPENAI_API_KEY) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
     // OpenAI not configured — silently skip
     return;
   }
@@ -40,7 +39,7 @@ export async function analyzeTranscriptForUnansweredQuestions(
   }
 
   try {
-    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+    const openai = new OpenAI({ apiKey });
 
     // Truncate very long transcripts
     const truncatedTranscript = transcript.substring(0, 15000);
