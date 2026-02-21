@@ -1566,7 +1566,7 @@ async function bookAppointment(
   try {
     const appointment = await storage.createAppointment({
       businessId,
-      customerId,
+      customerId: customerId!,
       serviceId: serviceId || null,
       staffId: resolvedStaffId || null,
       startDate: appointmentDate,

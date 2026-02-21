@@ -51,7 +51,7 @@ async function getSmsFromNumber(): Promise<string | null> {
     const numbers = await client.incomingPhoneNumbers.list({
       smsEnabled: true,
       limit: 5,
-    });
+    } as any);
     if (numbers.length > 0) {
       discoveredSmsNumber = numbers[0].phoneNumber;
       console.log(`Auto-discovered SMS-capable number: ${discoveredSmsNumber}`);
