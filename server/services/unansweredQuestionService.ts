@@ -45,7 +45,7 @@ export async function analyzeTranscriptForUnansweredQuestions(
     const truncatedTranscript = transcript.substring(0, 15000);
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       temperature: 0.2,
       max_tokens: 1500,
       messages: [

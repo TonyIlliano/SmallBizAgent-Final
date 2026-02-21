@@ -207,10 +207,10 @@ async function summarizeWithAI(
   try {
     // Truncate raw text to fit in context window
     const truncatedText = rawText.substring(0, 30000);
-    console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to OpenAI gpt-4o...`);
+    console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to OpenAI gpt-5-mini...`);
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       temperature: 0.3,
       max_tokens: 3000,
       messages: [
