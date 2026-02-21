@@ -513,6 +513,55 @@ async function fixExistingTables() {
     );
   `);
 
+  // Create business_knowledge table (AI Knowledge Base for virtual receptionist)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS business_knowledge (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      category TEXT,
+      source TEXT NOT NULL,
+      is_approved BOOLEAN DEFAULT false,
+      priority INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create unanswered_questions table (detected from call transcripts)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS unanswered_questions (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      call_log_id INTEGER,
+      question TEXT NOT NULL,
+      context TEXT,
+      caller_phone TEXT,
+      status TEXT DEFAULT 'pending',
+      owner_answer TEXT,
+      answered_at TIMESTAMP,
+      knowledge_entry_id INTEGER,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create website_scrape_cache table (cached website scraping results)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS website_scrape_cache (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      url TEXT NOT NULL,
+      pages_scraped INTEGER DEFAULT 0,
+      raw_content TEXT,
+      structured_knowledge JSONB,
+      status TEXT DEFAULT 'pending',
+      error_message TEXT,
+      last_scraped_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 

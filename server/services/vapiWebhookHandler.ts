@@ -3088,9 +3088,10 @@ async function handleEndOfCall(
   // Log the call in the database
   if (businessId && message.call) {
     const callerPhone = message.call.customer?.number || null;
+    let callLogId: number | null = null;
 
     try {
-      await storage.createCallLog({
+      const callLog = await storage.createCallLog({
         businessId,
         callerId: callerPhone || 'Unknown',
         callerName: '',
@@ -3102,6 +3103,7 @@ async function handleEndOfCall(
         status: message.endedReason === 'customer-ended-call' ? 'completed' : message.endedReason,
         callTime: new Date()
       });
+      callLogId = callLog?.id || null;
     } catch (error) {
       console.error('Error logging call:', error);
     }
@@ -3126,6 +3128,14 @@ async function handleEndOfCall(
       } catch (error) {
         console.error('Error auto-creating customer from call:', error);
       }
+    }
+
+    // Analyze transcript for unanswered questions (fire-and-forget — doesn't delay webhook response)
+    if (message.transcript && message.transcript.length > 100 && callLogId) {
+      import('./unansweredQuestionService').then(({ analyzeTranscriptForUnansweredQuestions }) => {
+        analyzeTranscriptForUnansweredQuestions(businessId, callLogId!, message.transcript, callerPhone || undefined)
+          .catch(err => console.error('Error analyzing transcript for unanswered questions:', err));
+      }).catch(err => console.error('Error importing unanswered question service:', err));
     }
   }
 

@@ -2324,6 +2324,223 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =================== AI KNOWLEDGE BASE API ===================
+
+  // Trigger website scrape
+  app.post("/api/knowledge/scrape-website", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const business = await storage.getBusiness(businessId);
+      if (!business) {
+        return res.status(404).json({ message: "Business not found" });
+      }
+
+      // Use URL from request body, or fall back to business profile website
+      const url = req.body.url || business.website;
+      if (!url) {
+        return res.status(400).json({ message: "No website URL provided. Set your business website in Settings or provide a URL." });
+      }
+
+      // Start scrape in background (don't await)
+      const { scrapeWebsite } = await import('./services/websiteScraperService');
+      scrapeWebsite(businessId, url)
+        .catch(err => console.error('Background website scrape error:', err));
+
+      res.json({ message: "Website scan started", status: "scraping" });
+    } catch (error) {
+      console.error("Error starting website scrape:", error);
+      res.status(500).json({ message: "Error starting website scan" });
+    }
+  });
+
+  // Get website scrape status
+  app.get("/api/knowledge/scrape-status", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const cache = await storage.getWebsiteScrapeCache(businessId);
+      res.json(cache || { status: 'none' });
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching scrape status" });
+    }
+  });
+
+  // List knowledge entries
+  app.get("/api/knowledge", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const params: any = {};
+      if (req.query.isApproved !== undefined) params.isApproved = req.query.isApproved === 'true';
+      if (req.query.source) params.source = req.query.source as string;
+      if (req.query.category) params.category = req.query.category as string;
+      const entries = await storage.getBusinessKnowledge(businessId, params);
+      res.json(entries);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching knowledge entries" });
+    }
+  });
+
+  // Create manual knowledge entry
+  app.post("/api/knowledge", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { question, answer, category } = req.body;
+      if (!question || !answer) {
+        return res.status(400).json({ message: "Question and answer are required" });
+      }
+      const entry = await storage.createBusinessKnowledge({
+        businessId,
+        question,
+        answer,
+        category: category || 'faq',
+        source: 'owner',
+        isApproved: true,
+        priority: 10, // Manual entries get highest priority
+      });
+
+      // Trigger Vapi update to include new knowledge
+      try {
+        const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
+        debouncedUpdateVapiAssistant(businessId);
+      } catch (e) { /* silent */ }
+
+      res.json(entry);
+    } catch (error) {
+      res.status(500).json({ message: "Error creating knowledge entry" });
+    }
+  });
+
+  // Update knowledge entry
+  app.put("/api/knowledge/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getBusinessKnowledgeEntry(id);
+      if (!existing || !verifyBusinessOwnership(existing, req)) {
+        return res.status(404).json({ message: "Knowledge entry not found" });
+      }
+      const { question, answer, category, isApproved, priority } = req.body;
+      const updated = await storage.updateBusinessKnowledge(id, {
+        ...(question !== undefined && { question }),
+        ...(answer !== undefined && { answer }),
+        ...(category !== undefined && { category }),
+        ...(isApproved !== undefined && { isApproved }),
+        ...(priority !== undefined && { priority }),
+      });
+
+      // Trigger Vapi update
+      try {
+        const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
+        debouncedUpdateVapiAssistant(existing.businessId);
+      } catch (e) { /* silent */ }
+
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Error updating knowledge entry" });
+    }
+  });
+
+  // Delete knowledge entry
+  app.delete("/api/knowledge/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getBusinessKnowledgeEntry(id);
+      if (!existing || !verifyBusinessOwnership(existing, req)) {
+        return res.status(404).json({ message: "Knowledge entry not found" });
+      }
+      await storage.deleteBusinessKnowledge(id);
+
+      // Trigger Vapi update
+      try {
+        const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
+        debouncedUpdateVapiAssistant(existing.businessId);
+      } catch (e) { /* silent */ }
+
+      res.json({ message: "Knowledge entry deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Error deleting knowledge entry" });
+    }
+  });
+
+  // List unanswered questions
+  app.get("/api/unanswered-questions", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const params: any = {};
+      if (req.query.status) params.status = req.query.status as string;
+      const questions = await storage.getUnansweredQuestions(businessId, params);
+      res.json(questions);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching unanswered questions" });
+    }
+  });
+
+  // Get pending unanswered question count (for notification badge)
+  app.get("/api/unanswered-questions/count", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const count = await storage.getUnansweredQuestionCount(businessId);
+      res.json({ count });
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching question count" });
+    }
+  });
+
+  // Answer an unanswered question (promotes to knowledge base)
+  app.post("/api/unanswered-questions/:id/answer", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { answer } = req.body;
+      if (!answer) {
+        return res.status(400).json({ message: "Answer is required" });
+      }
+
+      const question = await storage.getUnansweredQuestion(id);
+      if (!question || !verifyBusinessOwnership(question, req)) {
+        return res.status(404).json({ message: "Question not found" });
+      }
+
+      const { promoteToKnowledge } = await import('./services/unansweredQuestionService');
+      const result = await promoteToKnowledge(id, answer);
+
+      if (result.success) {
+        res.json({ message: "Answer saved to knowledge base", knowledgeEntryId: result.knowledgeEntryId });
+      } else {
+        res.status(400).json({ message: result.error });
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Error answering question" });
+    }
+  });
+
+  // Dismiss an unanswered question
+  app.post("/api/unanswered-questions/:id/dismiss", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const question = await storage.getUnansweredQuestion(id);
+      if (!question || !verifyBusinessOwnership(question, req)) {
+        return res.status(404).json({ message: "Question not found" });
+      }
+      await storage.updateUnansweredQuestion(id, { status: 'dismissed' });
+      res.json({ message: "Question dismissed" });
+    } catch (error) {
+      res.status(500).json({ message: "Error dismissing question" });
+    }
+  });
+
+  // Delete an unanswered question
+  app.delete("/api/unanswered-questions/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const question = await storage.getUnansweredQuestion(id);
+      if (!question || !verifyBusinessOwnership(question, req)) {
+        return res.status(404).json({ message: "Question not found" });
+      }
+      await storage.deleteUnansweredQuestion(id);
+      res.json({ message: "Question deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Error deleting question" });
+    }
+  });
+
   // =================== REMINDERS API ===================
   // Send appointment reminder manually
   app.post("/api/appointments/:id/send-reminder", isAuthenticated, async (req: Request, res: Response) => {

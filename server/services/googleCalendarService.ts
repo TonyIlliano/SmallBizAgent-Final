@@ -221,9 +221,11 @@ export class GoogleCalendarService {
         `\nBooked via SmallBizAgent`,
       ].filter(Boolean).join('\n');
 
-      // Calculate start and end times
-      const startTime = new Date(appointment.date);
-      const endTime = new Date(startTime.getTime() + (appointment.duration || 60) * 60 * 1000);
+      // Calculate start and end times (using startDate/endDate from schema)
+      const startTime = new Date(appointment.startDate!);
+      const endTime = appointment.endDate
+        ? new Date(appointment.endDate)
+        : new Date(startTime.getTime() + 60 * 60 * 1000); // Default 1 hour if no end date
 
       const event: any = {
         summary,

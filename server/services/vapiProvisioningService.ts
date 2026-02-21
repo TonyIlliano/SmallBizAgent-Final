@@ -73,6 +73,15 @@ export async function provisionVapiForBusiness(businessId: number): Promise<{
     const businessHours = await storage.getBusinessHours(businessId);
     const receptionistConfig = await storage.getReceptionistConfig(businessId);
 
+    // Load AI knowledge base section for the system prompt
+    let knowledgeSection = '';
+    try {
+      const { buildKnowledgeSection } = await import('./knowledgePromptBuilder');
+      knowledgeSection = await buildKnowledgeSection(businessId);
+    } catch (e) {
+      console.warn('Could not load knowledge section:', e);
+    }
+
     // Check if assistant already exists
     if (business.vapiAssistantId) {
       // Update existing assistant with full config
@@ -81,7 +90,8 @@ export async function provisionVapiForBusiness(businessId: number): Promise<{
         business,
         services,
         businessHours,
-        receptionistConfig
+        receptionistConfig,
+        knowledgeSection
       );
 
       if (!updateResult.success) {
@@ -96,7 +106,7 @@ export async function provisionVapiForBusiness(businessId: number): Promise<{
     }
 
     // Create new assistant with full config
-    const result = await vapiService.createAssistantForBusiness(business, services, businessHours, receptionistConfig);
+    const result = await vapiService.createAssistantForBusiness(business, services, businessHours, receptionistConfig, knowledgeSection);
 
     if (!result.assistantId) {
       return { success: false, error: result.error || 'Failed to create assistant' };
@@ -207,13 +217,23 @@ export async function updateVapiAssistant(businessId: number): Promise<{
     const businessHours = await storage.getBusinessHours(businessId);
     const receptionistConfig = await storage.getReceptionistConfig(businessId);
 
+    // Load AI knowledge base section for the system prompt
+    let knowledgeSection = '';
+    try {
+      const { buildKnowledgeSection } = await import('./knowledgePromptBuilder');
+      knowledgeSection = await buildKnowledgeSection(businessId);
+    } catch (e) {
+      console.warn('Could not load knowledge section:', e);
+    }
+
     // Update the assistant with full config
     const result = await vapiService.updateAssistant(
       business.vapiAssistantId,
       business,
       services,
       businessHours,
-      receptionistConfig
+      receptionistConfig,
+      knowledgeSection
     );
 
     if (!result.success) {

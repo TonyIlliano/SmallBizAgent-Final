@@ -118,7 +118,7 @@ interface PromptOptions {
   voicemailEnabled?: boolean;
 }
 
-function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[], menuData?: CachedMenu | null, options?: PromptOptions): string {
+function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[], menuData?: CachedMenu | null, options?: PromptOptions, knowledgeSection?: string): string {
   const businessType = business.industry?.toLowerCase() || 'general';
   const serviceList = services.length > 0
     ? services.map(s => `- ${s.name}: $${s.price}, ${s.duration || 60} minutes${s.description ? ` - ${s.description}` : ''}`).join('\n')
@@ -714,7 +714,12 @@ IMPORTANT REMINDERS:
 - If customer seems frustrated or asks for manager, use transferCall immediately
 - For emergencies (water leak, car breakdown, etc.), prioritize and offer earliest available
 - Understand natural language dates: "next week", "tomorrow", "this Friday"
-${options?.customInstructions ? `
+${knowledgeSection ? `
+ADDITIONAL KNOWLEDGE BASE (from website & owner-approved FAQs):
+Note: If there is a conflict between the CRM data above (services, hours, pricing) and this knowledge base, ALWAYS use the CRM data as the source of truth.
+
+${knowledgeSection}
+` : ''}${options?.customInstructions ? `
 CUSTOM BUSINESS INSTRUCTIONS (follow these closely — the business owner wrote them):
 ${options.customInstructions}
 ` : ''}
@@ -956,7 +961,8 @@ export async function createAssistantForBusiness(
   business: Business,
   services: Service[],
   businessHours?: any[],
-  receptionistConfig?: ReceptionistConfig | null
+  receptionistConfig?: ReceptionistConfig | null,
+  knowledgeSection?: string
 ): Promise<{ assistantId: string; error?: string }> {
   if (!VAPI_API_KEY) {
     return { assistantId: '', error: 'Vapi API key not configured' };
@@ -995,7 +1001,7 @@ export async function createAssistantForBusiness(
     customInstructions: configCustomInstructions,
     afterHoursMessage: configAfterHoursMessage,
     voicemailEnabled: configVoicemailEnabled,
-  });
+  }, knowledgeSection);
 
   // Build functions list — conditionally exclude leaveMessage if voicemail is disabled
   const baseFunctions = getAssistantFunctions();
@@ -1076,7 +1082,8 @@ export async function updateAssistant(
   business: Business,
   services: Service[],
   businessHours?: any[],
-  receptionistConfig?: ReceptionistConfig | null
+  receptionistConfig?: ReceptionistConfig | null,
+  knowledgeSection?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (!VAPI_API_KEY) {
     return { success: false, error: 'Vapi API key not configured' };
@@ -1115,7 +1122,7 @@ export async function updateAssistant(
     customInstructions: configCustomInstructions,
     afterHoursMessage: configAfterHoursMessage,
     voicemailEnabled: configVoicemailEnabled,
-  });
+  }, knowledgeSection);
 
   // Get functions — conditionally exclude leaveMessage if voicemail is disabled
   const baseFunctions = getAssistantFunctions();

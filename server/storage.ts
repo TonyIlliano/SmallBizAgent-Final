@@ -22,7 +22,10 @@ import {
   CloverOrderLog, InsertCloverOrderLog, cloverOrderLog,
   SquareMenuCache, InsertSquareMenuCache, squareMenuCache,
   SquareOrderLog, InsertSquareOrderLog, squareOrderLog,
-  StaffInvite, InsertStaffInvite, staffInvites
+  StaffInvite, InsertStaffInvite, staffInvites,
+  BusinessKnowledge, InsertBusinessKnowledge, businessKnowledge,
+  UnansweredQuestion, InsertUnansweredQuestion, unansweredQuestions,
+  WebsiteScrapeCache, InsertWebsiteScrapeCache, websiteScrapeCache
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -244,6 +247,26 @@ export interface IStorage {
   getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined>;
   markPasswordResetTokenUsed(id: number): Promise<void>;
   deleteExpiredPasswordResetTokens(): Promise<void>;
+
+  // Business Knowledge (AI Knowledge Base)
+  getBusinessKnowledge(businessId: number, params?: { isApproved?: boolean; source?: string; category?: string }): Promise<BusinessKnowledge[]>;
+  getBusinessKnowledgeEntry(id: number): Promise<BusinessKnowledge | undefined>;
+  createBusinessKnowledge(entry: InsertBusinessKnowledge): Promise<BusinessKnowledge>;
+  updateBusinessKnowledge(id: number, data: Partial<BusinessKnowledge>): Promise<BusinessKnowledge>;
+  deleteBusinessKnowledge(id: number): Promise<void>;
+  deleteBusinessKnowledgeBySource(businessId: number, source: string): Promise<void>;
+
+  // Unanswered Questions
+  getUnansweredQuestions(businessId: number, params?: { status?: string }): Promise<UnansweredQuestion[]>;
+  getUnansweredQuestion(id: number): Promise<UnansweredQuestion | undefined>;
+  createUnansweredQuestion(question: InsertUnansweredQuestion): Promise<UnansweredQuestion>;
+  updateUnansweredQuestion(id: number, data: Partial<UnansweredQuestion>): Promise<UnansweredQuestion>;
+  deleteUnansweredQuestion(id: number): Promise<void>;
+  getUnansweredQuestionCount(businessId: number): Promise<number>;
+
+  // Website Scrape Cache
+  getWebsiteScrapeCache(businessId: number): Promise<WebsiteScrapeCache | undefined>;
+  upsertWebsiteScrapeCache(businessId: number, data: Partial<InsertWebsiteScrapeCache>): Promise<WebsiteScrapeCache>;
 }
 
 // Database storage implementation
@@ -1407,6 +1430,125 @@ export class DatabaseStorage implements IStorage {
   async deleteExpiredPasswordResetTokens(): Promise<void> {
     await db.delete(passwordResetTokens)
       .where(sql`${passwordResetTokens.expiresAt} < NOW()`);
+  }
+
+  // =================== Business Knowledge (AI Knowledge Base) ===================
+
+  async getBusinessKnowledge(businessId: number, params?: { isApproved?: boolean; source?: string; category?: string }): Promise<BusinessKnowledge[]> {
+    const conditions: any[] = [eq(businessKnowledge.businessId, businessId)];
+    if (params?.isApproved !== undefined) {
+      conditions.push(eq(businessKnowledge.isApproved, params.isApproved));
+    }
+    if (params?.source) {
+      conditions.push(eq(businessKnowledge.source, params.source));
+    }
+    if (params?.category) {
+      conditions.push(eq(businessKnowledge.category, params.category));
+    }
+    return db.select().from(businessKnowledge)
+      .where(and(...conditions))
+      .orderBy(desc(businessKnowledge.priority));
+  }
+
+  async getBusinessKnowledgeEntry(id: number): Promise<BusinessKnowledge | undefined> {
+    const [entry] = await db.select().from(businessKnowledge)
+      .where(eq(businessKnowledge.id, id));
+    return entry;
+  }
+
+  async createBusinessKnowledge(entry: InsertBusinessKnowledge): Promise<BusinessKnowledge> {
+    const [created] = await db.insert(businessKnowledge).values(entry).returning();
+    return created;
+  }
+
+  async updateBusinessKnowledge(id: number, data: Partial<BusinessKnowledge>): Promise<BusinessKnowledge> {
+    const [updated] = await db.update(businessKnowledge)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(businessKnowledge.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteBusinessKnowledge(id: number): Promise<void> {
+    await db.delete(businessKnowledge).where(eq(businessKnowledge.id, id));
+  }
+
+  async deleteBusinessKnowledgeBySource(businessId: number, source: string): Promise<void> {
+    await db.delete(businessKnowledge)
+      .where(and(
+        eq(businessKnowledge.businessId, businessId),
+        eq(businessKnowledge.source, source)
+      ));
+  }
+
+  // =================== Unanswered Questions ===================
+
+  async getUnansweredQuestions(businessId: number, params?: { status?: string }): Promise<UnansweredQuestion[]> {
+    const conditions: any[] = [eq(unansweredQuestions.businessId, businessId)];
+    if (params?.status) {
+      conditions.push(eq(unansweredQuestions.status, params.status));
+    }
+    return db.select().from(unansweredQuestions)
+      .where(and(...conditions))
+      .orderBy(desc(unansweredQuestions.createdAt));
+  }
+
+  async getUnansweredQuestion(id: number): Promise<UnansweredQuestion | undefined> {
+    const [question] = await db.select().from(unansweredQuestions)
+      .where(eq(unansweredQuestions.id, id));
+    return question;
+  }
+
+  async createUnansweredQuestion(question: InsertUnansweredQuestion): Promise<UnansweredQuestion> {
+    const [created] = await db.insert(unansweredQuestions).values(question).returning();
+    return created;
+  }
+
+  async updateUnansweredQuestion(id: number, data: Partial<UnansweredQuestion>): Promise<UnansweredQuestion> {
+    const [updated] = await db.update(unansweredQuestions)
+      .set(data)
+      .where(eq(unansweredQuestions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteUnansweredQuestion(id: number): Promise<void> {
+    await db.delete(unansweredQuestions).where(eq(unansweredQuestions.id, id));
+  }
+
+  async getUnansweredQuestionCount(businessId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(unansweredQuestions)
+      .where(and(
+        eq(unansweredQuestions.businessId, businessId),
+        eq(unansweredQuestions.status, 'pending')
+      ));
+    return Number(result[0]?.count ?? 0);
+  }
+
+  // =================== Website Scrape Cache ===================
+
+  async getWebsiteScrapeCache(businessId: number): Promise<WebsiteScrapeCache | undefined> {
+    const [cache] = await db.select().from(websiteScrapeCache)
+      .where(eq(websiteScrapeCache.businessId, businessId));
+    return cache;
+  }
+
+  async upsertWebsiteScrapeCache(businessId: number, data: Partial<InsertWebsiteScrapeCache>): Promise<WebsiteScrapeCache> {
+    // Check if exists
+    const existing = await this.getWebsiteScrapeCache(businessId);
+    if (existing) {
+      const [updated] = await db.update(websiteScrapeCache)
+        .set(data)
+        .where(eq(websiteScrapeCache.businessId, businessId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(websiteScrapeCache)
+        .values({ businessId, url: data.url || '', ...data })
+        .returning();
+      return created;
+    }
   }
 }
 

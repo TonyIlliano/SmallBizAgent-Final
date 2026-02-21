@@ -525,6 +525,49 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// AI Knowledge Base - FAQ/knowledge entries for the virtual receptionist
+export const businessKnowledge = pgTable("business_knowledge", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  category: text("category"), // policies, service_area, faq, pricing, about, general
+  source: text("source").notNull(), // 'website', 'owner', 'unanswered_question'
+  isApproved: boolean("is_approved").default(false),
+  priority: integer("priority").default(0), // Higher = more important for prompt budget
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Unanswered Questions - detected from call transcripts for owner to answer
+export const unansweredQuestions = pgTable("unanswered_questions", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  callLogId: integer("call_log_id"),
+  question: text("question").notNull(),
+  context: text("context"), // Surrounding transcript context
+  callerPhone: text("caller_phone"),
+  status: text("status").default("pending"), // pending, answered, dismissed
+  ownerAnswer: text("owner_answer"),
+  answeredAt: timestamp("answered_at"),
+  knowledgeEntryId: integer("knowledge_entry_id"), // Links to business_knowledge when promoted
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Website Scrape Cache - cached results from business website scraping
+export const websiteScrapeCache = pgTable("website_scrape_cache", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  url: text("url").notNull(),
+  pagesScraped: integer("pages_scraped").default(0),
+  rawContent: text("raw_content"),
+  structuredKnowledge: jsonb("structured_knowledge"), // AI-summarized JSON
+  status: text("status").default("pending"), // pending, scraping, completed, failed
+  errorMessage: text("error_message"),
+  lastScrapedAt: timestamp("last_scraped_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Subscription Plans
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: serial("id").primaryKey(),
@@ -586,6 +629,9 @@ export const insertCloverOrderLogSchema = createInsertSchema(cloverOrderLog).omi
 export const insertSquareMenuCacheSchema = createInsertSchema(squareMenuCache).omit({ id: true, createdAt: true });
 export const insertSquareOrderLogSchema = createInsertSchema(squareOrderLog).omit({ id: true, createdAt: true });
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
+export const insertBusinessKnowledgeSchema = createInsertSchema(businessKnowledge).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertUnansweredQuestionSchema = createInsertSchema(unansweredQuestions).omit({ id: true, createdAt: true });
+export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -680,3 +726,12 @@ export type InsertSquareOrderLog = z.infer<typeof insertSquareOrderLogSchema>;
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
+
+export type BusinessKnowledge = typeof businessKnowledge.$inferSelect;
+export type InsertBusinessKnowledge = z.infer<typeof insertBusinessKnowledgeSchema>;
+
+export type UnansweredQuestion = typeof unansweredQuestions.$inferSelect;
+export type InsertUnansweredQuestion = z.infer<typeof insertUnansweredQuestionSchema>;
+
+export type WebsiteScrapeCache = typeof websiteScrapeCache.$inferSelect;
+export type InsertWebsiteScrapeCache = z.infer<typeof insertWebsiteScrapeCacheSchema>;

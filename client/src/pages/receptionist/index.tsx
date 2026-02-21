@@ -1,17 +1,28 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { ReceptionistConfig } from "@/components/receptionist/ReceptionistConfig";
 import { CallLog } from "@/components/receptionist/CallLog";
+import { KnowledgeBase } from "@/components/receptionist/KnowledgeBase";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Phone, Settings, MessageSquare, Info } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Phone, Settings, MessageSquare, Info, Brain } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 export default function Receptionist() {
   const [activeTab, setActiveTab] = useState("calls");
   const { user } = useAuth();
   const businessId = user?.businessId;
-  
+
+  // Fetch unanswered question count for notification badge
+  const { data: questionCountData } = useQuery<{ count: number }>({
+    queryKey: ["/api/unanswered-questions/count"],
+    enabled: !!businessId,
+    refetchInterval: 60000, // Refresh every minute
+  });
+  const unansweredCount = questionCountData?.count || 0;
+
   return (
     <PageLayout title="Virtual Receptionist">
       <div className="space-y-6">
@@ -21,7 +32,7 @@ export default function Receptionist() {
             Manage your virtual receptionist settings and view call history
           </p>
         </div>
-        
+
         <Card className="mb-6">
           <CardHeader className="bg-blue-50 border-b">
             <div className="flex items-start">
@@ -46,7 +57,7 @@ export default function Receptionist() {
                   Never miss a call. The virtual receptionist answers calls anytime, even after hours.
                 </p>
               </div>
-              
+
               <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
                 <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center mb-3">
                   <MessageSquare className="h-6 w-6 text-green-600" />
@@ -56,7 +67,7 @@ export default function Receptionist() {
                   Understands caller needs and responds intelligently to schedule appointments or answer questions.
                 </p>
               </div>
-              
+
               <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
                 <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center mb-3">
                   <Settings className="h-6 w-6 text-purple-600" />
@@ -69,15 +80,28 @@ export default function Receptionist() {
             </div>
           </CardContent>
         </Card>
-        
+
         <Tabs defaultValue="calls" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
             <TabsTrigger value="calls">Call History</TabsTrigger>
+            <TabsTrigger value="knowledge" className="relative">
+              <Brain className="h-4 w-4 mr-1.5" />
+              Knowledge Base
+              {unansweredCount > 0 && (
+                <Badge variant="destructive" className="ml-1.5 h-5 min-w-[20px] rounded-full px-1.5 text-[10px]">
+                  {unansweredCount}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="settings">Configuration</TabsTrigger>
           </TabsList>
 
           <TabsContent value="calls" className="space-y-4">
             <CallLog businessId={businessId} />
+          </TabsContent>
+
+          <TabsContent value="knowledge" className="space-y-4">
+            <KnowledgeBase businessId={businessId ?? undefined} />
           </TabsContent>
 
           <TabsContent value="settings" className="space-y-4">
