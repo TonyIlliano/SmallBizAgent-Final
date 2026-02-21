@@ -118,7 +118,7 @@ interface PromptOptions {
   voicemailEnabled?: boolean;
 }
 
-function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[], menuData?: CachedMenu | null, options?: PromptOptions, knowledgeSection?: string): string {
+function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[], menuData?: CachedMenu | null, options?: PromptOptions, knowledgeSection?: string, transferNumbers?: string[]): string {
   const businessType = business.industry?.toLowerCase() || 'general';
   const serviceList = services.length > 0
     ? services.map(s => `- ${s.name}: $${s.price}, ${s.duration || 60} minutes${s.description ? ` - ${s.description}` : ''}`).join('\n')
@@ -600,7 +600,7 @@ CUSTOMER & BUSINESS INFO:
 - getEstimate: Get price estimates for specific services
 
 COMMUNICATION:
-- transferCall: Transfer the call to a human staff member (VAPI will perform a real phone transfer — use ONLY as a last resort after trying to help)
+- transferCall: Transfer the call to a human staff member (VAPI will perform a real phone transfer — use ONLY as a last resort after trying to help)${transferNumbers && transferNumbers.length > 0 ? `\n  When using transferCall, pass the destination parameter with the value "${transferNumbers[0]}"` : ''}
 - leaveMessage: Record a message for the business owner (ONLY use if caller explicitly asks to leave a message — always try to help them directly first)`;
 
   return basePrompt + industryPrompt + menuSection + `
@@ -942,6 +942,21 @@ function buildTransferCallTool(
         number: num,
         message: 'I am transferring your call now. Please hold for just a moment.',
       })),
+      function: {
+        name: 'transferCall',
+        description: 'Transfer the call to a human staff member. Use this when the caller needs to speak with a real person.',
+        parameters: {
+          type: 'object',
+          properties: {
+            destination: {
+              type: 'string',
+              enum: normalizedNumbers,
+              description: 'The phone number to transfer the call to.',
+            },
+          },
+          required: ['destination'],
+        },
+      },
     }
   ];
 }
@@ -988,12 +1003,18 @@ export async function createAssistantForBusiness(
     ? receptionistConfig.transferPhoneNumbers as string[]
     : [];
 
+  // Build normalized transfer numbers for both prompt and tool
+  const transferTool = buildTransferCallTool(transferPhoneNumbers, business.phone);
+  const normalizedTransferNumbers = transferTool.length > 0
+    ? transferTool[0].destinations.map((d: any) => d.number)
+    : [];
+
   const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
     assistantName: configAssistantName,
     customInstructions: configCustomInstructions,
     afterHoursMessage: configAfterHoursMessage,
     voicemailEnabled: configVoicemailEnabled,
-  }, knowledgeSection);
+  }, knowledgeSection, normalizedTransferNumbers);
 
   // Build functions list — conditionally exclude leaveMessage if voicemail is disabled
   const baseFunctions = getAssistantFunctions();
@@ -1015,7 +1036,7 @@ export async function createAssistantForBusiness(
       ]
     },
     // Native VAPI transferCall tool for real call transfers to a human
-    tools: buildTransferCallTool(transferPhoneNumbers, business.phone),
+    tools: transferTool,
     voice: {
       provider: '11labs',
       voiceId: configVoiceId,
@@ -1109,12 +1130,18 @@ export async function updateAssistant(
     ? receptionistConfig.transferPhoneNumbers as string[]
     : [];
 
+  // Build normalized transfer numbers for both prompt and tool
+  const transferTool = buildTransferCallTool(transferPhoneNumbers, business.phone);
+  const normalizedTransferNumbers = transferTool.length > 0
+    ? transferTool[0].destinations.map((d: any) => d.number)
+    : [];
+
   const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
     assistantName: configAssistantName,
     customInstructions: configCustomInstructions,
     afterHoursMessage: configAfterHoursMessage,
     voicemailEnabled: configVoicemailEnabled,
-  }, knowledgeSection);
+  }, knowledgeSection, normalizedTransferNumbers);
 
   // Get functions — conditionally exclude leaveMessage if voicemail is disabled
   const baseFunctions = getAssistantFunctions();
@@ -1142,7 +1169,7 @@ export async function updateAssistant(
           functions: functions
         },
         // Native VAPI transferCall tool for real call transfers to a human
-        tools: buildTransferCallTool(transferPhoneNumbers, business.phone),
+        tools: transferTool,
         voice: {
           provider: '11labs',
           voiceId: configVoiceId,
