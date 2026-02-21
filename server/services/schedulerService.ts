@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import reminderService from "./reminderService";
 import { processDueRecurringSchedules } from "../routes/recurring";
+import { updateVapiAssistant } from "./vapiProvisioningService";
 
 // Track scheduled jobs to prevent duplicates
 const scheduledJobs: Map<string, NodeJS.Timeout> = new Map();
@@ -113,6 +114,61 @@ async function runRecurringJobsCheck(): Promise<void> {
 }
 
 /**
+ * Start the daily Vapi assistant refresh scheduler.
+ * Updates all active Vapi assistants so TODAY'S DATE in the system prompt stays current.
+ * The AI's system prompt includes a static date that gets stale — this refreshes it
+ * immediately on startup and then every 24 hours automatically.
+ */
+export function startVapiDailyRefreshScheduler(): void {
+  const jobKey = 'vapi-daily-refresh';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Vapi daily refresh scheduler already running');
+    return;
+  }
+
+  console.log('Starting Vapi daily refresh scheduler');
+
+  // Run immediately on startup so the date is always fresh after a deploy
+  runVapiRefresh();
+
+  // Then run every 24 hours
+  const intervalId = setInterval(() => {
+    runVapiRefresh();
+  }, 24 * 60 * 60 * 1000); // Every 24 hours
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+/**
+ * Refresh all Vapi assistants with the current date/time
+ */
+async function runVapiRefresh(): Promise<void> {
+  try {
+    console.log(`[VapiRefresh] Refreshing all Vapi assistants at ${new Date().toISOString()}`);
+    const allBusinesses = await storage.getAllBusinesses();
+    let updated = 0;
+
+    for (const business of allBusinesses) {
+      if (business.vapiAssistantId && business.receptionistEnabled !== false) {
+        try {
+          await updateVapiAssistant(business.id);
+          updated++;
+        } catch (err) {
+          console.error(`[VapiRefresh] Failed for business ${business.id}:`, err);
+        }
+        // 500ms delay between updates to avoid Vapi rate limits
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    console.log(`[VapiRefresh] Done — ${updated} assistants refreshed`);
+  } catch (error) {
+    console.error('[VapiRefresh] Error:', error);
+  }
+}
+
+/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -130,6 +186,9 @@ export async function startAllSchedulers(): Promise<void> {
 
     // Start recurring jobs scheduler (runs globally, not per-business)
     startRecurringJobsScheduler();
+
+    // Start Vapi daily refresh (keeps TODAY'S DATE current in AI prompts)
+    startVapiDailyRefreshScheduler();
 
     console.log('All schedulers started');
   } catch (error) {
@@ -152,6 +211,7 @@ export default {
   startReminderScheduler,
   stopReminderScheduler,
   startRecurringJobsScheduler,
+  startVapiDailyRefreshScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };
