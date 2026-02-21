@@ -824,16 +824,8 @@ function getAssistantFunctions() {
         }
       }
     },
-    {
-      name: 'transferToHuman',
-      description: 'Transfer call to a human staff member',
-      parameters: {
-        type: 'object',
-        properties: {
-          reason: { type: 'string' }
-        }
-      }
-    },
+    // NOTE: transferCall is handled by Vapi's native transferCall tool (see buildTransferCallTool),
+    // NOT as a custom function. The native tool performs the actual phone transfer.
     {
       name: 'leaveMessage',
       description: 'Leave a message for the business owner. ONLY use this if the caller explicitly asks to leave a message — always try to help them directly first by booking, answering questions, or providing info.',
