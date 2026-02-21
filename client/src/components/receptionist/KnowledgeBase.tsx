@@ -96,6 +96,9 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // State for website URL
+  const [scrapeUrl, setScrapeUrl] = useState("");
+
   // State for adding new FAQ
   const [isAddingFAQ, setIsAddingFAQ] = useState(false);
   const [newQuestion, setNewQuestion] = useState("");
@@ -149,10 +152,17 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
     prevScrapeStatusRef.current = currentStatus;
   }, [scrapeStatus?.status, queryClient]);
 
+  // Pre-fill URL from last scan
+  useEffect(() => {
+    if (scrapeStatus?.url && !scrapeUrl) {
+      setScrapeUrl(scrapeStatus.url);
+    }
+  }, [scrapeStatus?.url]);
+
   // Trigger website scrape
   const scrapeMutation = useMutation({
-    mutationFn: async () => {
-      return await apiRequest("POST", "/api/knowledge/scrape-website");
+    mutationFn: async (url?: string) => {
+      return await apiRequest("POST", "/api/knowledge/scrape-website", url ? { url } : undefined);
     },
     onSuccess: () => {
       toast({ title: "Website scan started", description: "Scanning your website for knowledge..." });
@@ -302,21 +312,29 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
               </div>
             )}
 
-            <div className="flex items-center gap-3">
-              <Button
-                onClick={() => scrapeMutation.mutate()}
-                disabled={scrapeMutation.isPending || scrapeStatus?.status === "scraping"}
-                className="gap-2"
-              >
-                {scrapeMutation.isPending || scrapeStatus?.status === "scraping" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-                {scrapeStatus?.status === "completed" ? "Re-scan Website" : "Scan My Website"}
-              </Button>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Input
+                  placeholder="https://yourbusiness.com"
+                  value={scrapeUrl}
+                  onChange={(e) => setScrapeUrl(e.target.value)}
+                  className="max-w-md"
+                />
+                <Button
+                  onClick={() => scrapeMutation.mutate(scrapeUrl.trim() || undefined)}
+                  disabled={scrapeMutation.isPending || scrapeStatus?.status === "scraping"}
+                  className="gap-2 whitespace-nowrap"
+                >
+                  {scrapeMutation.isPending || scrapeStatus?.status === "scraping" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {scrapeStatus?.status === "completed" ? "Re-scan" : "Scan Website"}
+                </Button>
+              </div>
               <p className="text-xs text-gray-500">
-                Extracts FAQs, policies, service areas, and more from your website
+                Enter your business website URL and scan to extract FAQs, policies, service areas, and more
               </p>
             </div>
           </div>
