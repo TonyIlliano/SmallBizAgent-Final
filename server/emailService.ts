@@ -76,6 +76,7 @@ interface EmailOptions {
   text: string;
   html?: string;
   from?: string;
+  senderName?: string;
 }
 
 /**
@@ -83,12 +84,13 @@ interface EmailOptions {
  */
 export async function sendEmail(options: EmailOptions): Promise<{ messageId: string; previewUrl?: string }> {
   const from = options.from || process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || process.env.SENDGRID_FROM_EMAIL || 'onboarding@resend.dev';
+  const displayName = options.senderName || 'SmallBizAgent';
 
   // Use Resend if available (primary)
   if (useResend && resend) {
     try {
       const { data, error } = await resend.emails.send({
-        from: `SmallBizAgent <${from}>`,
+        from: `${displayName} <${from}>`,
         to: [options.to],
         subject: options.subject,
         text: options.text,
@@ -114,7 +116,7 @@ export async function sendEmail(options: EmailOptions): Promise<{ messageId: str
     try {
       const [response] = await sgMail.send({
         to: options.to,
-        from: { email: from, name: 'SmallBizAgent' },
+        from: { email: from, name: displayName },
         subject: options.subject,
         text: options.text,
         html: options.html || options.text,
@@ -134,7 +136,7 @@ export async function sendEmail(options: EmailOptions): Promise<{ messageId: str
   const transport = await initTransporter();
 
   const mailOptions = {
-    from: `"SmallBizAgent" <${from}>`,
+    from: `"${displayName}" <${from}>`,
     to: options.to,
     subject: options.subject,
     text: options.text,
@@ -301,7 +303,7 @@ export async function sendAppointmentConfirmationEmail(
     </div>
   `;
 
-  return sendEmail({ to: customerEmail, subject, text, html });
+  return sendEmail({ to: customerEmail, subject, text, html, senderName: businessName });
 }
 
 /**
@@ -336,7 +338,7 @@ export async function sendAppointmentReminderEmail(
     </div>
   `;
 
-  return sendEmail({ to: customerEmail, subject, text, html });
+  return sendEmail({ to: customerEmail, subject, text, html, senderName: businessName });
 }
 
 /**
@@ -370,7 +372,7 @@ export async function sendInvoiceEmail(
     </div>
   `;
 
-  return sendEmail({ to: customerEmail, subject, text, html });
+  return sendEmail({ to: customerEmail, subject, text, html, senderName: businessName });
 }
 
 /**
@@ -404,7 +406,7 @@ export async function sendInvoiceReminderEmail(
     </div>
   `;
 
-  return sendEmail({ to: customerEmail, subject, text, html });
+  return sendEmail({ to: customerEmail, subject, text, html, senderName: businessName });
 }
 
 /**
@@ -435,7 +437,7 @@ export async function sendPaymentConfirmationEmail(
     </div>
   `;
 
-  return sendEmail({ to: customerEmail, subject, text, html });
+  return sendEmail({ to: customerEmail, subject, text, html, senderName: businessName });
 }
 
 /**
@@ -474,7 +476,7 @@ export async function sendQuoteEmail(
     </div>
   `;
 
-  return sendEmail({ to: customerEmail, subject, text, html });
+  return sendEmail({ to: customerEmail, subject, text, html, senderName: businessName });
 }
 
 /**
@@ -524,7 +526,7 @@ ${businessName}
     </div>
   `;
 
-  return sendEmail({ to: staffEmail, subject, text, html });
+  return sendEmail({ to: staffEmail, subject, text, html, senderName: businessName });
 }
 
 export async function sendJobCompletedEmail(
@@ -553,5 +555,5 @@ export async function sendJobCompletedEmail(
     </div>
   `;
 
-  return sendEmail({ to: customerEmail, subject, text, html });
+  return sendEmail({ to: customerEmail, subject, text, html, senderName: businessName });
 }
