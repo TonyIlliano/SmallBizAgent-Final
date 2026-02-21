@@ -15,6 +15,8 @@ import JobDetail from "@/pages/jobs/[id]";
 import Invoices from "@/pages/invoices/index";
 import CreateInvoice from "@/pages/invoices/create";
 import InvoicePayment from "@/pages/invoices/pay";
+import InvoiceDetail from "@/pages/invoices/[id]/index";
+import EditInvoice from "@/pages/invoices/[id]/edit";
 import PrintInvoice from "@/pages/invoices/[id]/print";
 import Quotes from "@/pages/quotes/index";
 import CreateQuote from "@/pages/quotes/create";
@@ -97,6 +99,8 @@ function Router() {
       <ProtectedRoute path="/invoices/create" component={CreateInvoice} />
       <ProtectedRoute path="/invoices/pay/:invoiceId" component={InvoicePayment} />
       <ProtectedRoute path="/invoices/:id/print" component={PrintInvoice} />
+      <ProtectedRoute path="/invoices/:id/edit" component={EditInvoice} />
+      <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} />
       <ProtectedRoute path="/quotes" component={Quotes} />
       <ProtectedRoute path="/quotes/create" component={CreateQuote} />
       <ProtectedRoute path="/quotes/:id" component={QuoteDetail} />
