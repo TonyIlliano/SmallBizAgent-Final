@@ -130,13 +130,17 @@ function formatFullDate(date: Date): string {
 function formatWeekRange(date: Date): string {
   const start = getStartOfWeek(date);
   const end = getEndOfWeek(date);
-  const startStr = start.toLocaleDateString("en-US", { month: "long", day: "numeric" });
-  const endStr = end.toLocaleDateString("en-US", {
-    month: start.getMonth() !== end.getMonth() ? "long" : undefined,
-    day: "numeric",
-    year: "numeric",
-  });
-  return `${startStr} – ${endStr}`;
+  const sameMonth = start.getMonth() === end.getMonth();
+  const startMonth = start.toLocaleDateString("en-US", { month: "long" });
+  const endMonth = end.toLocaleDateString("en-US", { month: "long" });
+  const year = end.getFullYear();
+
+  if (sameMonth) {
+    // "February 16 – 22, 2026"
+    return `${startMonth} ${start.getDate()} – ${end.getDate()}, ${year}`;
+  }
+  // "January 27 – February 2, 2026"
+  return `${startMonth} ${start.getDate()} – ${endMonth} ${end.getDate()}, ${year}`;
 }
 
 // ─── Status Helpers ──────────────────────────────────────────────────
