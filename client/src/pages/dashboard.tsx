@@ -128,7 +128,8 @@ export default function Dashboard() {
   const { data: appointments = [] } = useQuery<any[]>({
     queryKey: ['/api/appointments', {
       businessId,
-      startDate: new Date().toISOString().split('T')[0]
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: new Date().toISOString().split('T')[0]
     }],
     enabled: !!businessId,
   });
@@ -161,6 +162,17 @@ export default function Dashboard() {
   }>({
     queryKey: [`/api/subscription/usage/${businessId}`],
     enabled: !!businessId,
+    retry: 1,
+    queryFn: async () => {
+      const res = await fetch(`/api/subscription/usage/${businessId}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        console.error(`Usage endpoint error: ${res.status}`);
+        throw new Error(`Usage fetch failed: ${res.status}`);
+      }
+      return res.json();
+    },
   });
 
   // Fetch analytics data (endpoint uses session auth, no need to pass businessId)

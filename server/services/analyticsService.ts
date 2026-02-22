@@ -321,8 +321,10 @@ export async function getAppointmentAnalytics(businessId: number, dateRange: Dat
   // Count appointments by status
   const totalAppointments = appointmentData.length;
   const completedAppointments = appointmentData.filter(appt => appt.status === 'completed').length;
-  const upcomingAppointments = appointmentData.filter(appt => 
-    appt.status !== 'completed' && appt.status !== 'cancelled'
+  const now = new Date();
+  const upcomingAppointments = appointmentData.filter(appt =>
+    appt.status !== 'completed' && appt.status !== 'cancelled' &&
+    appt.startDate && new Date(appt.startDate) >= now
   ).length;
   
   // Get staff for appointment categorization
