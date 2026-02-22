@@ -145,7 +145,7 @@ export default function Dashboard() {
   });
 
   // Fetch AI call usage data
-  const { data: usageData } = useQuery<{
+  const { data: usageData, isError: usageError, error: usageErrorDetail } = useQuery<{
     minutesUsed: number;
     minutesIncluded: number;
     minutesRemaining: number;
@@ -162,18 +162,30 @@ export default function Dashboard() {
   }>({
     queryKey: [`/api/subscription/usage/${businessId}`],
     enabled: !!businessId,
-    retry: 1,
+    retry: 2,
+    staleTime: 60000,
     queryFn: async () => {
       const res = await fetch(`/api/subscription/usage/${businessId}`, {
         credentials: 'include',
       });
       if (!res.ok) {
-        console.error(`Usage endpoint error: ${res.status}`);
-        throw new Error(`Usage fetch failed: ${res.status}`);
+        const text = await res.text();
+        console.error(`Usage endpoint error: ${res.status}`, text);
+        throw new Error(`Usage fetch failed: ${res.status} - ${text}`);
       }
       return res.json();
     },
   });
+
+  // Debug: log usage query state
+  useEffect(() => {
+    if (usageError) {
+      console.error('[Dashboard] Usage query error:', usageErrorDetail);
+    }
+    if (usageData) {
+      console.log('[Dashboard] Usage data loaded:', usageData);
+    }
+  }, [usageData, usageError, usageErrorDetail]);
 
   // Fetch analytics data (endpoint uses session auth, no need to pass businessId)
   const { data: analytics, isLoading: analyticsLoading } = useQuery<BusinessAnalytics>({
@@ -363,6 +375,19 @@ export default function Dashboard() {
         )}
 
         {/* AI Receptionist Usage Widget */}
+        {usageError && (
+          <Card className="border-red-200 bg-red-50 dark:bg-red-900/10 shadow-sm rounded-xl overflow-hidden">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <Mic className="h-5 w-5 text-red-500" />
+                <div>
+                  <p className="text-sm font-medium text-red-700 dark:text-red-400">AI Usage Widget Error</p>
+                  <p className="text-xs text-red-600 dark:text-red-300">{String(usageErrorDetail)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         {usageData && (
           <Card className="border-border bg-card shadow-sm rounded-xl overflow-hidden">
             <CardContent className="p-5">
