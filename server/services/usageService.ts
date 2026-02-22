@@ -75,21 +75,30 @@ function getBillingPeriodStart(subscriptionStartDate?: Date | null): Date {
 export async function getMinutesUsedThisMonth(businessId: number, subscriptionStartDate?: Date | null): Promise<number> {
   const periodStart = getBillingPeriodStart(subscriptionStartDate);
 
-  const result = await db
-    .select({
-      totalSeconds: sql<number>`COALESCE(SUM(${callLogs.callDuration}), 0)`,
-    })
-    .from(callLogs)
-    .where(
-      and(
-        eq(callLogs.businessId, businessId),
-        gte(callLogs.callTime, periodStart)
-      )
-    );
+  try {
+    const result = await db
+      .select({
+        totalSeconds: sql<number>`COALESCE(SUM(${callLogs.callDuration}), 0)`,
+      })
+      .from(callLogs)
+      .where(
+        and(
+          eq(callLogs.businessId, businessId),
+          gte(callLogs.callTime, periodStart)
+        )
+      );
 
-  const totalSeconds = Number(result[0]?.totalSeconds || 0);
-  // Round up to nearest minute (partial minutes count as full)
-  return Math.ceil(totalSeconds / 60);
+    const totalSeconds = Number(result[0]?.totalSeconds || 0);
+    // Round up to nearest minute (partial minutes count as full)
+    return Math.ceil(totalSeconds / 60);
+  } catch (error: any) {
+    // Handle case where call_duration column doesn't exist yet
+    if (error.message?.includes('call_duration') || error.message?.includes('does not exist')) {
+      console.warn('[UsageService] call_duration column missing, returning 0 minutes');
+      return 0;
+    }
+    throw error;
+  }
 }
 
 /**

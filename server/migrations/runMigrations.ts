@@ -108,6 +108,9 @@ async function fixExistingTables() {
   await addColumnIfNotExists('jobs', 'staff_id', 'INTEGER');
   await addColumnIfNotExists('jobs', 'estimated_completion', 'TIMESTAMP');
 
+  // Fix call_logs table
+  await addColumnIfNotExists('call_logs', 'call_duration', 'INTEGER');
+
   // Fix invoices table
   await addColumnIfNotExists('invoices', 'tax', 'REAL');
   await addColumnIfNotExists('invoices', 'total', 'REAL');
