@@ -10,6 +10,11 @@ import { eq, and, gte, sql } from 'drizzle-orm';
 
 const TRIAL_MINUTES = 25; // 25 free minutes during 14-day trial
 const FREE_TIER_MINUTES = 0; // No free minutes after trial expires
+const FOUNDER_MINUTES = 9999; // Effectively unlimited for grandfathered accounts
+
+// Businesses created before this date are grandfathered as "Founder" accounts
+// (i.e. before the subscription system was deployed)
+const SUBSCRIPTION_LAUNCH_DATE = new Date('2026-02-23T00:00:00Z');
 
 export interface UsageInfo {
   minutesUsed: number;
@@ -25,6 +30,16 @@ export interface UsageInfo {
   trialEndsAt: Date | null;
   subscriptionStatus: string;
   canAcceptCalls: boolean;
+}
+
+/**
+ * Check if a business is a grandfathered "Founder" account.
+ * Businesses created before the subscription system launch get unlimited access.
+ */
+function isFounderAccount(business: any): boolean {
+  if (!business.createdAt) return false;
+  const createdAt = new Date(business.createdAt);
+  return createdAt < SUBSCRIPTION_LAUNCH_DATE;
 }
 
 /**
@@ -91,29 +106,14 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
     throw new Error('Business not found');
   }
 
+  // Check if this is a grandfathered founder account
+  const isFounder = isFounderAccount(business);
+
   // Check trial status
   const now = new Date();
-  let isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
-  let subscriptionStatus = business.subscriptionStatus || 'inactive';
+  const isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
+  const subscriptionStatus = business.subscriptionStatus || 'inactive';
   const isSubscribed = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
-
-  // Grandfather pre-existing businesses: if no trial was ever set and no subscription,
-  // auto-assign a 14-day trial starting now (one-time backfill)
-  if (!business.trialEndsAt && !isSubscribed) {
-    const trialEnd = new Date();
-    trialEnd.setDate(trialEnd.getDate() + 14);
-    try {
-      await db
-        .update(businesses)
-        .set({ trialEndsAt: trialEnd, subscriptionStatus: 'trialing' })
-        .where(eq(businesses.id, businessId));
-      console.log(`[UsageService] Backfilled 14-day trial for legacy business ${businessId}`);
-      isTrialActive = true;
-      subscriptionStatus = 'trialing';
-    } catch (err) {
-      console.error(`[UsageService] Failed to backfill trial for business ${businessId}:`, err);
-    }
-  }
 
   // Get plan details if subscribed
   let plan = null;
@@ -131,7 +131,12 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
   let planName = 'No Plan';
   let planTier: string | null = null;
 
-  if (isTrialActive && !isSubscribed) {
+  if (isFounder) {
+    // Grandfathered founder accounts — unlimited access
+    minutesIncluded = FOUNDER_MINUTES;
+    planName = 'Founder (Unlimited)';
+    planTier = 'founder';
+  } else if (isTrialActive && !isSubscribed) {
     minutesIncluded = TRIAL_MINUTES;
     planName = 'Free Trial';
     planTier = 'trial';
@@ -145,13 +150,12 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
   // Get actual usage
   const minutesUsed = await getMinutesUsedThisMonth(businessId, business.subscriptionStartDate);
   const minutesRemaining = Math.max(0, minutesIncluded - minutesUsed);
-  const overageMinutes = Math.max(0, minutesUsed - minutesIncluded);
+  const overageMinutes = isFounder ? 0 : Math.max(0, minutesUsed - minutesIncluded);
   const overageCost = overageMinutes * overageRate;
   const percentUsed = minutesIncluded > 0 ? Math.min(100, Math.round((minutesUsed / minutesIncluded) * 100)) : 0;
 
   // Determine if business can accept calls
-  // Allow calls if: in trial, has active subscription, or hasn't exceeded free tier
-  const canAcceptCalls = isTrialActive || isSubscribed;
+  const canAcceptCalls = isFounder || isTrialActive || isSubscribed;
 
   return {
     minutesUsed,
@@ -163,9 +167,9 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
     percentUsed,
     planName,
     planTier,
-    isTrialActive,
+    isTrialActive: isFounder ? false : isTrialActive,
     trialEndsAt: business.trialEndsAt ? new Date(business.trialEndsAt) : null,
-    subscriptionStatus,
+    subscriptionStatus: isFounder ? 'founder' : subscriptionStatus,
     canAcceptCalls,
   };
 }
@@ -185,26 +189,15 @@ export async function canBusinessAcceptCalls(businessId: number): Promise<{ allo
       return { allowed: false, reason: 'Business not found' };
     }
 
+    // Founder accounts always allowed
+    if (isFounderAccount(business)) {
+      return { allowed: true };
+    }
+
     const now = new Date();
-    let isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
+    const isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
     const subscriptionStatus = business.subscriptionStatus || 'inactive';
     const isSubscribed = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
-
-    // Grandfather pre-existing businesses: auto-assign trial if none set
-    if (!business.trialEndsAt && !isSubscribed) {
-      const trialEnd = new Date();
-      trialEnd.setDate(trialEnd.getDate() + 14);
-      try {
-        await db
-          .update(businesses)
-          .set({ trialEndsAt: trialEnd, subscriptionStatus: 'trialing' })
-          .where(eq(businesses.id, businessId));
-        console.log(`[UsageService] Backfilled trial for legacy business ${businessId} (call gate)`);
-        isTrialActive = true;
-      } catch (err) {
-        console.error(`[UsageService] Failed to backfill trial:`, err);
-      }
-    }
 
     // If no trial and no subscription, block
     if (!isTrialActive && !isSubscribed) {
@@ -222,8 +215,6 @@ export async function canBusinessAcceptCalls(businessId: number): Promise<{ allo
     }
 
     // For paid subscribers, always allow (overage is billed)
-    // But we could add a hard cap for safety if needed
-
     return { allowed: true };
   } catch (error) {
     console.error('[UsageService] Error checking call allowance:', error);
