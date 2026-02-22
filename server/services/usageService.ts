@@ -8,7 +8,7 @@ import { eq, and, gte, sql } from 'drizzle-orm';
  * and enforces plan limits.
  */
 
-const TRIAL_MINUTES = 50; // 50 free minutes during 14-day trial
+const TRIAL_MINUTES = 25; // 25 free minutes during 14-day trial
 const FREE_TIER_MINUTES = 0; // No free minutes after trial expires
 
 export interface UsageInfo {
@@ -93,9 +93,27 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
 
   // Check trial status
   const now = new Date();
-  const isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
-  const subscriptionStatus = business.subscriptionStatus || 'inactive';
+  let isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
+  let subscriptionStatus = business.subscriptionStatus || 'inactive';
   const isSubscribed = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
+
+  // Grandfather pre-existing businesses: if no trial was ever set and no subscription,
+  // auto-assign a 14-day trial starting now (one-time backfill)
+  if (!business.trialEndsAt && !isSubscribed) {
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 14);
+    try {
+      await db
+        .update(businesses)
+        .set({ trialEndsAt: trialEnd, subscriptionStatus: 'trialing' })
+        .where(eq(businesses.id, businessId));
+      console.log(`[UsageService] Backfilled 14-day trial for legacy business ${businessId}`);
+      isTrialActive = true;
+      subscriptionStatus = 'trialing';
+    } catch (err) {
+      console.error(`[UsageService] Failed to backfill trial for business ${businessId}:`, err);
+    }
+  }
 
   // Get plan details if subscribed
   let plan = null;
@@ -168,9 +186,25 @@ export async function canBusinessAcceptCalls(businessId: number): Promise<{ allo
     }
 
     const now = new Date();
-    const isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
+    let isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
     const subscriptionStatus = business.subscriptionStatus || 'inactive';
     const isSubscribed = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
+
+    // Grandfather pre-existing businesses: auto-assign trial if none set
+    if (!business.trialEndsAt && !isSubscribed) {
+      const trialEnd = new Date();
+      trialEnd.setDate(trialEnd.getDate() + 14);
+      try {
+        await db
+          .update(businesses)
+          .set({ trialEndsAt: trialEnd, subscriptionStatus: 'trialing' })
+          .where(eq(businesses.id, businessId));
+        console.log(`[UsageService] Backfilled trial for legacy business ${businessId} (call gate)`);
+        isTrialActive = true;
+      } catch (err) {
+        console.error(`[UsageService] Failed to backfill trial:`, err);
+      }
+    }
 
     // If no trial and no subscription, block
     if (!isTrialActive && !isSubscribed) {
