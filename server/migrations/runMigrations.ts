@@ -1206,7 +1206,15 @@ async function runMigrations() {
     // TypeScript migrations are now handled by createBaseTables()
     // The calendar_integrations and subscription_plans tables are created there
     console.log('Skipping legacy TypeScript migrations (handled by createBaseTables)');
-    
+
+    // Run tiered subscription plans migration
+    try {
+      const { migrate: migrateTieredPlans } = await import('./add_tiered_subscription_plans.js');
+      await migrateTieredPlans();
+    } catch (error) {
+      console.error('Error running tiered subscription plans migration:', error);
+    }
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);

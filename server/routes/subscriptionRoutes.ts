@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
 import { z } from 'zod';
 import { subscriptionService } from '../services/subscriptionService';
+import { getUsageInfo } from '../services/usageService';
 
 // Create subscription router
 const router = Router();
@@ -89,6 +90,18 @@ router.post('/resume/:businessId', isAuthenticated, async (req: Request, res: Re
     res.json(result);
   } catch (error: any) {
     console.error('Error resuming subscription:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get AI call usage for a business
+router.get('/usage/:businessId', isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    const usage = await getUsageInfo(businessId);
+    res.json(usage);
+  } catch (error: any) {
+    console.error('Error fetching usage info:', error);
     res.status(500).json({ error: error.message });
   }
 });

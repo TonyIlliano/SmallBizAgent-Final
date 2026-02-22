@@ -15,6 +15,7 @@ import {
   sendPaymentConfirmationEmail,
   sendJobCompletedEmail,
   sendQuoteEmail,
+  sendQuoteFollowUpEmail,
 } from "../emailService";
 
 // Helper to format currency
@@ -724,6 +725,68 @@ export async function sendQuoteConvertedNotification(
   }
 }
 
+/**
+ * Send a quote follow-up reminder to the customer.
+ * Used by the automated quote follow-up scheduler.
+ */
+/**
+ * Send a quote follow-up reminder to the customer.
+ * Used by the automated quote follow-up scheduler.
+ */
+export async function sendQuoteFollowUpNotification(quoteId: number, businessId: number) {
+  try {
+    const quote = await storage.getQuoteById(quoteId, businessId);
+    if (!quote || quote.status !== 'pending' || !quote.customer) return;
+
+    const customer = quote.customer;
+    if (!customer.email) return;
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    const amount = formatCurrency(quote.total || 0);
+    const validUntil = quote.validUntil
+      ? new Date(quote.validUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : 'Not specified';
+
+    const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
+    const quoteUrl = quote.accessToken
+      ? `${baseUrl}/quotes/view/${quote.accessToken}`
+      : `${baseUrl}/quotes/${quote.id}`;
+
+    try {
+      await sendQuoteFollowUpEmail(
+        customer.email,
+        customer.firstName,
+        business.name,
+        quote.quoteNumber,
+        amount,
+        validUntil,
+        quoteUrl,
+        business.phone || ''
+      );
+
+      await storage.createNotificationLog({
+        businessId,
+        customerId: customer.id,
+        type: 'quote_follow_up',
+        channel: 'email',
+        recipient: customer.email,
+        subject: `Follow-up: Quote #${quote.quoteNumber}`,
+        status: 'sent',
+        referenceType: 'quote',
+        referenceId: quoteId,
+      });
+
+      console.log(`Quote follow-up sent for quote #${quote.quoteNumber} to ${customer.email}`);
+    } catch (err) {
+      console.error('Failed to send quote follow-up email:', err);
+    }
+  } catch (error) {
+    console.error(`Error in sendQuoteFollowUpNotification for quote ${quoteId}:`, error);
+  }
+}
+
 export default {
   sendAppointmentConfirmation,
   sendAppointmentReminder,
@@ -734,4 +797,5 @@ export default {
   sendJobCompletedNotification,
   sendQuoteSentNotification,
   sendQuoteConvertedNotification,
+  sendQuoteFollowUpNotification,
 };

@@ -13,6 +13,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { formatCurrency } from "@/lib/utils";
 
+import { Progress } from "@/components/ui/progress";
+
 import {
   CheckSquare,
   DollarSign,
@@ -26,7 +28,8 @@ import {
   FileText,
   UserPlus,
   AlertTriangle,
-  ArrowRight
+  ArrowRight,
+  Mic
 } from "lucide-react";
 
 // Analytics data interface
@@ -137,6 +140,26 @@ export default function Dashboard() {
 
   const { data: quotes = [] } = useQuery<any[]>({
     queryKey: ['/api/quotes', { businessId }],
+    enabled: !!businessId,
+  });
+
+  // Fetch AI call usage data
+  const { data: usageData } = useQuery<{
+    minutesUsed: number;
+    minutesIncluded: number;
+    minutesRemaining: number;
+    overageMinutes: number;
+    overageRate: number;
+    overageCost: number;
+    percentUsed: number;
+    planName: string;
+    planTier: string | null;
+    isTrialActive: boolean;
+    trialEndsAt: string | null;
+    subscriptionStatus: string;
+    canAcceptCalls: boolean;
+  }>({
+    queryKey: [`/api/subscription/usage/${businessId}`],
     enabled: !!businessId,
   });
 
@@ -325,6 +348,76 @@ export default function Dashboard() {
               linkHref="/receptionist"
             />
           </div>
+        )}
+
+        {/* AI Receptionist Usage Widget */}
+        {usageData && (
+          <Card className="border-border bg-card shadow-sm rounded-xl overflow-hidden">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+                    <Mic className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground">AI Receptionist Usage</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {usageData.planName}
+                      {usageData.isTrialActive && usageData.trialEndsAt && (
+                        <> &middot; Trial ends {new Date(usageData.trialEndsAt).toLocaleDateString()}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <Link href="/settings">
+                  <span className="text-xs text-primary hover:underline cursor-pointer">
+                    {usageData.subscriptionStatus === 'active' ? 'Manage Plan' : 'Upgrade'}
+                  </span>
+                </Link>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-end justify-between">
+                  <div>
+                    <span className="text-2xl font-bold text-foreground">{usageData.minutesUsed}</span>
+                    <span className="text-sm text-muted-foreground"> / {usageData.minutesIncluded} min</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">{usageData.minutesRemaining} remaining</span>
+                </div>
+
+                <Progress
+                  value={usageData.percentUsed}
+                  className={`h-2.5 ${
+                    usageData.percentUsed >= 90
+                      ? '[&>div]:bg-red-500'
+                      : usageData.percentUsed >= 70
+                      ? '[&>div]:bg-amber-500'
+                      : '[&>div]:bg-indigo-500'
+                  }`}
+                />
+
+                {usageData.overageMinutes > 0 && (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <span className="text-xs text-amber-700 dark:text-amber-300">
+                      {usageData.overageMinutes} overage min @ ${usageData.overageRate.toFixed(2)}/min
+                    </span>
+                    <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                      +${usageData.overageCost.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+
+                {!usageData.canAcceptCalls && (
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                    <span className="text-xs text-red-700 dark:text-red-300">
+                      AI receptionist is paused &mdash; {usageData.isTrialActive ? 'trial minutes exhausted' : 'upgrade to continue'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Needs Attention Section */}

@@ -9,6 +9,7 @@ import { storage } from '../storage';
 import twilioService from './twilioService';
 import { getCachedMenu as getCloverCachedMenu, createOrder as createCloverOrder, formatMenuForPrompt, type CachedMenu } from './cloverService';
 import { getCachedMenu as getSquareCachedMenu, createOrder as createSquareOrder } from './squareService';
+import { canBusinessAcceptCalls } from './usageService';
 
 /**
  * ===========================================
@@ -585,6 +586,22 @@ export async function handleVapiWebhook(
         };
       }
       return null;
+    }
+  }
+
+  // Check subscription/trial usage limits before processing the call
+  if (businessId && message.type === 'function-call') {
+    const usageCheck = await canBusinessAcceptCalls(businessId);
+    if (!usageCheck.allowed) {
+      console.log(`[UsageGate] Blocking call for business ${businessId}: ${usageCheck.reason}`);
+      return {
+        result: {
+          error: "I'm sorry, but this business's AI receptionist service is currently unavailable. " +
+            "Please try calling back later or leave a message after the tone.",
+          _blocked: true,
+          _reason: usageCheck.reason,
+        }
+      };
     }
   }
 
@@ -3163,6 +3180,46 @@ async function handleEndOfCall(
         analyzeTranscriptForUnansweredQuestions(businessId, callLogId!, message.transcript, callerPhone || undefined)
           .catch(err => console.error('Error analyzing transcript for unanswered questions:', err));
       }).catch(err => console.error('Error importing unanswered question service:', err));
+    }
+
+    // Missed call text-back: If the call was very short or ended abnormally, send an SMS
+    const callDuration = message.call.duration || 0;
+    const endedReason = message.endedReason || '';
+    const isMissedCall = (
+      callDuration < 15 || // Call shorter than 15 seconds
+      endedReason === 'customer-did-not-answer' ||
+      endedReason === 'assistant-error' ||
+      endedReason === 'phone-call-provider-closedwebsocket' ||
+      endedReason === 'silence-timed-out'
+    );
+
+    if (isMissedCall && callerPhone && callerPhone !== 'Unknown') {
+      const business = await storage.getBusiness(businessId);
+      if (business && business.twilioPhoneNumber) {
+        const businessName = business.name || 'Our business';
+        const textMessage = `Hi! We noticed we missed your call to ${businessName}. ` +
+          `We'd love to help — feel free to call us back or reply to this text and we'll get back to you shortly. Thank you!`;
+
+        twilioService.sendSms(callerPhone, textMessage, business.twilioPhoneNumber)
+          .then(() => {
+            console.log(`[MissedCallTextBack] Sent text-back to ${callerPhone} for business ${businessId}`);
+            // Log the notification
+            storage.createNotificationLog({
+              businessId,
+              customerId: null,
+              type: 'missed_call_textback',
+              channel: 'sms',
+              recipient: callerPhone,
+              message: textMessage,
+              status: 'sent',
+              referenceType: 'call_log',
+              referenceId: callLogId,
+            }).catch(err => console.error('[MissedCallTextBack] Error logging notification:', err));
+          })
+          .catch(err => {
+            console.error(`[MissedCallTextBack] Failed to send text to ${callerPhone}:`, err);
+          });
+      }
     }
   }
 

@@ -573,9 +573,13 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
+  planTier: text("plan_tier"), // starter, professional, business, enterprise
   price: real("price").notNull(),
   interval: text("interval").notNull(), // monthly, yearly
   features: jsonb("features"), // Array of features included in this plan
+  maxCallMinutes: integer("max_call_minutes"), // included AI call minutes per month
+  overageRatePerMinute: real("overage_rate_per_minute"), // $/min after limit (in cents)
+  maxStaff: integer("max_staff"), // max staff members
   stripeProductId: text("stripe_product_id"),
   stripePriceId: text("stripe_price_id"),
   active: boolean("active").default(true),

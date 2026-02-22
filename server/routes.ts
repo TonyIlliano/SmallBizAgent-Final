@@ -214,6 +214,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertBusinessSchema.parse(body);
       const business = await storage.createBusiness(validatedData);
 
+      // Set up 14-day free trial for the new business
+      try {
+        const trialEnd = new Date();
+        trialEnd.setDate(trialEnd.getDate() + 14);
+        await storage.updateBusiness(business.id, {
+          trialEndsAt: trialEnd,
+          subscriptionStatus: 'trialing',
+        });
+        console.log(`Set 14-day trial for business ${business.id}, expires ${trialEnd.toISOString()}`);
+      } catch (trialError) {
+        console.error(`Failed to set trial for business ${business.id}:`, trialError);
+        // Non-blocking — business still created
+      }
+
       // Link the authenticated user to this business
       if (req.isAuthenticated() && req.user) {
         try {

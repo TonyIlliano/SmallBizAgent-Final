@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import reminderService from "./reminderService";
 import { processDueRecurringSchedules } from "../routes/recurring";
 import { updateVapiAssistant } from "./vapiProvisioningService";
+import { sendQuoteFollowUpNotification } from "./notificationService";
 
 // Track scheduled jobs to prevent duplicates
 const scheduledJobs: Map<string, NodeJS.Timeout> = new Map();
@@ -234,6 +235,90 @@ async function runOverdueInvoiceCheck(): Promise<void> {
 }
 
 /**
+ * Start the automated quote follow-up scheduler.
+ * Runs every 12 hours. For each business, finds pending quotes older than
+ * 3 days that haven't already received a follow-up email, and sends one.
+ * Only one follow-up per quote (checked via notification_log).
+ */
+export function startQuoteFollowUpScheduler(): void {
+  const jobKey = 'quote-follow-ups';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Quote follow-up scheduler already running');
+    return;
+  }
+
+  console.log('Starting quote follow-up scheduler');
+
+  // Run immediately on start
+  runQuoteFollowUpCheck();
+
+  // Then run every 12 hours
+  const intervalId = setInterval(() => {
+    runQuoteFollowUpCheck();
+  }, 12 * 60 * 60 * 1000); // Every 12 hours
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+/**
+ * Check all businesses for pending quotes older than 3 days
+ * that haven't received a follow-up email yet.
+ */
+async function runQuoteFollowUpCheck(): Promise<void> {
+  try {
+    console.log(`[QuoteFollowUp] Running quote follow-up check at ${new Date().toISOString()}`);
+    const allBusinesses = await storage.getAllBusinesses();
+    let totalSent = 0;
+
+    for (const business of allBusinesses) {
+      try {
+        const pendingQuotes = await storage.getAllQuotes(business.id, { status: 'pending' });
+
+        // Get existing follow-up notification logs for this business
+        const logs = await storage.getNotificationLogs(business.id, 500);
+        const followUpQuoteIds = new Set(
+          logs
+            .filter(l => l.type === 'quote_follow_up' && l.referenceType === 'quote')
+            .map(l => l.referenceId)
+        );
+
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+        for (const quote of pendingQuotes) {
+          // Skip if already followed up
+          if (followUpQuoteIds.has(quote.id)) continue;
+
+          // Skip if quote is less than 3 days old
+          const createdAt = new Date(quote.createdAt);
+          if (createdAt > threeDaysAgo) continue;
+
+          // Skip if quote is expired (validUntil < today)
+          if (quote.validUntil) {
+            const validUntil = new Date(quote.validUntil);
+            if (validUntil < new Date()) continue;
+          }
+
+          // Send follow-up
+          await sendQuoteFollowUpNotification(quote.id, business.id);
+          totalSent++;
+
+          // Small delay between emails
+          await new Promise(r => setTimeout(r, 300));
+        }
+      } catch (err) {
+        console.error(`[QuoteFollowUp] Error checking business ${business.id}:`, err);
+      }
+    }
+
+    console.log(`[QuoteFollowUp] Done — ${totalSent} follow-up emails sent`);
+  } catch (error) {
+    console.error('[QuoteFollowUp] Error:', error);
+  }
+}
+
+/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -258,6 +343,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start overdue invoice detection (marks pending invoices past due date as overdue)
     startOverdueInvoiceScheduler();
 
+    // Start automated quote follow-up (sends reminder for pending quotes older than 3 days)
+    startQuoteFollowUpScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -281,6 +369,7 @@ export default {
   startRecurringJobsScheduler,
   startVapiDailyRefreshScheduler,
   startOverdueInvoiceScheduler,
+  startQuoteFollowUpScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };
