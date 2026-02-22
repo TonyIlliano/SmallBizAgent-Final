@@ -1,20 +1,37 @@
 import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
 import { z } from 'zod';
-import { subscriptionService } from '../services/subscriptionService';
 import { getUsageInfo } from '../services/usageService';
 
 // Create subscription router
 const router = Router();
 
-// Initialize Stripe for webhook handling
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing STRIPE_SECRET_KEY environment variable');
-}
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2025-03-31.basil',
-});
+// Initialize Stripe for webhook handling (optional — usage endpoint works without Stripe)
+let stripe: Stripe | null = null;
+let subscriptionService: any = null;
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-03-31.basil',
+  });
+  // Lazy-load subscription service only when Stripe is available
+  import('../services/subscriptionService').then(mod => {
+    subscriptionService = mod.subscriptionService;
+  }).catch(err => {
+    console.warn('⚠️ Could not load subscriptionService:', err.message);
+  });
+} else {
+  console.warn('⚠️ STRIPE_SECRET_KEY not set — subscription billing endpoints disabled, usage tracking still active');
+}
+
+// Helper: guard routes that require Stripe
+function requireStripe(req: Request, res: Response, next: Function) {
+  if (!stripe || !subscriptionService) {
+    return res.status(503).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY to enable billing.' });
+  }
+  next();
+}
 
 // Define schemas for validation
 const createSubscriptionSchema = z.object({
@@ -30,8 +47,8 @@ const isAuthenticated = (req: Request, res: Response, next: Function) => {
   res.status(401).json({ error: 'Not authenticated' });
 };
 
-// Get all subscription plans
-router.get('/plans', async (req: Request, res: Response) => {
+// Get all subscription plans (requires Stripe)
+router.get('/plans', requireStripe, async (req: Request, res: Response) => {
   try {
     const plans = await subscriptionService.getPlans();
     res.json(plans);
@@ -41,8 +58,8 @@ router.get('/plans', async (req: Request, res: Response) => {
   }
 });
 
-// Get subscription status for a business
-router.get('/status/:businessId', isAuthenticated, async (req: Request, res: Response) => {
+// Get subscription status for a business (requires Stripe)
+router.get('/status/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const status = await subscriptionService.getSubscriptionStatus(businessId);
@@ -53,14 +70,14 @@ router.get('/status/:businessId', isAuthenticated, async (req: Request, res: Res
   }
 });
 
-// Create a subscription
-router.post('/create-subscription', isAuthenticated, async (req: Request, res: Response) => {
+// Create a subscription (requires Stripe)
+router.post('/create-subscription', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const validationResult = createSubscriptionSchema.safeParse(req.body);
     if (!validationResult.success) {
       return res.status(400).json({ error: validationResult.error });
     }
-    
+
     const { businessId, planId } = validationResult.data;
     const subscription = await subscriptionService.createSubscription(businessId, planId);
     res.json(subscription);
@@ -70,8 +87,8 @@ router.post('/create-subscription', isAuthenticated, async (req: Request, res: R
   }
 });
 
-// Cancel a subscription
-router.post('/cancel/:businessId', isAuthenticated, async (req: Request, res: Response) => {
+// Cancel a subscription (requires Stripe)
+router.post('/cancel/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const result = await subscriptionService.cancelSubscription(businessId);
@@ -82,8 +99,8 @@ router.post('/cancel/:businessId', isAuthenticated, async (req: Request, res: Re
   }
 });
 
-// Resume a subscription
-router.post('/resume/:businessId', isAuthenticated, async (req: Request, res: Response) => {
+// Resume a subscription (requires Stripe)
+router.post('/resume/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
     const result = await subscriptionService.resumeSubscription(businessId);
@@ -94,7 +111,7 @@ router.post('/resume/:businessId', isAuthenticated, async (req: Request, res: Re
   }
 });
 
-// Get AI call usage for a business
+// Get AI call usage for a business (does NOT require Stripe — always available)
 router.get('/usage/:businessId', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
@@ -106,8 +123,12 @@ router.get('/usage/:businessId', isAuthenticated, async (req: Request, res: Resp
   }
 });
 
-// Stripe webhook handler
+// Stripe webhook handler (requires Stripe)
 router.post('/webhook', async (req: Request, res: Response) => {
+  if (!stripe || !subscriptionService) {
+    return res.status(503).json({ error: 'Stripe not configured' });
+  }
+
   let event: Stripe.Event;
 
   try {
@@ -131,7 +152,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     // Handle the event
     await subscriptionService.handleWebhookEvent(event);
-    
+
     // Return a 200 to acknowledge receipt of the event
     res.json({ received: true });
   } catch (error: any) {
