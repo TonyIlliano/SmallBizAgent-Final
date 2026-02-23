@@ -72,14 +72,15 @@ export async function seed() {
  * - If env vars are not set → silently skips (no admin created)
  */
 async function ensureAdminAccount(): Promise<void> {
-  const adminEmail = process.env.ADMIN_EMAIL;
+  const rawAdminEmail = process.env.ADMIN_EMAIL;
   const adminPassword = process.env.ADMIN_PASSWORD;
 
-  if (!adminEmail || !adminPassword) {
+  if (!rawAdminEmail || !adminPassword) {
     // No admin env vars configured — skip silently
     return;
   }
 
+  const adminEmail = rawAdminEmail.toLowerCase(); // Normalize email to lowercase
   const adminUsername = process.env.ADMIN_USERNAME || "admin";
   const hashedPassword = await hashPassword(adminPassword);
 
