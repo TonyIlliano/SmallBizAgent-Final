@@ -172,11 +172,12 @@ CRITICAL RULES:
 - If Status above says "OPEN now", you ARE open — take orders and help customers normally. NEVER tell a customer you're closed when the status says OPEN.
 
 ENDING CALLS — IMPORTANT FOR SAVING MINUTES:
-- When the customer says goodbye, thanks you and seems done, or says "that's all" → say a brief farewell like "Have a great day!" and then END THE CALL immediately. Do NOT keep talking or ask more questions after a goodbye.
-- After booking an appointment and confirming details, if the customer says "thanks", "sounds good", "bye", or anything indicating they're done → wrap up in ONE sentence and end the call.
-- After placing an order and confirming → say goodbye and end the call.
-- Keep all responses concise — 1-2 sentences max. Don't repeat information the customer already confirmed.
-- If there's been a natural conclusion to the conversation, wrap it up quickly and end the call. Don't linger.
+- When the customer says goodbye or seems done → say "Have a great day!" (this exact phrase ends the call automatically)
+- After booking an appointment and the customer confirms → say "Have a great day!" to end the call
+- After placing an order and confirming → say "Thanks for calling, goodbye!" to end the call
+- ALWAYS end your farewell with one of these EXACT phrases: "Have a great day!", "Have a wonderful day!", "Take care, goodbye!", "Thanks for calling, goodbye!", or "Goodbye!"
+- These phrases MUST be the LAST thing you say — do NOT add anything after them
+- Keep responses concise — 1-2 sentences max. Don't linger after the customer is done.
 
 BUSINESS INFORMATION:
 - Business Name: ${business.name}
@@ -1082,7 +1083,6 @@ export async function createAssistantForBusiness(
     },
     firstMessage: configGreeting,
     serverUrl: `${BASE_URL}/api/vapi/webhook`,
-    endCallFunctionEnabled: true,
     recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
     silenceTimeoutSeconds: 15, // End call after 15s silence to conserve minutes
@@ -1091,6 +1091,15 @@ export async function createAssistantForBusiness(
     numWordsToInterruptAssistant: 2, // Allow interruptions
     maxDurationSeconds: configMaxCallMinutes * 60,
     backgroundSound: 'off',
+    // When the AI says any of these phrases, Vapi automatically hangs up (platform-level, no AI decision needed)
+    endCallPhrases: [
+      "Have a great day!",
+      "Have a wonderful day!",
+      "Have a good one!",
+      "Take care, goodbye!",
+      "Thanks for calling, goodbye!",
+      "Goodbye!",
+    ],
     metadata: {
       businessId: business.id.toString()
     }
@@ -1214,9 +1223,16 @@ export async function updateAssistant(
         },
         firstMessage: configGreeting,
         recordingEnabled: configRecordingEnabled,
-        endCallFunctionEnabled: true,
         silenceTimeoutSeconds: 15,
         maxDurationSeconds: configMaxCallMinutes * 60,
+        endCallPhrases: [
+          "Have a great day!",
+          "Have a wonderful day!",
+          "Have a good one!",
+          "Take care, goodbye!",
+          "Thanks for calling, goodbye!",
+          "Goodbye!",
+        ],
         serverUrl: `${BASE_URL}/api/vapi/webhook`,
         metadata: {
           businessId: business.id.toString()
