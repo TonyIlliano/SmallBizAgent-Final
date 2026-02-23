@@ -81,34 +81,56 @@ async function ensureAdminAccount(): Promise<void> {
   }
 
   const adminUsername = process.env.ADMIN_USERNAME || "admin";
+  const hashedPassword = await hashPassword(adminPassword);
 
   try {
     // Check if a user with this email already exists
-    const existingUser = await storage.getUserByEmail(adminEmail);
+    const existingByEmail = await storage.getUserByEmail(adminEmail);
 
-    if (existingUser) {
-      // User exists — ensure they have admin role
-      if (existingUser.role !== "admin") {
-        await db.update(users)
-          .set({ role: "admin" })
-          .where(eq(users.id, existingUser.id));
-        console.log(`[Admin] Promoted existing user "${existingUser.username}" (${adminEmail}) to admin role`);
-      } else {
-        console.log(`[Admin] Admin account already exists: ${adminEmail}`);
-      }
-    } else {
-      // Create new admin account
-      const hashedPassword = await hashPassword(adminPassword);
-      await storage.createUser({
-        username: adminUsername,
-        email: adminEmail,
-        password: hashedPassword,
-        role: "admin",
-        active: true,
-      });
-      console.log(`[Admin] Created new admin account: ${adminUsername} (${adminEmail})`);
+    if (existingByEmail) {
+      // User exists by email — ensure admin role AND sync password from env var
+      await db.update(users)
+        .set({ role: "admin", password: hashedPassword })
+        .where(eq(users.id, existingByEmail.id));
+      console.log(`[Admin] Synced admin account: "${existingByEmail.username}" (${adminEmail})`);
+      return;
     }
-  } catch (error) {
-    console.error("[Admin] Error ensuring admin account:", error);
+
+    // Check if the username is already taken by someone else
+    const existingByUsername = await storage.getUserByUsername(adminUsername);
+
+    if (existingByUsername) {
+      // Username taken but email doesn't match — update that user's email, role, and password
+      await db.update(users)
+        .set({ email: adminEmail, role: "admin", password: hashedPassword })
+        .where(eq(users.id, existingByUsername.id));
+      console.log(`[Admin] Updated existing "${adminUsername}" user to admin with email ${adminEmail}`);
+      return;
+    }
+
+    // Neither email nor username exists — create fresh admin account
+    await storage.createUser({
+      username: adminUsername,
+      email: adminEmail,
+      password: hashedPassword,
+      role: "admin",
+      active: true,
+    });
+    console.log(`[Admin] Created new admin account: ${adminUsername} (${adminEmail})`);
+  } catch (error: any) {
+    console.error("[Admin] Error ensuring admin account:", error?.message || error);
+
+    // Last resort: try to force-upsert via direct SQL
+    try {
+      const existingAny = await storage.getUserByEmail(adminEmail) || await storage.getUserByUsername(adminUsername);
+      if (existingAny) {
+        await db.update(users)
+          .set({ email: adminEmail, username: adminUsername, role: "admin", password: hashedPassword })
+          .where(eq(users.id, existingAny.id));
+        console.log(`[Admin] Force-updated admin account after error recovery`);
+      }
+    } catch (retryError: any) {
+      console.error("[Admin] Failed even on retry:", retryError?.message || retryError);
+    }
   }
 }
