@@ -172,12 +172,11 @@ CRITICAL RULES:
 - If Status above says "OPEN now", you ARE open — take orders and help customers normally. NEVER tell a customer you're closed when the status says OPEN.
 
 ENDING CALLS — IMPORTANT FOR SAVING MINUTES:
-- When the customer says goodbye or seems done → say "Have a great day!" (this exact phrase ends the call automatically)
-- After booking an appointment and the customer confirms → say "Have a great day!" to end the call
-- After placing an order and confirming → say "Thanks for calling, goodbye!" to end the call
-- ALWAYS end your farewell with one of these EXACT phrases: "Have a great day!", "Have a wonderful day!", "Take care, goodbye!", "Thanks for calling, goodbye!", or "Goodbye!"
-- These phrases MUST be the LAST thing you say — do NOT add anything after them
-- Keep responses concise — 1-2 sentences max. Don't linger after the customer is done.
+- When the customer says goodbye, thanks you, or seems done → respond with ONLY "Have a great day!" as your ENTIRE response. Nothing before it, nothing after it. Just those 5 words.
+- After booking an appointment and the customer confirms → respond with ONLY "Have a great day!"
+- After placing an order and confirming → respond with ONLY "Thanks for calling, goodbye!"
+- Your farewell response must be ONLY the farewell phrase — do NOT combine it with other sentences like "No problem at all. Have a great day." Instead, just say "Have a great day!"
+- These farewell phrases automatically end the call, so say them ONLY when the conversation is truly over.
 
 BUSINESS INFORMATION:
 - Business Name: ${business.name}
@@ -1091,14 +1090,21 @@ export async function createAssistantForBusiness(
     numWordsToInterruptAssistant: 2, // Allow interruptions
     maxDurationSeconds: configMaxCallMinutes * 60,
     backgroundSound: 'off',
-    // When the AI says any of these phrases, Vapi automatically hangs up (platform-level, no AI decision needed)
+    // When the AI says any of these phrases, Vapi automatically hangs up (platform-level)
+    // Include versions with period, exclamation, and bare — TTS output punctuation varies
     endCallPhrases: [
+      "Have a great day",
       "Have a great day!",
-      "Have a wonderful day!",
-      "Have a good one!",
-      "Take care, goodbye!",
-      "Thanks for calling, goodbye!",
+      "Have a great day.",
+      "Have a wonderful day",
+      "Have a good one",
+      "Take care goodbye",
+      "Take care, goodbye",
+      "Thanks for calling goodbye",
+      "Thanks for calling, goodbye",
+      "Goodbye",
       "Goodbye!",
+      "Goodbye.",
     ],
     metadata: {
       businessId: business.id.toString()
@@ -1226,12 +1232,18 @@ export async function updateAssistant(
         silenceTimeoutSeconds: 15,
         maxDurationSeconds: configMaxCallMinutes * 60,
         endCallPhrases: [
+          "Have a great day",
           "Have a great day!",
-          "Have a wonderful day!",
-          "Have a good one!",
-          "Take care, goodbye!",
-          "Thanks for calling, goodbye!",
+          "Have a great day.",
+          "Have a wonderful day",
+          "Have a good one",
+          "Take care goodbye",
+          "Take care, goodbye",
+          "Thanks for calling goodbye",
+          "Thanks for calling, goodbye",
+          "Goodbye",
           "Goodbye!",
+          "Goodbye.",
         ],
         serverUrl: `${BASE_URL}/api/vapi/webhook`,
         metadata: {
