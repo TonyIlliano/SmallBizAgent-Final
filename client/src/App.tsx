@@ -72,8 +72,8 @@ function HomePage() {
   // Not logged in — show landing page
   if (!user) return <LandingPage />;
 
-  // Logged in but email not verified — redirect to verification
-  if (!user.emailVerified) return <Redirect to="/verify-email" />;
+  // Logged in but email not verified — redirect to verification (skip for admin)
+  if (!user.emailVerified && user.role !== "admin") return <Redirect to="/verify-email" />;
 
   // Staff users go to their portal
   if (user.role === "staff") return <Redirect to="/staff/dashboard" />;

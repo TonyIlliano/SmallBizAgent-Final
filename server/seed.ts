@@ -89,9 +89,9 @@ async function ensureAdminAccount(): Promise<void> {
     const existingByEmail = await storage.getUserByEmail(adminEmail);
 
     if (existingByEmail) {
-      // User exists by email — sync username, role, and password from env vars
+      // User exists by email — sync username, role, password, and mark as verified
       await db.update(users)
-        .set({ username: adminUsername, role: "admin", password: hashedPassword })
+        .set({ username: adminUsername, role: "admin", password: hashedPassword, emailVerified: true })
         .where(eq(users.id, existingByEmail.id));
       console.log(`[Admin] Synced admin account: username="${adminUsername}", email=${adminEmail}`);
       return;
@@ -103,20 +103,24 @@ async function ensureAdminAccount(): Promise<void> {
     if (existingByUsername) {
       // Username taken but email doesn't match — update that user's email, role, and password
       await db.update(users)
-        .set({ email: adminEmail, role: "admin", password: hashedPassword })
+        .set({ email: adminEmail, role: "admin", password: hashedPassword, emailVerified: true })
         .where(eq(users.id, existingByUsername.id));
       console.log(`[Admin] Updated existing "${adminUsername}" user to admin with email ${adminEmail}`);
       return;
     }
 
     // Neither email nor username exists — create fresh admin account
-    await storage.createUser({
+    const newAdmin = await storage.createUser({
       username: adminUsername,
       email: adminEmail,
       password: hashedPassword,
       role: "admin",
       active: true,
     });
+    // Mark admin as email-verified (skip verification flow)
+    await db.update(users)
+      .set({ emailVerified: true })
+      .where(eq(users.id, newAdmin.id));
     console.log(`[Admin] Created new admin account: ${adminUsername} (${adminEmail})`);
   } catch (error: any) {
     console.error("[Admin] Error ensuring admin account:", error?.message || error);
