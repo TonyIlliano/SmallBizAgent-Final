@@ -280,6 +280,16 @@ function getLocalTimeInTimezone(utcDate: Date, timezone: string): { hours: numbe
 }
 
 /**
+ * Get a date string (e.g. "2/25/2026") in a specific timezone.
+ * Fixes the toDateString() bug where UTC dates near midnight show the wrong day.
+ * Example: 10pm ET on Feb 25 = 3am UTC Feb 26 → toDateString() says "Feb 26" (wrong)
+ *          but toLocaleDateString('en-US', { timeZone: 'America/New_York' }) says "2/25/2026" (correct)
+ */
+function getLocalDateString(date: Date, timezone: string): string {
+  return date.toLocaleDateString('en-US', { timeZone: timezone });
+}
+
+/**
  * Get today's date at midnight in a specific timezone.
  * Returns a "wall clock" Date (year/month/day match the timezone, but hours are 0).
  */
@@ -928,10 +938,11 @@ async function getAvailableSlotsForDay(
   const openMinutes = openH * 60 + openM;
   const closeMinutes = closeH * 60 + closeM;
 
-  // Get appointments for that day
+  // Get appointments for that day (use timezone-aware date comparison to handle late-night slots)
+  const targetDateStr = getLocalDateString(date, timezone);
   const dayAppointments = appointments.filter(apt => {
     const aptDate = new Date(apt.startDate);
-    return aptDate.toDateString() === date.toDateString() && apt.status !== 'cancelled';
+    return getLocalDateString(aptDate, timezone) === targetDateStr && apt.status !== 'cancelled';
   });
 
   console.log(`  - Found ${dayAppointments.length} appointments for this day`);
@@ -970,7 +981,7 @@ async function getAvailableSlotsForDay(
 
   // Check if date is today (in business timezone) - skip past times
   const now = getNowInTimezone(timezone);
-  const isToday = date.toDateString() === now.toDateString();
+  const isToday = getLocalDateString(date, timezone) === getLocalDateString(now, timezone);
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
   console.log(`  - isToday: ${isToday}, currentMinutes: ${currentMinutes}, slotInterval: ${slotIntervalMinutes}min`);
@@ -2834,11 +2845,15 @@ async function recognizeCaller(
     const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: recogTimezone, weekday: 'long', month: 'long', day: 'numeric' });
     const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: recogTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
 
-    // Check if appointment is today
-    if (aptDate.toDateString() === now.toDateString()) {
+    // Check if appointment is today or tomorrow (timezone-aware comparison)
+    const aptLocalDate = getLocalDateString(aptDate, recogTimezone);
+    const todayStr = getLocalDateString(now, recogTimezone);
+    const tomorrowStr = getLocalDateString(new Date(now.getTime() + 86400000), recogTimezone);
+
+    if (aptLocalDate === todayStr) {
       greeting = `Hi ${customer.firstName}! I see you have an appointment with us today at ${timeStr}.`;
       context = 'appointment_today';
-    } else if (aptDate.toDateString() === new Date(now.getTime() + 86400000).toDateString()) {
+    } else if (aptLocalDate === tomorrowStr) {
       greeting = `Hi ${customer.firstName}! I see you have an appointment tomorrow at ${timeStr}.`;
       context = 'appointment_tomorrow';
     } else {
