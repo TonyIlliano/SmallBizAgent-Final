@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { Redirect } from "wouter";
+import { PageLayout } from "@/components/layout/PageLayout";
 
 // Type definitions
 type PhoneNumberData = {
@@ -169,7 +170,7 @@ const PhoneManagementPage = () => {
   }
 
   return (
-    <div className="container mx-auto py-10">
+    <PageLayout title="Phone Management">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Phone Number Management</h1>
         <div className="flex space-x-2">
@@ -451,7 +452,7 @@ const PhoneManagementPage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageLayout>
   );
 }
 

@@ -2,6 +2,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Redirect } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { PageLayout } from "@/components/layout/PageLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -105,7 +106,7 @@ const AdminDashboardPage = () => {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4">
+    <PageLayout title="Admin Dashboard">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold">Admin Dashboard</h1>
@@ -150,7 +151,7 @@ const AdminDashboardPage = () => {
         <TabsContent value="revenue"><RevenueTab /></TabsContent>
         <TabsContent value="system"><SystemTab /></TabsContent>
       </Tabs>
-    </div>
+    </PageLayout>
   );
 };
 

@@ -116,33 +116,36 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     activeSubsResult,
   ] = await Promise.all([
     // Total users
-    db.select({ count: sql<number>`count(*)::int` }).from(users),
+    db.select({ count: sql`count(*)` }).from(users),
     // Total businesses
-    db.select({ count: sql<number>`count(*)::int` }).from(businesses),
+    db.select({ count: sql`count(*)` }).from(businesses),
     // Active phone numbers
-    db.select({ count: sql<number>`count(*)::int` })
+    db.select({ count: sql`count(*)` })
       .from(businesses)
       .where(isNotNull(businesses.twilioPhoneNumber)),
     // Total calls
-    db.select({ count: sql<number>`count(*)::int` }).from(callLogs),
+    db.select({ count: sql`count(*)` }).from(callLogs),
     // Calls this month
-    db.select({ count: sql<number>`count(*)::int` })
+    db.select({ count: sql`count(*)` })
       .from(callLogs)
       .where(gte(callLogs.callTime, thirtyDaysAgo)),
     // Active subscriptions
-    db.select({ count: sql<number>`count(*)::int` })
+    db.select({ count: sql`count(*)` })
       .from(businesses)
       .where(eq(businesses.subscriptionStatus, "active")),
   ]);
 
-  return {
-    totalUsers: userCountResult[0]?.count || 0,
-    totalBusinesses: businessCountResult[0]?.count || 0,
-    activePhoneNumbers: phoneCountResult[0]?.count || 0,
-    totalCalls: totalCallsResult[0]?.count || 0,
-    callsThisMonth: monthlyCallsResult[0]?.count || 0,
-    activeSubscriptions: activeSubsResult[0]?.count || 0,
+  const stats = {
+    totalUsers: Number(userCountResult[0]?.count) || 0,
+    totalBusinesses: Number(businessCountResult[0]?.count) || 0,
+    activePhoneNumbers: Number(phoneCountResult[0]?.count) || 0,
+    totalCalls: Number(totalCallsResult[0]?.count) || 0,
+    callsThisMonth: Number(monthlyCallsResult[0]?.count) || 0,
+    activeSubscriptions: Number(activeSubsResult[0]?.count) || 0,
   };
+
+  console.log("[Admin] Platform stats:", JSON.stringify(stats));
+  return stats;
 }
 
 /**
