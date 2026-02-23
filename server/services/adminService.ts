@@ -532,34 +532,27 @@ export async function getCostsData(): Promise<CostsData> {
 
   if (vapiKey) {
     try {
-      const startISO = startOfMonth.toISOString();
-      const endISO = now.toISOString();
-      let allCalls: any[] = [];
-      let hasMore = true;
-      let page = 1;
+      // Strip milliseconds from ISO dates — Vapi API is strict about format
+      const startISO = startOfMonth.toISOString().split(".")[0] + "Z";
+      const endISO = now.toISOString().split(".")[0] + "Z";
 
-      // Paginate through Vapi calls (limit 100 per page, cap at 1000)
-      while (hasMore && page <= 10) {
-        const url = new URL("https://api.vapi.ai/call");
-        url.searchParams.set("createdAtGe", startISO);
-        url.searchParams.set("createdAtLe", endISO);
-        url.searchParams.set("limit", "100");
+      const url = new URL("https://api.vapi.ai/call");
+      url.searchParams.set("createdAtGe", startISO);
+      url.searchParams.set("createdAtLe", endISO);
+      url.searchParams.set("limit", "1000");
 
-        const response = await fetch(url.toString(), {
-          headers: { Authorization: `Bearer ${vapiKey}` },
-        });
-        if (!response.ok) {
-          throw new Error(`Vapi API ${response.status}: ${response.statusText}`);
-        }
-        const calls = await response.json();
-        if (Array.isArray(calls) && calls.length > 0) {
-          allCalls = allCalls.concat(calls);
-          hasMore = calls.length === 100;
-          page++;
-        } else {
-          hasMore = false;
-        }
+      const response = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${vapiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Vapi API ${response.status}: ${body || response.statusText}`);
       }
+      const calls = await response.json();
+      const allCalls = Array.isArray(calls) ? calls : [];
 
       for (const call of allCalls) {
         const cost = call.costBreakdown?.total || call.cost || 0;

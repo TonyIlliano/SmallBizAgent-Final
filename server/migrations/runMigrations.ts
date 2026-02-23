@@ -882,6 +882,14 @@ async function createBaseTables() {
     );
   `);
 
+  // Ensure columns exist (may be missing if table was created by an older migration)
+  await pool.query(`
+    ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS call_duration INTEGER;
+  `);
+  await pool.query(`
+    ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS call_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+  `);
+
   // Create calendar_integrations table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS calendar_integrations (
