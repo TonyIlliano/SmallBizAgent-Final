@@ -1526,6 +1526,12 @@ async function bookAppointment(
     }
   }
 
+  // Auto-assign service if only one exists and none was specified
+  if (!serviceId && services.length === 1) {
+    serviceId = services[0].id;
+    console.log(`Auto-assigned only service "${services[0].name}" (ID ${serviceId}) for business ${businessId}`);
+  }
+
   // Parse date and time using natural language parser (in business timezone)
   const businessTimezone = business.timezone || 'America/New_York';
   const parsedDate = parseNaturalDate(params.date, businessTimezone);

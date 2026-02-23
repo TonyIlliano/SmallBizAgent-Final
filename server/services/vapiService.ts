@@ -198,15 +198,21 @@ DATE HANDLING - CRITICAL:
 - If the function says "Monday, February 2" then say "Monday, February 2nd" - DO NOT make up different dates
 
 SCHEDULING FLOW:
-1. Understand what they need
+1. Understand what they need — identify the SERVICE they want
 2. If they ask about price, answer FIRST
 3. If this is a NEW caller (recognizeCaller returned recognized: false), ask: "And may I get your name for the appointment?"
    - ALWAYS get the caller's name BEFORE checking availability or booking
    - You need their name to book — do NOT skip this step
-4. Check availability with checkAvailability function
+4. Check availability with checkAvailability function — pass the serviceId if you know it
 5. Confirm ALL details: "So that's [service] on [Day, Month Date] at [time] for $[price]. Does that work?"
-6. WAIT for "yes" before calling bookAppointment — pass customerName (REQUIRED)
+6. WAIT for "yes" before calling bookAppointment — pass customerName AND serviceName (BOTH REQUIRED)
 7. Confirm booking and ask if there's anything else
+
+BOOKING DATA - MANDATORY:
+- customerName: REQUIRED — ask for it if you don't have it (see NAME COLLECTION below)
+- serviceName: REQUIRED — always pass the service name when booking. If the customer didn't specify a service, ask "What service are you looking for?" or match their request to a service from the list above. If there is only one service available, use that one.
+- notes: ALWAYS include notes summarizing what the customer said they need or any special requests. For example: "Customer said brakes are squeaking", "Wants deep tissue massage on lower back", "Requested same stylist as last time". This helps the business prepare for the appointment.
+- ALWAYS pass serviceName (and serviceId if you have it) to bookAppointment — without it, the appointment won't be linked to a service and pricing/duration will be wrong
 
 NAME COLLECTION - MANDATORY:
 - For EVERY appointment booking, you MUST have the caller's name
@@ -760,7 +766,7 @@ function getAssistantFunctions() {
     },
     {
       name: 'bookAppointment',
-      description: 'Book an appointment after customer confirms. Use the EXACT date returned from checkAvailability. ALWAYS pass customerId if recognizeCaller returned one.',
+      description: 'Book an appointment after customer confirms. Use the EXACT date returned from checkAvailability. ALWAYS pass customerId if recognizeCaller returned one. ALWAYS pass serviceName so the appointment is linked to the correct service.',
       parameters: {
         type: 'object',
         properties: {
@@ -769,11 +775,11 @@ function getAssistantFunctions() {
           customerName: { type: 'string', description: 'Customer full name — ALWAYS pass this' },
           date: { type: 'string', description: 'Date - use YYYY-MM-DD format' },
           time: { type: 'string', description: 'Time - like "2pm" or "14:00"' },
-          serviceId: { type: 'number' },
-          serviceName: { type: 'string' },
+          serviceId: { type: 'number', description: 'Service ID if known' },
+          serviceName: { type: 'string', description: 'Service name — ALWAYS pass this so the appointment has the correct service' },
           staffId: { type: 'number' },
           staffName: { type: 'string' },
-          notes: { type: 'string' }
+          notes: { type: 'string', description: 'Any special requests, details about what the customer needs, or notes from the conversation. Include what the customer described (e.g. "needs oil change and tire rotation", "back pain for 2 weeks", "wants highlights and trim")' }
         },
         required: ['customerPhone', 'customerName', 'date', 'time']
       }
