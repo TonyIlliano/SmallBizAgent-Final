@@ -113,6 +113,7 @@ async function fixExistingTables() {
   await addColumnIfNotExists('call_logs', 'intent_detected', 'TEXT');
   await addColumnIfNotExists('call_logs', 'is_emergency', 'BOOLEAN DEFAULT false');
   await addColumnIfNotExists('call_logs', 'recording_url', 'TEXT');
+  await addColumnIfNotExists('call_logs', 'call_time', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
 
   // Fix invoices table
   await addColumnIfNotExists('invoices', 'tax', 'REAL');
