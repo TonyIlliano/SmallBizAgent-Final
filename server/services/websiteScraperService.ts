@@ -285,11 +285,30 @@ If no useful information can be extracted, return: []`;
         continue;
       }
 
-      // Validate each entry
-      const validated = parsed.filter((entry: any) =>
-        entry && typeof entry.question === 'string' && typeof entry.answer === 'string' &&
-        typeof entry.category === 'string' && entry.question.length > 0 && entry.answer.length > 0
-      ).slice(0, 20); // Cap at 20 entries
+      // Validate each entry and filter out unhelpful "not specified" answers
+      const unhelpfulPatterns = [
+        /does not specify/i,
+        /not specified/i,
+        /not mentioned/i,
+        /no information/i,
+        /not available on the website/i,
+        /not listed/i,
+        /not provided/i,
+        /website does not/i,
+      ];
+
+      const validated = parsed.filter((entry: any) => {
+        if (!entry || typeof entry.question !== 'string' || typeof entry.answer !== 'string' ||
+            typeof entry.category !== 'string' || entry.question.length === 0 || entry.answer.length === 0) {
+          return false;
+        }
+        // Skip entries where the AI says the website doesn't have the info
+        if (unhelpfulPatterns.some(pattern => pattern.test(entry.answer))) {
+          console.log(`[WebsiteScraper] Filtered out unhelpful entry: "${entry.question}" → "${entry.answer.substring(0, 80)}..."`);
+          return false;
+        }
+        return true;
+      }).slice(0, 20); // Cap at 20 entries
 
       console.log(`[WebsiteScraper] ${model}: Parsed ${parsed.length} entries, ${validated.length} valid after filtering`);
       return validated;

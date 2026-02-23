@@ -2293,8 +2293,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const logs = await storage.getCallLogs(businessId, params);
       res.json(logs);
-    } catch (error) {
-      res.status(500).json({ message: "Error fetching call logs" });
+    } catch (error: any) {
+      // Handle missing column errors gracefully (DB migration may not have run yet)
+      if (error?.message?.includes('does not exist') || error?.code === '42703') {
+        console.warn('[CallLogs] Column missing in call_logs table, returning empty:', error.message);
+        res.json([]);
+      } else {
+        console.error('[CallLogs] Error fetching call logs:', error?.message || error);
+        res.status(500).json({ message: "Error fetching call logs" });
+      }
     }
   });
 

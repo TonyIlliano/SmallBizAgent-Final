@@ -976,22 +976,35 @@ function buildNativeTools(
     : (businessPhone ? [businessPhone] : []);
 
   if (numbers.length > 0) {
-    // Normalize to E.164 format
-    const normalizedNumbers = numbers.map(num => {
-      const digits = num.replace(/\D/g, '');
-      if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
-      if (digits.length === 10) return `+1${digits}`;
-      return num.startsWith('+') ? num : `+${digits}`;
-    });
+    // Normalize to E.164 format and filter out invalid numbers
+    const validNumbers = numbers
+      .map(num => {
+        const digits = num.replace(/\D/g, '');
+        if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
+        if (digits.length === 10) return `+1${digits}`;
+        if (num.startsWith('+') && digits.length >= 10 && digits.length <= 15) return `+${digits}`;
+        return null; // Invalid — skip this number
+      })
+      .filter((num): num is string => {
+        if (!num) return false;
+        // Validate E.164: + followed by 10-15 digits
+        const isValid = /^\+[1-9]\d{9,14}$/.test(num);
+        if (!isValid) {
+          console.warn(`[Vapi] Skipping invalid transfer number: ${num}`);
+        }
+        return isValid;
+      });
 
-    tools.push({
-      type: 'transferCall',
-      destinations: normalizedNumbers.map(num => ({
-        type: 'number',
-        number: num,
-        message: 'I am transferring your call now. Please hold for just a moment.',
-      })),
-    });
+    if (validNumbers.length > 0) {
+      tools.push({
+        type: 'transferCall',
+        destinations: validNumbers.map(num => ({
+          type: 'number',
+          number: num,
+          message: 'I am transferring your call now. Please hold for just a moment.',
+        })),
+      });
+    }
   }
 
   return tools;
