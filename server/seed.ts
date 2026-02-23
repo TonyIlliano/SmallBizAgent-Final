@@ -89,11 +89,11 @@ async function ensureAdminAccount(): Promise<void> {
     const existingByEmail = await storage.getUserByEmail(adminEmail);
 
     if (existingByEmail) {
-      // User exists by email — ensure admin role AND sync password from env var
+      // User exists by email — sync username, role, and password from env vars
       await db.update(users)
-        .set({ role: "admin", password: hashedPassword })
+        .set({ username: adminUsername, role: "admin", password: hashedPassword })
         .where(eq(users.id, existingByEmail.id));
-      console.log(`[Admin] Synced admin account: "${existingByEmail.username}" (${adminEmail})`);
+      console.log(`[Admin] Synced admin account: username="${adminUsername}", email=${adminEmail}`);
       return;
     }
 
