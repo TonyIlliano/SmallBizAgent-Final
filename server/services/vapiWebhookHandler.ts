@@ -3254,6 +3254,18 @@ async function handleEndOfCall(
     const callerPhone = message.call.customer?.number || null;
     let callLogId: number | null = null;
 
+    // Calculate call duration from timestamps (Vapi does NOT include a "duration" field)
+    let callDurationSeconds = 0;
+    const callStartedAt = message.call.startedAt || message.call.createdAt;
+    const callEndedAt = message.call.endedAt || message.call.updatedAt;
+    if (callStartedAt && callEndedAt) {
+      callDurationSeconds = Math.round(
+        (new Date(callEndedAt).getTime() - new Date(callStartedAt).getTime()) / 1000
+      );
+      if (callDurationSeconds < 0) callDurationSeconds = 0;
+    }
+    console.log(`[CallDuration] Calculated ${callDurationSeconds}s from ${callStartedAt} → ${callEndedAt}`);
+
     try {
       const callLog = await storage.createCallLog({
         businessId,
@@ -3262,7 +3274,7 @@ async function handleEndOfCall(
         transcript: message.transcript || null,
         intentDetected: 'vapi-ai-call',
         isEmergency: false,
-        callDuration: message.call.duration || 0,
+        callDuration: callDurationSeconds,
         recordingUrl: message.call.recordingUrl || null,
         status: message.endedReason === 'customer-ended-call' ? 'completed' : message.endedReason,
         callTime: new Date()
@@ -3303,10 +3315,9 @@ async function handleEndOfCall(
     }
 
     // Missed call text-back: If the call was very short or ended abnormally, send an SMS
-    const callDuration = message.call.duration || 0;
     const endedReason = message.endedReason || '';
     const isMissedCall = (
-      callDuration < 15 || // Call shorter than 15 seconds
+      callDurationSeconds < 15 || // Call shorter than 15 seconds
       endedReason === 'customer-did-not-answer' ||
       endedReason === 'assistant-error' ||
       endedReason === 'phone-call-provider-closedwebsocket' ||

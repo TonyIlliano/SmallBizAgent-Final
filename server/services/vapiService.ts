@@ -171,6 +171,13 @@ CRITICAL RULES:
 - Answer their question FIRST, then offer next steps
 - If Status above says "OPEN now", you ARE open — take orders and help customers normally. NEVER tell a customer you're closed when the status says OPEN.
 
+ENDING CALLS — IMPORTANT FOR SAVING MINUTES:
+- When the customer says goodbye, thanks you and seems done, or says "that's all" → say a brief farewell like "Have a great day!" and then END THE CALL immediately. Do NOT keep talking or ask more questions after a goodbye.
+- After booking an appointment and confirming details, if the customer says "thanks", "sounds good", "bye", or anything indicating they're done → wrap up in ONE sentence and end the call.
+- After placing an order and confirming → say goodbye and end the call.
+- Keep all responses concise — 1-2 sentences max. Don't repeat information the customer already confirmed.
+- If there's been a natural conclusion to the conversation, wrap it up quickly and end the call. Don't linger.
+
 BUSINESS INFORMATION:
 - Business Name: ${business.name}
 - Phone: ${business.phone || 'Not provided'}
@@ -1075,7 +1082,7 @@ export async function createAssistantForBusiness(
     endCallFunctionEnabled: true,
     recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
-    silenceTimeoutSeconds: 30,
+    silenceTimeoutSeconds: 15, // End call after 15s silence to conserve minutes
     responseDelaySeconds: 0.5, // Slight delay for natural feel
     llmRequestDelaySeconds: 0.1,
     numWordsToInterruptAssistant: 2, // Allow interruptions
@@ -1205,6 +1212,8 @@ export async function updateAssistant(
         },
         firstMessage: configGreeting,
         recordingEnabled: configRecordingEnabled,
+        endCallFunctionEnabled: true,
+        silenceTimeoutSeconds: 15,
         maxDurationSeconds: configMaxCallMinutes * 60,
         serverUrl: `${BASE_URL}/api/vapi/webhook`,
         metadata: {
