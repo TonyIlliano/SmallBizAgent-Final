@@ -4005,7 +4005,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         receptionistEnabled: business.receptionistEnabled !== false, // Default to true if not set
         assistantInfo: assistantInfo ? {
           name: assistantInfo.name,
-          firstMessage: assistantInfo.firstMessage
+          firstMessage: assistantInfo.firstMessage,
+          endCallPhrases: (assistantInfo as any).endCallPhrases || null,
+          endCallFunctionEnabled: (assistantInfo as any).endCallFunctionEnabled ?? null,
+          silenceTimeoutSeconds: (assistantInfo as any).silenceTimeoutSeconds ?? null,
+          modelTools: (assistantInfo as any).model?.tools?.map((t: any) => t.type) || [],
         } : null
       });
     } catch (error) {

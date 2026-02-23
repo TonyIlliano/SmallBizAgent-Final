@@ -1242,11 +1242,19 @@ export async function updateAssistant(
 
     if (!response.ok) {
       const error = await response.text();
+      console.error(`[VapiUpdate] FAILED for assistant ${assistantId}:`, error);
       return { success: false, error: `Failed to update assistant: ${error}` };
     }
 
+    // Log the response to verify endCallPhrases was accepted
+    const responseData = await response.json();
+    console.log(`[VapiUpdate] SUCCESS for assistant ${assistantId}`);
+    console.log(`[VapiUpdate] endCallPhrases in response:`, JSON.stringify(responseData.endCallPhrases));
+    console.log(`[VapiUpdate] model.tools in response:`, JSON.stringify(responseData.model?.tools?.map((t: any) => t.type)));
+
     return { success: true };
   } catch (error) {
+    console.error(`[VapiUpdate] Error:`, error);
     return { success: false, error: String(error) };
   }
 }
