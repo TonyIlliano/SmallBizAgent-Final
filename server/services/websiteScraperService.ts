@@ -246,10 +246,11 @@ If no useful information can be extracted, return: []`;
     try {
       console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to OpenAI ${model}...`);
 
+      const isGpt5 = model.startsWith('gpt-5');
       const response = await openai.chat.completions.create({
         model,
         temperature: 0.3,
-        max_tokens: 3000,
+        ...(isGpt5 ? { max_completion_tokens: 3000 } : { max_tokens: 3000 }),
         messages,
       });
 
