@@ -155,7 +155,13 @@ export function setupAuth(app: Express) {
         if (!user) {
           user = await storage.getUserByEmail(username.toLowerCase());
         }
-        if (!user || !(await comparePasswords(password, user.password))) {
+        if (!user) {
+          console.log(`[Auth] Login failed: no user found for "${username.toLowerCase()}"`);
+          return done(null, false);
+        }
+        const passwordMatch = await comparePasswords(password, user.password);
+        if (!passwordMatch) {
+          console.log(`[Auth] Login failed: wrong password for user "${user.username}" (id=${user.id}, email=${user.email})`);
           return done(null, false);
         }
         // Update last login time
