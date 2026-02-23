@@ -533,8 +533,14 @@ export async function getCostsData(): Promise<CostsData> {
 
   if (vapiKey) {
     try {
-      // Strip milliseconds from ISO dates — Vapi API is strict about format
-      const startISO = startOfMonth.toISOString().split(".")[0] + "Z";
+      // Vapi free/basic plan only retains 14 days of call history.
+      // Clamp start date so we never exceed the retention window.
+      const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const vapiStart = startOfMonth > fourteenDaysAgo ? startOfMonth : fourteenDaysAgo;
+      if (fourteenDaysAgo > startOfMonth) {
+        warnings.push("Vapi: only last 14 days of call data available (plan retention limit)");
+      }
+      const startISO = vapiStart.toISOString().split(".")[0] + "Z";
       const endISO = now.toISOString().split(".")[0] + "Z";
 
       const url = new URL("https://api.vapi.ai/call");
