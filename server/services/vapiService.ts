@@ -858,7 +858,7 @@ function getAssistantFunctions() {
         }
       }
     },
-    // NOTE: transferCall is handled by Vapi's native transferCall tool (see buildTransferCallTool),
+    // NOTE: transferCall is handled by Vapi's native transferCall tool (see buildNativeTools),
     // NOT as a custom function. The native tool performs the actual phone transfer.
     {
       name: 'leaveMessage',
@@ -957,40 +957,44 @@ function getRestaurantFunctions() {
 }
 
 /**
- * Build the native VAPI transferCall tool for real call transfers.
- * Returns an array with one tool if transfer numbers exist, or empty array if none.
+ * Build native VAPI tools (endCall, transferCall).
+ * endCall is ALWAYS included so the AI can hang up after goodbye.
+ * transferCall is included only if transfer numbers are configured.
  */
-function buildTransferCallTool(
+function buildNativeTools(
   transferPhoneNumbers: string[],
   businessPhone?: string | null
 ): any[] {
+  const tools: any[] = [];
+
+  // Always include endCall so the AI can hang up after goodbye
+  tools.push({ type: 'endCall' });
+
   // Determine effective transfer numbers — use configured numbers, fallback to business phone
   const numbers = transferPhoneNumbers.length > 0
     ? transferPhoneNumbers
     : (businessPhone ? [businessPhone] : []);
 
-  if (numbers.length === 0) {
-    return []; // No transfer numbers — don't include the tool
-  }
+  if (numbers.length > 0) {
+    // Normalize to E.164 format
+    const normalizedNumbers = numbers.map(num => {
+      const digits = num.replace(/\D/g, '');
+      if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
+      if (digits.length === 10) return `+1${digits}`;
+      return num.startsWith('+') ? num : `+${digits}`;
+    });
 
-  // Normalize to E.164 format
-  const normalizedNumbers = numbers.map(num => {
-    const digits = num.replace(/\D/g, '');
-    if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
-    if (digits.length === 10) return `+1${digits}`;
-    return num.startsWith('+') ? num : `+${digits}`;
-  });
-
-  return [
-    {
+    tools.push({
       type: 'transferCall',
       destinations: normalizedNumbers.map(num => ({
         type: 'number',
         number: num,
         message: 'I am transferring your call now. Please hold for just a moment.',
       })),
-    }
-  ];
+    });
+  }
+
+  return tools;
 }
 
 /**
@@ -1035,11 +1039,10 @@ export async function createAssistantForBusiness(
     ? receptionistConfig.transferPhoneNumbers as string[]
     : [];
 
-  // Build normalized transfer numbers for both prompt and tool
-  const transferTool = buildTransferCallTool(transferPhoneNumbers, business.phone);
-  const normalizedTransferNumbers = transferTool.length > 0
-    ? transferTool[0].destinations.map((d: any) => d.number)
-    : [];
+  // Build native Vapi tools (endCall + transferCall)
+  const nativeTools = buildNativeTools(transferPhoneNumbers, business.phone);
+  const transferCallTool = nativeTools.find((t: any) => t.type === 'transferCall');
+  const normalizedTransferNumbers = transferCallTool?.destinations?.map((d: any) => d.number) || [];
 
   const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
     assistantName: configAssistantName,
@@ -1067,7 +1070,7 @@ export async function createAssistantForBusiness(
         ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
       ],
       // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
-      tools: transferTool,
+      tools: nativeTools,
     },
     voice: {
       provider: '11labs',
@@ -1162,11 +1165,10 @@ export async function updateAssistant(
     ? receptionistConfig.transferPhoneNumbers as string[]
     : [];
 
-  // Build normalized transfer numbers for both prompt and tool
-  const transferTool = buildTransferCallTool(transferPhoneNumbers, business.phone);
-  const normalizedTransferNumbers = transferTool.length > 0
-    ? transferTool[0].destinations.map((d: any) => d.number)
-    : [];
+  // Build native Vapi tools (endCall + transferCall)
+  const nativeTools = buildNativeTools(transferPhoneNumbers, business.phone);
+  const transferCallTool = nativeTools.find((t: any) => t.type === 'transferCall');
+  const normalizedTransferNumbers = transferCallTool?.destinations?.map((d: any) => d.number) || [];
 
   const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
     assistantName: configAssistantName,
@@ -1200,7 +1202,7 @@ export async function updateAssistant(
           systemPrompt: systemPrompt,
           functions: functions,
           // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
-          tools: transferTool,
+          tools: nativeTools,
         },
         voice: {
           provider: '11labs',

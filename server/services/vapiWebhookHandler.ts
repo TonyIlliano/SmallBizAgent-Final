@@ -258,6 +258,28 @@ function getNowInTimezone(timezone: string): Date {
 }
 
 /**
+ * Get local hours and minutes from a UTC date in a specific timezone.
+ * Avoids the getHours() bug where Railway (UTC server) returns UTC hours instead of local.
+ */
+function getLocalTimeInTimezone(utcDate: Date, timezone: string): { hours: number; minutes: number } {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(utcDate);
+    const hours = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+    const minutes = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+    return { hours, minutes };
+  } catch {
+    // Fallback: use getHours() (wrong on UTC servers but better than crashing)
+    return { hours: utcDate.getHours(), minutes: utcDate.getMinutes() };
+  }
+}
+
+/**
  * Get today's date at midnight in a specific timezone.
  * Returns a "wall clock" Date (year/month/day match the timezone, but hours are 0).
  */
@@ -915,16 +937,17 @@ async function getAvailableSlotsForDay(
   console.log(`  - Found ${dayAppointments.length} appointments for this day`);
 
   // Store both start and end times for proper overlap detection
-  // IMPORTANT: Use local time consistently since business hours are in local time
+  // CRITICAL: Use timezone-aware time extraction — getHours() returns UTC on Railway servers
   const bookedRanges = dayAppointments.map(apt => {
     const start = new Date(apt.startDate);
-    // Use local time (getHours/getMinutes) since business hours are in local time
-    const startMinutes = start.getHours() * 60 + start.getMinutes();
+    const startLocal = getLocalTimeInTimezone(start, timezone);
+    const startMinutes = startLocal.hours * 60 + startLocal.minutes;
 
     let endMinutes: number;
     if (apt.endDate) {
       const end = new Date(apt.endDate);
-      const calculatedEndMinutes = end.getHours() * 60 + end.getMinutes();
+      const endLocal = getLocalTimeInTimezone(end, timezone);
+      const calculatedEndMinutes = endLocal.hours * 60 + endLocal.minutes;
       // If end time is midnight (0) or before start time, it's likely a data issue - use default duration
       if (calculatedEndMinutes === 0 || calculatedEndMinutes <= startMinutes) {
         endMinutes = startMinutes + (duration || 60);
@@ -936,7 +959,7 @@ async function getAvailableSlotsForDay(
       endMinutes = startMinutes + (duration || 60);
     }
 
-    console.log(`  - Apt ${apt.id}: raw startDate=${apt.startDate}, local hours=${start.getHours()}, startMinutes=${startMinutes}, endMinutes=${endMinutes}`);
+    console.log(`  - Apt ${apt.id}: raw startDate=${apt.startDate}, localHours=${startLocal.hours}, startMinutes=${startMinutes}, endMinutes=${endMinutes}`);
     return { start: startMinutes, end: endMinutes, aptId: apt.id };
   });
 
