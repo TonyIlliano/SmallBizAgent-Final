@@ -128,6 +128,7 @@ import recurringRoutes from "./routes/recurring";
 import bookingRoutes from "./routes/bookingRoutes";
 import cloverRoutes from "./routes/cloverRoutes";
 import squareRoutes from "./routes/squareRoutes";
+import adminRoutes from "./routes/adminRoutes";
 
 // Import analytics routes
 import { registerAnalyticsRoutes } from './routes/analyticsRoutes';
@@ -138,7 +139,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register analytics routes
   registerAnalyticsRoutes(app);
-  
+
+  // Register admin dashboard routes
+  app.use(adminRoutes);
+
   // Register Stripe Connect routes
   app.use("/api/stripe-connect", isAuthenticated, stripeConnectRoutes);
 
@@ -4312,71 +4316,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get admin dashboard stats
-  app.get("/api/admin/stats", isAdmin, async (req: Request, res: Response) => {
-    try {
-      // Get all businesses with their phone numbers
-      const businesses = await storage.getAllBusinesses();
-
-      // Count businesses with active phone numbers
-      const activePhoneNumbers = businesses.filter(b => b.twilioPhoneNumber).length;
-
-      // For now, return real business stats - other stats would need additional queries
-      res.json({
-        totalBusinesses: businesses.length,
-        activePhoneNumbers,
-        // These would need actual queries to be accurate
-        totalUsers: businesses.length, // Approximation for now
-        totalCalls: 0 // Would need call log count
-      });
-    } catch (error) {
-      console.error("Error fetching admin stats:", error);
-      res.status(500).json({
-        error: "Error fetching admin stats",
-        details: error instanceof Error ? error.message : String(error)
-      });
-    }
-  });
-
-  // Get all businesses for admin
-  app.get("/api/admin/businesses", isAdmin, async (req: Request, res: Response) => {
-    try {
-      const businesses = await storage.getAllBusinesses();
-      res.json({ businesses });
-    } catch (error) {
-      console.error("Error fetching businesses:", error);
-      res.status(500).json({
-        error: "Error fetching businesses",
-        details: error instanceof Error ? error.message : String(error)
-      });
-    }
-  });
-
-  // Get phone numbers for all businesses
-  app.get("/api/admin/phone-numbers", isAdmin, async (req: Request, res: Response) => {
-    try {
-      // Get all businesses
-      const businesses = await storage.getAllBusinesses();
-      
-      // Extract phone number information
-      const phoneNumbers = businesses.map(business => ({
-        businessId: business.id,
-        businessName: business.name,
-        phoneNumber: business.twilioPhoneNumber,
-        phoneNumberSid: business.twilioPhoneNumberSid,
-        dateProvisioned: business.twilioDateProvisioned,
-        status: business.twilioPhoneNumber ? "active" : "not provisioned"
-      }));
-
-      res.json({ phoneNumbers });
-    } catch (error) {
-      console.error("Error fetching business phone numbers:", error);
-      res.status(500).json({
-        error: "Error fetching business phone numbers",
-        details: error instanceof Error ? error.message : String(error)
-      });
-    }
-  });
+  // Admin dashboard stats, businesses, users, revenue, system, activity, and phone-numbers
+  // are now handled by adminRoutes.ts (mounted above)
 
   // Register calendar routes
   app.use('/api/calendar', calendarRoutes);
