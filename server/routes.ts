@@ -258,8 +258,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // This prevents the API from blocking if Twilio is slow
         businessProvisioningService.provisionBusiness(business.id, {
           preferredAreaCode,
-          // Skip Twilio if credentials aren't available
-          skipTwilioProvisioning: !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN
+          // Never auto-provision a phone number on signup — businesses
+          // enable the AI receptionist themselves (saves Twilio costs and
+          // avoids buying numbers for accounts that may never use them).
+          skipTwilioProvisioning: true
         }).catch(provisionError => {
           console.error(`Error provisioning business ${business.id}:`, provisionError);
         });
