@@ -2340,8 +2340,9 @@ async function getBusinessHours(businessId: number): Promise<FunctionResult> {
     return `${day}: ${formatTime(h.open || '09:00')} to ${formatTime(h.close || '17:00')}`;
   }).join(', ');
 
-  // Check if business is currently open
-  const now = new Date();
+  // Check if business is currently open (use business timezone, not UTC)
+  const bizTimezone = business?.timezone || 'America/New_York';
+  const now = getNowInTimezone(bizTimezone);
   const currentDay = daysOrder[now.getDay() === 0 ? 6 : now.getDay() - 1];
   const todayHours = sortedHours.find(h => h.day === currentDay);
 
@@ -3000,10 +3001,11 @@ async function checkWaitTime(businessId: number): Promise<FunctionResult> {
     return { result: { error: 'Business not found' } };
   }
 
-  // Get today's appointments
-  const appointments = await storage.getAppointmentsByBusinessId(businessId);
-  const now = new Date();
+  // Get today's appointments using business timezone
+  const waitTimezone = business?.timezone || 'America/New_York';
+  const now = getNowInTimezone(waitTimezone);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const appointments = await storage.getAppointmentsByBusinessId(businessId);
 
   const todayAppointments = appointments
     .filter(apt => {
@@ -3039,27 +3041,29 @@ async function checkWaitTime(businessId: number): Promise<FunctionResult> {
     };
   }
 
-  // Calculate next available slot
-  let nextAvailable = new Date(now);
-  nextAvailable.setMinutes(Math.ceil(nextAvailable.getMinutes() / 30) * 30, 0, 0); // Round to next 30 min
+  // Calculate next available slot (use wall-clock now)
+  let nextAvailableMinutes = Math.ceil(currentTime / 30) * 30; // Round to next 30 min
 
   const bookedTimes = todayAppointments.map(apt => {
     const start = new Date(apt.startDate);
-    return start.getHours() * 60 + start.getMinutes();
+    const local = getLocalTimeInTimezone(start, waitTimezone);
+    return local.hours * 60 + local.minutes;
   });
 
   // Find first open slot
-  while (nextAvailable.getHours() * 60 + nextAvailable.getMinutes() < closeTime) {
-    const slotTime = nextAvailable.getHours() * 60 + nextAvailable.getMinutes();
-    if (!bookedTimes.some(bt => Math.abs(bt - slotTime) < 60)) {
+  while (nextAvailableMinutes < closeTime) {
+    if (!bookedTimes.some(bt => Math.abs(bt - nextAvailableMinutes) < 60)) {
       break;
     }
-    nextAvailable.setMinutes(nextAvailable.getMinutes() + 30);
+    nextAvailableMinutes += 30;
   }
 
-  const waitTimezone = business?.timezone || 'America/New_York';
-  const nextTimeStr = nextAvailable.toLocaleTimeString('en-US', { timeZone: waitTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
-  const waitMinutes = Math.round((nextAvailable.getTime() - now.getTime()) / 60000);
+  const nextHour = Math.floor(nextAvailableMinutes / 60);
+  const nextMin = nextAvailableMinutes % 60;
+  const nextHour12 = nextHour === 0 ? 12 : nextHour > 12 ? nextHour - 12 : nextHour;
+  const nextAmPm = nextHour < 12 ? 'AM' : 'PM';
+  const nextTimeStr = `${nextHour12}:${nextMin.toString().padStart(2, '0')} ${nextAmPm}`;
+  const waitMinutes = Math.max(0, nextAvailableMinutes - currentTime);
 
   return {
     result: {
