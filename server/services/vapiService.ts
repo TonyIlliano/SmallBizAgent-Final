@@ -614,6 +614,7 @@ CUSTOMER & BUSINESS INFO:
 - getServices: Get the list of services with pricing
 - getBusinessHours: Check business hours and if currently open
 - getEstimate: Get price estimates for specific services
+- updateCustomerInfo: Update a caller's name or email when they correct it mid-call
 
 COMMUNICATION:
 - transferCall: Transfer the call to a human staff member (VAPI will perform a real phone transfer — use ONLY as a last resort after trying to help)${transferNumbers && transferNumbers.length > 0 ? `\n  When using transferCall, pass the destination parameter with the value "${transferNumbers[0]}"` : ''}
@@ -692,6 +693,12 @@ CRITICAL - USING RECOGNIZED CUSTOMER DATA:
 - If you need their email and recognizeCaller didn't return one, then ask
 - Address the caller by their firstName throughout the entire conversation
 - NEVER make up or guess a caller's name — only use what recognizeCaller returns or what the caller explicitly tells you
+
+NAME CORRECTIONS:
+- If a recognized caller says "My name is actually [X]" or "Call me [X]" or corrects their name in any way, call updateCustomerInfo to update their record immediately
+- Pass customerId from recognizeCaller so the correct customer is updated
+- After updating, use their corrected name for the rest of the conversation
+- This also works for email: if they provide an email, call updateCustomerInfo with the email field
 
 CONVERSATION FLOW:
 1. Start with recognizeCaller → personalized greeting using their actual name
@@ -856,6 +863,19 @@ function getAssistantFunctions() {
           callbackRequested: { type: 'boolean' }
         },
         required: ['message']
+      }
+    },
+    {
+      name: 'updateCustomerInfo',
+      description: 'Update a customer\'s name or email. Use when a caller corrects their name (e.g., "My name is actually Tony, not Test") or provides their email. Do NOT use this just because you already know their name — only when they explicitly correct or provide new info.',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerId: { type: 'number', description: 'Customer ID from recognizeCaller — pass this if available' },
+          firstName: { type: 'string', description: 'Customer\'s correct first name' },
+          lastName: { type: 'string', description: 'Customer\'s correct last name' },
+          email: { type: 'string', description: 'Customer\'s email address' }
+        }
       }
     }
   ];

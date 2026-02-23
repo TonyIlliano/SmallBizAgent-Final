@@ -767,6 +767,9 @@ async function handleFunctionCall(
       case 'recognizeCaller':
         return await recognizeCaller(businessId, callerPhone);
 
+      case 'updateCustomerInfo':
+        return await updateCustomerInfo(businessId, parameters as any, callerPhone);
+
       case 'getDirections':
         return await getDirections(businessId);
 
@@ -2836,6 +2839,98 @@ async function recognizeCaller(
       message: `${greeting} How can I help you today?`
     }
   };
+}
+
+/**
+ * Update customer information mid-call
+ * Allows the AI to correct a customer's name or add email without requiring a booking
+ */
+async function updateCustomerInfo(
+  businessId: number,
+  params: {
+    customerId?: number;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+  },
+  callerPhone?: string
+): Promise<FunctionResult> {
+  try {
+    // Find the customer by ID or phone number
+    let customer: any = null;
+
+    if (params.customerId) {
+      customer = await storage.getCustomer(params.customerId);
+    } else if (callerPhone) {
+      customer = await storage.getCustomerByPhone(callerPhone, businessId);
+    }
+
+    if (!customer) {
+      return {
+        result: {
+          success: false,
+          error: 'Customer not found. I can update their information after booking an appointment.'
+        }
+      };
+    }
+
+    // Verify customer belongs to this business
+    if (customer.businessId !== businessId) {
+      return {
+        result: {
+          success: false,
+          error: 'Customer not found for this business.'
+        }
+      };
+    }
+
+    // Build update object with only provided fields
+    const updates: Record<string, any> = {};
+    if (params.firstName && params.firstName.trim()) {
+      updates.firstName = params.firstName.trim();
+    }
+    if (params.lastName && params.lastName.trim()) {
+      updates.lastName = params.lastName.trim();
+    }
+    if (params.email && params.email.trim()) {
+      updates.email = params.email.trim();
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return {
+        result: {
+          success: false,
+          error: 'No information provided to update.'
+        }
+      };
+    }
+
+    // Perform the update
+    const updatedCustomer = await storage.updateCustomer(customer.id, updates);
+
+    console.log(`[updateCustomerInfo] Updated customer ${customer.id} for business ${businessId}: ${JSON.stringify(updates)}`);
+
+    const fullName = `${updatedCustomer.firstName} ${updatedCustomer.lastName}`.trim();
+
+    return {
+      result: {
+        success: true,
+        customerId: updatedCustomer.id,
+        customerName: fullName,
+        firstName: updatedCustomer.firstName,
+        lastName: updatedCustomer.lastName,
+        message: `Got it, I've updated the name to ${fullName}.`
+      }
+    };
+  } catch (error) {
+    console.error(`[updateCustomerInfo] Error updating customer for business ${businessId}:`, error);
+    return {
+      result: {
+        success: false,
+        error: 'There was a technical issue updating the customer information. Please try again.'
+      }
+    };
+  }
 }
 
 /**
