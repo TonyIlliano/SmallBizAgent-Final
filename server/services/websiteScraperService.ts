@@ -195,8 +195,7 @@ async function summarizeWithAI(
 ): Promise<Array<{ question: string; answer: string; category: string }>> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.error('OPENAI_API_KEY not configured — cannot summarize website');
-    return [];
+    throw new Error('OPENAI_API_KEY not configured — cannot summarize website');
   }
 
   console.log(`[WebsiteScraper] OpenAI API key found (${apiKey.substring(0, 8)}...), calling summarizeWithAI for "${businessName}" (${industry})`);
@@ -204,19 +203,10 @@ async function summarizeWithAI(
 
   const openai = new OpenAI({ apiKey });
 
-  try {
-    // Truncate raw text to fit in context window
-    const truncatedText = rawText.substring(0, 30000);
-    console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to OpenAI gpt-5-mini...`);
+  // Truncate raw text to fit in context window
+  const truncatedText = rawText.substring(0, 30000);
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
-      temperature: 0.3,
-      max_tokens: 3000,
-      messages: [
-        {
-          role: 'system',
-          content: `You are analyzing a business website to extract useful knowledge for an AI phone receptionist. The business is "${businessName}" in the "${industry || 'general'}" industry.
+  const systemPrompt = `You are analyzing a business website to extract useful knowledge for an AI phone receptionist. The business is "${businessName}" in the "${industry || 'general'}" industry.
 
 Extract information into Q&A pairs organized by category. Only extract FACTUAL information that is explicitly stated on the website. Do NOT make up or infer information.
 
@@ -241,56 +231,87 @@ Guidelines:
 - Maximum 20 entries total
 - Return valid JSON array only, no markdown
 
-If no useful information can be extracted, return: []`
-        },
-        {
-          role: 'user',
-          content: `Here is the text extracted from the business website:\n\n${truncatedText}`
-        }
-      ],
-    });
+If no useful information can be extracted, return: []`;
 
-    const content = response.choices[0]?.message?.content?.trim();
-    console.log(`[WebsiteScraper] OpenAI response received. Content length: ${content?.length || 0}`);
-    console.log(`[WebsiteScraper] OpenAI raw response (first 500 chars): ${content?.substring(0, 500)}`);
+  const messages: Array<{ role: 'system' | 'user'; content: string }> = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `Here is the text extracted from the business website:\n\n${truncatedText}` }
+  ];
 
-    if (!content) {
-      console.error('[WebsiteScraper] OpenAI returned empty content');
-      return [];
-    }
+  // Try models in order: gpt-5-mini first, fall back to gpt-4o-mini
+  const modelsToTry = ['gpt-5-mini', 'gpt-4o-mini'];
+  let lastError: any = null;
 
-    // Parse JSON response — handle potential markdown code blocks
-    let jsonStr = content;
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
-
-    let parsed: any;
+  for (const model of modelsToTry) {
     try {
-      parsed = JSON.parse(jsonStr);
-    } catch (parseErr) {
-      console.error(`[WebsiteScraper] JSON parse failed. Raw content: ${content.substring(0, 1000)}`);
-      throw parseErr;
+      console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to OpenAI ${model}...`);
+
+      const response = await openai.chat.completions.create({
+        model,
+        temperature: 0.3,
+        max_tokens: 3000,
+        messages,
+      });
+
+      const content = response.choices[0]?.message?.content?.trim();
+      console.log(`[WebsiteScraper] ${model} response received. Content length: ${content?.length || 0}`);
+      console.log(`[WebsiteScraper] ${model} raw response (first 500 chars): ${content?.substring(0, 500)}`);
+
+      if (!content) {
+        console.error(`[WebsiteScraper] ${model} returned empty content`);
+        lastError = new Error(`${model} returned empty content`);
+        continue;
+      }
+
+      // Parse JSON response — handle potential markdown code blocks
+      let jsonStr = content;
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        console.error(`[WebsiteScraper] ${model} JSON parse failed. Raw content: ${content.substring(0, 1000)}`);
+        lastError = parseErr;
+        continue;
+      }
+
+      if (!Array.isArray(parsed)) {
+        console.error(`[WebsiteScraper] ${model} result is not an array, got: ${typeof parsed}`);
+        lastError = new Error(`${model} returned non-array: ${typeof parsed}`);
+        continue;
+      }
+
+      // Validate each entry
+      const validated = parsed.filter((entry: any) =>
+        entry && typeof entry.question === 'string' && typeof entry.answer === 'string' &&
+        typeof entry.category === 'string' && entry.question.length > 0 && entry.answer.length > 0
+      ).slice(0, 20); // Cap at 20 entries
+
+      console.log(`[WebsiteScraper] ${model}: Parsed ${parsed.length} entries, ${validated.length} valid after filtering`);
+      return validated;
+
+    } catch (error: any) {
+      // Log detailed OpenAI error info
+      if (error?.status) {
+        console.error(`[WebsiteScraper] ${model} API error (HTTP ${error.status}):`, error.message);
+        if (error.error) {
+          console.error(`[WebsiteScraper] ${model} error details:`, JSON.stringify(error.error));
+        }
+      } else {
+        console.error(`[WebsiteScraper] ${model} error:`, error?.message || error);
+      }
+      lastError = error;
+      // Try next model
+      console.log(`[WebsiteScraper] ${model} failed, trying next model...`);
+      continue;
     }
-
-    if (!Array.isArray(parsed)) {
-      console.error(`[WebsiteScraper] Parsed result is not an array, got: ${typeof parsed}`);
-      return [];
-    }
-
-    // Validate each entry
-    const validated = parsed.filter((entry: any) =>
-      entry && typeof entry.question === 'string' && typeof entry.answer === 'string' &&
-      typeof entry.category === 'string' && entry.question.length > 0 && entry.answer.length > 0
-    ).slice(0, 20); // Cap at 20 entries
-
-    console.log(`[WebsiteScraper] Parsed ${parsed.length} entries, ${validated.length} valid after filtering`);
-    return validated;
-
-  } catch (error) {
-    console.error('[WebsiteScraper] Error summarizing website with AI:', error);
-    return [];
   }
+
+  // All models failed
+  throw new Error(`AI summarization failed with all models: ${lastError?.message || 'Unknown error'}`);
 }
 
 /**

@@ -407,88 +407,113 @@ export async function getAppointmentAnalytics(businessId: number, dateRange: Dat
  */
 export async function getCallAnalytics(businessId: number, dateRange: DateRange): Promise<CallMetrics> {
   const { startDate, endDate } = dateRange;
-  
-  // Get all calls in date range (note: is_emergency column may not exist in older DBs)
-  const callData = await db.select({
-    id: callLogs.id,
-    status: callLogs.status,
-    intentDetected: callLogs.intentDetected,
-    callTime: callLogs.callTime
-  })
-  .from(callLogs)
-  .where(
-    and(
-      eq(callLogs.businessId, businessId),
-      gte(callLogs.callTime, startDate),
-      lte(callLogs.callTime, endDate)
-    )
-  );
+
+  // Get all calls in date range — handle missing columns gracefully
+  let callData: Array<{ id: number; status: string | null; intentDetected: string | null; callTime: Date | null }> = [];
+
+  try {
+    callData = await db.select({
+      id: callLogs.id,
+      status: callLogs.status,
+      intentDetected: callLogs.intentDetected,
+      callTime: callLogs.callTime
+    })
+    .from(callLogs)
+    .where(
+      and(
+        eq(callLogs.businessId, businessId),
+        gte(callLogs.callTime, startDate),
+        lte(callLogs.callTime, endDate)
+      )
+    );
+  } catch (error: any) {
+    // If intent_detected or other columns don't exist yet, query without them
+    if (error.message?.includes('does not exist') || error.code === '42703') {
+      console.warn('[Analytics] Column missing, falling back to basic call query:', error.message);
+      const basicData = await db.select({
+        id: callLogs.id,
+        status: callLogs.status,
+        callTime: callLogs.callTime
+      })
+      .from(callLogs)
+      .where(
+        and(
+          eq(callLogs.businessId, businessId),
+          gte(callLogs.callTime, startDate),
+          lte(callLogs.callTime, endDate)
+        )
+      );
+      callData = basicData.map(c => ({ ...c, intentDetected: null }));
+    } else {
+      throw error;
+    }
+  }
 
   // Count calls by type
   const totalCalls = callData.length;
   const answeredCalls = callData.filter(call => call.status === 'answered').length;
   const missedCalls = callData.filter(call => call.status === 'missed').length;
   const emergencyCalls = callData.filter(call => call.intentDetected === 'urgent-transfer').length;
-  
+
   // Group calls by hour of day
   const callsByTimeMap: { [key: number]: number } = {};
-  
+
   for (let i = 0; i < 24; i++) {
     callsByTimeMap[i] = 0;
   }
-  
+
   callData.forEach(call => {
     if (!call.callTime) return;
-    
+
     const date = new Date(call.callTime);
     const hour = date.getHours();
-    
+
     callsByTimeMap[hour]++;
   });
-  
+
   const callsByTime = Object.entries(callsByTimeMap).map(([hour, count]) => ({
     hour: parseInt(hour),
     count
   })).sort((a, b) => a.hour - b.hour);
-  
+
   // Group calls by date
   const callsByDateMap: { [key: string]: number } = {};
-  
+
   callData.forEach(call => {
     if (!call.callTime) return;
-    
+
     const dateKey = formatDateForGrouping(new Date(call.callTime));
-    
+
     if (!callsByDateMap[dateKey]) {
       callsByDateMap[dateKey] = 0;
     }
-    
+
     callsByDateMap[dateKey]++;
   });
-  
+
   const callsOverTime = Object.entries(callsByDateMap).map(([date, count]) => ({
     date,
     count
   })).sort((a, b) => a.date.localeCompare(b.date));
-  
+
   // Group calls by intent
   const intentBreakdownMap: { [key: string]: number } = {};
-  
+
   callData.forEach(call => {
     if (!call.intentDetected) return;
-    
+
     if (!intentBreakdownMap[call.intentDetected]) {
       intentBreakdownMap[call.intentDetected] = 0;
     }
-    
+
     intentBreakdownMap[call.intentDetected]++;
   });
-  
+
   const intentBreakdown = Object.entries(intentBreakdownMap).map(([intent, count]) => ({
     intent,
     count
   })).sort((a, b) => b.count - a.count);
-  
+
   return {
     totalCalls,
     answeredCalls,
