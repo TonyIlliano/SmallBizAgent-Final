@@ -13,7 +13,10 @@ import {
   callLogs,
   appointments,
   subscriptionPlans,
+  notificationLog,
 } from "../../shared/schema";
+import twilioService from "./twilioService";
+import stripeService from "./stripeService";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -96,6 +99,39 @@ export interface ActivityItem {
   timestamp: Date;
   businessName?: string;
 }
+
+export interface CostBreakdown {
+  twilio: { calls: number; sms: number; phoneNumbers: number; total: number };
+  vapi: { total: number; callCount: number };
+  stripe: { fees: number; transactionCount: number };
+  email: { total: number; count: number; ratePerEmail: number };
+}
+
+export interface PerBusinessCost {
+  businessId: number;
+  businessName: string;
+  subscriptionRevenue: number;
+  estimatedCallCost: number;
+  estimatedSmsCost: number;
+  phoneNumberCost: number;
+  totalEstimatedCost: number;
+  estimatedProfit: number;
+}
+
+export interface CostsData {
+  period: string;
+  revenue: { mrr: number };
+  costs: CostBreakdown;
+  totalCosts: number;
+  grossMargin: number;
+  grossMarginPercent: number;
+  perBusiness: PerBusinessCost[];
+  warnings: string[];
+}
+
+// Simple in-memory cache for expensive external API calls
+let costsCache: { data: CostsData; timestamp: number } | null = null;
+const COSTS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // ── Service Functions ───────────────────────────────────────────────────
 
@@ -444,4 +480,270 @@ export async function getRecentActivity(): Promise<ActivityItem[]> {
   // Sort all by timestamp descending, take newest 30
   activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   return activities.slice(0, 30);
+}
+
+/**
+ * Get platform costs & P/L data — pulls from Twilio, Vapi, Stripe APIs
+ */
+export async function getCostsData(): Promise<CostsData> {
+  // Return cached data if fresh
+  if (costsCache && (Date.now() - costsCache.timestamp < COSTS_CACHE_TTL_MS)) {
+    return costsCache.data;
+  }
+
+  const warnings: string[] = [];
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const period = now.toLocaleString("en-US", { month: "long", year: "numeric" });
+
+  // ── 1. Revenue (reuse existing logic) ──────────────────────────────
+  const revenueData = await getRevenueData();
+
+  // ── 2. Twilio Usage Records ────────────────────────────────────────
+  let twilioCosts = { calls: 0, sms: 0, phoneNumbers: 0, total: 0 };
+  const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+
+  if (twilioConfigured && twilioService.client) {
+    try {
+      const records = await twilioService.client.usage.records.thisMonth.list();
+      for (const record of records) {
+        const price = parseFloat(String(record.price ?? "0"));
+        const cat = record.category;
+        if (cat === "calls" || cat === "calls-inbound" || cat === "calls-outbound") {
+          twilioCosts.calls += price;
+        } else if (cat === "sms" || cat === "sms-inbound" || cat === "sms-outbound") {
+          twilioCosts.sms += price;
+        } else if (cat === "phonenumbers") {
+          twilioCosts.phoneNumbers += price;
+        }
+      }
+      twilioCosts.total = twilioCosts.calls + twilioCosts.sms + twilioCosts.phoneNumbers;
+    } catch (err: any) {
+      console.error("[Admin] Error fetching Twilio usage:", err.message);
+      warnings.push(`Twilio usage fetch failed: ${err.message}`);
+    }
+  } else {
+    warnings.push("Twilio not configured — costs shown as $0");
+  }
+
+  // ── 3. Vapi Call Costs ────────────────────────────────────────────
+  let vapiCosts = { total: 0, callCount: 0 };
+  const vapiKey = process.env.VAPI_API_KEY;
+
+  if (vapiKey) {
+    try {
+      const startISO = startOfMonth.toISOString();
+      const endISO = now.toISOString();
+      let allCalls: any[] = [];
+      let hasMore = true;
+      let page = 1;
+
+      // Paginate through Vapi calls (limit 100 per page, cap at 1000)
+      while (hasMore && page <= 10) {
+        const url = new URL("https://api.vapi.ai/call");
+        url.searchParams.set("createdAtGe", startISO);
+        url.searchParams.set("createdAtLe", endISO);
+        url.searchParams.set("limit", "100");
+
+        const response = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${vapiKey}` },
+        });
+        if (!response.ok) {
+          throw new Error(`Vapi API ${response.status}: ${response.statusText}`);
+        }
+        const calls = await response.json();
+        if (Array.isArray(calls) && calls.length > 0) {
+          allCalls = allCalls.concat(calls);
+          hasMore = calls.length === 100;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      for (const call of allCalls) {
+        const cost = call.costBreakdown?.total || call.cost || 0;
+        vapiCosts.total += cost;
+        vapiCosts.callCount++;
+      }
+    } catch (err: any) {
+      console.error("[Admin] Error fetching Vapi costs:", err.message);
+      warnings.push(`Vapi cost fetch failed: ${err.message}`);
+    }
+  } else {
+    warnings.push("Vapi not configured — costs shown as $0");
+  }
+
+  // ── 4. Stripe Fees ────────────────────────────────────────────────
+  let stripeCosts = { fees: 0, transactionCount: 0 };
+  const stripeConfigured = process.env.STRIPE_SECRET_KEY
+    && !process.env.STRIPE_SECRET_KEY.includes("example");
+
+  if (stripeConfigured && stripeService.stripe) {
+    try {
+      const startTimestamp = Math.floor(startOfMonth.getTime() / 1000);
+      let hasMore = true;
+      let startingAfter: string | undefined;
+
+      while (hasMore) {
+        const params: any = {
+          created: { gte: startTimestamp },
+          type: "charge",
+          limit: 100,
+        };
+        if (startingAfter) params.starting_after = startingAfter;
+
+        const transactions = await stripeService.stripe.balanceTransactions.list(params);
+        for (const txn of transactions.data) {
+          stripeCosts.fees += txn.fee / 100; // cents → dollars
+          stripeCosts.transactionCount++;
+        }
+        hasMore = transactions.has_more;
+        if (transactions.data.length > 0) {
+          startingAfter = transactions.data[transactions.data.length - 1].id;
+        }
+      }
+    } catch (err: any) {
+      console.error("[Admin] Error fetching Stripe fees:", err.message);
+      warnings.push(`Stripe fee fetch failed: ${err.message}`);
+    }
+  } else {
+    warnings.push("Stripe not configured — fees shown as $0");
+  }
+
+  // ── 5. Email Costs (estimated from notification log) ──────────────
+  const EMAIL_COST_PER_EMAIL = 0.004; // ~Resend pricing
+  const emailCountResult = await db
+    .select({ count: sql`count(*)` })
+    .from(notificationLog)
+    .where(
+      and(
+        eq(notificationLog.channel, "email"),
+        gte(notificationLog.sentAt, startOfMonth)
+      )
+    );
+  const emailCount = Number(emailCountResult[0]?.count) || 0;
+  const emailCosts = {
+    total: Math.round(emailCount * EMAIL_COST_PER_EMAIL * 100) / 100,
+    count: emailCount,
+    ratePerEmail: EMAIL_COST_PER_EMAIL,
+  };
+
+  // ── 6. Per-Business Profitability ─────────────────────────────────
+  const allBiz = await db.select({
+    id: businesses.id,
+    name: businesses.name,
+    subscriptionStatus: businesses.subscriptionStatus,
+    stripePlanId: businesses.stripePlanId,
+    twilioPhoneNumber: businesses.twilioPhoneNumber,
+  }).from(businesses);
+
+  const plans = await db.select().from(subscriptionPlans);
+  const planMap = new Map(plans.map(p => [p.id, p]));
+
+  // Call minutes per business this month
+  const callMinutesPerBiz = await db
+    .select({
+      businessId: callLogs.businessId,
+      totalSeconds: sql`coalesce(sum(${callLogs.callDuration}), 0)`,
+    })
+    .from(callLogs)
+    .where(gte(callLogs.callTime, startOfMonth))
+    .groupBy(callLogs.businessId);
+
+  const callMinutesMap = new Map(
+    callMinutesPerBiz.map(c => [c.businessId, Number(c.totalSeconds) / 60])
+  );
+
+  // SMS count per business this month
+  const smsPerBiz = await db
+    .select({
+      businessId: notificationLog.businessId,
+      count: sql`count(*)`,
+    })
+    .from(notificationLog)
+    .where(
+      and(
+        eq(notificationLog.channel, "sms"),
+        gte(notificationLog.sentAt, startOfMonth)
+      )
+    )
+    .groupBy(notificationLog.businessId);
+
+  const smsCountMap = new Map(smsPerBiz.map(s => [s.businessId, Number(s.count)]));
+
+  // Calculate totals for proportional allocation
+  const totalCallMinutes = Array.from(callMinutesMap.values()).reduce((a, b) => a + b, 0) || 1;
+  const totalSmsCount = Array.from(smsCountMap.values()).reduce((a, b) => a + b, 0) || 1;
+
+  const perBusiness: PerBusinessCost[] = allBiz.map(b => {
+    const plan = b.stripePlanId ? planMap.get(b.stripePlanId) : null;
+    const subRevenue = (b.subscriptionStatus === "active" && plan?.price)
+      ? (plan.interval === "yearly" ? plan.price / 12 : plan.price)
+      : 0;
+
+    const bizCallMinutes = callMinutesMap.get(b.id) || 0;
+    const bizSmsCount = smsCountMap.get(b.id) || 0;
+
+    // Proportional Vapi cost based on call minutes
+    const estimatedCallCost = totalCallMinutes > 0
+      ? (bizCallMinutes / totalCallMinutes) * vapiCosts.total
+      : 0;
+
+    // Proportional SMS cost (Twilio SMS portion)
+    const estimatedSmsCost = totalSmsCount > 0
+      ? (bizSmsCount / totalSmsCount) * twilioCosts.sms
+      : 0;
+
+    // Phone number cost: flat ~$1.15/mo if provisioned
+    const phoneNumberCost = b.twilioPhoneNumber ? 1.15 : 0;
+
+    const totalEstimatedCost = estimatedCallCost + estimatedSmsCost + phoneNumberCost;
+    const estimatedProfit = subRevenue - totalEstimatedCost;
+
+    return {
+      businessId: b.id,
+      businessName: b.name,
+      subscriptionRevenue: Math.round(subRevenue * 100) / 100,
+      estimatedCallCost: Math.round(estimatedCallCost * 100) / 100,
+      estimatedSmsCost: Math.round(estimatedSmsCost * 100) / 100,
+      phoneNumberCost: Math.round(phoneNumberCost * 100) / 100,
+      totalEstimatedCost: Math.round(totalEstimatedCost * 100) / 100,
+      estimatedProfit: Math.round(estimatedProfit * 100) / 100,
+    };
+  });
+
+  // Sort by profit descending (most profitable first)
+  perBusiness.sort((a, b) => b.estimatedProfit - a.estimatedProfit);
+
+  // ── 7. Assemble final response ────────────────────────────────────
+  const totalCosts = twilioCosts.total + vapiCosts.total + stripeCosts.fees + emailCosts.total;
+  const grossMargin = revenueData.mrr - totalCosts;
+  const grossMarginPercent = revenueData.mrr > 0
+    ? Math.round((grossMargin / revenueData.mrr) * 10000) / 100
+    : 0;
+
+  const result: CostsData = {
+    period,
+    revenue: { mrr: revenueData.mrr },
+    costs: {
+      twilio: twilioCosts,
+      vapi: vapiCosts,
+      stripe: stripeCosts,
+      email: emailCosts,
+    },
+    totalCosts: Math.round(totalCosts * 100) / 100,
+    grossMargin: Math.round(grossMargin * 100) / 100,
+    grossMarginPercent,
+    perBusiness,
+    warnings,
+  };
+
+  console.log("[Admin] Platform costs:", JSON.stringify({
+    period, totalCosts: result.totalCosts, grossMargin: result.grossMargin, warnings,
+  }));
+
+  // Cache the result
+  costsCache = { data: result, timestamp: Date.now() };
+  return result;
 }

@@ -91,6 +91,19 @@ router.get("/api/admin/activity", isAdmin, async (req: Request, res: Response) =
 });
 
 /**
+ * GET /api/admin/costs — Revenue vs costs breakdown (P&L)
+ */
+router.get("/api/admin/costs", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const costs = await adminService.getCostsData();
+    res.json(costs);
+  } catch (error: any) {
+    console.error("[Admin] Error fetching costs data:", error);
+    res.status(500).json({ error: "Failed to fetch costs data", details: error.message });
+  }
+});
+
+/**
  * GET /api/admin/phone-numbers — Phone number inventory across all businesses
  */
 router.get("/api/admin/phone-numbers", isAdmin, async (req: Request, res: Response) => {
