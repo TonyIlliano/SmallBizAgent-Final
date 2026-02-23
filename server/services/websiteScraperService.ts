@@ -238,8 +238,8 @@ If no useful information can be extracted, return: []`;
     { role: 'user', content: `Here is the text extracted from the business website:\n\n${truncatedText}` }
   ];
 
-  // Try models in order: gpt-5-mini first, fall back to gpt-4o-mini
-  const modelsToTry = ['gpt-5-mini', 'gpt-4o-mini'];
+  // Try models in order of preference, falling back if access is denied
+  const modelsToTry = ['gpt-5-mini', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'gpt-4.1'];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
