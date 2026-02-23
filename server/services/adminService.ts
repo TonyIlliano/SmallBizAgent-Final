@@ -663,11 +663,34 @@ export async function getCostsData(): Promise<CostsData> {
         const json = await response.json();
         const usageItems = json?.data?.estimatedUsage;
         if (Array.isArray(usageItems)) {
+          // Log raw values so we can debug what the API actually returns
+          for (const item of usageItems) {
+            console.log(`[Admin] Railway usage: ${item.measurement} = ${item.estimatedValue}`);
+          }
+          // The estimatedUsage query returns raw resource metrics, NOT dollar amounts.
+          // Convert to dollars using Railway's published pricing:
+          //   CPU: $20/vCPU/month, RAM: $10/GB/month, Network: $0.05/GB, Disk: $0.15/GB/month
+          const pricePerUnit: Record<string, number> = {
+            CPU_USAGE: 20,
+            MEMORY_USAGE_GB: 10,
+            NETWORK_TX_GB: 0.05,
+            DISK_USAGE_GB: 0.15,
+          };
           let totalEstimate = 0;
           for (const item of usageItems) {
-            totalEstimate += Number(item.estimatedValue) || 0;
+            const rawValue = Number(item.estimatedValue) || 0;
+            const rate = pricePerUnit[item.measurement] || 0;
+            totalEstimate += rawValue * rate;
           }
-          railwayCosts = { total: Math.round(totalEstimate * 100) / 100, estimated: true };
+          // If estimate is unreasonably high (>$50 for a Hobby plan), the API
+          // units may differ from what we expect. Fall back to logging only.
+          if (totalEstimate > 50) {
+            console.warn(`[Admin] Railway cost estimate seems too high ($${totalEstimate.toFixed(2)}), raw values may not be in expected units. Falling back to $0.`);
+            warnings.push("Railway cost estimate unavailable — check logs for raw API values");
+            railwayCosts = { total: 0, estimated: true };
+          } else {
+            railwayCosts = { total: Math.round(totalEstimate * 100) / 100, estimated: true };
+          }
         }
       } else {
         const body = await response.text();
