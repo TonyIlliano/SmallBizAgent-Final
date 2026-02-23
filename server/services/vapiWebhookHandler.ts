@@ -3296,17 +3296,30 @@ async function handleEndOfCall(
     const callerPhone = message.call.customer?.number || null;
     let callLogId: number | null = null;
 
-    // Calculate call duration from timestamps (Vapi does NOT include a "duration" field)
+    // Get call duration — try multiple sources since Vapi's payload structure varies
     let callDurationSeconds = 0;
-    const callStartedAt = message.call.startedAt || message.call.createdAt;
-    const callEndedAt = message.call.endedAt || message.call.updatedAt;
-    if (callStartedAt && callEndedAt) {
-      callDurationSeconds = Math.round(
-        (new Date(callEndedAt).getTime() - new Date(callStartedAt).getTime()) / 1000
-      );
-      if (callDurationSeconds < 0) callDurationSeconds = 0;
+
+    // Source 1: message.durationSeconds (seen in end-of-call-report payloads)
+    if (message.durationSeconds) {
+      callDurationSeconds = Math.round(message.durationSeconds);
     }
-    console.log(`[CallDuration] Calculated ${callDurationSeconds}s from ${callStartedAt} → ${callEndedAt}`);
+    // Source 2: message.durationMs (milliseconds variant)
+    else if (message.durationMs) {
+      callDurationSeconds = Math.round(message.durationMs / 1000);
+    }
+    // Source 3: message.call.startedAt/endedAt timestamps
+    else {
+      const callStartedAt = message.call.startedAt || message.call.createdAt;
+      const callEndedAt = message.call.endedAt || message.call.updatedAt;
+      if (callStartedAt && callEndedAt) {
+        callDurationSeconds = Math.round(
+          (new Date(callEndedAt).getTime() - new Date(callStartedAt).getTime()) / 1000
+        );
+        if (callDurationSeconds <= 0) callDurationSeconds = 0;
+      }
+    }
+
+    console.log(`[CallDuration] ${callDurationSeconds}s (sources: durationSeconds=${message.durationSeconds}, durationMs=${message.durationMs}, startedAt=${message.call.startedAt}, endedAt=${message.call.endedAt})`);
 
     try {
       const callLog = await storage.createCallLog({
