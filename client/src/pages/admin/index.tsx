@@ -661,7 +661,7 @@ function SystemTab() {
 // ── Costs & P/L Tab ──────────────────────────────────────────────────
 
 function CostsTab() {
-  const { data: costsData, isLoading } = useQuery<CostsData>({
+  const { data: costsData, isLoading, error } = useQuery<CostsData>({
     queryKey: ["/api/admin/costs"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/costs");
@@ -673,8 +673,20 @@ function CostsTab() {
     return <LoadingSpinner />;
   }
 
-  if (!costsData) {
-    return <p className="text-center text-muted-foreground py-8">Could not load costs data</p>;
+  if (error || !costsData) {
+    return (
+      <Card className="border-red-200 bg-red-50">
+        <CardContent className="pt-4">
+          <div className="flex items-start gap-2">
+            <XCircle className="h-5 w-5 text-red-500 mt-0.5" />
+            <div>
+              <p className="font-medium text-red-800">Could not load costs data</p>
+              {error && <p className="text-sm text-red-700 mt-1">{(error as Error).message}</p>}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
 
   const marginColor = costsData.grossMargin >= 0 ? "text-emerald-600" : "text-red-600";

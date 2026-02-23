@@ -613,16 +613,22 @@ export async function getCostsData(): Promise<CostsData> {
 
   // ── 5. Email Costs (estimated from notification log) ──────────────
   const EMAIL_COST_PER_EMAIL = 0.004; // ~Resend pricing
-  const emailCountResult = await db
-    .select({ count: sql`count(*)` })
-    .from(notificationLog)
-    .where(
-      and(
-        eq(notificationLog.channel, "email"),
-        gte(notificationLog.sentAt, startOfMonth)
-      )
-    );
-  const emailCount = Number(emailCountResult[0]?.count) || 0;
+  let emailCount = 0;
+  try {
+    const emailCountResult = await db
+      .select({ count: sql`count(*)` })
+      .from(notificationLog)
+      .where(
+        and(
+          eq(notificationLog.channel, "email"),
+          gte(notificationLog.sentAt, startOfMonth)
+        )
+      );
+    emailCount = Number(emailCountResult[0]?.count) || 0;
+  } catch (err: any) {
+    console.error("[Admin] Error querying notification_log for emails:", err.message);
+    warnings.push(`Email cost query failed: ${err.message}`);
+  }
   const emailCosts = {
     total: Math.round(emailCount * EMAIL_COST_PER_EMAIL * 100) / 100,
     count: emailCount,
@@ -638,39 +644,57 @@ export async function getCostsData(): Promise<CostsData> {
     twilioPhoneNumber: businesses.twilioPhoneNumber,
   }).from(businesses);
 
-  const plans = await db.select().from(subscriptionPlans);
+  let plans: any[] = [];
+  try {
+    plans = await db.select().from(subscriptionPlans);
+  } catch (err: any) {
+    console.error("[Admin] Error querying subscription_plans:", err.message);
+    warnings.push(`Subscription plans query failed: ${err.message}`);
+  }
   const planMap = new Map(plans.map(p => [p.id, p]));
 
   // Call minutes per business this month
-  const callMinutesPerBiz = await db
-    .select({
-      businessId: callLogs.businessId,
-      totalSeconds: sql`coalesce(sum(${callLogs.callDuration}), 0)`,
-    })
-    .from(callLogs)
-    .where(gte(callLogs.callTime, startOfMonth))
-    .groupBy(callLogs.businessId);
+  let callMinutesMap = new Map<number, number>();
+  try {
+    const callMinutesPerBiz = await db
+      .select({
+        businessId: callLogs.businessId,
+        totalSeconds: sql`coalesce(sum(${callLogs.callDuration}), 0)`,
+      })
+      .from(callLogs)
+      .where(gte(callLogs.callTime, startOfMonth))
+      .groupBy(callLogs.businessId);
 
-  const callMinutesMap = new Map(
-    callMinutesPerBiz.map(c => [c.businessId, Number(c.totalSeconds) / 60])
-  );
+    callMinutesMap = new Map(
+      callMinutesPerBiz.map(c => [c.businessId, Number(c.totalSeconds) / 60])
+    );
+  } catch (err: any) {
+    console.error("[Admin] Error querying call_logs:", err.message);
+    warnings.push(`Call log query failed: ${err.message}`);
+  }
 
   // SMS count per business this month
-  const smsPerBiz = await db
-    .select({
-      businessId: notificationLog.businessId,
-      count: sql`count(*)`,
-    })
-    .from(notificationLog)
-    .where(
-      and(
-        eq(notificationLog.channel, "sms"),
-        gte(notificationLog.sentAt, startOfMonth)
+  let smsCountMap = new Map<number, number>();
+  try {
+    const smsPerBiz = await db
+      .select({
+        businessId: notificationLog.businessId,
+        count: sql`count(*)`,
+      })
+      .from(notificationLog)
+      .where(
+        and(
+          eq(notificationLog.channel, "sms"),
+          gte(notificationLog.sentAt, startOfMonth)
+        )
       )
-    )
-    .groupBy(notificationLog.businessId);
+      .groupBy(notificationLog.businessId);
 
-  const smsCountMap = new Map(smsPerBiz.map(s => [s.businessId, Number(s.count)]));
+    smsCountMap = new Map(smsPerBiz.map(s => [s.businessId, Number(s.count)]));
+  } catch (err: any) {
+    console.error("[Admin] Error querying notification_log for SMS:", err.message);
+    warnings.push(`SMS count query failed: ${err.message}`);
+  }
 
   // Calculate totals for proportional allocation
   const totalCallMinutes = Array.from(callMinutesMap.values()).reduce((a, b) => a + b, 0) || 1;
