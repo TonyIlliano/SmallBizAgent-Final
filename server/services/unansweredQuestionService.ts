@@ -47,7 +47,7 @@ export async function analyzeTranscriptForUnansweredQuestions(
     const response = await openai.chat.completions.create({
       model: 'gpt-5-mini',
       temperature: 0.2,
-      max_tokens: 1500,
+      max_completion_tokens: 1500,
       messages: [
         {
           role: 'system',
