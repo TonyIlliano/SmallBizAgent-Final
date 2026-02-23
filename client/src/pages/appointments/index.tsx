@@ -430,6 +430,14 @@ function WeekView({
                     const heightPx = Math.max((durationMinutes / 60) * HOUR_HEIGHT - 2, 20);
                     const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
 
+                    const customerName = appt.customer
+                      ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
+                      : "Walk-in";
+                    const tooltipParts = [customerName];
+                    if (appt.customer?.phone) tooltipParts.push(appt.customer.phone);
+                    if (appt.service?.name) tooltipParts.push(appt.service.name);
+                    if (appt.staff) tooltipParts.push(`w/ ${appt.staff.firstName}`);
+
                     return (
                       <button
                         key={appt.id}
@@ -439,15 +447,19 @@ function WeekView({
                         }}
                         className={`absolute left-0.5 right-0.5 rounded px-1.5 py-0.5 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow hover:shadow-md z-10 ${colors.bg} ${colors.border}`}
                         style={{ top: topPx, height: heightPx }}
-                        title={`${appt.customer?.firstName || "Customer"} — ${appt.service?.name || "Appointment"}`}
+                        title={tooltipParts.join(" — ")}
                       >
                         <div className={`text-[10px] font-semibold truncate ${colors.text}`}>
                           {formatTime(start)}
                         </div>
                         <div className="text-[10px] text-gray-600 truncate">
-                          {appt.customer?.firstName || "Customer"}
-                          {appt.service ? ` · ${appt.service.name}` : ""}
+                          {customerName}
                         </div>
+                        {heightPx > 30 && appt.service && (
+                          <div className="text-[9px] text-gray-400 truncate">
+                            {appt.service.name}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -538,6 +550,12 @@ function DayView({
                       ? `${appt.customer.firstName} ${appt.customer.lastName}`
                       : "Walk-in Customer"}
                   </h4>
+                  {/* Customer phone */}
+                  {appt.customer?.phone && (
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {appt.customer.phone}
+                    </div>
+                  )}
                   {/* Service */}
                   <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
                     <Scissors className="h-3.5 w-3.5 flex-shrink-0" />

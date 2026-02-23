@@ -127,13 +127,21 @@ export function ScheduleCard({ businessId }: ScheduleCardProps) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <h4 className="text-sm font-semibold text-foreground truncate">
-                      {appointment.service?.name || 'Appointment'}
+                      {appointment.customer
+                        ? `${appointment.customer.firstName} ${appointment.customer.lastName}`.trim()
+                        : 'Walk-in'}
                     </h4>
                     {getStatusBadge(appointment.status)}
                   </div>
-                  <p className="text-sm text-muted-foreground mt-1 truncate">
-                    {appointment.customer?.firstName} {appointment.customer?.lastName}
+                  <p className="text-sm text-muted-foreground mt-0.5 truncate">
+                    {appointment.service?.name || 'General Appointment'}
+                    {appointment.staff ? ` · ${appointment.staff.firstName}` : ''}
                   </p>
+                  {appointment.customer?.phone && (
+                    <p className="text-xs text-muted-foreground/70 truncate">
+                      {appointment.customer.phone}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -43,9 +43,9 @@ import { CalendarIcon, Clock } from "lucide-react";
 
 // Time slots for appointment selection
 const TIME_SLOTS = [
-  "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+  "08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
   "12:00", "12:30", "13:00", "13:30", "14:00", "14:30",
-  "15:00", "15:30", "16:00", "16:30", "17:00"
+  "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00"
 ];
 
 // Calculate end time based on service duration
@@ -53,11 +53,11 @@ const calculateEndTime = (startTime: string, durationMinutes: number = 60): stri
   const [hours, minutes] = startTime.split(':').map(Number);
   const startDate = new Date();
   startDate.setHours(hours, minutes, 0, 0);
-  
+
   const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
   const endHours = endDate.getHours().toString().padStart(2, '0');
   const endMinutes = endDate.getMinutes().toString().padStart(2, '0');
-  
+
   return `${endHours}:${endMinutes}`;
 };
 
@@ -103,14 +103,6 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
     queryKey: ['/api/services', { businessId }],
   });
 
-  // Find the service data when edit mode is active
-  const getInitialService = () => {
-    if (isEdit && appointment?.serviceId && services) {
-      return services.find((s: any) => s.id === appointment.serviceId);
-    }
-    return null;
-  };
-
   // Parse appointment date and time for edit mode
   const getInitialDate = () => {
     if (isEdit && appointment?.startDate) {
@@ -143,6 +135,33 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
     },
   });
 
+  // Reset form when appointment data loads asynchronously (critical for edit mode)
+  useEffect(() => {
+    if (isEdit && appointment) {
+      const startDate = appointment.startDate ? new Date(appointment.startDate) : new Date();
+      const hours = startDate.getHours().toString().padStart(2, '0');
+      const minutes = startDate.getMinutes().toString().padStart(2, '0');
+      const startTime = `${hours}:${minutes}`;
+
+      form.reset({
+        businessId: businessId,
+        customerId: appointment.customerId?.toString() || "",
+        staffId: appointment.staffId?.toString() || "",
+        serviceId: appointment.serviceId?.toString() || "",
+        date: startDate,
+        startTime,
+        status: appointment.status || "scheduled",
+        notes: appointment.notes || "",
+      });
+
+      // Set selected service for duration calculation
+      if (appointment.serviceId && services.length > 0) {
+        const svc = services.find((s: any) => s.id === appointment.serviceId);
+        if (svc) setSelectedService(svc);
+      }
+    }
+  }, [appointment, isEdit, services]);
+
   // Update selected service when service changes
   const onServiceChange = (serviceId: string) => {
     form.setValue("serviceId", serviceId);
@@ -158,11 +177,11 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
     const startDate = new Date(data.date);
     const [startHours, startMinutes] = data.startTime.split(':').map(Number);
     startDate.setHours(startHours, startMinutes, 0, 0);
-    
+
     // Calculate end time based on service duration or default to 1 hour
     const duration = selectedService?.duration || 60;
     const endDate = new Date(startDate.getTime() + duration * 60000);
-    
+
     return {
       businessId: data.businessId,
       customerId: parseInt(data.customerId),
@@ -203,8 +222,8 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
-      queryClient.invalidateQueries({ 
-        queryKey: ["/api/appointments", appointment.id]
+      queryClient.invalidateQueries({
+        queryKey: [`/api/appointments/${appointment.id}`]
       });
       toast({
         title: "Success",
@@ -236,13 +255,6 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
     }
   };
 
-  // Initialize selected service in edit mode
-  useState(() => {
-    if (isEdit && appointment?.serviceId) {
-      setSelectedService(getInitialService());
-    }
-  });
-
   return (
     <Card>
       <CardHeader>
@@ -253,6 +265,36 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {/* Show appointment details summary in edit mode */}
+            {isEdit && appointment?.customer && (
+              <div className="bg-muted/50 rounded-lg p-4 mb-2 space-y-1">
+                <div className="text-sm font-medium">
+                  {appointment.customer.firstName} {appointment.customer.lastName}
+                </div>
+                {appointment.customer.phone && (
+                  <div className="text-sm text-muted-foreground">
+                    📱 {appointment.customer.phone}
+                  </div>
+                )}
+                {appointment.customer.email && (
+                  <div className="text-sm text-muted-foreground">
+                    ✉️ {appointment.customer.email}
+                  </div>
+                )}
+                {appointment.service && (
+                  <div className="text-sm text-muted-foreground">
+                    🔧 {appointment.service.name}
+                    {appointment.service.price ? ` · $${appointment.service.price}` : ''}
+                  </div>
+                )}
+                {appointment.staff && (
+                  <div className="text-sm text-muted-foreground">
+                    👤 {appointment.staff.firstName} {appointment.staff.lastName}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -260,9 +302,9 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Customer *</FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
-                      defaultValue={field.value}
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -271,11 +313,12 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                       </FormControl>
                       <SelectContent>
                         {customers?.map((customer: any) => (
-                          <SelectItem 
-                            key={customer.id} 
+                          <SelectItem
+                            key={customer.id}
                             value={customer.id.toString()}
                           >
                             {customer.firstName} {customer.lastName}
+                            {customer.phone ? ` (${customer.phone})` : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -284,16 +327,16 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="serviceId"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Service</FormLabel>
-                    <Select 
-                      onValueChange={onServiceChange} 
-                      defaultValue={field.value}
+                    <Select
+                      onValueChange={onServiceChange}
+                      value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -302,8 +345,8 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                       </FormControl>
                       <SelectContent>
                         {services?.map((service: any) => (
-                          <SelectItem 
-                            key={service.id} 
+                          <SelectItem
+                            key={service.id}
                             value={service.id.toString()}
                           >
                             {service.name} ({service.duration} min)
@@ -315,16 +358,16 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="staffId"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Technician</FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
-                      defaultValue={field.value}
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -333,8 +376,8 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                       </FormControl>
                       <SelectContent>
                         {staff?.map((staffMember: any) => (
-                          <SelectItem 
-                            key={staffMember.id} 
+                          <SelectItem
+                            key={staffMember.id}
                             value={staffMember.id.toString()}
                           >
                             {staffMember.firstName} {staffMember.lastName}
@@ -346,16 +389,16 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="status"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Status *</FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
-                      defaultValue={field.value}
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -373,7 +416,7 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="date"
@@ -405,7 +448,6 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                           selected={field.value}
                           onSelect={field.onChange}
                           initialFocus
-                          disabled={(date) => date < new Date()}
                         />
                       </PopoverContent>
                     </Popover>
@@ -413,16 +455,16 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="startTime"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Time *</FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
-                      defaultValue={field.value}
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -432,7 +474,7 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                       <SelectContent>
                         {TIME_SLOTS.map((time) => {
                           const endTime = calculateEndTime(
-                            time, 
+                            time,
                             selectedService?.duration || 60
                           );
                           return (
@@ -451,7 +493,7 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                 )}
               />
             </div>
-            
+
             <FormField
               control={form.control}
               name="notes"
@@ -459,17 +501,17 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                 <FormItem>
                   <FormLabel>Notes</FormLabel>
                   <FormControl>
-                    <Textarea 
-                      placeholder="Additional notes or special instructions" 
-                      className="min-h-[80px]" 
-                      {...field} 
+                    <Textarea
+                      placeholder="Additional notes or special instructions"
+                      className="min-h-[80px]"
+                      {...field}
                     />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            
+
             <div className="flex justify-end space-x-4">
               <Button
                 type="button"
@@ -479,10 +521,10 @@ export function AppointmentForm({ appointment, isEdit = false }: AppointmentForm
                 Cancel
               </Button>
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting 
-                  ? "Saving..." 
-                  : isEdit 
-                    ? "Update Appointment" 
+                {isSubmitting
+                  ? "Saving..."
+                  : isEdit
+                    ? "Update Appointment"
                     : "Schedule Appointment"}
               </Button>
             </div>

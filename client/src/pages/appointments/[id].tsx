@@ -29,8 +29,8 @@ export default function AppointmentDetail() {
 
   // Fetch appointment data if editing existing appointment
   const { data: appointment, isLoading, error } = useQuery<any>({
-    queryKey: ['/api/appointments', numericId],
-    enabled: !isNew && !!appointmentId,
+    queryKey: [`/api/appointments/${numericId}`],
+    enabled: !isNew && !!appointmentId && numericId > 0,
   });
 
   // Delete mutation
