@@ -105,6 +105,7 @@ export interface CostBreakdown {
   vapi: { total: number; callCount: number };
   stripe: { fees: number; transactionCount: number };
   email: { total: number; count: number; ratePerEmail: number };
+  railway: { total: number; estimated: boolean };
 }
 
 export interface PerBusinessCost {
@@ -628,7 +629,54 @@ export async function getCostsData(): Promise<CostsData> {
     ratePerEmail: EMAIL_COST_PER_EMAIL,
   };
 
-  // ── 6. Per-Business Profitability ─────────────────────────────────
+  // ── 6. Railway Infrastructure Costs ─────────────────────────────────
+  let railwayCosts = { total: 0, estimated: true };
+  const railwayToken = process.env.RAILWAY_API_TOKEN;
+  const railwayProjectId = process.env.RAILWAY_PROJECT_ID;
+
+  if (railwayToken && railwayProjectId) {
+    try {
+      const response = await fetch("https://backboard.railway.com/graphql/v2", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${railwayToken}`,
+        },
+        body: JSON.stringify({
+          query: `query {
+            estimatedUsage(projectId: "${railwayProjectId}", measurements: [CPU_USAGE, MEMORY_USAGE_GB, NETWORK_TX_GB, DISK_USAGE_GB]) {
+              estimatedValue
+              measurement
+              projectId
+            }
+          }`,
+        }),
+      });
+
+      if (response.ok) {
+        const json = await response.json();
+        const usageItems = json?.data?.estimatedUsage;
+        if (Array.isArray(usageItems)) {
+          let totalEstimate = 0;
+          for (const item of usageItems) {
+            totalEstimate += Number(item.estimatedValue) || 0;
+          }
+          railwayCosts = { total: Math.round(totalEstimate * 100) / 100, estimated: true };
+        }
+      } else {
+        const body = await response.text();
+        console.error("[Admin] Railway API error:", response.status, body);
+        warnings.push(`Railway cost fetch failed: ${response.status}`);
+      }
+    } catch (err: any) {
+      console.error("[Admin] Error fetching Railway costs:", err.message);
+      warnings.push(`Railway cost fetch failed: ${err.message}`);
+    }
+  } else if (!railwayToken) {
+    warnings.push("Railway API token not configured — add RAILWAY_API_TOKEN env var for infrastructure costs");
+  }
+
+  // ── 7. Per-Business Profitability ─────────────────────────────────
   const allBiz = await db.select({
     id: businesses.id,
     name: businesses.name,
@@ -733,8 +781,8 @@ export async function getCostsData(): Promise<CostsData> {
   // Sort by profit descending (most profitable first)
   perBusiness.sort((a, b) => b.estimatedProfit - a.estimatedProfit);
 
-  // ── 7. Assemble final response ────────────────────────────────────
-  const totalCosts = twilioCosts.total + vapiCosts.total + stripeCosts.fees + emailCosts.total;
+  // ── 8. Assemble final response ────────────────────────────────────
+  const totalCosts = twilioCosts.total + vapiCosts.total + stripeCosts.fees + emailCosts.total + railwayCosts.total;
   const grossMargin = revenueData.mrr - totalCosts;
   const grossMarginPercent = revenueData.mrr > 0
     ? Math.round((grossMargin / revenueData.mrr) * 10000) / 100
@@ -748,6 +796,7 @@ export async function getCostsData(): Promise<CostsData> {
       vapi: vapiCosts,
       stripe: stripeCosts,
       email: emailCosts,
+      railway: railwayCosts,
     },
     totalCosts: Math.round(totalCosts * 100) / 100,
     grossMargin: Math.round(grossMargin * 100) / 100,

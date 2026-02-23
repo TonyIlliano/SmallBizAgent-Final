@@ -98,6 +98,7 @@ interface CostBreakdown {
   vapi: { total: number; callCount: number };
   stripe: { fees: number; transactionCount: number };
   email: { total: number; count: number; ratePerEmail: number };
+  railway: { total: number; estimated: boolean };
 }
 
 interface PerBusinessCost {
@@ -822,6 +823,12 @@ function CostsTab() {
                 service="Email (Estimated)"
                 details={`${costsData.costs.email.count} emails @ $${costsData.costs.email.ratePerEmail}/ea`}
                 cost={costsData.costs.email.total}
+                total={costsData.totalCosts}
+              />
+              <CostRow
+                service={`Railway (Hosting)${costsData.costs.railway?.estimated ? " *" : ""}`}
+                details="Server, database & networking"
+                cost={costsData.costs.railway?.total || 0}
                 total={costsData.totalCosts}
               />
               <TableRow className="font-bold border-t-2">
