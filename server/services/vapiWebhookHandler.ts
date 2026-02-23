@@ -1414,11 +1414,30 @@ async function bookAppointment(
       return { result: { success: false, error: 'Customer phone number required' } };
     }
 
+    // Reject bookings without a real customer name — tell the AI to ask for it
+    const hasRealName = params.customerName &&
+      params.customerName.trim() !== '' &&
+      params.customerName.toLowerCase() !== 'new customer' &&
+      params.customerName.toLowerCase() !== 'unknown' &&
+      params.customerName.toLowerCase() !== 'caller';
+
     // Try to find existing customer
     customer = await storage.getCustomerByPhone(phone, businessId);
 
+    // If no existing customer AND no real name provided, reject the booking
+    if (!customer && !hasRealName) {
+      console.log(`[bookAppointment] Rejected: no customer name provided for new caller ${phone}`);
+      return {
+        result: {
+          success: false,
+          needsCustomerName: true,
+          error: 'I need the customer\'s name before I can book the appointment. Please ask "May I get your name for the appointment?" and then try booking again with their name.'
+        }
+      };
+    }
+
     if (!customer) {
-      // Create new customer
+      // Create new customer — we know we have a real name at this point
       const nameParts = (params.customerName || 'New Customer').split(' ');
       try {
         console.log('Creating new customer for booking:', {
