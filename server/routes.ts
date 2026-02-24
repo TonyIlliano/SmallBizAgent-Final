@@ -1520,6 +1520,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       fireEvent(businessId, 'job.created', { job })
         .catch(err => console.error('Webhook fire error:', err));
 
+      // Auto-create a linked appointment if the job has a scheduled date
+      if (job.scheduledDate && job.customerId && !job.appointmentId) {
+        try {
+          // Parse the scheduled date and create a 1-hour appointment block
+          const startDate = new Date(job.scheduledDate + 'T09:00:00');
+          const endDate = new Date(startDate);
+          endDate.setMinutes(endDate.getMinutes() + 60);
+
+          const appointment = await storage.createAppointment({
+            businessId,
+            customerId: job.customerId,
+            staffId: job.staffId || null,
+            serviceId: null,
+            startDate,
+            endDate,
+            status: 'scheduled',
+            notes: `Auto-created from job: ${job.title}`,
+          });
+
+          // Link the appointment back to the job
+          await storage.updateJob(job.id, { appointmentId: appointment.id });
+          job.appointmentId = appointment.id;
+
+          console.log(`Auto-created appointment ${appointment.id} for job ${job.id}`);
+        } catch (aptErr: any) {
+          console.error('Failed to auto-create appointment for job:', aptErr.message);
+          // Non-blocking — job is still created successfully
+        }
+      }
+
       res.status(201).json(job);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1548,6 +1578,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Fire webhook event for job completed (fire-and-forget)
         fireEvent(existing.businessId, 'job.completed', { job })
           .catch(err => console.error('Webhook fire error:', err));
+      }
+
+      // Sync linked appointment when job changes
+      if (job.appointmentId) {
+        try {
+          const linkedAppointment = await storage.getAppointment(job.appointmentId);
+          if (linkedAppointment) {
+            const appointmentUpdates: any = {};
+
+            // Sync scheduled date change
+            if (validatedData.scheduledDate && validatedData.scheduledDate !== existing.scheduledDate) {
+              appointmentUpdates.startDate = new Date(validatedData.scheduledDate + 'T09:00:00');
+              appointmentUpdates.endDate = new Date(appointmentUpdates.startDate);
+              appointmentUpdates.endDate.setMinutes(appointmentUpdates.endDate.getMinutes() + 60);
+            }
+
+            // Sync staff change
+            if (validatedData.staffId !== undefined && validatedData.staffId !== existing.staffId) {
+              appointmentUpdates.staffId = validatedData.staffId;
+            }
+
+            // Sync status: cancelled job → cancel appointment
+            if (validatedData.status === 'cancelled' && existing.status !== 'cancelled') {
+              appointmentUpdates.status = 'cancelled';
+              appointmentUpdates.notes = `${linkedAppointment.notes || ''}\n[Cancelled: linked job was cancelled]`.trim();
+            }
+
+            // Sync status: completed job → complete appointment
+            if (validatedData.status === 'completed' && existing.status !== 'completed') {
+              if (linkedAppointment.status !== 'completed' && linkedAppointment.status !== 'cancelled') {
+                appointmentUpdates.status = 'completed';
+              }
+            }
+
+            if (Object.keys(appointmentUpdates).length > 0) {
+              await storage.updateAppointment(job.appointmentId, appointmentUpdates);
+              console.log(`Synced appointment ${job.appointmentId} with job ${job.id} changes`);
+            }
+          }
+        } catch (syncErr: any) {
+          console.error('Failed to sync appointment with job update:', syncErr.message);
+        }
       }
 
       res.json(job);
