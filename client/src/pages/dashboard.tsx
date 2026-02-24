@@ -411,13 +411,18 @@ export default function Dashboard() {
                 />
 
                 {usageData.overageMinutes > 0 && (
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-                    <span className="text-xs text-amber-700 dark:text-amber-300">
-                      {usageData.overageMinutes} overage min @ ${usageData.overageRate.toFixed(2)}/min
-                    </span>
-                    <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                      +${usageData.overageCost.toFixed(2)}
-                    </span>
+                  <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-amber-700 dark:text-amber-300">
+                        {usageData.overageMinutes} overage min @ ${usageData.overageRate.toFixed(2)}/min
+                      </span>
+                      <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                        +${usageData.overageCost.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                      Billed automatically at period end
+                    </p>
                   </div>
                 )}
 

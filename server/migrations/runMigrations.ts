@@ -576,6 +576,30 @@ async function fixExistingTables() {
     );
   `);
 
+  // Create overage_charges table (tracks automatic overage billing per billing period)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS overage_charges (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      period_start TIMESTAMP NOT NULL,
+      period_end TIMESTAMP NOT NULL,
+      minutes_used INTEGER NOT NULL,
+      minutes_included INTEGER NOT NULL,
+      overage_minutes INTEGER NOT NULL,
+      overage_rate REAL NOT NULL,
+      overage_amount REAL NOT NULL,
+      stripe_invoice_id TEXT,
+      stripe_invoice_url TEXT,
+      status TEXT DEFAULT 'pending',
+      failure_reason TEXT,
+      plan_name TEXT,
+      plan_tier TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT overage_charges_unique_period UNIQUE (business_id, period_start)
+    );
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 
@@ -1137,6 +1161,30 @@ async function createBaseTables() {
       order_type TEXT,
       error_message TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create overage_charges table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS overage_charges (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      period_start TIMESTAMP NOT NULL,
+      period_end TIMESTAMP NOT NULL,
+      minutes_used INTEGER NOT NULL,
+      minutes_included INTEGER NOT NULL,
+      overage_minutes INTEGER NOT NULL,
+      overage_rate REAL NOT NULL,
+      overage_amount REAL NOT NULL,
+      stripe_invoice_id TEXT,
+      stripe_invoice_url TEXT,
+      status TEXT DEFAULT 'pending',
+      failure_reason TEXT,
+      plan_name TEXT,
+      plan_tier TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT overage_charges_unique_period UNIQUE (business_id, period_start)
     );
   `);
 

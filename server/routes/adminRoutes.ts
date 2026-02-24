@@ -124,4 +124,25 @@ router.get("/api/admin/phone-numbers", isAdmin, async (req: Request, res: Respon
   }
 });
 
+/**
+ * POST /api/admin/process-overage-billing — Manually trigger overage billing check
+ */
+router.post("/api/admin/process-overage-billing", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { processAllOverageBilling } = await import("../services/overageBillingService.js");
+    const results = await processAllOverageBilling();
+    const invoiced = results.filter(r => r.status === 'invoiced').length;
+    const noOverage = results.filter(r => r.status === 'no_overage').length;
+    const skipped = results.filter(r => r.status === 'skipped').length;
+    const failed = results.filter(r => r.status === 'failed').length;
+    res.json({
+      summary: { invoiced, noOverage, skipped, failed, total: results.length },
+      results,
+    });
+  } catch (error: any) {
+    console.error("[Admin] Error processing overage billing:", error);
+    res.status(500).json({ error: "Failed to process overage billing", details: error.message });
+  }
+});
+
 export default router;

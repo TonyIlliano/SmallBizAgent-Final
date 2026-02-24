@@ -14,6 +14,7 @@ import { StripeConnectIntegration } from "@/components/stripe/StripeConnectInteg
 import RestaurantSettings from "@/components/restaurant/RestaurantSettings";
 import ReviewSettings from "@/components/reviews/ReviewSettings";
 import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
+import { OverageBillingHistory } from "@/components/subscription/OverageBillingHistory";
 import { StaffScheduleManager } from "@/components/settings/StaffScheduleManager";
 import BookingSettings from "@/components/settings/BookingSettings";
 import NotificationSettingsPanel from "@/components/settings/NotificationSettings";
@@ -1812,8 +1813,23 @@ export default function Settings() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Overage Billing History */}
+            {business && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Overage Billing History</CardTitle>
+                  <CardDescription>
+                    Minutes beyond your plan limit are billed automatically at the end of each billing period.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <OverageBillingHistory businessId={business.id} />
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
-          
+
           <TabsContent value="pwa" className="space-y-4">
             {/* AI Receptionist Refresh Card */}
             {business?.vapiAssistantId && (

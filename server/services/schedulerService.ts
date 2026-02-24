@@ -319,6 +319,47 @@ async function runQuoteFollowUpCheck(): Promise<void> {
 }
 
 /**
+ * Start the overage billing scheduler.
+ * Runs every 6 hours to bill businesses for call minutes exceeding their plan.
+ * Idempotent: unique constraint on (business_id, period_start) prevents double-billing.
+ */
+export function startOverageBillingScheduler(): void {
+  const jobKey = 'overage-billing';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Overage billing scheduler already running');
+    return;
+  }
+
+  console.log('Starting overage billing scheduler');
+
+  // Run immediately on start
+  runOverageBillingCheck();
+
+  // Then run every 6 hours
+  const intervalId = setInterval(() => {
+    runOverageBillingCheck();
+  }, 6 * 60 * 60 * 1000);
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+async function runOverageBillingCheck(): Promise<void> {
+  try {
+    console.log(`[OverageBilling] Running overage billing check at ${new Date().toISOString()}`);
+    const { processAllOverageBilling } = await import('./overageBillingService.js');
+    const results = await processAllOverageBilling();
+    const invoiced = results.filter(r => r.status === 'invoiced').length;
+    const noOverage = results.filter(r => r.status === 'no_overage').length;
+    const skipped = results.filter(r => r.status === 'skipped').length;
+    const failed = results.filter(r => r.status === 'failed').length;
+    console.log(`[OverageBilling] Done — ${invoiced} invoiced, ${noOverage} no overage, ${skipped} skipped, ${failed} failed`);
+  } catch (error) {
+    console.error('[OverageBilling] Error:', error);
+  }
+}
+
+/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -346,6 +387,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start automated quote follow-up (sends reminder for pending quotes older than 3 days)
     startQuoteFollowUpScheduler();
 
+    // Start overage billing (bills for call minutes exceeding plan limits)
+    startOverageBillingScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -370,6 +414,7 @@ export default {
   startVapiDailyRefreshScheduler,
   startOverdueInvoiceScheduler,
   startQuoteFollowUpScheduler,
+  startOverageBillingScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

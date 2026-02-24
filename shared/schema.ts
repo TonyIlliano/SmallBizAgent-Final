@@ -588,6 +588,29 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Overage Charges (tracks automatic overage billing per billing period)
+export const overageCharges = pgTable("overage_charges", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  minutesUsed: integer("minutes_used").notNull(),
+  minutesIncluded: integer("minutes_included").notNull(),
+  overageMinutes: integer("overage_minutes").notNull(),
+  overageRate: real("overage_rate").notNull(),
+  overageAmount: real("overage_amount").notNull(),
+  stripeInvoiceId: text("stripe_invoice_id"),
+  stripeInvoiceUrl: text("stripe_invoice_url"),
+  status: text("status").default("pending"), // pending, invoiced, paid, failed, no_overage
+  failureReason: text("failure_reason"),
+  planName: text("plan_name"),
+  planTier: text("plan_tier"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  uniquePeriod: unique("overage_charges_unique_period").on(table.businessId, table.periodStart),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true, emailVerified: true, emailVerificationCode: true, emailVerificationExpiry: true });
 export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true, updatedAt: true });
@@ -613,6 +636,7 @@ export const insertReceptionistConfigSchema = createInsertSchema(receptionistCon
 export const insertCallLogSchema = createInsertSchema(callLogs).omit({ id: true });
 export const insertCalendarIntegrationSchema = createInsertSchema(calendarIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertOverageChargeSchema = createInsertSchema(overageCharges).omit({ id: true, createdAt: true, updatedAt: true });
 // Create and then modify the insert schema to handle the validUntil field properly
 const baseInsertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
 
@@ -688,6 +712,9 @@ export type InsertCalendarIntegration = z.infer<typeof insertCalendarIntegration
 
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema>;
+
+export type OverageCharge = typeof overageCharges.$inferSelect;
+export type InsertOverageCharge = z.infer<typeof insertOverageChargeSchema>;
 
 export type Quote = typeof quotes.$inferSelect;
 export type InsertQuote = z.infer<typeof insertQuoteSchema>;

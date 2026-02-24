@@ -123,6 +123,19 @@ router.get('/usage/:businessId', isAuthenticated, async (req: Request, res: Resp
   }
 });
 
+// Get overage billing history for a business
+router.get('/overage-history/:businessId', isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    const { getOverageHistory } = await import('../services/overageBillingService.js');
+    const charges = await getOverageHistory(businessId);
+    res.json({ charges });
+  } catch (error: any) {
+    console.error('Error fetching overage history:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Stripe webhook handler (requires Stripe)
 router.post('/webhook', async (req: Request, res: Response) => {
   if (!stripe || !subscriptionService) {
