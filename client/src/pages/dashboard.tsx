@@ -12,7 +12,7 @@ import { SkeletonStats } from "@/components/ui/skeleton-loader";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { formatCurrency } from "@/lib/utils";
-import { FeatureTour } from "@/components/ui/feature-tour";
+
 
 import { Progress } from "@/components/ui/progress";
 
@@ -285,7 +285,7 @@ export default function Dashboard() {
         )}
 
         {/* Quick Actions */}
-        <div data-tour="quick-actions" className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {quickActions.map((action) => (
             <Link key={action.href} href={action.href}>
               <Card className="border-border bg-card hover:bg-muted/50 hover:shadow-md transition-all duration-200 cursor-pointer group h-full">
@@ -304,7 +304,7 @@ export default function Dashboard() {
         {analyticsLoading ? (
           <SkeletonStats />
         ) : (
-          <div data-tour="stats" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               title="Completed Jobs"
               value={analytics?.jobs?.completedJobs ?? jobs?.length ?? 0}
@@ -466,12 +466,12 @@ export default function Dashboard() {
         {/* Middle Section - Appointments and Jobs */}
         <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
           {/* Today's Schedule */}
-          <div data-tour="schedule" className="lg:col-span-1">
+          <div className="lg:col-span-1">
             <ScheduleCard businessId={businessId} />
           </div>
 
           {/* Active Jobs */}
-          <div data-tour="jobs" className="lg:col-span-2">
+          <div className="lg:col-span-2">
             <JobsTable businessId={businessId} limit={3} />
           </div>
         </div>
@@ -633,37 +633,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Feature Tour for new users */}
-      <FeatureTour
-        tourId="dashboard-welcome"
-        autoStart={true}
-        steps={[
-          {
-            target: "[data-tour='quick-actions']",
-            title: "Quick Actions",
-            content: "Jump straight to creating appointments, jobs, invoices, or adding customers with one tap.",
-            placement: "bottom",
-          },
-          {
-            target: "[data-tour='stats']",
-            title: "Business Stats",
-            content: "Track your completed jobs, revenue, upcoming appointments, and call volume at a glance.",
-            placement: "bottom",
-          },
-          {
-            target: "[data-tour='schedule']",
-            title: "Today's Schedule",
-            content: "See all of today's appointments and what's coming up next.",
-            placement: "right",
-          },
-          {
-            target: "[data-tour='jobs']",
-            title: "Active Jobs",
-            content: "Monitor your in-progress jobs and quickly update their status.",
-            placement: "left",
-          },
-        ]}
-      />
     </PageLayout>
   );
 }
