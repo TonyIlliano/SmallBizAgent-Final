@@ -477,10 +477,12 @@ export class SubscriptionService {
    */
   private async handleOveragePaymentSucceeded(invoice: Stripe.Invoice) {
     try {
+      const invoiceId = invoice.id;
+      if (!invoiceId) return;
       await db.update(overageCharges)
         .set({ status: 'paid', updatedAt: new Date() })
-        .where(eq(overageCharges.stripeInvoiceId, invoice.id));
-      console.log(`[OverageBilling] Payment succeeded for overage invoice ${invoice.id} (business ${invoice.metadata?.businessId})`);
+        .where(eq(overageCharges.stripeInvoiceId, invoiceId));
+      console.log(`[OverageBilling] Payment succeeded for overage invoice ${invoiceId} (business ${invoice.metadata?.businessId})`);
     } catch (error) {
       console.error('[OverageBilling] Error updating overage charge status:', error);
     }
@@ -492,14 +494,16 @@ export class SubscriptionService {
    */
   private async handleOveragePaymentFailed(invoice: Stripe.Invoice) {
     try {
+      const invoiceId = invoice.id;
+      if (!invoiceId) return;
       await db.update(overageCharges)
         .set({
           status: 'failed',
           failureReason: 'Payment failed',
           updatedAt: new Date(),
         })
-        .where(eq(overageCharges.stripeInvoiceId, invoice.id));
-      console.log(`[OverageBilling] Payment FAILED for overage invoice ${invoice.id} (business ${invoice.metadata?.businessId})`);
+        .where(eq(overageCharges.stripeInvoiceId, invoiceId));
+      console.log(`[OverageBilling] Payment FAILED for overage invoice ${invoiceId} (business ${invoice.metadata?.businessId})`);
     } catch (error) {
       console.error('[OverageBilling] Error updating overage charge status:', error);
     }
