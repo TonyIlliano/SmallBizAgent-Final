@@ -593,7 +593,7 @@ export async function authenticateApiKey(req: Request, res: Response, next: Next
     // Dynamic import to avoid circular dependency
     const { pool } = await import('./db');
     const result = await pool.query(
-      `SELECT ak.id, ak.business_id, ak.active, ak.expires_at, b.name as business_name
+      `SELECT ak.id, ak.business_id, ak.active, b.name as business_name
        FROM api_keys ak
        JOIN businesses b ON ak.business_id = b.id
        WHERE ak.key_hash = $1 AND ak.active = true`,
