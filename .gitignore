@@ -59,12 +59,7 @@ npm-debug.log
 # SQLite database
 database.db
 
-# Capacitor native build artifacts
-android/app/build/
-android/.gradle/
-android/build/
-android/capacitor-cordova-android-plugins/build/
-ios/App/Pods/
-ios/App/DerivedData/
-ios/App/build/
+# Capacitor native directories (built locally, not needed for web deploy)
+android/
+ios/
 *.keystore
