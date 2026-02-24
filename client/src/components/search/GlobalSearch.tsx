@@ -1,15 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import {
-  CommandDialog,
-  CommandInput,
-  CommandList,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandSeparator,
-} from "@/components/ui/command";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useDebounce } from "@/hooks/use-debounce";
 import {
   Users,
@@ -19,6 +11,7 @@ import {
   ClipboardList,
   Search,
   Clock,
+  Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -83,6 +76,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const { data: results, isLoading } = useQuery<SearchResults>({
     queryKey: ["/api/search", { q: debouncedQuery }],
     enabled: debouncedQuery.length >= 2,
+    staleTime: 30_000, // Search results should refresh frequently
   });
 
   const handleSelect = useCallback(
@@ -109,71 +103,90 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const showRecent = !debouncedQuery && recentSearches.length > 0;
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>
-      <CommandInput
-        placeholder="Search customers, jobs, invoices..."
-        value={query}
-        onValueChange={setQuery}
-      />
-      <CommandList>
-        {debouncedQuery.length >= 2 && !hasResults && !isLoading && (
-          <CommandEmpty>
-            <div className="flex flex-col items-center gap-2 py-4">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="overflow-hidden p-0 shadow-lg sm:max-w-[500px]">
+        {/* Search Input */}
+        <div className="flex items-center border-b px-3">
+          <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+          <input
+            className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            placeholder="Search customers, jobs, invoices..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        {/* Results Area */}
+        <div className="max-h-[400px] overflow-y-auto">
+          {/* Loading state */}
+          {isLoading && debouncedQuery.length >= 2 && (
+            <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Searching...
+            </div>
+          )}
+
+          {/* No results */}
+          {debouncedQuery.length >= 2 && !hasResults && !isLoading && (
+            <div className="flex flex-col items-center gap-2 py-6">
               <Search className="h-8 w-8 text-muted-foreground" />
-              <p>No results found for "{debouncedQuery}"</p>
+              <p className="text-sm">No results found for &quot;{debouncedQuery}&quot;</p>
               <p className="text-xs text-muted-foreground">
                 Try a different search term
               </p>
             </div>
-          </CommandEmpty>
-        )}
+          )}
 
-        {isLoading && debouncedQuery.length >= 2 && (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            Searching...
-          </div>
-        )}
+          {/* Recent Searches */}
+          {showRecent && (
+            <div className="p-1">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                Recent Searches
+              </div>
+              {recentSearches.map((term) => (
+                <button
+                  key={term}
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => handleRecentSearch(term)}
+                >
+                  <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>{term}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
-        {showRecent && (
-          <CommandGroup heading="Recent Searches">
-            {recentSearches.map((term) => (
-              <CommandItem
-                key={term}
-                onSelect={() => handleRecentSearch(term)}
-              >
-                <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
-                <span>{term}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
+          {/* Empty state */}
+          {!debouncedQuery && !showRecent && (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+              <p>Start typing to search across your business</p>
+              <p className="text-xs mt-1">
+                <kbd className="px-1.5 py-0.5 rounded border bg-muted text-xs">
+                  ⌘K
+                </kbd>{" "}
+                to open anytime
+              </p>
+            </div>
+          )}
 
-        {!debouncedQuery && !showRecent && (
-          <div className="py-8 text-center text-sm text-muted-foreground">
-            <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-            <p>Start typing to search across your business</p>
-            <p className="text-xs mt-1">
-              <kbd className="px-1.5 py-0.5 rounded border bg-muted text-xs">
-                ⌘K
-              </kbd>{" "}
-              to open anytime
-            </p>
-          </div>
-        )}
-
-        {results?.customers && results.customers.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Customers">
+          {/* Customers */}
+          {results?.customers && results.customers.length > 0 && (
+            <div className="p-1">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                Customers
+              </div>
               {results.customers.map((customer: any) => (
-                <CommandItem
+                <button
                   key={`customer-${customer.id}`}
-                  onSelect={() =>
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                  onClick={() =>
                     handleSelect(`/customers/${customer.id}`, debouncedQuery)
                   }
                 >
-                  <Users className="mr-2 h-4 w-4 text-blue-500" />
-                  <div className="flex-1 min-w-0">
+                  <Users className="mr-2 h-4 w-4 text-blue-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 text-left">
                     <span className="font-medium">
                       {customer.firstName} {customer.lastName}
                     </span>
@@ -183,25 +196,27 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                       </span>
                     )}
                   </div>
-                </CommandItem>
+                </button>
               ))}
-            </CommandGroup>
-          </>
-        )}
+            </div>
+          )}
 
-        {results?.jobs && results.jobs.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Jobs">
+          {/* Jobs */}
+          {results?.jobs && results.jobs.length > 0 && (
+            <div className="p-1 border-t">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                Jobs
+              </div>
               {results.jobs.map((job: any) => (
-                <CommandItem
+                <button
                   key={`job-${job.id}`}
-                  onSelect={() =>
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                  onClick={() =>
                     handleSelect(`/jobs/${job.id}`, debouncedQuery)
                   }
                 >
-                  <Briefcase className="mr-2 h-4 w-4 text-amber-500" />
-                  <div className="flex-1 min-w-0">
+                  <Briefcase className="mr-2 h-4 w-4 text-amber-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 text-left">
                     <span className="font-medium">{job.title}</span>
                     {job.customerName && (
                       <span className="ml-2 text-xs text-muted-foreground">
@@ -212,25 +227,27 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                   <Badge variant="outline" className="ml-2 text-xs">
                     {job.status}
                   </Badge>
-                </CommandItem>
+                </button>
               ))}
-            </CommandGroup>
-          </>
-        )}
+            </div>
+          )}
 
-        {results?.invoices && results.invoices.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Invoices">
+          {/* Invoices */}
+          {results?.invoices && results.invoices.length > 0 && (
+            <div className="p-1 border-t">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                Invoices
+              </div>
               {results.invoices.map((invoice: any) => (
-                <CommandItem
+                <button
                   key={`invoice-${invoice.id}`}
-                  onSelect={() =>
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                  onClick={() =>
                     handleSelect(`/invoices/${invoice.id}`, debouncedQuery)
                   }
                 >
-                  <FileText className="mr-2 h-4 w-4 text-green-500" />
-                  <div className="flex-1 min-w-0">
+                  <FileText className="mr-2 h-4 w-4 text-green-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 text-left">
                     <span className="font-medium">
                       #{invoice.invoiceNumber}
                     </span>
@@ -243,25 +260,27 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                   <Badge variant="outline" className="ml-2 text-xs">
                     {invoice.status}
                   </Badge>
-                </CommandItem>
+                </button>
               ))}
-            </CommandGroup>
-          </>
-        )}
+            </div>
+          )}
 
-        {results?.appointments && results.appointments.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Appointments">
+          {/* Appointments */}
+          {results?.appointments && results.appointments.length > 0 && (
+            <div className="p-1 border-t">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                Appointments
+              </div>
               {results.appointments.map((appt: any) => (
-                <CommandItem
+                <button
                   key={`appointment-${appt.id}`}
-                  onSelect={() =>
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                  onClick={() =>
                     handleSelect(`/appointments/${appt.id}`, debouncedQuery)
                   }
                 >
-                  <Calendar className="mr-2 h-4 w-4 text-purple-500" />
-                  <div className="flex-1 min-w-0">
+                  <Calendar className="mr-2 h-4 w-4 text-purple-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 text-left">
                     <span className="font-medium">{appt.customerName}</span>
                     <span className="ml-2 text-xs text-muted-foreground">
                       {appt.date}
@@ -270,25 +289,27 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                   <Badge variant="outline" className="ml-2 text-xs">
                     {appt.status}
                   </Badge>
-                </CommandItem>
+                </button>
               ))}
-            </CommandGroup>
-          </>
-        )}
+            </div>
+          )}
 
-        {results?.quotes && results.quotes.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Quotes">
+          {/* Quotes */}
+          {results?.quotes && results.quotes.length > 0 && (
+            <div className="p-1 border-t">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                Quotes
+              </div>
               {results.quotes.map((quote: any) => (
-                <CommandItem
+                <button
                   key={`quote-${quote.id}`}
-                  onSelect={() =>
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                  onClick={() =>
                     handleSelect(`/quotes/${quote.id}`, debouncedQuery)
                   }
                 >
-                  <ClipboardList className="mr-2 h-4 w-4 text-orange-500" />
-                  <div className="flex-1 min-w-0">
+                  <ClipboardList className="mr-2 h-4 w-4 text-orange-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 text-left">
                     <span className="font-medium">#{quote.quoteNumber}</span>
                     {quote.customerName && (
                       <span className="ml-2 text-xs text-muted-foreground">
@@ -299,12 +320,12 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                   <Badge variant="outline" className="ml-2 text-xs">
                     {quote.status}
                   </Badge>
-                </CommandItem>
+                </button>
               ))}
-            </CommandGroup>
-          </>
-        )}
-      </CommandList>
-    </CommandDialog>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
