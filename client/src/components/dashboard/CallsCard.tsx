@@ -6,6 +6,7 @@ import { Link } from "wouter";
 import { formatDateTime, formatPhoneNumber } from "@/lib/utils";
 import { Phone, ArrowRight, PhoneIncoming, PhoneMissed, Voicemail } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton-loader";
+import { useAuth } from "@/hooks/use-auth";
 
 interface CallsCardProps {
   businessId?: number | null;
@@ -13,6 +14,8 @@ interface CallsCardProps {
 }
 
 export function CallsCard({ businessId, limit = 3 }: CallsCardProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { data: calls = [], isLoading } = useQuery<any[]>({
     queryKey: ['/api/call-logs', { businessId }],
     enabled: !!businessId,
@@ -101,7 +104,9 @@ export function CallsCard({ businessId, limit = 3 }: CallsCardProps) {
                       {formatDateTime(call.callTime)}
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{call.transcript}</p>
+                  {isAdmin && call.transcript && (
+                    <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{call.transcript}</p>
+                  )}
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
                     {getStatusBadge(call.status)}
                     {call.intentDetected && getIntentBadge(call.intentDetected)}
