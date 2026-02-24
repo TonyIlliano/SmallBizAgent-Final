@@ -1,9 +1,13 @@
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageLayout } from "@/components/layout/PageLayout";
+import PageTitle from "@/components/PageTitle";
 import { JobForm } from "@/components/jobs/JobForm";
 import { JobLineItems } from "@/components/jobs/JobLineItems";
+import { JobProgressTimeline } from "@/components/jobs/JobProgressTimeline";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SkeletonForm } from "@/components/ui/skeleton-loader";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/api";
 import { ArrowLeft, FileText, CheckCircle, MessageSquare, Star } from "lucide-react";
@@ -83,40 +87,34 @@ export default function JobDetail() {
   if (!isNew && isLoading) {
     return (
       <PageLayout title="Job Details">
-        <div className="flex items-center mb-6">
-          <Button 
-            variant="ghost" 
-            className="mr-4"
-            onClick={() => navigate("/jobs")}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
-          </Button>
-          <h1 className="text-2xl font-bold">Loading Job...</h1>
-        </div>
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin w-10 h-10 border-4 border-primary rounded-full border-t-transparent"></div>
+        <PageTitle
+          title="Loading Job..."
+          breadcrumbs={[
+            { label: "Dashboard", href: "/" },
+            { label: "Jobs", href: "/jobs" },
+            { label: "Loading...", href: "#" },
+          ]}
+        />
+        <div className="mt-6">
+          <SkeletonForm />
         </div>
       </PageLayout>
     );
   }
-  
+
   // Handle error state
   if (!isNew && error) {
     return (
       <PageLayout title="Job Details">
-        <div className="flex items-center mb-6">
-          <Button 
-            variant="ghost" 
-            className="mr-4"
-            onClick={() => navigate("/jobs")}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
-          </Button>
-          <h1 className="text-2xl font-bold">Job Not Found</h1>
-        </div>
-        <div className="bg-red-50 border border-red-200 rounded-md p-4 text-red-800">
+        <PageTitle
+          title="Job Not Found"
+          breadcrumbs={[
+            { label: "Dashboard", href: "/" },
+            { label: "Jobs", href: "/jobs" },
+            { label: "Not Found", href: "#" },
+          ]}
+        />
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4 text-red-800 dark:text-red-300 mt-4">
           We couldn't find the job you're looking for. It may have been deleted or you might have followed an invalid link.
         </div>
         <div className="mt-4">
@@ -127,72 +125,87 @@ export default function JobDetail() {
       </PageLayout>
     );
   }
-  
+
   const canGenerateInvoice = !isNew && job?.status === "completed";
 
   return (
     <PageLayout title={isNew ? "Create Job" : "Job Details"}>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center">
-          <Button
-            variant="ghost"
-            className="mr-4"
-            onClick={() => navigate("/jobs")}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold">
-              {isNew ? "Create New Job" : `Job: ${job?.title}`}
-            </h1>
-            {!isNew && job?.status === "completed" && (
-              <div className="flex items-center text-green-600 text-sm mt-1">
-                <CheckCircle className="h-4 w-4 mr-1" />
-                Completed
-              </div>
-            )}
-          </div>
+      <PageTitle
+        title={isNew ? "Create New Job" : `Job: ${job?.title || ""}`}
+        description={
+          !isNew && job?.status === "completed"
+            ? "✓ Completed"
+            : undefined
+        }
+        breadcrumbs={[
+          { label: "Dashboard", href: "/" },
+          { label: "Jobs", href: "/jobs" },
+          { label: isNew ? "New Job" : (job?.title || "Job"), href: "#" },
+        ]}
+        actions={
+          canGenerateInvoice ? (
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => requestReviewMutation.mutate()}
+                disabled={requestReviewMutation.isPending}
+              >
+                <Star className="h-4 w-4 mr-1" />
+                {requestReviewMutation.isPending ? "Sending..." : "Review"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => sendFollowUpMutation.mutate()}
+                disabled={sendFollowUpMutation.isPending}
+              >
+                <MessageSquare className="h-4 w-4 mr-1" />
+                {sendFollowUpMutation.isPending ? "Sending..." : "Thank You"}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => generateInvoiceMutation.mutate()}
+                disabled={generateInvoiceMutation.isPending}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                {generateInvoiceMutation.isPending ? "Generating..." : "Generate Invoice"}
+              </Button>
+            </div>
+          ) : undefined
+        }
+      />
+
+      {isNew ? (
+        <div className="mt-6">
+          <JobForm job={undefined} isEdit={false} />
         </div>
+      ) : (
+        <Tabs defaultValue="details" className="mt-6">
+          <TabsList>
+            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="line-items">Line Items</TabsTrigger>
+            <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          </TabsList>
 
-        {canGenerateInvoice && (
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => requestReviewMutation.mutate()}
-              disabled={requestReviewMutation.isPending}
-            >
-              <Star className="h-4 w-4 mr-2" />
-              {requestReviewMutation.isPending ? "Sending..." : "Request Review"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => sendFollowUpMutation.mutate()}
-              disabled={sendFollowUpMutation.isPending}
-            >
-              <MessageSquare className="h-4 w-4 mr-2" />
-              {sendFollowUpMutation.isPending ? "Sending..." : "Send Thank You"}
-            </Button>
-            <Button
-              onClick={() => generateInvoiceMutation.mutate()}
-              disabled={generateInvoiceMutation.isPending}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              {generateInvoiceMutation.isPending ? "Generating..." : "Generate Invoice"}
-            </Button>
-          </div>
-        )}
-      </div>
+          <TabsContent value="details" className="mt-4">
+            <JobForm job={job} isEdit={true} />
+          </TabsContent>
 
-      <JobForm job={job} isEdit={!isNew} />
+          <TabsContent value="line-items" className="mt-4">
+            {numericJobId && (
+              <JobLineItems
+                jobId={numericJobId}
+                readOnly={job?.status === "completed"}
+              />
+            )}
+          </TabsContent>
 
-      {/* Line Items section - only show for existing jobs */}
-      {!isNew && numericJobId && (
-        <JobLineItems
-          jobId={numericJobId}
-          readOnly={job?.status === "completed"}
-        />
+          <TabsContent value="timeline" className="mt-4">
+            {job && <JobProgressTimeline job={job} />}
+          </TabsContent>
+        </Tabs>
       )}
     </PageLayout>
   );

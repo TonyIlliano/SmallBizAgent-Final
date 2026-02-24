@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { db, pool } from "./db";
 import { z } from "zod";
 import {
   insertBusinessSchema,
@@ -14,8 +15,15 @@ import {
   insertInvoiceSchema,
   insertInvoiceItemSchema,
   insertReceptionistConfigSchema,
-  insertCallLogSchema
+  insertCallLogSchema,
+  customers,
+  jobs,
+  invoices,
+  quotes,
+  appointments,
+  services
 } from "@shared/schema";
+import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
 
 // Setup authentication
 import {
@@ -1738,11 +1746,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         params.customerId = parseInt(req.query.customerId as string);
       }
 
-      const invoices = await storage.getInvoices(businessId, params);
+      let allInvoices = await storage.getInvoices(businessId, params);
+
+      // Filter by jobId if provided
+      if (req.query.jobId) {
+        const jobId = parseInt(req.query.jobId as string);
+        if (!isNaN(jobId)) {
+          allInvoices = allInvoices.filter((inv) => inv.jobId === jobId);
+        }
+      }
 
       // Fetch related data for each invoice
       const populatedInvoices = await Promise.all(
-        invoices.map(async (invoice) => {
+        allInvoices.map(async (invoice) => {
           const customer = await storage.getCustomer(invoice.customerId);
           const items = await storage.getInvoiceItems(invoice.id);
 
@@ -4377,6 +4393,277 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: "Error releasing phone number",
         details: error instanceof Error ? error.message : String(error)
       });
+    }
+  });
+
+  // =================== GLOBAL SEARCH API ===================
+  app.get("/api/search", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      if (businessId === 0) {
+        return res.status(400).json({ error: "No business associated with this account" });
+      }
+
+      const query = ((req.query.q as string) || "").trim();
+      if (!query || query.length < 2) {
+        return res.json({ customers: [], jobs: [], invoices: [], appointments: [], quotes: [] });
+      }
+
+      const searchTerm = `%${query}%`;
+
+      // Search customers by firstName, lastName, email, phone
+      const customerResults = await db
+        .select()
+        .from(customers)
+        .where(
+          and(
+            eq(customers.businessId, businessId),
+            or(
+              ilike(customers.firstName, searchTerm),
+              ilike(customers.lastName, searchTerm),
+              ilike(customers.email, searchTerm),
+              ilike(customers.phone, searchTerm)
+            )
+          )
+        )
+        .limit(5);
+
+      // Search jobs by title, include customer name
+      const jobResults = await db
+        .select({
+          job: jobs,
+          customerFirstName: customers.firstName,
+          customerLastName: customers.lastName,
+        })
+        .from(jobs)
+        .leftJoin(customers, eq(jobs.customerId, customers.id))
+        .where(
+          and(
+            eq(jobs.businessId, businessId),
+            or(
+              ilike(jobs.title, searchTerm),
+              ilike(customers.firstName, searchTerm),
+              ilike(customers.lastName, searchTerm)
+            )
+          )
+        )
+        .limit(5);
+
+      // Search invoices by invoiceNumber, include customer name
+      const invoiceResults = await db
+        .select({
+          invoice: invoices,
+          customerFirstName: customers.firstName,
+          customerLastName: customers.lastName,
+        })
+        .from(invoices)
+        .leftJoin(customers, eq(invoices.customerId, customers.id))
+        .where(
+          and(
+            eq(invoices.businessId, businessId),
+            or(
+              ilike(invoices.invoiceNumber, searchTerm),
+              ilike(customers.firstName, searchTerm),
+              ilike(customers.lastName, searchTerm)
+            )
+          )
+        )
+        .limit(5);
+
+      // Search quotes by quoteNumber, include customer name
+      const quoteResults = await db
+        .select({
+          quote: quotes,
+          customerFirstName: customers.firstName,
+          customerLastName: customers.lastName,
+        })
+        .from(quotes)
+        .leftJoin(customers, eq(quotes.customerId, customers.id))
+        .where(
+          and(
+            eq(quotes.businessId, businessId),
+            or(
+              ilike(quotes.quoteNumber, searchTerm),
+              ilike(customers.firstName, searchTerm),
+              ilike(customers.lastName, searchTerm)
+            )
+          )
+        )
+        .limit(5);
+
+      // Search appointments, include customer name and service name
+      const appointmentResults = await db
+        .select({
+          appointment: appointments,
+          customerFirstName: customers.firstName,
+          customerLastName: customers.lastName,
+          serviceName: services.name,
+        })
+        .from(appointments)
+        .leftJoin(customers, eq(appointments.customerId, customers.id))
+        .leftJoin(services, eq(appointments.serviceId, services.id))
+        .where(
+          and(
+            eq(appointments.businessId, businessId),
+            or(
+              ilike(customers.firstName, searchTerm),
+              ilike(customers.lastName, searchTerm),
+              ilike(services.name, searchTerm)
+            )
+          )
+        )
+        .limit(5);
+
+      res.json({
+        customers: customerResults,
+        jobs: jobResults.map((r) => ({
+          ...r.job,
+          customerName: r.customerFirstName && r.customerLastName
+            ? `${r.customerFirstName} ${r.customerLastName}`
+            : "Unknown Customer",
+        })),
+        invoices: invoiceResults.map((r) => ({
+          ...r.invoice,
+          customerName: r.customerFirstName && r.customerLastName
+            ? `${r.customerFirstName} ${r.customerLastName}`
+            : "Unknown Customer",
+        })),
+        quotes: quoteResults.map((r) => ({
+          ...r.quote,
+          customerName: r.customerFirstName && r.customerLastName
+            ? `${r.customerFirstName} ${r.customerLastName}`
+            : "Unknown Customer",
+        })),
+        appointments: appointmentResults.map((r) => ({
+          ...r.appointment,
+          customerName: r.customerFirstName && r.customerLastName
+            ? `${r.customerFirstName} ${r.customerLastName}`
+            : "Unknown Customer",
+          serviceName: r.serviceName || null,
+        })),
+      });
+    } catch (error) {
+      console.error("Search error:", error);
+      res.status(500).json({ error: "Error performing search" });
+    }
+  });
+
+  // =================== CUSTOMER ACTIVITY API ===================
+  app.get("/api/customers/:id/activity", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      if (businessId === 0) {
+        return res.status(400).json({ error: "No business associated with this account" });
+      }
+
+      const customerId = parseInt(req.params.id);
+      if (isNaN(customerId)) {
+        return res.status(400).json({ error: "Invalid customer ID" });
+      }
+
+      // Verify customer belongs to this business
+      const customer = await storage.getCustomer(customerId);
+      if (!customer || customer.businessId !== businessId) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+
+      // Fetch all related data in parallel
+      const [customerJobs, customerInvoices, customerAppointments, customerQuotes] = await Promise.all([
+        storage.getJobs(businessId, { customerId }),
+        storage.getInvoices(businessId, { customerId }),
+        storage.getAppointments(businessId, { customerId }),
+        storage.getAllQuotes(businessId, { customerId }),
+      ]);
+
+      // Calculate stats
+      const totalJobs = customerJobs.length;
+
+      const paidInvoices = customerInvoices.filter((inv) => inv.status === "paid");
+      const totalSpent = paidInvoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
+
+      const activeInvoices = customerInvoices.filter(
+        (inv) => inv.status === "pending" || inv.status === "overdue"
+      ).length;
+
+      // Most recent completed appointment
+      const completedAppointments = customerAppointments
+        .filter((apt) => apt.status === "completed" || apt.status === "confirmed")
+        .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+      const lastVisit = completedAppointments.length > 0
+        ? completedAppointments[0].startDate
+        : null;
+
+      // Build timeline array sorted by date (newest first)
+      const timeline: Array<{
+        type: string;
+        id: number;
+        title: string;
+        status: string | null;
+        date: string | Date | null;
+        amount?: number | null;
+      }> = [];
+
+      for (const job of customerJobs) {
+        timeline.push({
+          type: "job",
+          id: job.id,
+          title: job.title,
+          status: job.status,
+          date: job.createdAt,
+        });
+      }
+
+      for (const inv of customerInvoices) {
+        timeline.push({
+          type: "invoice",
+          id: inv.id,
+          title: `Invoice #${inv.invoiceNumber}`,
+          status: inv.status,
+          date: inv.createdAt,
+          amount: inv.total,
+        });
+      }
+
+      for (const apt of customerAppointments) {
+        timeline.push({
+          type: "appointment",
+          id: apt.id,
+          title: apt.notes || "Appointment",
+          status: apt.status,
+          date: apt.startDate,
+        });
+      }
+
+      for (const q of customerQuotes) {
+        timeline.push({
+          type: "quote",
+          id: q.id,
+          title: `Quote #${q.quoteNumber}`,
+          status: q.status,
+          date: q.createdAt,
+          amount: q.total,
+        });
+      }
+
+      // Sort timeline by date, newest first
+      timeline.sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA;
+      });
+
+      res.json({
+        stats: {
+          totalJobs,
+          totalSpent,
+          lastVisit,
+          activeInvoices,
+        },
+        timeline,
+      });
+    } catch (error) {
+      console.error("Customer activity error:", error);
+      res.status(500).json({ error: "Error fetching customer activity" });
     }
   });
 

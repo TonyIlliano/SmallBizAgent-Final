@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { formatDate, formatPhoneNumber } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { PlusCircle, Briefcase, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import {
   Select,
   SelectContent,
@@ -163,9 +164,7 @@ export default function Jobs() {
         </div>
         
         {isLoading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin w-10 h-10 border-4 border-primary rounded-full border-t-transparent"></div>
-          </div>
+          <SkeletonTable rows={6} />
         ) : jobs && jobs.length > 0 ? (
           <DataTable
             columns={columns}

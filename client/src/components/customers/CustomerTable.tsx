@@ -6,6 +6,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PlusCircle, Users, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -181,13 +182,7 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
       </div>
 
       {isLoading ? (
-        <div className="rounded-lg border border-dashed p-12 text-center">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary-50">
-            <Users className="h-10 w-10 text-primary-500" />
-          </div>
-          <h3 className="mt-4 text-lg font-medium">Loading customers...</h3>
-          <p className="mt-2 text-sm text-gray-500">Please wait while we fetch your customer data.</p>
-        </div>
+        <SkeletonTable rows={6} />
       ) : customers && customers.length > 0 ? (
         <DataTable
           columns={columns}

@@ -40,9 +40,10 @@ type CustomerFormData = z.infer<typeof customerSchema>;
 interface CustomerFormProps {
   customer?: any; // Use the Customer type from schema.ts
   isEdit?: boolean;
+  onSuccess?: () => void;
 }
 
-export function CustomerForm({ customer, isEdit = false }: CustomerFormProps) {
+export function CustomerForm({ customer, isEdit = false, onSuccess }: CustomerFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
@@ -94,14 +95,21 @@ export function CustomerForm({ customer, isEdit = false }: CustomerFormProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
-      queryClient.invalidateQueries({ 
+      queryClient.invalidateQueries({
         queryKey: ["/api/customers", customer.id]
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/customers", customer.id, "activity"]
       });
       toast({
         title: "Success",
         description: "Customer updated successfully",
       });
-      navigate("/customers");
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        navigate("/customers");
+      }
     },
     onError: (error) => {
       toast({

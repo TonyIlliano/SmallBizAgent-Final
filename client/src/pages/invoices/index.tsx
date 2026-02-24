@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
 import { PlusCircle, FileText, Download, Edit, Printer, MessageSquare, Share2, Copy, Check, MoreVertical, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -270,9 +271,7 @@ export default function Invoices() {
         </div>
         
         {isLoading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin w-10 h-10 border-4 border-primary rounded-full border-t-transparent"></div>
-          </div>
+          <SkeletonTable rows={6} />
         ) : invoices && invoices.length > 0 ? (
           <DataTable
             columns={columns}

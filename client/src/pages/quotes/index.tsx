@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useState } from "react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PageLayout } from "@/components/layout/PageLayout";
+import { SkeletonTable } from "@/components/ui/skeleton-loader";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -148,9 +149,7 @@ export default function Quotes() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex justify-center items-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
+            <SkeletonTable rows={6} />
           ) : filteredQuotes?.length > 0 ? (
             <div className="overflow-x-auto">
               <Table>
