@@ -347,6 +347,118 @@ router.post("/quotes/:id/convert", async (req, res) => {
   }
 });
 
+// Convert a quote to a job (+ appointment)
+router.post("/quotes/:id/convert-to-job", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const user = req.user;
+    const businessId = user.businessId;
+    const quoteId = parseInt(req.params.id);
+
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+
+    // Check if the quote exists and belongs to the business
+    const existingQuote = await storage.getQuoteById(quoteId, businessId);
+    if (!existingQuote) {
+      return res.status(404).json({ error: "Quote not found" });
+    }
+
+    // Must be accepted to convert
+    if (existingQuote.status !== "accepted") {
+      return res.status(400).json({ error: "Only accepted quotes can be converted to a job" });
+    }
+
+    // Don't create duplicate job if already linked
+    if (existingQuote.jobId) {
+      return res.status(400).json({ error: "Quote is already linked to a job" });
+    }
+
+    // Build job title from quote and customer info
+    const customerName = existingQuote.customer
+      ? `${existingQuote.customer.firstName} ${existingQuote.customer.lastName || ''}`.trim()
+      : 'Customer';
+    const firstItemDesc = existingQuote.items?.[0]?.description || '';
+    const jobTitle = firstItemDesc
+      ? `${firstItemDesc}${existingQuote.items.length > 1 ? ` (+${existingQuote.items.length - 1} more)` : ''} - ${customerName}`
+      : `Quote #${existingQuote.quoteNumber} - ${customerName}`;
+
+    // Create the job
+    const scheduledDate = req.body.scheduledDate || null; // Optional: user can pass a scheduled date
+    const job = await storage.createJob({
+      businessId,
+      customerId: existingQuote.customerId,
+      staffId: req.body.staffId || null,
+      title: jobTitle,
+      description: `Converted from Quote #${existingQuote.quoteNumber}`,
+      scheduledDate: scheduledDate,
+      status: 'pending',
+      notes: existingQuote.notes || '',
+    });
+
+    // Copy quote line items → job line items
+    for (const item of existingQuote.items || []) {
+      await storage.createJobLineItem({
+        jobId: job.id,
+        type: 'service',
+        description: item.description,
+        quantity: item.quantity || 1,
+        unitPrice: item.unitPrice,
+        amount: item.amount,
+        taxable: true,
+      });
+    }
+
+    // Link the quote to the new job
+    await storage.updateQuote(quoteId, { jobId: job.id });
+
+    // Auto-create appointment if scheduled date provided
+    let appointmentId = null;
+    if (scheduledDate) {
+      try {
+        const startDate = new Date(scheduledDate + 'T09:00:00');
+        const endDate = new Date(startDate);
+        endDate.setMinutes(endDate.getMinutes() + 60);
+
+        const appointment = await storage.createAppointment({
+          businessId,
+          customerId: existingQuote.customerId,
+          staffId: req.body.staffId || null,
+          serviceId: null,
+          startDate,
+          endDate,
+          status: 'scheduled',
+          notes: `Auto-created from Quote #${existingQuote.quoteNumber}`,
+        });
+
+        // Link appointment to the job
+        await storage.updateJob(job.id, { appointmentId: appointment.id });
+        appointmentId = appointment.id;
+        console.log(`Auto-created appointment ${appointment.id} for job ${job.id} from quote ${quoteId}`);
+      } catch (aptErr: any) {
+        console.error('Failed to auto-create appointment for quote-to-job conversion:', aptErr.message);
+      }
+    }
+
+    // Fire webhook event
+    fireEvent(businessId, 'job.created', { job })
+      .catch(err => console.error('Webhook fire error:', err));
+
+    res.json({
+      success: true,
+      jobId: job.id,
+      appointmentId,
+    });
+  } catch (error) {
+    console.error("Error converting quote to job:", error);
+    res.status(500).json({ error: "Failed to convert quote to job" });
+  }
+});
+
 // Delete a quote
 router.delete("/quotes/:id", async (req, res) => {
   try {

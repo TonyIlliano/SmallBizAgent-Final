@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft,
+  Briefcase,
   Calendar,
   Download,
   Edit,
@@ -133,6 +134,34 @@ export default function QuoteDetail() {
     },
   });
 
+  const convertToJobMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/quotes/${quoteId}/convert-to-job`, {});
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to convert quote to job");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes", quoteId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      toast({
+        title: "Job created",
+        description: "The quote has been converted to a job with line items",
+      });
+      navigate(`/jobs/${data.jobId}`);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const [quoteLink, setQuoteLink] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
@@ -228,6 +257,11 @@ export default function QuoteDetail() {
     setConfirmDialog("");
   };
 
+  const handleConvertToJob = () => {
+    convertToJobMutation.mutate();
+    setConfirmDialog("");
+  };
+
   return (
     <PageLayout title="Quote Details">
       <div className="space-y-6">
@@ -286,6 +320,12 @@ export default function QuoteDetail() {
               )}
               {quote.status === "accepted" && (
                 <>
+                  {!quote.jobId && (
+                    <DropdownMenuItem onClick={() => setConfirmDialog("convert-job")}>
+                      <Briefcase className="h-4 w-4 mr-2" />
+                      Convert to Job
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => setConfirmDialog("convert")}>
                     <Send className="h-4 w-4 mr-2" />
                     Convert to Invoice
@@ -538,6 +578,25 @@ export default function QuoteDetail() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmDialog("")}>Cancel</Button>
             <Button onClick={handleConvertToInvoice}>Convert to Invoice</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDialog === "convert-job"} onOpenChange={() => setConfirmDialog("")}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Convert to Job</DialogTitle>
+            <DialogDescription>
+              This will create a new job with the quote's line items and link it to this quote.
+              An appointment will also be scheduled on the calendar.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDialog("")}>Cancel</Button>
+            <Button onClick={handleConvertToJob}>
+              <Briefcase className="h-4 w-4 mr-2" />
+              Create Job
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
