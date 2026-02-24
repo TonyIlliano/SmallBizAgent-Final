@@ -740,6 +740,14 @@ APPOINTMENT CONFIRMATIONS:
 - If customer is confirming an appointment, use confirmAppointment
 - Ask if they're confirming or need to reschedule
 
+MULTILINGUAL SUPPORT (English & Spanish):
+- You can speak both English and Spanish fluently
+- ALWAYS match the caller's language — if they speak Spanish, respond entirely in Spanish (natural Latin American Spanish appropriate for US callers)
+- If the caller switches languages mid-call, switch with them seamlessly
+- Default to English for the greeting, but switch immediately if the caller responds in Spanish
+- All function calls (bookAppointment, checkAvailability, etc.) work the same regardless of language — just speak to the caller in their language
+- When speaking Spanish, translate service names, confirmations, and all conversational responses naturally
+
 IMPORTANT REMINDERS:
 - ALWAYS start calls with recognizeCaller for personalization
 - ALWAYS use getUpcomingAppointments before trying to reschedule/cancel
@@ -1085,6 +1093,10 @@ export async function createAssistantForBusiness(
       // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
       tools: nativeTools,
     },
+    transcriber: {
+      provider: 'deepgram',
+      language: 'multi', // Auto-detect language (supports English, Spanish, and more)
+    },
     voice: {
       provider: '11labs',
       voiceId: configVoiceId,
@@ -1105,6 +1117,7 @@ export async function createAssistantForBusiness(
     backgroundSound: 'off',
     // When the AI says any of these phrases, Vapi automatically hangs up (platform-level)
     // Include versions with period, exclamation, and bare — TTS output punctuation varies
+    // Also include Spanish equivalents for multilingual support
     endCallPhrases: [
       "Have a great day",
       "Have a great day!",
@@ -1118,6 +1131,13 @@ export async function createAssistantForBusiness(
       "Goodbye",
       "Goodbye!",
       "Goodbye.",
+      // Spanish equivalents for multilingual support
+      "Que tenga un buen día",
+      "Que tenga un excelente día",
+      "Hasta luego",
+      "Adiós",
+      "Gracias por llamar, adiós",
+      "Cuídese, adiós",
     ],
     metadata: {
       businessId: business.id.toString()
@@ -1224,6 +1244,10 @@ export async function updateAssistant(
       },
       body: JSON.stringify({
         name: `${business.name} Receptionist`,
+        transcriber: {
+          provider: 'deepgram',
+          language: 'multi', // Auto-detect language (supports English, Spanish, and more)
+        },
         model: {
           provider: 'openai',
           model: 'gpt-4o-mini',
@@ -1257,6 +1281,13 @@ export async function updateAssistant(
           "Goodbye",
           "Goodbye!",
           "Goodbye.",
+          // Spanish equivalents for multilingual support
+          "Que tenga un buen día",
+          "Que tenga un excelente día",
+          "Hasta luego",
+          "Adiós",
+          "Gracias por llamar, adiós",
+          "Cuídese, adiós",
         ],
         serverUrl: `${BASE_URL}/api/vapi/webhook`,
         metadata: {

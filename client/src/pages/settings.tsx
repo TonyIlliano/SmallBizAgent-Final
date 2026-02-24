@@ -18,6 +18,7 @@ import { OverageBillingHistory } from "@/components/subscription/OverageBillingH
 import { StaffScheduleManager } from "@/components/settings/StaffScheduleManager";
 import BookingSettings from "@/components/settings/BookingSettings";
 import NotificationSettingsPanel from "@/components/settings/NotificationSettings";
+import { WebhookSettings } from "@/components/settings/WebhookSettings";
 import {
   Dialog,
   DialogContent,
@@ -1759,6 +1760,7 @@ export default function Settings() {
                     <TabsTrigger value="payments">Payments</TabsTrigger>
                     <TabsTrigger value="calendar">Calendar</TabsTrigger>
                     <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
+                    <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="payments">
@@ -1788,6 +1790,16 @@ export default function Settings() {
                         Connect with QuickBooks to sync invoices, customers, and payments
                       </p>
                       {businessId && <QuickBooksIntegration businessId={businessId} />}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="webhooks">
+                    <div className="mb-6">
+                      <h3 className="text-lg font-medium mb-2">Webhooks</h3>
+                      <p className="text-muted-foreground mb-4">
+                        Configure webhooks to receive real-time notifications when events occur in your business
+                      </p>
+                      <WebhookSettings businessId={business?.id} />
                     </div>
                   </TabsContent>
                 </Tabs>

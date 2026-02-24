@@ -4,6 +4,7 @@ import { eq, and, desc, like, ilike, or } from "drizzle-orm";
 import { quotes, quoteItems, insertQuoteSchema, insertQuoteItemSchema } from "@shared/schema";
 import { z } from "zod";
 import notificationService from "../services/notificationService";
+import { fireEvent } from "../services/webhookService";
 
 const router = Router();
 
@@ -125,14 +126,18 @@ router.post("/quotes", async (req, res) => {
     // Fetch the complete quote with items
     const completeQuote = await storage.getQuoteById(newQuote.id, businessId);
 
+    // Fire webhook event (fire-and-forget)
+    fireEvent(businessId, 'quote.created', { quote: completeQuote })
+      .catch(err => console.error('Webhook fire error:', err));
+
     res.status(201).json(completeQuote);
   } catch (error: any) {
     console.error("Error creating quote:", error);
-    
+
     if (error.name === "ZodError") {
       return res.status(400).json({ error: "Invalid quote data", details: error.errors });
     }
-    
+
     res.status(500).json({ error: "Failed to create quote" });
   }
 });

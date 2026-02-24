@@ -10,6 +10,7 @@ import twilioService from './twilioService';
 import { getCachedMenu as getCloverCachedMenu, createOrder as createCloverOrder, formatMenuForPrompt, type CachedMenu } from './cloverService';
 import { getCachedMenu as getSquareCachedMenu, createOrder as createSquareOrder } from './squareService';
 import { canBusinessAcceptCalls } from './usageService';
+import { fireEvent } from './webhookService';
 
 /**
  * ===========================================
@@ -3335,6 +3336,12 @@ async function handleEndOfCall(
         callTime: new Date()
       });
       callLogId = callLog?.id || null;
+
+      // Fire webhook event for call completed (fire-and-forget)
+      if (callLog) {
+        fireEvent(businessId, 'call.completed', { callLog })
+          .catch(err => console.error('Webhook fire error:', err));
+      }
     } catch (error) {
       console.error('Error logging call:', error);
     }

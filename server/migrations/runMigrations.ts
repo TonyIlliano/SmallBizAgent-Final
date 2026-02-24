@@ -600,6 +600,59 @@ async function fixExistingTables() {
     );
   `);
 
+  // Create webhooks table (for Zapier/external integrations)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      url TEXT NOT NULL,
+      events JSONB NOT NULL,
+      secret TEXT NOT NULL,
+      active BOOLEAN DEFAULT true,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create webhook_deliveries table (audit trail)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id SERIAL PRIMARY KEY,
+      webhook_id INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      event TEXT NOT NULL,
+      payload JSONB,
+      status TEXT DEFAULT 'pending',
+      response_code INTEGER,
+      response_body TEXT,
+      attempts INTEGER DEFAULT 0,
+      last_attempt_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create marketing_campaigns table (AI marketing tab)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS marketing_campaigns (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      segment TEXT,
+      template TEXT NOT NULL,
+      subject TEXT,
+      status TEXT DEFAULT 'draft',
+      recipient_count INTEGER DEFAULT 0,
+      sent_count INTEGER DEFAULT 0,
+      scheduled_at TIMESTAMP,
+      sent_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 
@@ -1161,6 +1214,59 @@ async function createBaseTables() {
       order_type TEXT,
       error_message TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create webhooks table (for Zapier/external integrations)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      url TEXT NOT NULL,
+      events JSONB NOT NULL,
+      secret TEXT NOT NULL,
+      active BOOLEAN DEFAULT true,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create webhook_deliveries table (audit trail)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id SERIAL PRIMARY KEY,
+      webhook_id INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      event TEXT NOT NULL,
+      payload JSONB,
+      status TEXT DEFAULT 'pending',
+      response_code INTEGER,
+      response_body TEXT,
+      attempts INTEGER DEFAULT 0,
+      last_attempt_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create marketing_campaigns table (AI marketing tab)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS marketing_campaigns (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      segment TEXT,
+      template TEXT NOT NULL,
+      subject TEXT,
+      status TEXT DEFAULT 'draft',
+      recipient_count INTEGER DEFAULT 0,
+      sent_count INTEGER DEFAULT 0,
+      scheduled_at TIMESTAMP,
+      sent_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 

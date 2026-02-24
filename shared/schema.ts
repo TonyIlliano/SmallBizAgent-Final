@@ -611,6 +611,53 @@ export const overageCharges = pgTable("overage_charges", {
   uniquePeriod: unique("overage_charges_unique_period").on(table.businessId, table.periodStart),
 }));
 
+// Webhooks (for Zapier/external integrations)
+export const webhooks = pgTable("webhooks", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  url: text("url").notNull(),
+  events: jsonb("events").notNull(), // ["appointment.created", "invoice.paid", ...]
+  secret: text("secret").notNull(), // HMAC signing secret
+  active: boolean("active").default(true),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Webhook Delivery Log (audit trail for webhook deliveries)
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: serial("id").primaryKey(),
+  webhookId: integer("webhook_id").notNull(),
+  businessId: integer("business_id").notNull(),
+  event: text("event").notNull(),
+  payload: jsonb("payload"),
+  status: text("status").default("pending"), // pending, success, failed
+  responseCode: integer("response_code"),
+  responseBody: text("response_body"),
+  attempts: integer("attempts").default(0),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Marketing Campaigns (AI marketing tab)
+export const marketingCampaigns = pgTable("marketing_campaigns", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // "win_back", "promotion", "review_boost", "custom"
+  channel: text("channel").notNull(), // "sms", "email", "both"
+  segment: text("segment"), // "inactive_90", "all", "new", "high_value", etc.
+  template: text("template").notNull(), // message template with {variables}
+  subject: text("subject"), // email subject (null for SMS)
+  status: text("status").default("draft"), // draft, sending, sent, failed
+  recipientCount: integer("recipient_count").default(0),
+  sentCount: integer("sent_count").default(0),
+  scheduledAt: timestamp("scheduled_at"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true, emailVerified: true, emailVerificationCode: true, emailVerificationExpiry: true });
 export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true, updatedAt: true });
@@ -660,6 +707,9 @@ export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTo
 export const insertBusinessKnowledgeSchema = createInsertSchema(businessKnowledge).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertUnansweredQuestionSchema = createInsertSchema(unansweredQuestions).omit({ id: true, createdAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
+export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
+export const insertMarketingCampaignSchema = createInsertSchema(marketingCampaigns).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -766,3 +816,12 @@ export type InsertUnansweredQuestion = z.infer<typeof insertUnansweredQuestionSc
 
 export type WebsiteScrapeCache = typeof websiteScrapeCache.$inferSelect;
 export type InsertWebsiteScrapeCache = z.infer<typeof insertWebsiteScrapeCacheSchema>;
+
+export type Webhook = typeof webhooks.$inferSelect;
+export type InsertWebhook = z.infer<typeof insertWebhookSchema>;
+
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+export type InsertWebhookDelivery = z.infer<typeof insertWebhookDeliverySchema>;
+
+export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
+export type InsertMarketingCampaign = z.infer<typeof insertMarketingCampaignSchema>;

@@ -132,6 +132,11 @@ import adminRoutes from "./routes/adminRoutes";
 
 // Import analytics routes
 import { registerAnalyticsRoutes } from './routes/analyticsRoutes';
+// Import webhook routes
+import { registerWebhookRoutes } from './routes/webhookRoutes';
+// Import marketing routes
+import { registerMarketingRoutes } from './routes/marketingRoutes';
+import { fireEvent } from './services/webhookService';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication first
@@ -139,6 +144,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register analytics routes
   registerAnalyticsRoutes(app);
+
+  // Register webhook routes (Zapier/external integrations)
+  registerWebhookRoutes(app);
+
+  // Register marketing routes
+  registerMarketingRoutes(app);
 
   // Register admin dashboard routes
   app.use(adminRoutes);
@@ -750,6 +761,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const businessId = getBusinessId(req);
       const validatedData = insertCustomerSchema.parse({ ...req.body, businessId });
       const customer = await storage.createCustomer(validatedData);
+
+      // Fire webhook event (fire-and-forget)
+      fireEvent(businessId, 'customer.created', { customer })
+        .catch(err => console.error('Webhook fire error:', err));
+
       res.status(201).json(customer);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -768,6 +784,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const validatedData = insertCustomerSchema.partial().parse(req.body);
       const customer = await storage.updateCustomer(id, validatedData);
+
+      // Fire webhook event (fire-and-forget)
+      fireEvent(existing.businessId, 'customer.updated', { customer })
+        .catch(err => console.error('Webhook fire error:', err));
+
       res.json(customer);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1321,6 +1342,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('Background calendar sync error:', err)
       );
 
+      // Fire webhook event (fire-and-forget)
+      fireEvent(businessId, 'appointment.created', { appointment })
+        .catch(err => console.error('Webhook fire error:', err));
+
       res.status(201).json(appointment);
     } catch (error) {
       console.error('Error creating appointment:', error);
@@ -1355,6 +1380,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('Background calendar sync error:', err)
       );
 
+      // Fire webhook events (fire-and-forget)
+      fireEvent(existing.businessId, 'appointment.updated', { appointment })
+        .catch(err => console.error('Webhook fire error:', err));
+
+      if (validatedData.status === 'completed' && existing.status !== 'completed') {
+        fireEvent(existing.businessId, 'appointment.completed', { appointment })
+          .catch(err => console.error('Webhook fire error:', err));
+      }
+
       res.json(appointment);
     } catch (error) {
       console.error('Error updating appointment:', error);
@@ -1388,6 +1422,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Invalidate appointments cache
       dataCache.invalidate(businessId, 'appointments');
+
+      // Fire webhook event (fire-and-forget)
+      fireEvent(businessId, 'appointment.deleted', { appointmentId: id })
+        .catch(err => console.error('Webhook fire error:', err));
 
       res.status(204).end();
     } catch (error) {
@@ -1462,6 +1500,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const businessId = getBusinessId(req);
       const validatedData = insertJobSchema.parse({ ...req.body, businessId });
       const job = await storage.createJob(validatedData);
+
+      // Fire webhook event (fire-and-forget)
+      fireEvent(businessId, 'job.created', { job })
+        .catch(err => console.error('Webhook fire error:', err));
+
       res.status(201).json(job);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1486,6 +1529,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notificationService.sendJobCompletedNotification(job.id, existing.businessId).catch(err =>
           console.error('Background notification error:', err)
         );
+
+        // Fire webhook event for job completed (fire-and-forget)
+        fireEvent(existing.businessId, 'job.completed', { job })
+          .catch(err => console.error('Webhook fire error:', err));
       }
 
       res.json(job);
@@ -1750,6 +1797,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('Background notification error:', err)
       );
 
+      // Fire webhook event (fire-and-forget)
+      fireEvent(businessId, 'invoice.created', { invoice })
+        .catch(err => console.error('Webhook fire error:', err));
+
       res.status(201).json(invoice);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1774,6 +1825,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notificationService.sendPaymentConfirmation(invoice.id, existing.businessId).catch(err =>
           console.error('Background notification error:', err)
         );
+
+        // Fire webhook event for invoice paid (fire-and-forget)
+        fireEvent(existing.businessId, 'invoice.paid', { invoice })
+          .catch(err => console.error('Webhook fire error:', err));
       }
 
       res.json(invoice);
