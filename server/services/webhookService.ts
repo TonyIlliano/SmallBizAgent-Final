@@ -214,13 +214,13 @@ export async function getWebhooks(businessId: number) {
 /**
  * Create a new webhook
  */
-export async function createWebhook(businessId: number, url: string, events: string[], description?: string) {
+export async function createWebhook(businessId: number, url: string, events: string[], description?: string, source: string = 'manual') {
   const secret = generateWebhookSecret();
   const result = await pool.query(
-    `INSERT INTO webhooks (business_id, url, events, secret, description)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO webhooks (business_id, url, events, secret, description, source)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [businessId, url, JSON.stringify(events), secret, description || null]
+    [businessId, url, JSON.stringify(events), secret, description || null, source]
   );
   return result.rows[0];
 }

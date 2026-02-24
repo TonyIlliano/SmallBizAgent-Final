@@ -620,6 +620,7 @@ export const webhooks = pgTable("webhooks", {
   secret: text("secret").notNull(), // HMAC signing secret
   active: boolean("active").default(true),
   description: text("description"),
+  source: text("source").default("manual"), // 'manual' | 'zapier'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -656,6 +657,18 @@ export const marketingCampaigns = pgTable("marketing_campaigns", {
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// API Keys (for Zapier and external integrations)
+export const apiKeys = pgTable("api_keys", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  name: text("name").notNull(), // "Zapier", "Make.com", etc.
+  keyHash: text("key_hash").notNull(), // SHA-256 hash (never store plaintext)
+  keyPrefix: text("key_prefix").notNull(), // "sbz_a1b2..." for identification
+  lastUsedAt: timestamp("last_used_at"),
+  active: boolean("active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Insert schemas
@@ -710,6 +723,7 @@ export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCa
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
 export const insertMarketingCampaignSchema = createInsertSchema(marketingCampaigns).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -825,3 +839,6 @@ export type InsertWebhookDelivery = z.infer<typeof insertWebhookDeliverySchema>;
 
 export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
 export type InsertMarketingCampaign = z.infer<typeof insertMarketingCampaignSchema>;
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertApiKey = z.infer<typeof insertApiKeySchema>;

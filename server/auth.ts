@@ -2,7 +2,7 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
-import { scrypt, randomBytes, timingSafeEqual, randomInt } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual, randomInt, createHash } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User, InsertUser } from "@shared/schema";
@@ -567,9 +567,77 @@ export function checkBelongsToBusiness(req: Request, businessId: number): boolea
 // Middleware to check if user belongs to a business
 export function belongsToBusiness(req: Request, res: Response, next: NextFunction) {
   const businessId = parseInt(req.params.businessId || req.query.businessId as string || "0");
-  
+
   if (checkBelongsToBusiness(req, businessId)) {
     return next();
   }
   res.status(403).json({ error: "Not authorized for this business" });
+}
+
+/**
+ * API Key Authentication Middleware
+ * Checks for "Authorization: Bearer sbz_..." header
+ * Hashes the key with SHA-256 and looks it up in api_keys table
+ * Attaches businessId to req for downstream use
+ */
+export async function authenticateApiKey(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer sbz_')) {
+      return res.status(401).json({ error: 'Missing or invalid API key' });
+    }
+
+    const apiKey = authHeader.substring(7); // Remove "Bearer " prefix
+    const keyHash = createHash('sha256').update(apiKey).digest('hex');
+
+    // Dynamic import to avoid circular dependency
+    const { pool } = await import('./db');
+    const result = await pool.query(
+      `SELECT ak.id, ak.business_id, ak.active, ak.expires_at, b.name as business_name
+       FROM api_keys ak
+       JOIN businesses b ON ak.business_id = b.id
+       WHERE ak.key_hash = $1 AND ak.active = true`,
+      [keyHash]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+
+    const keyRecord = result.rows[0];
+
+    // Attach business info to request
+    (req as any).apiKeyAuth = true;
+    (req as any).apiKeyBusinessId = keyRecord.business_id;
+    (req as any).apiKeyBusinessName = keyRecord.business_name;
+
+    // Update last_used_at (fire-and-forget)
+    pool.query('UPDATE api_keys SET last_used_at = NOW() WHERE id = $1', [keyRecord.id])
+      .catch((err: any) => console.error('[Auth] Error updating API key last_used_at:', err));
+
+    next();
+  } catch (error: any) {
+    console.error('[Auth] API key authentication error:', error);
+    res.status(500).json({ error: 'Authentication error' });
+  }
+}
+
+/**
+ * Dual Authentication Middleware
+ * Allows either session-based auth OR API key auth
+ * Tries session first, falls back to API key
+ */
+export async function isAuthenticatedOrApiKey(req: Request, res: Response, next: NextFunction) {
+  // Try session auth first
+  if (req.isAuthenticated()) {
+    return next();
+  }
+
+  // Fall back to API key auth
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer sbz_')) {
+    return authenticateApiKey(req, res, next);
+  }
+
+  return res.status(401).json({ error: 'Authentication required' });
 }

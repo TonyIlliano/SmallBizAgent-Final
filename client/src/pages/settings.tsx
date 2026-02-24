@@ -19,6 +19,7 @@ import { StaffScheduleManager } from "@/components/settings/StaffScheduleManager
 import BookingSettings from "@/components/settings/BookingSettings";
 import NotificationSettingsPanel from "@/components/settings/NotificationSettings";
 import { WebhookSettings } from "@/components/settings/WebhookSettings";
+import { ApiKeySettings } from "@/components/settings/ApiKeySettings";
 import {
   Dialog,
   DialogContent,
@@ -1761,6 +1762,7 @@ export default function Settings() {
                     <TabsTrigger value="calendar">Calendar</TabsTrigger>
                     <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
                     <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
+                    <TabsTrigger value="api-keys">API Keys</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="payments">
@@ -1800,6 +1802,12 @@ export default function Settings() {
                         Configure webhooks to receive real-time notifications when events occur in your business
                       </p>
                       <WebhookSettings businessId={business?.id} />
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="api-keys">
+                    <div className="mb-6">
+                      <ApiKeySettings businessId={business?.id} />
                     </div>
                   </TabsContent>
                 </Tabs>

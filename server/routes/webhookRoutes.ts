@@ -6,12 +6,15 @@
  */
 
 import { Request, Response } from 'express';
-import { isAuthenticated } from '../auth';
+import { isAuthenticatedOrApiKey } from '../auth';
 import * as webhookService from '../services/webhookService';
 
 const getBusinessId = (req: Request): number => {
   if (req.isAuthenticated() && req.user?.businessId) {
     return req.user.businessId;
+  }
+  if ((req as any).apiKeyBusinessId) {
+    return (req as any).apiKeyBusinessId;
   }
   throw new Error('Business ID not found for authenticated user');
 };
@@ -20,12 +23,14 @@ export function registerWebhookRoutes(app: any) {
   /**
    * GET /api/webhooks — List all webhooks for the business
    */
-  app.get('/api/webhooks', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/webhooks', isAuthenticatedOrApiKey, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const webhooks = await webhookService.getWebhooks(businessId);
+      // Filter out Zapier-managed webhooks from manual UI list
+      const manualWebhooks = webhooks.filter((w: any) => w.source !== 'zapier');
       // Don't expose full secret — show last 6 chars only
-      const sanitized = webhooks.map((w: any) => ({
+      const sanitized = manualWebhooks.map((w: any) => ({
         ...w,
         secret: '••••••' + w.secret.slice(-6),
       }));
@@ -39,14 +44,14 @@ export function registerWebhookRoutes(app: any) {
   /**
    * GET /api/webhooks/events — List all supported webhook events
    */
-  app.get('/api/webhooks/events', isAuthenticated, async (_req: Request, res: Response) => {
+  app.get('/api/webhooks/events', isAuthenticatedOrApiKey, async (_req: Request, res: Response) => {
     res.json(webhookService.WEBHOOK_EVENTS);
   });
 
   /**
    * POST /api/webhooks — Create a new webhook
    */
-  app.post('/api/webhooks', isAuthenticated, async (req: Request, res: Response) => {
+  app.post('/api/webhooks', isAuthenticatedOrApiKey, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const { url, events, description } = req.body;
@@ -80,7 +85,7 @@ export function registerWebhookRoutes(app: any) {
   /**
    * PUT /api/webhooks/:id — Update a webhook
    */
-  app.put('/api/webhooks/:id', isAuthenticated, async (req: Request, res: Response) => {
+  app.put('/api/webhooks/:id', isAuthenticatedOrApiKey, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const webhookId = parseInt(req.params.id);
@@ -108,7 +113,7 @@ export function registerWebhookRoutes(app: any) {
   /**
    * DELETE /api/webhooks/:id — Delete a webhook
    */
-  app.delete('/api/webhooks/:id', isAuthenticated, async (req: Request, res: Response) => {
+  app.delete('/api/webhooks/:id', isAuthenticatedOrApiKey, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const webhookId = parseInt(req.params.id);
@@ -126,7 +131,7 @@ export function registerWebhookRoutes(app: any) {
   /**
    * POST /api/webhooks/:id/test — Send a test webhook event
    */
-  app.post('/api/webhooks/:id/test', isAuthenticated, async (req: Request, res: Response) => {
+  app.post('/api/webhooks/:id/test', isAuthenticatedOrApiKey, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const webhookId = parseInt(req.params.id);
@@ -144,7 +149,7 @@ export function registerWebhookRoutes(app: any) {
   /**
    * GET /api/webhooks/:id/deliveries — Get delivery log for a webhook
    */
-  app.get('/api/webhooks/:id/deliveries', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/webhooks/:id/deliveries', isAuthenticatedOrApiKey, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const webhookId = parseInt(req.params.id);

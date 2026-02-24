@@ -136,6 +136,8 @@ import { registerAnalyticsRoutes } from './routes/analyticsRoutes';
 import { registerWebhookRoutes } from './routes/webhookRoutes';
 // Import marketing routes
 import { registerMarketingRoutes } from './routes/marketingRoutes';
+// Import Zapier/API key routes
+import { registerZapierRoutes } from './routes/zapierRoutes';
 import { fireEvent } from './services/webhookService';
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -150,6 +152,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register marketing routes
   registerMarketingRoutes(app);
+
+  // Register Zapier/API key routes
+  registerZapierRoutes(app);
 
   // Register admin dashboard routes
   app.use(adminRoutes);
@@ -169,15 +174,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/import/services", isAuthenticated, importAuthCheck, importServices);
   app.post("/api/import/appointments", isAuthenticated, importAuthCheck, importAppointments);
   
-  // Helper function to get businessId from authenticated user
+  // Helper function to get businessId from authenticated user or API key
   // Returns 0 if no business is associated (caller must handle this)
   const getBusinessId = (req: Request): number => {
-    // If user is authenticated, use their businessId
+    // If user is authenticated via session, use their businessId
     if (req.isAuthenticated() && req.user?.businessId) {
       return req.user.businessId;
     }
-    // SECURITY: Removed development-only query param override
-    // This was a security risk that allowed bypassing authentication
+    // If authenticated via API key, use the attached businessId
+    if ((req as any).apiKeyBusinessId) {
+      return (req as any).apiKeyBusinessId;
+    }
     // No business associated - return 0 to indicate this
     // Callers should check for 0 and return appropriate error
     return 0;

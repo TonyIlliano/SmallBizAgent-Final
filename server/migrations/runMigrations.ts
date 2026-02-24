@@ -610,10 +610,14 @@ async function fixExistingTables() {
       secret TEXT NOT NULL,
       active BOOLEAN DEFAULT true,
       description TEXT,
+      source TEXT DEFAULT 'manual',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Add source column to webhooks if it doesn't exist
+  await pool.query(`ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual';`);
 
   // Create webhook_deliveries table (audit trail)
   await pool.query(`
@@ -650,6 +654,20 @@ async function fixExistingTables() {
       sent_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create api_keys table (for Zapier and external integrations)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      last_used_at TIMESTAMP,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
@@ -1227,6 +1245,7 @@ async function createBaseTables() {
       secret TEXT NOT NULL,
       active BOOLEAN DEFAULT true,
       description TEXT,
+      source TEXT DEFAULT 'manual',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -1267,6 +1286,20 @@ async function createBaseTables() {
       sent_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create api_keys table (for Zapier and external integrations)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      last_used_at TIMESTAMP,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
