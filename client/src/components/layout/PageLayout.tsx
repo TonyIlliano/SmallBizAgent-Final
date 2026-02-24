@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { BottomNav } from "./BottomNav";
+import { InstallPrompt } from "../pwa/InstallPrompt";
 
 interface PageLayoutProps {
   children: ReactNode;
@@ -19,6 +20,7 @@ export function PageLayout({ children, title }: PageLayoutProps) {
         </main>
       </div>
       <BottomNav />
+      <InstallPrompt />
     </div>
   );
 }

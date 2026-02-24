@@ -520,7 +520,7 @@ export default function PublicBooking() {
                       No available times on this date
                     </p>
                   ) : (
-                    <div className="grid grid-cols-3 gap-2 max-h-[300px] overflow-y-auto">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[300px] overflow-y-auto">
                       {slots.map((slot) => (
                         <Button
                           key={slot.time}
@@ -598,7 +598,7 @@ export default function PublicBooking() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="firstName">First Name *</Label>
                   <Input

@@ -153,28 +153,28 @@ const AdminDashboardPage = () => {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
-          <TabsTrigger value="overview" className="flex items-center gap-2">
+        <TabsList className="flex w-full overflow-x-auto md:grid md:w-full md:grid-cols-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <TabsTrigger value="overview" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <BarChart3 className="h-4 w-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="businesses" className="flex items-center gap-2">
+          <TabsTrigger value="businesses" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <Building className="h-4 w-4" />
             Businesses
           </TabsTrigger>
-          <TabsTrigger value="users" className="flex items-center gap-2">
+          <TabsTrigger value="users" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <Users className="h-4 w-4" />
             Users
           </TabsTrigger>
-          <TabsTrigger value="revenue" className="flex items-center gap-2">
+          <TabsTrigger value="revenue" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <DollarSign className="h-4 w-4" />
             Revenue
           </TabsTrigger>
-          <TabsTrigger value="costs" className="flex items-center gap-2">
+          <TabsTrigger value="costs" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <PieChart className="h-4 w-4" />
             Costs & P/L
           </TabsTrigger>
-          <TabsTrigger value="system" className="flex items-center gap-2">
+          <TabsTrigger value="system" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <Server className="h-4 w-4" />
             System
           </TabsTrigger>

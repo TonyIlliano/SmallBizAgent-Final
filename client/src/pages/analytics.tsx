@@ -451,21 +451,21 @@ export default function AnalyticsPage() {
                 <CardTitle className="text-base">AI Call Analytics</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-6">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-green-600">
+                    <p className="text-xl sm:text-2xl font-bold text-green-600">
                       {analytics.calls.answeredCalls}
                     </p>
                     <p className="text-xs text-muted-foreground">Answered</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-red-500">
+                    <p className="text-xl sm:text-2xl font-bold text-red-500">
                       {analytics.calls.missedCalls}
                     </p>
                     <p className="text-xs text-muted-foreground">Missed</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-orange-500">
+                    <p className="text-xl sm:text-2xl font-bold text-orange-500">
                       {analytics.calls.emergencyCalls}
                     </p>
                     <p className="text-xs text-muted-foreground">Emergency</p>
@@ -539,7 +539,7 @@ export default function AnalyticsPage() {
                 )}
 
                 {/* Customer growth */}
-                <div className="mt-6 grid grid-cols-3 gap-3">
+                <div className="mt-6 grid grid-cols-3 gap-2 sm:gap-3">
                   <div className="text-center p-3 rounded-lg bg-muted/50">
                     <p className="text-lg font-bold">
                       {analytics.customers.totalCustomers}
@@ -585,15 +585,15 @@ export default function AnalyticsPage() {
                 <CardTitle className="text-base">Job Status</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-4 rounded-lg bg-green-50 dark:bg-green-900/20">
-                    <p className="text-2xl font-bold text-green-600">
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                  <div className="text-center p-2 sm:p-4 rounded-lg bg-green-50 dark:bg-green-900/20">
+                    <p className="text-xl sm:text-2xl font-bold text-green-600">
                       {analytics.jobs.completedJobs}
                     </p>
                     <p className="text-xs text-muted-foreground">Completed</p>
                   </div>
-                  <div className="text-center p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20">
-                    <p className="text-2xl font-bold text-blue-600">
+                  <div className="text-center p-2 sm:p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+                    <p className="text-xl sm:text-2xl font-bold text-blue-600">
                       {analytics.jobs.inProgressJobs}
                     </p>
                     <p className="text-xs text-muted-foreground">In Progress</p>
