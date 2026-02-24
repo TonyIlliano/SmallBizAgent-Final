@@ -1675,6 +1675,20 @@ async function bookAppointment(
           notes: `${previousAppointment.notes || ''}\n[Rescheduled to new appointment on ${appointmentDate.toLocaleDateString('en-US', { timeZone: businessTimezone, weekday: 'long', month: 'long', day: 'numeric' })}]`.trim()
         });
         console.log(`Auto-cancelled previous appointment ${previousAppointment.id} (${oldDateStr}) for customer ${customerId} — rescheduled`);
+
+        // Also cancel the linked job for the previous appointment
+        try {
+          const previousJob = await storage.getJobByAppointmentId(previousAppointment.id);
+          if (previousJob && previousJob.status !== 'completed' && previousJob.status !== 'cancelled') {
+            await storage.updateJob(previousJob.id, {
+              status: 'cancelled',
+              notes: `${previousJob.notes || ''}\n[Cancelled: appointment rescheduled to new date]`.trim()
+            });
+            console.log(`Auto-cancelled job ${previousJob.id} linked to rescheduled appointment ${previousAppointment.id}`);
+          }
+        } catch (jobCancelErr) {
+          console.error('Error cancelling job for rescheduled appointment:', jobCancelErr);
+        }
       }
     } catch (err) {
       console.error('Error auto-cancelling previous appointment:', err);
@@ -1696,6 +1710,66 @@ async function bookAppointment(
 
     // Invalidate appointments cache after creating new appointment
     dataCache.invalidate(businessId, 'appointments');
+
+    // Auto-create a linked Job for this appointment
+    let createdJob: any = null;
+    try {
+      // Build the job title from service name + customer name
+      const serviceName = params.serviceName
+        || (serviceId ? services.find(s => s.id === serviceId)?.name : null)
+        || 'General Appointment';
+
+      // Resolve customer name for the title
+      let customerDisplayName = params.customerName || '';
+      if (!customerDisplayName && customer) {
+        customerDisplayName = `${customer.firstName} ${customer.lastName || ''}`.trim();
+      }
+      if (!customerDisplayName) {
+        try {
+          const fetchedCustomer = await storage.getCustomer(customerId!);
+          if (fetchedCustomer) {
+            customerDisplayName = `${fetchedCustomer.firstName} ${fetchedCustomer.lastName || ''}`.trim();
+          }
+        } catch (e) {
+          // Non-critical, continue with service name only
+        }
+      }
+
+      const jobTitle = customerDisplayName
+        ? `${serviceName} - ${customerDisplayName}`
+        : serviceName;
+
+      // Format scheduledDate as YYYY-MM-DD string in the business timezone
+      const scheduledDateStr = appointmentDate.toLocaleDateString('en-CA', {
+        timeZone: businessTimezone
+      });
+
+      createdJob = await storage.createJob({
+        businessId,
+        customerId: customerId!,
+        appointmentId: appointment.id,
+        staffId: resolvedStaffId || null,
+        title: jobTitle,
+        description: serviceName !== 'General Appointment'
+          ? `Service: ${serviceName}${params.notes ? `\nNotes: ${params.notes}` : ''}`
+          : params.notes || null,
+        scheduledDate: scheduledDateStr,
+        status: 'pending',
+        notes: 'Auto-created from AI receptionist booking',
+      });
+
+      console.log(`Auto-created job ${createdJob.id} ("${jobTitle}") linked to appointment ${appointment.id}`);
+
+      // Fire webhook event (fire-and-forget)
+      fireEvent(businessId, 'job.created', { job: createdJob })
+        .catch(err => console.error('Webhook fire error (auto-created job):', err));
+    } catch (jobError: any) {
+      // Job creation failure must NOT block the appointment booking
+      console.error('Failed to auto-create job for appointment:', {
+        appointmentId: appointment.id,
+        error: jobError.message,
+      });
+    }
 
     // Sync to Google Calendar if connected (fire-and-forget)
     try {
@@ -1747,6 +1821,7 @@ async function bookAppointment(
       result: {
         success: true,
         appointmentId: appointment.id,
+        jobId: createdJob?.id || null,
         staffId: resolvedStaffId,
         staffName: staffLabel,
         confirmationMessage: confirmationMsg,
@@ -2218,6 +2293,26 @@ async function rescheduleAppointment(
       notes: `${appointment.notes || ''}\n[Rescheduled from ${oldDateStr}${params.reason ? `: ${params.reason}` : ''}]`.trim()
     });
 
+    // Update the linked job's scheduled date if one exists
+    try {
+      const linkedJob = await storage.getJobByAppointmentId(appointment.id);
+      if (linkedJob && linkedJob.status !== 'completed' && linkedJob.status !== 'cancelled') {
+        const newScheduledDateStr = newDateTime.toLocaleDateString('en-CA', {
+          timeZone: businessTimezone
+        });
+        await storage.updateJob(linkedJob.id, {
+          scheduledDate: newScheduledDateStr,
+          notes: `${linkedJob.notes || ''}\n[Rescheduled from ${oldDateStr}${params.reason ? `: ${params.reason}` : ''}]`.trim()
+        });
+        console.log(`Auto-updated job ${linkedJob.id} scheduled date to ${newScheduledDateStr}`);
+      }
+    } catch (jobUpdateErr) {
+      console.error('Failed to update linked job for rescheduled appointment:', {
+        appointmentId: appointment.id,
+        error: (jobUpdateErr as any).message
+      });
+    }
+
     const newDateStr = newDateTime.toLocaleDateString('en-US', {
       timeZone: businessTimezone,
       weekday: 'long',
@@ -2321,6 +2416,23 @@ async function cancelAppointment(
       status: 'cancelled',
       notes: `${appointment.notes || ''}\n[Cancelled via phone${params.reason ? `: ${params.reason}` : ''}]`.trim()
     });
+
+    // Cancel the linked job if one exists
+    try {
+      const linkedJob = await storage.getJobByAppointmentId(appointment.id);
+      if (linkedJob && linkedJob.status !== 'cancelled' && linkedJob.status !== 'completed') {
+        await storage.updateJob(linkedJob.id, {
+          status: 'cancelled',
+          notes: `${linkedJob.notes || ''}\n[Cancelled via AI receptionist${params.reason ? `: ${params.reason}` : ''}]`.trim()
+        });
+        console.log(`Auto-cancelled job ${linkedJob.id} linked to cancelled appointment ${appointment.id}`);
+      }
+    } catch (jobCancelErr) {
+      console.error('Failed to cancel linked job for appointment:', {
+        appointmentId: appointment.id,
+        error: (jobCancelErr as any).message
+      });
+    }
 
     // Send SMS confirmation
     if (callerPhone) {
