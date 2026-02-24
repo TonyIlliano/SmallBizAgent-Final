@@ -114,6 +114,10 @@ async function fixExistingTables() {
   await addColumnIfNotExists('call_logs', 'is_emergency', 'BOOLEAN DEFAULT false');
   await addColumnIfNotExists('call_logs', 'recording_url', 'TEXT');
   await addColumnIfNotExists('call_logs', 'call_time', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+  await addColumnIfNotExists('call_logs', 'caller_id', 'TEXT');
+  await addColumnIfNotExists('call_logs', 'caller_name', 'TEXT');
+  await addColumnIfNotExists('call_logs', 'status', 'TEXT');
+  await addColumnIfNotExists('call_logs', 'transcript', 'TEXT');
 
   // Backfill any call_logs rows where call_time is NULL (rows inserted before the column existed)
   await pool.query(`UPDATE call_logs SET call_time = CURRENT_TIMESTAMP WHERE call_time IS NULL`);
