@@ -957,6 +957,14 @@ export class DatabaseStorage implements IStorage {
   }): Promise<CallLog[]> {
     const conditions = [eq(callLogs.businessId, businessId)];
 
+    if (params?.startDate) {
+      conditions.push(gte(callLogs.callTime, params.startDate));
+    }
+
+    if (params?.endDate) {
+      conditions.push(lte(callLogs.callTime, params.endDate));
+    }
+
     if (params?.status) {
       conditions.push(eq(callLogs.status, params.status));
     }
@@ -965,7 +973,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(callLogs.isEmergency, params.isEmergency));
     }
 
-    return db.select().from(callLogs).where(and(...conditions));
+    return db.select().from(callLogs).where(and(...conditions)).orderBy(desc(callLogs.callTime));
   }
 
   async getCallLog(id: number): Promise<CallLog | undefined> {

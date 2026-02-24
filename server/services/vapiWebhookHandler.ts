@@ -1515,21 +1515,28 @@ async function bookAppointment(
       const isPlaceholder = (
         customer.firstName === 'New' ||
         customer.firstName === 'Caller' ||
+        customer.firstName === 'Test' ||
         (customer.lastName === 'Customer') ||
+        (customer.lastName === 'User') ||
         /^\d{4}$/.test(customer.lastName || '')
       );
-      if (isPlaceholder && firstName && firstName !== 'New' && firstName !== 'Caller') {
+      // Always update if the provided name is different from current name and looks real
+      const nameChanged = (
+        firstName.toLowerCase() !== (customer.firstName || '').toLowerCase() ||
+        (lastName && lastName.toLowerCase() !== (customer.lastName || '').toLowerCase())
+      );
+      if ((isPlaceholder || nameChanged) && firstName && firstName !== 'New' && firstName !== 'Caller') {
         try {
           const updates: any = { firstName };
-          if (lastName && lastName !== 'Customer') {
+          if (lastName && lastName !== 'Customer' && lastName !== 'User') {
             updates.lastName = lastName;
           }
           if (params.customerEmail && !customer.email) {
             updates.email = params.customerEmail;
           }
           await storage.updateCustomer(customer.id, updates);
+          console.log(`Updated customer ${customer.id} name: ${customer.firstName} ${customer.lastName} -> ${firstName} ${lastName || customer.lastName}`);
           customer = { ...customer, ...updates };
-          console.log(`Updated placeholder customer ${customer.id} with real name: ${firstName} ${lastName}`);
         } catch (err) {
           console.error('Error updating customer name:', err);
         }
@@ -1640,6 +1647,38 @@ async function bookAppointment(
         message: `I'm sorry, ${staffLabel === 'We' ? 'that time slot is' : staffLabel + ' is'} already booked at ${conflictTime}. Would you like to try a different time?`
       }
     };
+  }
+
+  // Auto-cancel previous upcoming appointment for this customer+service (reschedule detection)
+  // If the AI called bookAppointment instead of rescheduleAppointment, mark the old one as rescheduled
+  if (customerId) {
+    try {
+      const existingCustomerAppointments = await storage.getAppointmentsByCustomerId(customerId);
+      const now = new Date();
+      const previousAppointment = existingCustomerAppointments
+        .filter(apt =>
+          new Date(apt.startDate) > now &&
+          apt.status === 'scheduled' &&
+          (!serviceId || apt.serviceId === serviceId)
+        )
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
+
+      if (previousAppointment) {
+        const oldDateStr = new Date(previousAppointment.startDate).toLocaleDateString('en-US', {
+          timeZone: businessTimezone,
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric'
+        });
+        await storage.updateAppointment(previousAppointment.id, {
+          status: 'cancelled',
+          notes: `${previousAppointment.notes || ''}\n[Rescheduled to new appointment on ${appointmentDate.toLocaleDateString('en-US', { timeZone: businessTimezone, weekday: 'long', month: 'long', day: 'numeric' })}]`.trim()
+        });
+        console.log(`Auto-cancelled previous appointment ${previousAppointment.id} (${oldDateStr}) for customer ${customerId} — rescheduled`);
+      }
+    } catch (err) {
+      console.error('Error auto-cancelling previous appointment:', err);
+    }
   }
 
   // Create the appointment
@@ -3323,16 +3362,38 @@ async function handleEndOfCall(
     console.log(`[CallDuration] ${callDurationSeconds}s (sources: durationSeconds=${message.durationSeconds}, durationMs=${message.durationMs}, startedAt=${message.call.startedAt}, endedAt=${message.call.endedAt})`);
 
     try {
+      // Look up caller name from customer records
+      let callerName = '';
+      if (callerPhone && callerPhone !== 'Unknown') {
+        try {
+          const callerCustomer = await storage.getCustomerByPhone(callerPhone, businessId);
+          if (callerCustomer) {
+            callerName = `${callerCustomer.firstName || ''} ${callerCustomer.lastName || ''}`.trim();
+          }
+        } catch (err) {
+          console.error('Error looking up caller name:', err);
+        }
+      }
+
+      // Map Vapi endedReason to standard status values (answered/missed/voicemail)
+      let callStatus = 'answered';
+      const reason = message.endedReason || '';
+      if (reason === 'customer-did-not-answer' || reason === 'silence-timed-out' || reason === 'no-input') {
+        callStatus = 'missed';
+      } else if (reason === 'voicemail' || reason === 'voicemail-reached') {
+        callStatus = 'voicemail';
+      }
+
       const callLog = await storage.createCallLog({
         businessId,
         callerId: callerPhone || 'Unknown',
-        callerName: '',
+        callerName,
         transcript: message.transcript || null,
         intentDetected: 'vapi-ai-call',
         isEmergency: false,
         callDuration: callDurationSeconds,
         recordingUrl: message.call.recordingUrl || null,
-        status: message.endedReason === 'customer-ended-call' ? 'completed' : message.endedReason,
+        status: callStatus,
         callTime: new Date()
       });
       callLogId = callLog?.id || null;
