@@ -109,7 +109,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const showRecent = !debouncedQuery && recentSearches.length > 0;
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
+    <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>
       <CommandInput
         placeholder="Search customers, jobs, invoices..."
         value={query}
