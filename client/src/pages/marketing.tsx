@@ -69,10 +69,12 @@ interface InactiveCustomer {
 }
 
 interface CampaignTemplate {
-  id: number;
+  id: string;
   name: string;
   type: string;
-  message: string;
+  template: string;
+  channel: string;
+  segment: string;
 }
 
 interface Campaign {
@@ -772,7 +774,7 @@ function CampaignsTab() {
 
   function selectTemplate(t: CampaignTemplate) {
     setCampaignName(t.name);
-    setCampaignTemplate(t.message);
+    setCampaignTemplate(t.template);
   }
 
   return (
@@ -800,7 +802,7 @@ function CampaignsTab() {
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground line-clamp-3">
-                    {t.message}
+                    {t.template}
                   </p>
                 </CardContent>
               </Card>

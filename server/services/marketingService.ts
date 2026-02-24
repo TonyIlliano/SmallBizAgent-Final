@@ -179,10 +179,10 @@ export async function getMarketingInsights(businessId: number) {
       topServices,
       busiestDay,
       callIntents,
-      customerSegments,
+      segments: customerSegments,
       revenueThisMonth,
-      revenueTrend: Math.round(revenueTrend * 10) / 10,
-      unansweredQuestionsCount,
+      revenueLastMonth,
+      unansweredQuestions: unansweredQuestionsCount,
       totalCustomers,
     };
   } catch (error) {
@@ -243,7 +243,7 @@ export async function getInactiveCustomers(businessId: number, daysInactive: num
         lastName: r.last_name,
         email: r.email,
         phone: r.phone,
-        lastActivity: lastActivity ? lastActivity.toISOString() : null,
+        lastActivityDate: lastActivity ? lastActivity.toISOString() : null,
         lifetimeRevenue: r.lifetime_revenue,
         daysSinceVisit,
       };
@@ -427,7 +427,8 @@ export async function getReviewCampaignStats(businessId: number) {
 
       // Eligible customers: completed job in last 90 days without a review_request
       pool.query(
-        `SELECT DISTINCT c.id, c.first_name, c.last_name, c.email, c.phone
+        `SELECT DISTINCT c.id, c.first_name, c.last_name, c.email, c.phone,
+                MAX(j.created_at) AS last_job_date
          FROM customers c
          INNER JOIN jobs j ON j.customer_id = c.id AND j.business_id = c.business_id
          WHERE c.business_id = $1
@@ -436,7 +437,8 @@ export async function getReviewCampaignStats(businessId: number) {
            AND NOT EXISTS (
              SELECT 1 FROM review_requests rr
              WHERE rr.customer_id = c.id AND rr.business_id = c.business_id
-           )`,
+           )
+         GROUP BY c.id, c.first_name, c.last_name, c.email, c.phone`,
         [businessId]
       ),
     ]);
@@ -463,13 +465,18 @@ export async function getReviewCampaignStats(businessId: number) {
       lastName: r.last_name,
       email: r.email,
       phone: r.phone,
+      lastJobDate: r.last_job_date,
     }));
 
+    // Find top platform by count
+    const topPlatform = Object.entries(byPlatform).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+
     return {
-      totalSent,
-      clickRate,
-      byChannel,
-      byPlatform,
+      totalRequestsSent: totalSent,
+      clickThroughRate: clickRate,
+      smsSent: byChannel['sms'] || 0,
+      emailSent: byChannel['email'] || 0,
+      topPlatform,
       eligibleCustomers,
     };
   } catch (error) {
