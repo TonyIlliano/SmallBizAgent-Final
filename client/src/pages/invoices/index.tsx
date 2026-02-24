@@ -9,7 +9,13 @@ import { formatDate, formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
-import { PlusCircle, FileText, Download, Edit, Printer, MessageSquare, Share2, Copy, Check } from "lucide-react";
+import { PlusCircle, FileText, Download, Edit, Printer, MessageSquare, Share2, Copy, Check, MoreVertical, ChevronRight as ChevronRightIcon } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -150,86 +156,77 @@ export default function Invoices() {
       cell: (invoice: any) => (
         <div className="flex items-center space-x-2">
           {(invoice.status === 'pending' || invoice.status === 'overdue') && (
-            <>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/invoices/pay/${invoice.id}`);
-                }}
-              >
-                Pay Now
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  sendReminderMutation.mutate(invoice.id);
-                }}
-                disabled={sendReminderMutation.isPending}
-                title="Send Payment Reminder"
-              >
-                <MessageSquare className="h-4 w-4" />
-              </Button>
-            </>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/invoices/pay/${invoice.id}`);
+              }}
+            >
+              Pay Now
+            </Button>
           )}
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              generateLinkMutation.mutate(invoice.id);
-            }}
-            disabled={generateLinkMutation.isPending}
-            title={invoice.accessToken ? "Copy Payment Link" : "Generate Payment Link"}
-          >
-            {copiedId === invoice.id ? (
-              <Check className="h-4 w-4 text-green-600" />
-            ) : (
-              <Share2 className="h-4 w-4" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              // Open invoice in new tab for download/save as PDF
-              window.open(`/invoices/${invoice.id}/print`, '_blank');
-            }}
-            title="Download Invoice"
-          >
-            <Download className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              // Open print preview in new window
-              const printWindow = window.open(`/invoices/${invoice.id}/print`, '_blank');
-              if (printWindow) {
-                printWindow.onload = () => {
-                  printWindow.print();
-                };
-              }
-            }}
-            title="Print Invoice"
-          >
-            <Printer className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/invoices/${invoice.id}`);
-            }}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {(invoice.status === 'pending' || invoice.status === 'overdue') && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendReminderMutation.mutate(invoice.id);
+                  }}
+                  disabled={sendReminderMutation.isPending}
+                >
+                  <MessageSquare className="h-4 w-4 mr-2" /> Send Reminder
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  generateLinkMutation.mutate(invoice.id);
+                }}
+              >
+                <Share2 className="h-4 w-4 mr-2" /> Copy Payment Link
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(`/invoices/${invoice.id}/print`, '_blank');
+                }}
+              >
+                <Download className="h-4 w-4 mr-2" /> Download PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const printWindow = window.open(`/invoices/${invoice.id}/print`, '_blank');
+                  if (printWindow) {
+                    printWindow.onload = () => printWindow.print();
+                  }
+                }}
+              >
+                <Printer className="h-4 w-4 mr-2" /> Print
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/invoices/${invoice.id}`);
+                }}
+              >
+                <Edit className="h-4 w-4 mr-2" /> Edit
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ),
     },
@@ -283,6 +280,37 @@ export default function Invoices() {
             onRowClick={(invoice) => {
               navigate(`/invoices/${invoice.id}`);
             }}
+            mobileCard={(invoice: any) => (
+              <div className="p-4">
+                <div className="flex justify-between items-start">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{invoice.invoiceNumber}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {invoice.customer?.firstName} {invoice.customer?.lastName}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0 ml-3">
+                    <div className="font-semibold">{formatCurrency(invoice.total)}</div>
+                    <div className="mt-1">{getStatusBadge(invoice.status)}</div>
+                  </div>
+                </div>
+                {(invoice.status === 'pending' || invoice.status === 'overdue') && (
+                  <div className="mt-3">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="w-full"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/invoices/pay/${invoice.id}`);
+                      }}
+                    >
+                      Pay Now
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           />
         ) : (
           <div className="flex flex-col items-center justify-center p-8 text-center h-64">

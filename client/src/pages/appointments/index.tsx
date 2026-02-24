@@ -19,6 +19,7 @@ import {
   MoreVertical,
   Scissors,
 } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { AppointmentForm } from "@/components/appointments/AppointmentForm";
 import {
   Sheet,
@@ -271,7 +272,7 @@ export default function Appointments() {
           <Button variant="outline" size="icon" onClick={navigateNext}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <span className="ml-2 text-sm font-medium text-gray-700">
+          <span className="ml-2 text-sm font-medium text-gray-700 truncate max-w-[160px] sm:max-w-none">
             {viewMode === "week"
               ? formatWeekRange(selectedDate)
               : formatFullDate(selectedDate)}
@@ -361,7 +362,21 @@ function WeekView({
   onSelectDate: (date: Date) => void;
   onClickAppointment: (id: number) => void;
 }) {
+  const isMobile = useIsMobile();
   const weekDays = getWeekDays(selectedDate);
+
+  // On mobile, show a day-selector strip + single-day time grid
+  if (isMobile) {
+    return (
+      <MobileWeekView
+        appointments={appointments}
+        selectedDate={selectedDate}
+        weekDays={weekDays}
+        onSelectDate={onSelectDate}
+        onClickAppointment={onClickAppointment}
+      />
+    );
+  }
 
   return (
     <div className="bg-white rounded-lg border overflow-hidden">
@@ -468,6 +483,139 @@ function WeekView({
             })}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MOBILE WEEK VIEW — Day selector strip + single-day time grid
+// ═══════════════════════════════════════════════════════════════════════
+function MobileWeekView({
+  appointments,
+  selectedDate,
+  weekDays,
+  onSelectDate,
+  onClickAppointment,
+}: {
+  appointments: AppointmentData[];
+  selectedDate: Date;
+  weekDays: Date[];
+  onSelectDate: (date: Date) => void;
+  onClickAppointment: (id: number) => void;
+}) {
+  const [activeDayIndex, setActiveDayIndex] = useState(() => {
+    const todayIdx = weekDays.findIndex((d) => isToday(d));
+    return todayIdx >= 0 ? todayIdx : 0;
+  });
+
+  const activeDay = weekDays[activeDayIndex];
+  const dayAppointments = appointments.filter((a) =>
+    isSameDay(new Date(a.startDate), activeDay)
+  );
+  const MOBILE_HOUR_HEIGHT = 56;
+
+  return (
+    <div className="bg-white rounded-lg border overflow-hidden">
+      {/* Day selector strip */}
+      <div className="flex border-b">
+        {weekDays.map((day, i) => {
+          const today = isToday(day);
+          const isActive = i === activeDayIndex;
+          const hasAppts = appointments.some((a) => isSameDay(new Date(a.startDate), day));
+
+          return (
+            <button
+              key={i}
+              onClick={() => setActiveDayIndex(i)}
+              className={`flex-1 min-w-[44px] py-2.5 text-center transition-colors relative ${
+                isActive ? "bg-primary/10" : today ? "bg-blue-50/50" : ""
+              }`}
+            >
+              <div className={`text-[10px] font-medium uppercase ${
+                isActive ? "text-primary" : today ? "text-blue-600" : "text-gray-500"
+              }`}>
+                {formatDayName(day)}
+              </div>
+              <div className={`mt-0.5 text-base font-semibold inline-flex items-center justify-center w-7 h-7 rounded-full ${
+                isActive
+                  ? "bg-primary text-white"
+                  : today
+                    ? "bg-blue-600 text-white"
+                    : "text-gray-900"
+              }`}>
+                {day.getDate()}
+              </div>
+              {hasAppts && !isActive && (
+                <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+              )}
+              {isActive && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Single-day time grid */}
+      <div className="overflow-y-auto" style={{ maxHeight: "60vh" }}>
+        <div className="grid grid-cols-[50px_1fr] relative" style={{ minHeight: HOURS.length * MOBILE_HOUR_HEIGHT }}>
+          {HOURS.map((hour) => {
+            const cellAppts = dayAppointments.filter((a) => {
+              const aDate = new Date(a.startDate);
+              return aDate.getHours() === hour;
+            });
+
+            return (
+              <div key={`mobile-${hour}`} className="contents">
+                {/* Time label */}
+                <div
+                  className="text-[11px] text-gray-400 text-right pr-2 pt-1 border-b"
+                  style={{ height: MOBILE_HOUR_HEIGHT }}
+                >
+                  {formatHour(hour)}
+                </div>
+                {/* Single day cell — full width */}
+                <div
+                  className="relative border-b"
+                  style={{ height: MOBILE_HOUR_HEIGHT }}
+                >
+                  {cellAppts.map((appt) => {
+                    const start = new Date(appt.startDate);
+                    const minuteOffset = start.getMinutes();
+                    const topPx = (minuteOffset / 60) * MOBILE_HOUR_HEIGHT;
+                    const end = new Date(appt.endDate);
+                    const durationMinutes = (end.getTime() - start.getTime()) / 60000;
+                    const heightPx = Math.max((durationMinutes / 60) * MOBILE_HOUR_HEIGHT - 2, 24);
+                    const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+
+                    const customerName = appt.customer
+                      ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
+                      : "Walk-in";
+
+                    return (
+                      <button
+                        key={appt.id}
+                        onClick={() => onClickAppointment(appt.id)}
+                        className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border}`}
+                        style={{ top: topPx, height: heightPx }}
+                      >
+                        <div className={`text-xs font-semibold truncate ${colors.text}`}>
+                          {formatTime(start)} — {customerName}
+                        </div>
+                        {heightPx > 28 && appt.service && (
+                          <div className="text-[11px] text-gray-500 truncate">
+                            {appt.service.name}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

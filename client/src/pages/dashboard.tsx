@@ -260,7 +260,7 @@ export default function Dashboard() {
 
   return (
     <PageLayout title="Dashboard">
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Welcome Greeting */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -463,7 +463,7 @@ export default function Dashboard() {
         )}
 
         {/* Middle Section - Appointments and Jobs */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
           {/* Today's Schedule */}
           <div className="lg:col-span-1">
             <ScheduleCard businessId={businessId} />
@@ -476,7 +476,7 @@ export default function Dashboard() {
         </div>
 
         {/* Bottom Section - Recent Calls and Invoices */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
           {/* Recent Calls from Virtual Receptionist */}
           <CallsCard businessId={businessId} limit={3} />
 
@@ -497,7 +497,7 @@ export default function Dashboard() {
                 </div>
                 <span className="text-sm text-muted-foreground">Last 30 days</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
                 <div className="flex flex-col items-center justify-center p-5 bg-muted/50 rounded-xl border border-border/50 hover:bg-muted transition-colors">
                   <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 mb-3">
                     <DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
@@ -541,7 +541,7 @@ export default function Dashboard() {
             </div>
 
             {/* Customer & Revenue Analytics */}
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
               <Card className="border-border bg-card shadow-sm rounded-xl overflow-hidden">
                 <CardContent className="p-6">
                   <div className="flex items-center gap-3 mb-6">

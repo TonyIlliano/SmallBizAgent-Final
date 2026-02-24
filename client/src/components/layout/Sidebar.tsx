@@ -22,6 +22,7 @@ import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const allNavItems = [
   { path: "/", label: "Dashboard", icon: Home },
@@ -76,6 +77,7 @@ export function Sidebar() {
   const [location] = useLocation();
   const { isSidebarOpen, toggleSidebar } = useSidebar();
   const { user, logoutMutation } = useAuth();
+  const isMobile = useIsMobile();
 
   // Fetch business to check industry for conditional nav items
   const { data: business } = useQuery<any>({
@@ -96,139 +98,158 @@ export function Sidebar() {
     return user.username.substring(0, 2).toUpperCase();
   };
 
+  // Close sidebar on mobile when a nav link is tapped
+  const handleNavClick = () => {
+    if (isMobile && isSidebarOpen) {
+      toggleSidebar();
+    }
+  };
+
   return (
-    <aside
-      className={cn(
-        "transform transition-all duration-300 lg:w-64 md:w-20 w-64 fixed md:static inset-0 z-40 md:z-auto h-full flex flex-col",
-        "bg-black border-r border-neutral-800",
-        isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-      )}
-    >
-      {/* Logo Section */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-neutral-800">
-        <div className="flex items-center gap-3">
-          {/* Robot Logo */}
-          <div className="h-10 w-10 flex items-center justify-center">
-            <RobotLogo className="h-9 w-9 text-white" />
-          </div>
-          <div className="md:hidden lg:block">
-            <div className="text-sm font-bold tracking-wide text-white uppercase">
-              SmallBiz
-            </div>
-            <div className="text-xs font-semibold tracking-widest text-neutral-400 uppercase">
-              Agent
-            </div>
-          </div>
-        </div>
-        <button
+    <>
+      {/* Dark backdrop overlay on mobile when sidebar is open */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden transition-opacity"
           onClick={toggleSidebar}
-          className="md:hidden p-2 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors"
-        >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
+        />
+      )}
 
-      {/* Navigation Links */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const isActive = location === item.path || (item.path !== "/" && location.startsWith(item.path));
-          return (
-            <Link
-              key={item.path}
-              href={item.path}
-              className={cn(
-                "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
-                isActive
-                  ? "bg-white text-black"
-                  : "text-neutral-400 hover:text-white hover:bg-neutral-800/80"
-              )}
-            >
-              <div className={cn(
-                "flex items-center justify-center h-8 w-8 rounded-lg mr-3 md:mr-0 lg:mr-3 transition-all",
-                isActive
-                  ? "bg-black text-white"
-                  : "bg-neutral-800 text-neutral-400 group-hover:bg-neutral-700 group-hover:text-white"
-              )}>
-                <item.icon className="h-4 w-4" />
+      <aside
+        className={cn(
+          "transform transition-all duration-300 lg:w-64 md:w-20 w-64 fixed md:static inset-0 z-40 md:z-auto h-full flex flex-col",
+          "bg-black border-r border-neutral-800",
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+      >
+        {/* Logo Section */}
+        <div className="h-16 flex items-center justify-between px-4 border-b border-neutral-800">
+          <div className="flex items-center gap-3">
+            {/* Robot Logo */}
+            <div className="h-10 w-10 flex items-center justify-center">
+              <RobotLogo className="h-9 w-9 text-white" />
+            </div>
+            <div className="md:hidden lg:block">
+              <div className="text-sm font-bold tracking-wide text-white uppercase">
+                SmallBiz
               </div>
-              <span className="md:hidden lg:inline flex-1">{item.label}</span>
-              {isActive && (
-                <ChevronRight className="h-4 w-4 md:hidden lg:block text-black" />
-              )}
-            </Link>
-          );
-        })}
-
-        {/* Admin Navigation Links - only shown to admin users */}
-        {user?.role === 'admin' && (
-          <>
-            <div className="pt-4 pb-2">
-              <div className="px-3 flex items-center gap-2">
-                <div className="h-px flex-1 bg-neutral-800" />
-                <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider md:hidden lg:block">
-                  Admin
-                </span>
-                <div className="h-px flex-1 bg-neutral-800" />
+              <div className="text-xs font-semibold tracking-widest text-neutral-400 uppercase">
+                Agent
               </div>
             </div>
-
-            {adminNavItems.map((item) => {
-              const isActive = location === item.path || location.startsWith(item.path + '/');
-              return (
-                <Link
-                  key={item.path}
-                  href={item.path}
-                  className={cn(
-                    "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
-                    isActive
-                      ? "bg-red-500 text-white"
-                      : "text-neutral-400 hover:text-white hover:bg-neutral-800/80"
-                  )}
-                >
-                  <div className={cn(
-                    "flex items-center justify-center h-8 w-8 rounded-lg mr-3 md:mr-0 lg:mr-3 transition-all",
-                    isActive
-                      ? "bg-red-600 text-white"
-                      : "bg-neutral-800 text-neutral-400 group-hover:bg-neutral-700 group-hover:text-white"
-                  )}>
-                    <item.icon className="h-4 w-4" />
-                  </div>
-                  <span className="md:hidden lg:inline flex-1">{item.label}</span>
-                  {isActive && (
-                    <ChevronRight className="h-4 w-4 md:hidden lg:block" />
-                  )}
-                </Link>
-              );
-            })}
-          </>
-        )}
-      </nav>
-
-      {/* Profile Section */}
-      <div className="border-t border-neutral-800 p-4">
-        <div className="flex items-center">
-          <div className="h-10 w-10 rounded-lg bg-white flex items-center justify-center text-black font-bold text-sm">
-            {getInitials()}
           </div>
-          <div className="ml-3 md:hidden lg:block flex-grow min-w-0">
-            <p className="text-sm font-medium text-white truncate">{user?.username}</p>
-            <p className="text-xs text-neutral-500 truncate">{user?.email}</p>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto p-0 h-9 w-9 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-all"
-            onClick={() => logoutMutation.mutate()}
-            disabled={logoutMutation.isPending}
+          <button
+            onClick={toggleSidebar}
+            className="md:hidden p-2 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors"
           >
-            {logoutMutation.isPending ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            ) : (
-              <LogOut className="h-4 w-4" />
-            )}
-          </Button>
+            <X className="h-5 w-5" />
+          </button>
         </div>
-      </div>
-    </aside>
+
+        {/* Navigation Links */}
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {navItems.map((item) => {
+            const isActive = location === item.path || (item.path !== "/" && location.startsWith(item.path));
+            return (
+              <Link
+                key={item.path}
+                href={item.path}
+                onClick={handleNavClick}
+                className={cn(
+                  "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
+                  isActive
+                    ? "bg-white text-black"
+                    : "text-neutral-400 hover:text-white hover:bg-neutral-800/80"
+                )}
+              >
+                <div className={cn(
+                  "flex items-center justify-center h-8 w-8 rounded-lg mr-3 md:mr-0 lg:mr-3 transition-all",
+                  isActive
+                    ? "bg-black text-white"
+                    : "bg-neutral-800 text-neutral-400 group-hover:bg-neutral-700 group-hover:text-white"
+                )}>
+                  <item.icon className="h-4 w-4" />
+                </div>
+                <span className="md:hidden lg:inline flex-1">{item.label}</span>
+                {isActive && (
+                  <ChevronRight className="h-4 w-4 md:hidden lg:block text-black" />
+                )}
+              </Link>
+            );
+          })}
+
+          {/* Admin Navigation Links - only shown to admin users */}
+          {user?.role === 'admin' && (
+            <>
+              <div className="pt-4 pb-2">
+                <div className="px-3 flex items-center gap-2">
+                  <div className="h-px flex-1 bg-neutral-800" />
+                  <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider md:hidden lg:block">
+                    Admin
+                  </span>
+                  <div className="h-px flex-1 bg-neutral-800" />
+                </div>
+              </div>
+
+              {adminNavItems.map((item) => {
+                const isActive = location === item.path || location.startsWith(item.path + '/');
+                return (
+                  <Link
+                    key={item.path}
+                    href={item.path}
+                    onClick={handleNavClick}
+                    className={cn(
+                      "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
+                      isActive
+                        ? "bg-red-500 text-white"
+                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/80"
+                    )}
+                  >
+                    <div className={cn(
+                      "flex items-center justify-center h-8 w-8 rounded-lg mr-3 md:mr-0 lg:mr-3 transition-all",
+                      isActive
+                        ? "bg-red-600 text-white"
+                        : "bg-neutral-800 text-neutral-400 group-hover:bg-neutral-700 group-hover:text-white"
+                    )}>
+                      <item.icon className="h-4 w-4" />
+                    </div>
+                    <span className="md:hidden lg:inline flex-1">{item.label}</span>
+                    {isActive && (
+                      <ChevronRight className="h-4 w-4 md:hidden lg:block" />
+                    )}
+                  </Link>
+                );
+              })}
+            </>
+          )}
+        </nav>
+
+        {/* Profile Section */}
+        <div className="border-t border-neutral-800 p-4">
+          <div className="flex items-center">
+            <div className="h-10 w-10 rounded-lg bg-white flex items-center justify-center text-black font-bold text-sm">
+              {getInitials()}
+            </div>
+            <div className="ml-3 md:hidden lg:block flex-grow min-w-0">
+              <p className="text-sm font-medium text-white truncate">{user?.username}</p>
+              <p className="text-xs text-neutral-500 truncate">{user?.email}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto p-0 h-9 w-9 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-all"
+              onClick={() => logoutMutation.mutate()}
+              disabled={logoutMutation.isPending}
+            >
+              {logoutMutation.isPending ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <LogOut className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }

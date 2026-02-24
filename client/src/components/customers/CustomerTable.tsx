@@ -5,7 +5,7 @@ import { formatPhoneNumber } from "@/lib/utils";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Users } from "lucide-react";
+import { PlusCircle, Users, ChevronRight as ChevronRightIcon } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -193,6 +193,22 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
           columns={columns}
           data={customers}
           onRowClick={(customer) => navigate(`/customers/${customer.id}`)}
+          mobileCard={(customer: any) => (
+            <div className="p-4 flex items-center justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium truncate">
+                  {customer.firstName} {customer.lastName}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {formatPhoneNumber(customer.phone)}
+                </div>
+                {customer.email && (
+                  <div className="text-xs text-muted-foreground truncate">{customer.email}</div>
+                )}
+              </div>
+              <ChevronRightIcon className="h-5 w-5 text-muted-foreground flex-shrink-0 ml-2" />
+            </div>
+          )}
         />
       ) : (
         <div className="rounded-lg border border-dashed p-12 text-center">

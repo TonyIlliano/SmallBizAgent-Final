@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useSidebar } from "@/context/SidebarContext";
-import { Bell, Search, Menu } from "lucide-react";
+import { Bell, Search, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -9,6 +10,7 @@ interface HeaderProps {
 
 export function Header({ title }: HeaderProps) {
   const { toggleSidebar } = useSidebar();
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   return (
     <header className="bg-card border-b border-border sticky top-0 z-50">
@@ -27,7 +29,18 @@ export function Header({ title }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Search */}
+          {/* Mobile Search Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+            onClick={() => setMobileSearchOpen(true)}
+          >
+            <Search className="h-5 w-5" />
+            <span className="sr-only">Search</span>
+          </Button>
+
+          {/* Desktop Search */}
           <div className="hidden md:block">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -51,6 +64,27 @@ export function Header({ title }: HeaderProps) {
           </Button>
         </div>
       </div>
+
+      {/* Mobile Search Overlay */}
+      {mobileSearchOpen && (
+        <div className="absolute inset-x-0 top-0 z-50 flex items-center h-16 px-4 bg-card border-b border-border md:hidden">
+          <Search className="h-4 w-4 text-muted-foreground mr-2 flex-shrink-0" />
+          <Input
+            autoFocus
+            type="text"
+            placeholder="Search..."
+            className="flex-1 border-0 bg-transparent focus-visible:ring-0 text-sm placeholder:text-muted-foreground"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground flex-shrink-0"
+            onClick={() => setMobileSearchOpen(false)}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+      )}
     </header>
   );
 }

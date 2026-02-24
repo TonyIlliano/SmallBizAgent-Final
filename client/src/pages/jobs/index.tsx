@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatPhoneNumber } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { PlusCircle, Briefcase } from "lucide-react";
+import { PlusCircle, Briefcase, ChevronRight as ChevronRightIcon } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -171,6 +171,25 @@ export default function Jobs() {
             columns={columns}
             data={jobs}
             onRowClick={(job) => navigate(`/jobs/${job.id}`)}
+            mobileCard={(job: any) => (
+              <div className="p-4 flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{job.title}</div>
+                  <div className="text-sm text-muted-foreground">
+                    {job.customer?.firstName} {job.customer?.lastName}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    {getStatusBadge(job.status)}
+                    {job.staff && (
+                      <span className="text-xs text-muted-foreground">
+                        {job.staff.firstName} {job.staff.lastName?.[0]}.
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <ChevronRightIcon className="h-5 w-5 text-muted-foreground flex-shrink-0 ml-2" />
+              </div>
+            )}
           />
         ) : (
           <div className="flex flex-col items-center justify-center p-8 text-center h-64">

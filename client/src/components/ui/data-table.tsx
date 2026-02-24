@@ -17,6 +17,7 @@ import {
   Search,
 } from "lucide-react";
 import { debounce } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface Column<T> {
   header: string;
@@ -32,6 +33,7 @@ interface DataTableProps<T> {
   searchable?: boolean;
   pagination?: boolean;
   pageSize?: number;
+  mobileCard?: (item: T) => React.ReactNode;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -42,14 +44,16 @@ export function DataTable<T extends Record<string, any>>({
   searchable = true,
   pagination = true,
   pageSize = 10,
+  mobileCard,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
-  
+  const isMobile = useIsMobile();
+
   // Filter data based on search query
   const filteredData = data.filter((item) => {
     if (!searchQuery) return true;
-    
+
     // Search across all fields
     return Object.values(item).some((value) => {
       if (value === null || value === undefined) return false;
@@ -64,7 +68,7 @@ export function DataTable<T extends Record<string, any>>({
   const start = (page - 1) * pageSize;
   const end = start + pageSize;
   const paginatedData = filteredData.slice(start, end);
-  
+
   // Handle search input with debounce
   const handleSearch = debounce((value: string) => {
     setSearchQuery(value);
@@ -92,32 +96,48 @@ export function DataTable<T extends Record<string, any>>({
             <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full"></div>
           </div>
         ) : paginatedData.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {columns.map((column) => (
-                  <TableHead key={column.accessorKey}>{column.header}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          isMobile && mobileCard ? (
+            /* Mobile card view */
+            <div className="divide-y divide-border">
               {paginatedData.map((item, index) => (
-                <TableRow 
+                <div
                   key={index}
-                  onClick={() => onRowClick && onRowClick(item)}
-                  className={onRowClick ? "cursor-pointer hover:bg-gray-50" : ""}
+                  onClick={() => onRowClick?.(item)}
+                  className={onRowClick ? "cursor-pointer active:bg-muted/50 transition-colors" : ""}
                 >
+                  {mobileCard(item)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* Desktop table view */
+            <Table>
+              <TableHeader>
+                <TableRow>
                   {columns.map((column) => (
-                    <TableCell key={column.accessorKey}>
-                      {column.cell
-                        ? column.cell(item)
-                        : item[column.accessorKey]}
-                    </TableCell>
+                    <TableHead key={column.accessorKey}>{column.header}</TableHead>
                   ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {paginatedData.map((item, index) => (
+                  <TableRow
+                    key={index}
+                    onClick={() => onRowClick && onRowClick(item)}
+                    className={onRowClick ? "cursor-pointer hover:bg-gray-50" : ""}
+                  >
+                    {columns.map((column) => (
+                      <TableCell key={column.accessorKey}>
+                        {column.cell
+                          ? column.cell(item)
+                          : item[column.accessorKey]}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )
         ) : (
           <div className="min-h-[200px] flex items-center justify-center p-4">
             <p className="text-gray-500">No results found.</p>
@@ -126,17 +146,21 @@ export function DataTable<T extends Record<string, any>>({
       </div>
 
       {pagination && totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <div className="text-sm text-gray-500">
+        <div className="flex items-center justify-between mt-4 gap-2">
+          <div className="text-sm text-gray-500 hidden sm:block">
             Showing {start + 1} to {Math.min(end, filteredData.length)} of{" "}
             {filteredData.length} entries
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="text-sm text-gray-500 sm:hidden">
+            {start + 1}-{Math.min(end, filteredData.length)} of {filteredData.length}
+          </div>
+          <div className="flex items-center space-x-1 sm:space-x-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setPage(1)}
               disabled={page === 1}
+              className="hidden sm:flex"
             >
               <ChevronsLeft className="h-4 w-4" />
             </Button>
@@ -148,8 +172,8 @@ export function DataTable<T extends Record<string, any>>({
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm text-gray-500">
-              Page {page} of {totalPages}
+            <span className="text-sm text-gray-500 px-1">
+              {page}/{totalPages}
             </span>
             <Button
               variant="outline"
@@ -164,6 +188,7 @@ export function DataTable<T extends Record<string, any>>({
               size="sm"
               onClick={() => setPage(totalPages)}
               disabled={page === totalPages}
+              className="hidden sm:flex"
             >
               <ChevronsRight className="h-4 w-4" />
             </Button>

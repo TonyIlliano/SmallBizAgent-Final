@@ -705,18 +705,18 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full grid-cols-5 ${isRestaurant ? 'md:grid-cols-11' : 'md:grid-cols-10'} mb-6`}>
-            <TabsTrigger value="profile">Profile</TabsTrigger>
-            <TabsTrigger value="team">Team</TabsTrigger>
-            <TabsTrigger value="hours">Hours</TabsTrigger>
-            <TabsTrigger value="services">Services</TabsTrigger>
-            <TabsTrigger value="booking">Booking</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="reviews">Reviews</TabsTrigger>
-            {isRestaurant && <TabsTrigger value="restaurant">Restaurant</TabsTrigger>}
-            <TabsTrigger value="integrations">Integrations</TabsTrigger>
-            <TabsTrigger value="subscription">Subscription</TabsTrigger>
-            <TabsTrigger value="pwa">App</TabsTrigger>
+          <TabsList className={`flex w-full overflow-x-auto md:grid md:w-full ${isRestaurant ? 'md:grid-cols-11' : 'md:grid-cols-10'} mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]`}>
+            <TabsTrigger value="profile" className="whitespace-nowrap flex-shrink-0">Profile</TabsTrigger>
+            <TabsTrigger value="team" className="whitespace-nowrap flex-shrink-0">Team</TabsTrigger>
+            <TabsTrigger value="hours" className="whitespace-nowrap flex-shrink-0">Hours</TabsTrigger>
+            <TabsTrigger value="services" className="whitespace-nowrap flex-shrink-0">Services</TabsTrigger>
+            <TabsTrigger value="booking" className="whitespace-nowrap flex-shrink-0">Booking</TabsTrigger>
+            <TabsTrigger value="notifications" className="whitespace-nowrap flex-shrink-0">Notifications</TabsTrigger>
+            <TabsTrigger value="reviews" className="whitespace-nowrap flex-shrink-0">Reviews</TabsTrigger>
+            {isRestaurant && <TabsTrigger value="restaurant" className="whitespace-nowrap flex-shrink-0">Restaurant</TabsTrigger>}
+            <TabsTrigger value="integrations" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
+            <TabsTrigger value="subscription" className="whitespace-nowrap flex-shrink-0">Subscription</TabsTrigger>
+            <TabsTrigger value="pwa" className="whitespace-nowrap flex-shrink-0">App</TabsTrigger>
           </TabsList>
           
           <TabsContent value="profile" className="space-y-4">
@@ -930,7 +930,7 @@ export default function Settings() {
                         )}
                       />
                       
-                      <div className="grid grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <FormField
                           control={businessForm.control}
                           name="city"
@@ -1757,12 +1757,12 @@ export default function Settings() {
               </CardHeader>
               <CardContent>
                 <Tabs defaultValue="payments">
-                  <TabsList className="mb-4">
-                    <TabsTrigger value="payments">Payments</TabsTrigger>
-                    <TabsTrigger value="calendar">Calendar</TabsTrigger>
-                    <TabsTrigger value="quickbooks">QuickBooks</TabsTrigger>
-                    <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
-                    <TabsTrigger value="api-keys">API Keys</TabsTrigger>
+                  <TabsList className="mb-4 flex w-full overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                    <TabsTrigger value="payments" className="whitespace-nowrap flex-shrink-0">Payments</TabsTrigger>
+                    <TabsTrigger value="calendar" className="whitespace-nowrap flex-shrink-0">Calendar</TabsTrigger>
+                    <TabsTrigger value="quickbooks" className="whitespace-nowrap flex-shrink-0">QuickBooks</TabsTrigger>
+                    <TabsTrigger value="webhooks" className="whitespace-nowrap flex-shrink-0">Webhooks</TabsTrigger>
+                    <TabsTrigger value="api-keys" className="whitespace-nowrap flex-shrink-0">API Keys</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="payments">

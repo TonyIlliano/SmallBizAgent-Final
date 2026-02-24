@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { formatTime } from "@/lib/utils";
-import { Plus, Briefcase, ArrowRight, Clock } from "lucide-react";
+import { Plus, Briefcase, ArrowRight, Clock, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Skeleton } from "@/components/ui/skeleton-loader";
 
 interface JobsTableProps {
@@ -35,6 +36,7 @@ export function JobsTable({ businessId, limit }: JobsTableProps) {
     }
   };
 
+  const isMobile = useIsMobile();
   const limitedJobs = limit && jobs ? jobs.slice(0, limit) : jobs;
 
   return (
@@ -73,72 +75,100 @@ export function JobsTable({ businessId, limit }: JobsTableProps) {
             ))}
           </div>
         ) : limitedJobs && limitedJobs.length > 0 ? (
-          <table className="min-w-full">
-            <thead className="bg-muted/50">
-              <tr>
-                <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Job
-                </th>
-                <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Customer
-                </th>
-                <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Status
-                </th>
-                <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Technician
-                </th>
-                <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Est. Complete
-                </th>
-                <th scope="col" className="relative px-6 py-3.5">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          isMobile ? (
+            /* Mobile card view */
+            <div className="divide-y divide-border">
               {limitedJobs.map((job: any) => (
-                <tr key={job.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-semibold text-foreground">{job.title}</div>
-                    <div className="text-sm text-muted-foreground truncate max-w-[200px]">{job.description}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-foreground">
-                      {job.customer?.firstName} {job.customer?.lastName}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {getStatusBadge(job.status)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <div className="h-7 w-7 rounded-lg bg-muted flex items-center justify-center text-foreground text-xs font-semibold">
-                        {job.staff?.firstName?.[0]}{job.staff?.lastName?.[0]}
+                <Link key={job.id} href={`/jobs/${job.id}`}>
+                  <div className="p-4 flex items-center justify-between hover:bg-muted/30 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-foreground truncate">{job.title}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {job.customer?.firstName} {job.customer?.lastName}
                       </div>
-                      <span className="font-medium text-foreground">{job.staff?.firstName} {job.staff?.lastName?.[0]}.</span>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        {getStatusBadge(job.status)}
+                        {job.staff && (
+                          <span className="text-xs text-muted-foreground">
+                            {job.staff.firstName} {job.staff.lastName?.[0]}.
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      {job.estimatedCompletion
-                        ? formatTime(new Date(job.estimatedCompletion))
-                        : "TBD"}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <Link href={`/jobs/${job.id}`}>
-                      <Button variant="ghost" size="sm" className="h-8 text-foreground hover:bg-muted">
-                        Update
-                        <ArrowRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </Link>
-                  </td>
-                </tr>
+                    <ChevronRightIcon className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
+                  </div>
+                </Link>
               ))}
-            </tbody>
-          </table>
+            </div>
+          ) : (
+            /* Desktop table view */
+            <table className="min-w-full">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Job
+                  </th>
+                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Customer
+                  </th>
+                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Technician
+                  </th>
+                  <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Est. Complete
+                  </th>
+                  <th scope="col" className="relative px-6 py-3.5">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {limitedJobs.map((job: any) => (
+                  <tr key={job.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-semibold text-foreground">{job.title}</div>
+                      <div className="text-sm text-muted-foreground truncate max-w-[200px]">{job.description}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-foreground">
+                        {job.customer?.firstName} {job.customer?.lastName}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {getStatusBadge(job.status)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <div className="h-7 w-7 rounded-lg bg-muted flex items-center justify-center text-foreground text-xs font-semibold">
+                          {job.staff?.firstName?.[0]}{job.staff?.lastName?.[0]}
+                        </div>
+                        <span className="font-medium text-foreground">{job.staff?.firstName} {job.staff?.lastName?.[0]}.</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Clock className="h-4 w-4" />
+                        {job.estimatedCompletion
+                          ? formatTime(new Date(job.estimatedCompletion))
+                          : "TBD"}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <Link href={`/jobs/${job.id}`}>
+                        <Button variant="ghost" size="sm" className="h-8 text-foreground hover:bg-muted">
+                          Update
+                          <ArrowRight className="h-4 w-4 ml-1" />
+                        </Button>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
         ) : (
           <div className="py-12 text-center">
             <div className="p-4 rounded-full bg-muted inline-block mb-4">
