@@ -69,13 +69,13 @@ export default function CustomerDetail() {
 
   // Fetch customer data
   const { data: customer, isLoading, error } = useQuery<any>({
-    queryKey: ["/api/customers", parseInt(customerId || "0")],
+    queryKey: [`/api/customers/${customerId}`],
     enabled: !isNew && !!customerId,
   });
 
   // Fetch activity data
   const { data: activity, isLoading: activityLoading } = useQuery<any>({
-    queryKey: ["/api/customers", parseInt(customerId || "0"), "activity"],
+    queryKey: [`/api/customers/${customerId}/activity`],
     enabled: !isNew && !!customerId,
   });
 

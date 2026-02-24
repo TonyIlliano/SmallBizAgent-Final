@@ -96,10 +96,10 @@ export function CustomerForm({ customer, isEdit = false, onSuccess }: CustomerFo
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       queryClient.invalidateQueries({
-        queryKey: ["/api/customers", customer.id]
+        queryKey: [`/api/customers/${customer.id}`]
       });
       queryClient.invalidateQueries({
-        queryKey: ["/api/customers", customer.id, "activity"]
+        queryKey: [`/api/customers/${customer.id}/activity`]
       });
       toast({
         title: "Success",
