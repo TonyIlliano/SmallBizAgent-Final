@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { formatDateTime, formatPhoneNumber } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -67,6 +68,8 @@ function normalizeIntent(intent: string): string {
 }
 
 export function CallLog({ businessId }: { businessId?: number | null }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [dateRange, setDateRange] = useState<{
     from: Date | undefined;
     to: Date | undefined;
@@ -399,8 +402,8 @@ export function CallLog({ businessId }: { businessId?: number | null }) {
                           </div>
                         </div>
 
-                        {/* Recording */}
-                        {call.recordingUrl && (
+                        {/* Recording — admin only */}
+                        {isAdmin && call.recordingUrl && (
                           <div>
                             <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
                               <Play className="h-3 w-3" /> Recording
@@ -415,22 +418,28 @@ export function CallLog({ businessId }: { businessId?: number | null }) {
                           </div>
                         )}
 
-                        {/* Transcript */}
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                            <MessageSquare className="h-3 w-3" /> Full
-                            Transcript
-                          </p>
-                          {call.transcript ? (
-                            <div className="bg-background border rounded-lg p-4 text-sm whitespace-pre-wrap max-h-96 overflow-y-auto leading-relaxed">
-                              {call.transcript}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-muted-foreground italic">
-                              No transcript available for this call
+                        {/* Transcript — admin only */}
+                        {isAdmin ? (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                              <MessageSquare className="h-3 w-3" /> Full
+                              Transcript
                             </p>
-                          )}
-                        </div>
+                            {call.transcript ? (
+                              <div className="bg-background border rounded-lg p-4 text-sm whitespace-pre-wrap max-h-96 overflow-y-auto leading-relaxed">
+                                {call.transcript}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground italic">
+                                No transcript available for this call
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground italic">
+                            Call transcripts are managed by the platform administrator
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
