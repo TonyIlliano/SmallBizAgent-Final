@@ -142,6 +142,7 @@ async function fixExistingTables() {
       role TEXT,
       specialty TEXT,
       bio TEXT,
+      photo_url TEXT,
       active BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -379,6 +380,9 @@ async function fixExistingTables() {
 
   // Fix staff table - add user_id for staff portal
   await addColumnIfNotExists('staff', 'user_id', 'INTEGER');
+
+  // Fix staff table - add photo_url for booking page
+  await addColumnIfNotExists('staff', 'photo_url', 'TEXT');
 
   // Create staff_invites table
   await pool.query(`
@@ -828,6 +832,7 @@ async function createBaseTables() {
       role TEXT,
       specialty TEXT,
       bio TEXT,
+      photo_url TEXT,
       active BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

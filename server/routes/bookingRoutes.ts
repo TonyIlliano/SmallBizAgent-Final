@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
+import { fireEvent } from "../services/webhookService";
+import notificationService from "../services/notificationService";
 
 const router = Router();
 
@@ -61,6 +63,7 @@ router.get("/book/:slug", async (req, res) => {
         lastName: s.lastName,
         specialty: s.specialty,
         bio: s.bio,
+        photoUrl: s.photoUrl,
       })),
       businessHours: hours,
     });
@@ -321,6 +324,48 @@ router.post("/book/:slug", async (req, res) => {
         : 'Online booking',
     });
 
+    // Auto-create a linked Job (matches AI receptionist behavior)
+    let createdJob: any = null;
+    try {
+      const customerDisplayName = `${validatedData.customer.firstName} ${validatedData.customer.lastName}`.trim();
+      const jobTitle = customerDisplayName ? `${service.name} - ${customerDisplayName}` : service.name;
+
+      createdJob = await storage.createJob({
+        businessId: business.id,
+        customerId: customer.id,
+        appointmentId: appointment.id,
+        staffId: staffId || null,
+        title: jobTitle,
+        description: `Service: ${service.name}${validatedData.notes ? `\nNotes: ${validatedData.notes}` : ''}`,
+        scheduledDate: validatedData.date,
+        status: 'pending',
+        notes: 'Auto-created from online booking',
+      });
+
+      fireEvent(business.id, 'job.created', { job: createdJob }).catch(err =>
+        console.error('Webhook fire error (job.created):', err));
+    } catch (jobError: any) {
+      console.error('Failed to auto-create job for online booking:', { appointmentId: appointment.id, error: jobError.message });
+    }
+
+    // Fire appointment webhook event
+    fireEvent(business.id, 'appointment.created', { appointment }).catch(err =>
+      console.error('Webhook fire error (appointment.created):', err));
+
+    // Send email/SMS confirmation (fire-and-forget)
+    notificationService.sendAppointmentConfirmation(appointment.id, business.id).catch(err =>
+      console.error('Failed to send booking confirmation:', err));
+
+    // Google Calendar sync (fire-and-forget)
+    try {
+      const { CalendarService } = await import("../services/calendarService");
+      const calendarService = new CalendarService();
+      calendarService.syncAppointment(appointment.id).catch(err =>
+        console.error('Background calendar sync error (booking):', err));
+    } catch (calErr) {
+      // Calendar service may not be available
+    }
+
     res.status(201).json({
       success: true,
       appointment: {
@@ -329,6 +374,7 @@ router.post("/book/:slug", async (req, res) => {
         endDate: appointment.endDate,
         serviceName: service.name,
       },
+      jobId: createdJob?.id || null,
       message: `Your appointment has been booked for ${startDate.toLocaleDateString()} at ${validatedData.time}. You will receive a confirmation shortly.`,
     });
   } catch (error: any) {

@@ -134,6 +134,7 @@ import quoteRoutes from "./routes/quoteRoutes";
 import customerRoutes from "./routes/customerRoutes";
 import recurringRoutes from "./routes/recurring";
 import bookingRoutes from "./routes/bookingRoutes";
+import embedRoutes from "./routes/embedRoutes";
 import cloverRoutes from "./routes/cloverRoutes";
 import squareRoutes from "./routes/squareRoutes";
 import adminRoutes from "./routes/adminRoutes";
@@ -4768,6 +4769,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register public booking routes (no auth required for customer-facing pages)
   app.use('/api', bookingRoutes);
+
+  // Register embed widget routes (public, serves JS for external websites)
+  app.use('/api', embedRoutes);
 
   // Serve calendar files from public directory
   app.use('/calendar', express.static('public/calendar'));

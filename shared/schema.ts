@@ -152,6 +152,7 @@ export const staff = pgTable("staff", {
   role: text("role"),
   specialty: text("specialty"), // e.g., "Senior Barber", "Colorist", "Master Stylist"
   bio: text("bio"), // Short description for customers
+  photoUrl: text("photo_url"), // Staff photo URL for booking page
   active: boolean("active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

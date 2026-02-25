@@ -21,6 +21,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,7 @@ import {
   Check,
   AlertCircle,
   Loader2,
+  Code,
 } from "lucide-react";
 
 // Booking Settings Schema
@@ -69,6 +71,7 @@ export default function BookingSettings({ business }: BookingSettingsProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [embedCopied, setEmbedCopied] = useState<string | null>(null);
   const [isCheckingSlug, setIsCheckingSlug] = useState(false);
   const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null);
 
@@ -261,6 +264,87 @@ export default function BookingSettings({ business }: BookingSettingsProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Embed on Your Website Card */}
+      {business?.bookingSlug && business?.bookingEnabled && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-violet-100 dark:bg-violet-900/30">
+                <Code className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+              </div>
+              <div>
+                <CardTitle>Embed on Your Website</CardTitle>
+                <CardDescription>
+                  Add booking directly to your website so customers can book without leaving your site
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Inline embed */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Inline Booking Form</Label>
+              <p className="text-xs text-muted-foreground">
+                Embeds the full booking form directly on your page
+              </p>
+              <div className="flex items-start gap-2">
+                <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all font-mono leading-relaxed">
+                  {`<script src="${window.location.origin}/api/embed/booking-widget.js" data-slug="${business.bookingSlug}"></script>`}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 mt-1"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `<script src="${window.location.origin}/api/embed/booking-widget.js" data-slug="${business.bookingSlug}"></script>`
+                    );
+                    setEmbedCopied("inline");
+                    setTimeout(() => setEmbedCopied(null), 2000);
+                    toast({ title: "Copied!", description: "Inline embed code copied to clipboard" });
+                  }}
+                >
+                  {embedCopied === "inline" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+
+            {/* Button embed */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Book Now Button</Label>
+              <p className="text-xs text-muted-foreground">
+                Adds a "Book Now" button that opens booking in a popup overlay
+              </p>
+              <div className="flex items-start gap-2">
+                <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all font-mono leading-relaxed">
+                  {`<script src="${window.location.origin}/api/embed/booking-widget.js" data-slug="${business.bookingSlug}" data-mode="button" data-text="Book Now"></script>`}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 mt-1"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `<script src="${window.location.origin}/api/embed/booking-widget.js" data-slug="${business.bookingSlug}" data-mode="button" data-text="Book Now"></script>`
+                    );
+                    setEmbedCopied("button");
+                    setTimeout(() => setEmbedCopied(null), 2000);
+                    toast({ title: "Copied!", description: "Button embed code copied to clipboard" });
+                  }}
+                >
+                  {embedCopied === "button" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-lg">
+              Paste either code snippet into your website's HTML where you want the booking to appear.
+              Both options display "Powered by SmallBizAgent" with our logo.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Booking Settings Form */}
       <Card>

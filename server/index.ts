@@ -94,6 +94,13 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false, // Required for some external resources
 }));
 
+// Allow embedding booking pages in iframes on external websites
+app.use('/book', (_req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  next();
+});
+
 // CORS - Configure allowed origins
 // In production, BASE_URL should be set to your Railway URL
 // localhost entries only used in development (see CORS handler below)
