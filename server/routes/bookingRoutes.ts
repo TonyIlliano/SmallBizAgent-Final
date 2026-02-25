@@ -334,10 +334,7 @@ router.post("/book/:slug", async (req, res) => {
       }
     }
 
-    // Generate a unique manage token for customer self-service
-    const manageToken = crypto.randomBytes(24).toString('hex');
-
-    // Create the appointment
+    // Create the appointment (same pattern as VAPI/AI receptionist)
     const appointment = await storage.createAppointment({
       businessId: business.id,
       customerId: customer.id,
@@ -346,11 +343,18 @@ router.post("/book/:slug", async (req, res) => {
       startDate,
       endDate,
       status: 'scheduled',
-      manageToken,
       notes: validatedData.notes
         ? `Online booking: ${validatedData.notes}`
         : 'Online booking',
     });
+
+    // Set manage token after creation (non-blocking, so appointment creation never fails)
+    const manageToken = crypto.randomBytes(24).toString('hex');
+    try {
+      await storage.updateAppointment(appointment.id, { manageToken });
+    } catch (tokenErr) {
+      console.error('Failed to set manage token (column may not exist yet):', tokenErr);
+    }
 
     // Auto-create a linked Job (matches AI receptionist behavior)
     let createdJob: any = null;

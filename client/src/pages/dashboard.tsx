@@ -120,6 +120,7 @@ export default function Dashboard() {
     queryKey: ['/api/jobs', { businessId, status: 'completed' }],
     enabled: !!businessId,
     refetchInterval: 10000,
+    staleTime: 5000, // Must be less than refetchInterval for TanStack v5 to actually refetch
   });
 
   const { data: invoices = [] } = useQuery<any[]>({
@@ -134,13 +135,15 @@ export default function Dashboard() {
       endDate: new Date().toISOString().split('T')[0]
     }],
     enabled: !!businessId,
-    refetchInterval: 10000, // Auto-refresh every 10s for real-time booking updates
+    refetchInterval: 10000,
+    staleTime: 5000,
   });
 
   const { data: calls = [] } = useQuery<any[]>({
     queryKey: ['/api/call-logs', { businessId }],
     enabled: !!businessId,
     refetchInterval: 10000,
+    staleTime: 5000,
   });
 
   const { data: quotes = [] } = useQuery<any[]>({

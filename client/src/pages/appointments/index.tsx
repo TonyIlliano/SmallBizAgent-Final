@@ -209,7 +209,8 @@ export default function Appointments() {
   // ─── Fetch appointments ─────────────────────────────────────────
   const { data: appointments = [], isLoading } = useQuery<AppointmentData[]>({
     queryKey: ["/api/appointments", queryParams],
-    refetchInterval: 10000, // Auto-refresh for real-time booking updates
+    refetchInterval: 10000,
+    staleTime: 5000,
   });
 
   // ─── Send reminder mutation ─────────────────────────────────────

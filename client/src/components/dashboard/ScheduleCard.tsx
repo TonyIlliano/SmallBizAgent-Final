@@ -35,7 +35,8 @@ export function ScheduleCard({ businessId }: ScheduleCardProps) {
       endDate: getEndOfDay(currentDate)
     }],
     enabled: !!businessId,
-    refetchInterval: 10000, // Auto-refresh for real-time booking updates
+    refetchInterval: 10000,
+    staleTime: 5000,
   });
 
   const formatTimeSlot = (time: string) => {
