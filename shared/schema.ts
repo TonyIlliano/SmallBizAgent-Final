@@ -48,6 +48,7 @@ export const businesses = pgTable("businesses", {
   bookingSlotIntervalMinutes: integer("booking_slot_interval_minutes").default(30), // Slot interval (15, 30, 60 min etc.)
   // Industry type for AI receptionist context
   industry: text("industry"),
+  description: text("description"), // Business description for public landing page
   businessHours: text("business_hours"), // JSON string or simple text
   // Twilio phone number information
   twilioPhoneNumber: text("twilio_phone_number"),

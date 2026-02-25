@@ -39,6 +39,7 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'booking_buffer_minutes', 'INTEGER DEFAULT 15');
   await addColumnIfNotExists('businesses', 'booking_slot_interval_minutes', 'INTEGER DEFAULT 30');
   await addColumnIfNotExists('businesses', 'industry', 'TEXT');
+  await addColumnIfNotExists('businesses', 'description', 'TEXT');
   await addColumnIfNotExists('businesses', 'business_hours', 'TEXT');
   await addColumnIfNotExists('businesses', 'twilio_phone_number_status', 'TEXT');
   await addColumnIfNotExists('businesses', 'twilio_date_provisioned', 'TIMESTAMP');
@@ -741,6 +742,7 @@ async function createBaseTables() {
       booking_buffer_minutes INTEGER DEFAULT 15,
       booking_slot_interval_minutes INTEGER DEFAULT 30,
       industry TEXT,
+      description TEXT,
       business_hours TEXT,
       twilio_phone_number TEXT,
       twilio_phone_number_sid TEXT,
