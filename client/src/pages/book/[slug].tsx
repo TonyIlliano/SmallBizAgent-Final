@@ -26,6 +26,7 @@ import {
   Star,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { useTheme } from "next-themes";
 
 interface BusinessInfo {
   id: number;
@@ -155,12 +156,12 @@ export default function PublicBooking() {
   }, [isEmbed, bookingConfirmed, confirmationData]);
 
   // Force light mode on public booking page (dark mode makes hero/buttons invisible)
+  const { setTheme, theme: currentTheme } = useTheme();
   useEffect(() => {
-    const html = document.documentElement;
-    const wasDark = html.classList.contains("dark");
-    html.classList.remove("dark");
+    const previousTheme = currentTheme;
+    setTheme("light");
     return () => {
-      if (wasDark) html.classList.add("dark");
+      if (previousTheme && previousTheme !== "light") setTheme(previousTheme);
     };
   }, []);
 
