@@ -302,6 +302,23 @@ router.post("/book/:slug", async (req, res) => {
       });
     }
 
+    // Prevent duplicate bookings — check if this customer already has an active appointment today
+    const dayStart = createDateInTimezone(year, month - 1, day, 0, 0, businessTimezone);
+    const dayEnd = createDateInTimezone(year, month - 1, day, 23, 59, businessTimezone);
+    const existingAppointments = await storage.getAppointments(business.id, {
+      startDate: dayStart,
+      endDate: dayEnd,
+    });
+    const duplicateBooking = existingAppointments.find(apt =>
+      apt.customerId === customer!.id &&
+      apt.status !== 'cancelled'
+    );
+    if (duplicateBooking) {
+      return res.status(409).json({
+        error: "You already have an appointment booked for this day. Please cancel your existing appointment first or choose a different day."
+      });
+    }
+
     // Determine staff member
     let staffId = validatedData.staffId;
     if (!staffId) {

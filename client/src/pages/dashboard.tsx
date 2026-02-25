@@ -119,6 +119,7 @@ export default function Dashboard() {
   const { data: jobs = [] } = useQuery<any[]>({
     queryKey: ['/api/jobs', { businessId, status: 'completed' }],
     enabled: !!businessId,
+    refetchInterval: 10000,
   });
 
   const { data: invoices = [] } = useQuery<any[]>({
@@ -133,11 +134,13 @@ export default function Dashboard() {
       endDate: new Date().toISOString().split('T')[0]
     }],
     enabled: !!businessId,
+    refetchInterval: 10000, // Auto-refresh every 10s for real-time booking updates
   });
 
   const { data: calls = [] } = useQuery<any[]>({
     queryKey: ['/api/call-logs', { businessId }],
     enabled: !!businessId,
+    refetchInterval: 10000,
   });
 
   const { data: quotes = [] } = useQuery<any[]>({
