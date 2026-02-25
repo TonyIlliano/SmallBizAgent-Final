@@ -154,6 +154,16 @@ export default function PublicBooking() {
     }
   }, [isEmbed, bookingConfirmed, confirmationData]);
 
+  // Force light mode on public booking page (dark mode makes hero/buttons invisible)
+  useEffect(() => {
+    const html = document.documentElement;
+    const wasDark = html.classList.contains("dark");
+    html.classList.remove("dark");
+    return () => {
+      if (wasDark) html.classList.add("dark");
+    };
+  }, []);
+
   // Fetch business data on mount
   useEffect(() => {
     fetchBookingData();
@@ -721,9 +731,13 @@ export default function PublicBooking() {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.15),transparent_60%)]" />
           <div className="relative z-10 px-6 py-8">
             <div className="flex items-center gap-4">
-              {bookingData.business.logoUrl && (
+              {bookingData.business.logoUrl ? (
                 <img src={bookingData.business.logoUrl} alt={bookingData.business.name}
                   className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl object-contain bg-white/20 backdrop-blur-sm p-2" />
+              ) : (
+                <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <span className="text-2xl font-bold text-primary-foreground">{bookingData.business.name[0]}</span>
+                </div>
               )}
               <div className="text-primary-foreground">
                 <h1 className="text-xl sm:text-2xl font-bold">{bookingData.business.name}</h1>
