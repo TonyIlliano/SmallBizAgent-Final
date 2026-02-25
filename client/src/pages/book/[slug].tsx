@@ -277,12 +277,32 @@ export default function PublicBooking() {
     URL.revokeObjectURL(url);
   };
 
+  const SBALogo = ({ className }: { className?: string }) => (
+    <svg viewBox="0 0 100 100" fill="currentColor" className={className}>
+      <rect x="47" y="5" width="6" height="10" rx="3" />
+      <circle cx="50" cy="5" r="4" />
+      <rect x="25" y="18" width="50" height="40" rx="12" />
+      <rect x="30" y="28" width="40" height="15" rx="7" fill="black" />
+      <circle cx="40" cy="35" r="5" fill="white" />
+      <circle cx="60" cy="35" r="5" fill="white" />
+      <path d="M 38 48 Q 50 55 62 48" stroke="black" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <path d="M 32 58 L 32 75 Q 32 82 39 82 L 61 82 Q 68 82 68 75 L 68 58" />
+      <path d="M 42 62 L 50 68 L 58 62" stroke="black" strokeWidth="2" fill="none" />
+      <ellipse cx="20" cy="65" rx="8" ry="12" />
+      <ellipse cx="80" cy="65" rx="8" ry="12" />
+      <circle cx="20" cy="78" r="5" />
+      <circle cx="80" cy="78" r="5" />
+      <rect x="36" y="82" width="10" height="12" rx="3" />
+      <rect x="54" y="82" width="10" height="12" rx="3" />
+    </svg>
+  );
+
   const PoweredByFooter = () => (
     <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
       <span>Powered by</span>
       <a href="https://www.smallbizagent.ai" target="_blank" rel="noopener noreferrer"
         className="flex items-center gap-1.5 font-medium text-foreground/70 hover:text-foreground transition-colors">
-        <img src="/icons/icon-32x32.png" alt="SmallBizAgent" className="h-5 w-5 rounded" />
+        <SBALogo className="h-5 w-5 text-primary" />
         SmallBizAgent
       </a>
     </div>
