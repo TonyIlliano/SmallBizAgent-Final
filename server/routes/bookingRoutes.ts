@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
+import crypto from "crypto";
 import { fireEvent } from "../services/webhookService";
 import notificationService from "../services/notificationService";
 import { createDateInTimezone } from "../utils/timezone";
@@ -333,6 +334,9 @@ router.post("/book/:slug", async (req, res) => {
       }
     }
 
+    // Generate a unique manage token for customer self-service
+    const manageToken = crypto.randomBytes(24).toString('hex');
+
     // Create the appointment
     const appointment = await storage.createAppointment({
       businessId: business.id,
@@ -342,6 +346,7 @@ router.post("/book/:slug", async (req, res) => {
       startDate,
       endDate,
       status: 'scheduled',
+      manageToken,
       notes: validatedData.notes
         ? `Online booking: ${validatedData.notes}`
         : 'Online booking',
@@ -389,6 +394,9 @@ router.post("/book/:slug", async (req, res) => {
       // Calendar service may not be available
     }
 
+    // Build manage URL
+    const manageUrl = `/book/${slug}/manage/${manageToken}`;
+
     res.status(201).json({
       success: true,
       appointment: {
@@ -397,6 +405,8 @@ router.post("/book/:slug", async (req, res) => {
         endDate: appointment.endDate,
         serviceName: service.name,
       },
+      manageUrl,
+      manageToken,
       jobId: createdJob?.id || null,
       message: `Your appointment has been booked for ${startDate.toLocaleDateString()} at ${validatedData.time}. You will receive a confirmation shortly.`,
     });
@@ -408,6 +418,212 @@ router.post("/book/:slug", async (req, res) => {
     }
 
     res.status(500).json({ error: "Failed to create booking" });
+  }
+});
+
+// ========================================
+// MANAGE APPOINTMENT (Customer self-service)
+// ========================================
+
+// GET appointment details by manage token (public)
+router.get("/book/:slug/manage/:token", async (req, res) => {
+  try {
+    const { slug, token } = req.params;
+
+    const business = await storage.getBusinessByBookingSlug(slug);
+    if (!business) {
+      return res.status(404).json({ error: "Business not found" });
+    }
+
+    const appointment = await storage.getAppointmentByManageToken(token);
+    if (!appointment || appointment.businessId !== business.id) {
+      return res.status(404).json({ error: "Appointment not found. This link may have expired or is invalid." });
+    }
+
+    // Get related data
+    const customer = await storage.getCustomer(appointment.customerId);
+    let serviceName = 'Appointment';
+    let serviceDuration = 60;
+    let servicePrice: number | string | null = null;
+    if (appointment.serviceId) {
+      const service = await storage.getService(appointment.serviceId);
+      if (service) {
+        serviceName = service.name;
+        serviceDuration = service.duration || 60;
+        servicePrice = service.price;
+      }
+    }
+
+    let staffName: string | null = null;
+    if (appointment.staffId) {
+      const staff = await storage.getStaffMember(appointment.staffId);
+      if (staff) staffName = `${staff.firstName} ${staff.lastName}`.trim();
+    }
+
+    res.json({
+      appointment: {
+        id: appointment.id,
+        startDate: appointment.startDate,
+        endDate: appointment.endDate,
+        status: appointment.status,
+        notes: appointment.notes,
+      },
+      service: { name: serviceName, duration: serviceDuration, price: servicePrice },
+      staff: staffName,
+      customer: customer ? { firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone } : null,
+      business: {
+        name: business.name,
+        phone: business.phone,
+        email: business.email,
+        address: business.address,
+        city: business.city,
+        state: business.state,
+        timezone: business.timezone || 'America/New_York',
+        logoUrl: business.logoUrl,
+        bookingSlug: business.bookingSlug,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching managed appointment:", error);
+    res.status(500).json({ error: "Failed to load appointment" });
+  }
+});
+
+// POST cancel appointment (public, requires manage token)
+router.post("/book/:slug/manage/:token/cancel", async (req, res) => {
+  try {
+    const { slug, token } = req.params;
+
+    const business = await storage.getBusinessByBookingSlug(slug);
+    if (!business) {
+      return res.status(404).json({ error: "Business not found" });
+    }
+
+    const appointment = await storage.getAppointmentByManageToken(token);
+    if (!appointment || appointment.businessId !== business.id) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+
+    if (appointment.status === 'cancelled') {
+      return res.status(400).json({ error: "This appointment has already been cancelled." });
+    }
+
+    if (appointment.status === 'completed') {
+      return res.status(400).json({ error: "This appointment has already been completed and cannot be cancelled." });
+    }
+
+    // Cancel the appointment
+    const updated = await storage.updateAppointment(appointment.id, {
+      status: 'cancelled',
+      notes: (appointment.notes || '') + '\n[Cancelled by customer via self-service]',
+    });
+
+    // Also cancel linked job if exists
+    try {
+      const jobs = await storage.getJobs(business.id, { customerId: appointment.customerId });
+      const linkedJob = jobs.find((j: any) => j.appointmentId === appointment.id && j.status !== 'cancelled');
+      if (linkedJob) {
+        await storage.updateJob(linkedJob.id, { status: 'cancelled' });
+      }
+    } catch (e) { /* non-blocking */ }
+
+    // Fire webhook
+    fireEvent(business.id, 'appointment.cancelled', { appointment: updated }).catch(() => {});
+
+    res.json({ success: true, message: "Your appointment has been cancelled." });
+  } catch (error) {
+    console.error("Error cancelling appointment:", error);
+    res.status(500).json({ error: "Failed to cancel appointment" });
+  }
+});
+
+// POST reschedule appointment (public, requires manage token)
+router.post("/book/:slug/manage/:token/reschedule", async (req, res) => {
+  try {
+    const { slug, token } = req.params;
+    const { date, time } = req.body;
+
+    if (!date || !time) {
+      return res.status(400).json({ error: "New date and time are required" });
+    }
+
+    const business = await storage.getBusinessByBookingSlug(slug);
+    if (!business) {
+      return res.status(404).json({ error: "Business not found" });
+    }
+
+    const appointment = await storage.getAppointmentByManageToken(token);
+    if (!appointment || appointment.businessId !== business.id) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+
+    if (appointment.status === 'cancelled') {
+      return res.status(400).json({ error: "This appointment has been cancelled and cannot be rescheduled." });
+    }
+
+    if (appointment.status === 'completed') {
+      return res.status(400).json({ error: "This appointment has been completed and cannot be rescheduled." });
+    }
+
+    // Calculate new dates in business timezone
+    const businessTimezone = business.timezone || 'America/New_York';
+    const [year, month, day] = date.split('-').map(Number);
+    const [hour, min] = time.split(':').map(Number);
+
+    // Get service duration
+    let serviceDuration = 60;
+    if (appointment.serviceId) {
+      const service = await storage.getService(appointment.serviceId);
+      if (service?.duration) serviceDuration = service.duration;
+    }
+
+    const newStartDate = createDateInTimezone(year, month - 1, day, hour, min, businessTimezone);
+    const newEndDate = new Date(newStartDate.getTime() + serviceDuration * 60 * 1000);
+
+    // Verify the new slot is in the future
+    const now = new Date();
+    const leadTimeMs = (business.bookingLeadTimeHours || 24) * 60 * 60 * 1000;
+    if (newStartDate.getTime() < now.getTime() + leadTimeMs) {
+      return res.status(400).json({
+        error: `Bookings require at least ${business.bookingLeadTimeHours || 24} hours notice`
+      });
+    }
+
+    // Update the appointment
+    const updated = await storage.updateAppointment(appointment.id, {
+      startDate: newStartDate,
+      endDate: newEndDate,
+      notes: (appointment.notes || '') + `\n[Rescheduled by customer from ${new Date(appointment.startDate).toLocaleDateString()} to ${newStartDate.toLocaleDateString()}]`,
+    });
+
+    // Update linked job if exists
+    try {
+      const jobs = await storage.getJobs(business.id, { customerId: appointment.customerId });
+      const linkedJob = jobs.find((j: any) => j.appointmentId === appointment.id && j.status !== 'cancelled');
+      if (linkedJob) {
+        await storage.updateJob(linkedJob.id, { scheduledDate: date });
+      }
+    } catch (e) { /* non-blocking */ }
+
+    // Fire webhook
+    fireEvent(business.id, 'appointment.updated', { appointment: updated }).catch(() => {});
+
+    // Send updated confirmation
+    notificationService.sendAppointmentConfirmation(appointment.id, business.id).catch(() => {});
+
+    res.json({
+      success: true,
+      appointment: {
+        id: updated.id,
+        startDate: updated.startDate,
+        endDate: updated.endDate,
+        status: updated.status,
+      },
+      message: "Your appointment has been rescheduled.",
+    });
+  } catch (error) {
+    console.error("Error rescheduling appointment:", error);
+    res.status(500).json({ error: "Failed to reschedule appointment" });
   }
 });
 

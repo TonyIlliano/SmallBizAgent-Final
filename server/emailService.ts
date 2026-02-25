@@ -282,14 +282,27 @@ export async function sendAppointmentConfirmationEmail(
   serviceName: string,
   dateStr: string,
   timeStr: string,
-  businessPhone: string
+  businessPhone: string,
+  manageUrl?: string | null
 ): Promise<{ messageId: string; previewUrl?: string }> {
   const subject = `Appointment Confirmed - ${businessName}`;
-  const text = `Hi ${customerName},\n\nYour appointment for ${serviceName} has been confirmed.\n\nDate: ${dateStr}\nTime: ${timeStr}\n\nIf you need to reschedule, please call us at ${businessPhone}.\n\nThank you,\n${businessName}`;
+
+  const manageText = manageUrl
+    ? `To reschedule or cancel, visit: ${manageUrl}`
+    : `If you need to reschedule, please call us at ${businessPhone}.`;
+
+  const text = `Hi ${customerName},\n\nYour appointment for ${serviceName} has been confirmed.\n\nDate: ${dateStr}\nTime: ${timeStr}\n\n${manageText}\n\nThank you,\n${businessName}`;
+
+  const manageHtml = manageUrl
+    ? `<div style="margin: 20px 0; text-align: center;">
+        <a href="${manageUrl}" style="display: inline-block; background: #171717; color: #fff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 14px;">Manage / Reschedule Appointment</a>
+       </div>
+       <p style="color: #666; font-size: 13px; text-align: center;">Or copy this link: <a href="${manageUrl}" style="color: #2563eb;">${manageUrl}</a></p>`
+    : `<p>If you need to reschedule, please call us at <a href="tel:${businessPhone}">${businessPhone}</a>.</p>`;
 
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h2 style="color: #333;">Appointment Confirmed</h2>
+      <h2 style="color: #333;">Appointment Confirmed ✓</h2>
       <p>Hi ${customerName},</p>
       <p>Your appointment has been confirmed:</p>
       <div style="background: #f9f9f9; border-radius: 8px; padding: 16px; margin: 20px 0;">
@@ -297,7 +310,7 @@ export async function sendAppointmentConfirmationEmail(
         <p style="margin: 4px 0;"><strong>Date:</strong> ${dateStr}</p>
         <p style="margin: 4px 0;"><strong>Time:</strong> ${timeStr}</p>
       </div>
-      <p>If you need to reschedule, please call us at <a href="tel:${businessPhone}">${businessPhone}</a>.</p>
+      ${manageHtml}
       <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
       <p style="color: #999; font-size: 12px;">Thank you,<br>${businessName}</p>
     </div>

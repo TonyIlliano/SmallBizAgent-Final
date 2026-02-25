@@ -697,6 +697,14 @@ export default function PublicBooking() {
                 <Download className="mr-2 h-4 w-4" /> Add to Calendar
               </Button>
 
+              {confirmationData.manageUrl && (
+                <a href={confirmationData.manageUrl} className="block">
+                  <Button variant="outline" className="w-full">
+                    <CalendarIcon className="mr-2 h-4 w-4" /> Manage / Reschedule Appointment
+                  </Button>
+                </a>
+              )}
+
               <div className="border-t pt-4">
                 <h4 className="font-medium mb-2">{bookingData.business.name}</h4>
                 {businessLocation && (

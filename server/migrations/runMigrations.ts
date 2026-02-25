@@ -97,6 +97,7 @@ async function fixExistingTables() {
   }
   await addColumnIfNotExists('appointments', 'status', "TEXT DEFAULT 'scheduled'");
   await addColumnIfNotExists('appointments', 'notes', 'TEXT');
+  await addColumnIfNotExists('appointments', 'manage_token', 'TEXT');
   await addColumnIfNotExists('appointments', 'google_calendar_event_id', 'TEXT');
   await addColumnIfNotExists('appointments', 'microsoft_calendar_event_id', 'TEXT');
   await addColumnIfNotExists('appointments', 'apple_calendar_event_id', 'TEXT');
@@ -879,6 +880,7 @@ async function createBaseTables() {
       end_date TIMESTAMP NOT NULL,
       status TEXT DEFAULT 'scheduled',
       notes TEXT,
+      manage_token TEXT,
       google_calendar_event_id TEXT,
       microsoft_calendar_event_id TEXT,
       apple_calendar_event_id TEXT,

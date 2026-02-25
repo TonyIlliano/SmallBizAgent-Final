@@ -192,6 +192,7 @@ export const appointments = pgTable("appointments", {
   endDate: timestamp("end_date").notNull(),
   status: text("status").default("scheduled"), // scheduled, confirmed, completed, cancelled
   notes: text("notes"),
+  manageToken: text("manage_token"), // Unique token for customer self-service cancel/reschedule
   // Calendar integration fields
   googleCalendarEventId: text("google_calendar_event_id"),
   microsoftCalendarEventId: text("microsoft_calendar_event_id"),

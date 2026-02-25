@@ -116,6 +116,7 @@ export interface IStorage {
     staffId?: number
   }): Promise<Appointment[]>;
   getAppointment(id: number): Promise<Appointment | undefined>;
+  getAppointmentByManageToken(token: string): Promise<Appointment | undefined>;
   getAppointmentsByBusinessId(businessId: number): Promise<Appointment[]>;
   getAppointmentsByCustomerId(customerId: number): Promise<Appointment[]>;
   createAppointment(appointment: InsertAppointment): Promise<Appointment>;
@@ -696,6 +697,11 @@ export class DatabaseStorage implements IStorage {
 
   async getAppointment(id: number): Promise<Appointment | undefined> {
     const [appointment] = await db.select().from(appointments).where(eq(appointments.id, id));
+    return appointment;
+  }
+
+  async getAppointmentByManageToken(token: string): Promise<Appointment | undefined> {
+    const [appointment] = await db.select().from(appointments).where(eq(appointments.manageToken, token));
     return appointment;
   }
 

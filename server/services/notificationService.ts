@@ -64,6 +64,11 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
     const dateStr = formatDate(appointmentDate);
     const timeStr = formatTime(appointmentDate);
 
+    // Build manage URL if appointment has a manage token
+    const manageUrl = appointment.manageToken && business.bookingSlug
+      ? `https://www.smallbizagent.ai/book/${business.bookingSlug}/manage/${appointment.manageToken}`
+      : null;
+
     // Send email
     if (sendEmail && customer.email) {
       try {
@@ -74,7 +79,8 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
           serviceName,
           dateStr,
           timeStr,
-          business.phone || ''
+          business.phone || '',
+          manageUrl
         );
         await storage.createNotificationLog({
           businessId,
@@ -106,7 +112,9 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
     // Send SMS
     if (sendSms && customer.phone) {
       try {
-        const message = `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to reschedule. - ${business.name}`;
+        const message = manageUrl
+          ? `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Manage or reschedule: ${manageUrl} - ${business.name}`
+          : `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to reschedule. - ${business.name}`;
         await twilioService.sendSms(customer.phone, message);
         await storage.createNotificationLog({
           businessId,
