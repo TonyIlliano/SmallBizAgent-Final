@@ -270,21 +270,51 @@ export default function PublicBooking() {
   const generateIcsFile = () => {
     if (!confirmationData?.appointment) return;
     const service = getSelectedService();
+    const staffMember = getSelectedStaffMember();
     const start = new Date(confirmationData.appointment.startDate);
     const end = new Date(confirmationData.appointment.endDate);
+    const now = new Date();
     const fmtIcs = (d: Date) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    // Escape special characters for iCal text fields
+    const escIcs = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+
+    const location = [bookingData?.business.address, bookingData?.business.city, bookingData?.business.state].filter(Boolean).join(", ");
+    const summary = `${service?.name || "Appointment"} at ${bookingData?.business.name || ""}`;
+    const descParts = [
+      `Booking #${confirmationData.appointment.id}`,
+      service?.name ? `Service: ${service.name}` : "",
+      staffMember ? `With: ${staffMember.firstName} ${staffMember.lastName}` : "",
+      bookingData?.business.phone ? `Phone: ${bookingData.business.phone}` : "",
+      confirmationData.manageUrl ? `Manage appointment: https://www.smallbizagent.ai${confirmationData.manageUrl}` : "",
+    ].filter(Boolean).join("\\n");
+
     const ics = [
-      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SmallBizAgent//Booking//EN",
-      "BEGIN:VEVENT", `DTSTART:${fmtIcs(start)}`, `DTEND:${fmtIcs(end)}`,
-      `SUMMARY:${service?.name || "Appointment"} at ${bookingData?.business.name || ""}`,
-      `LOCATION:${bookingData?.business.address || ""}${bookingData?.business.city ? `, ${bookingData.business.city}` : ""}`,
-      `DESCRIPTION:Booking #${confirmationData.appointment.id}`,
-      "END:VEVENT", "END:VCALENDAR",
-    ].join("\r\n");
-    const blob = new Blob([ics], { type: "text/calendar" });
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//SmallBizAgent//Booking//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      `UID:sba-apt-${confirmationData.appointment.id}@smallbizagent.ai`,
+      `DTSTAMP:${fmtIcs(now)}`,
+      `DTSTART:${fmtIcs(start)}`,
+      `DTEND:${fmtIcs(end)}`,
+      `SUMMARY:${escIcs(summary)}`,
+      location ? `LOCATION:${escIcs(location)}` : "",
+      `DESCRIPTION:${escIcs(descParts)}`,
+      `STATUS:CONFIRMED`,
+      `BEGIN:VALARM`,
+      `TRIGGER:-PT30M`,
+      `ACTION:DISPLAY`,
+      `DESCRIPTION:Reminder: ${escIcs(summary)}`,
+      `END:VALARM`,
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].filter(Boolean).join("\r\n");
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "appointment.ics"; a.click();
+    a.href = url; a.download = `appointment-${confirmationData.appointment.id}.ics`; a.click();
     URL.revokeObjectURL(url);
   };
 
