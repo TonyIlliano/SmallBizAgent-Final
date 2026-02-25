@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { fireEvent } from "../services/webhookService";
 import notificationService from "../services/notificationService";
+import { createDateInTimezone } from "../utils/timezone";
 
 const router = Router();
 
@@ -94,6 +95,7 @@ router.get("/book/:slug/slots", async (req, res) => {
 
     const requestedDate = new Date(date as string);
     const now = new Date();
+    const businessTimezone = business.timezone || 'America/New_York';
 
     // Check lead time (minimum hours notice required)
     const leadTimeMs = (business.bookingLeadTimeHours || 24) * 60 * 60 * 1000;
@@ -114,8 +116,8 @@ router.get("/book/:slug/slots", async (req, res) => {
       }
     }
 
-    // Get the day of week
-    const dayName = requestedDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    // Get the day of week in business timezone
+    const dayName = requestedDate.toLocaleDateString('en-US', { weekday: 'long', timeZone: businessTimezone }).toLowerCase();
 
     // Get business hours for this day
     const hours = await storage.getBusinessHours(business.id);
@@ -136,11 +138,10 @@ router.get("/book/:slug/slots", async (req, res) => {
     const openMinutes = openHour * 60 + openMin;
     const closeMinutes = closeHour * 60 + closeMin;
 
-    // Get existing appointments for this day
-    const startOfDay = new Date(requestedDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(requestedDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    // Get existing appointments for this day (use timezone-aware boundaries)
+    const [rYear, rMonth, rDay] = (date as string).split('-').map(Number);
+    const startOfDay = createDateInTimezone(rYear, rMonth - 1, rDay, 0, 0, businessTimezone);
+    const endOfDay = createDateInTimezone(rYear, rMonth - 1, rDay, 23, 59, businessTimezone);
 
     const existingAppointments = await storage.getAppointments(business.id, {
       startDate: startOfDay,
@@ -191,8 +192,7 @@ router.get("/book/:slug/slots", async (req, res) => {
 
           const aptStart = new Date(apt.startDate);
           const aptEnd = new Date(apt.endDate);
-          const slotStart = new Date(requestedDate);
-          slotStart.setHours(hour, min, 0, 0);
+          const slotStart = createDateInTimezone(rYear, rMonth - 1, rDay, hour, min, businessTimezone);
           const slotEnd = new Date(slotStart.getTime() + serviceDuration * 60 * 1000);
 
           // Check for overlap (including buffer time)
@@ -260,11 +260,14 @@ router.post("/book/:slug", async (req, res) => {
       return res.status(400).json({ error: "Invalid service" });
     }
 
-    // Parse date and time
+    // Parse date and time in business timezone
+    // CRITICAL: On Railway (UTC server), new Date(year,month,day,hour,min) creates UTC dates.
+    // We need to create dates in the business's timezone so 1:00 PM ET is stored as 5:00 PM UTC.
     const [year, month, day] = validatedData.date.split('-').map(Number);
     const [hour, min] = validatedData.time.split(':').map(Number);
+    const businessTimezone = business.timezone || 'America/New_York';
 
-    const startDate = new Date(year, month - 1, day, hour, min, 0, 0);
+    const startDate = createDateInTimezone(year, month - 1, day, hour, min, businessTimezone);
     const endDate = new Date(startDate.getTime() + (service.duration || 60) * 60 * 1000);
 
     // Verify the slot is still available
