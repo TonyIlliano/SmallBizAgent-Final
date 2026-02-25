@@ -46,9 +46,10 @@ export const businesses = pgTable("businesses", {
   bookingLeadTimeHours: integer("booking_lead_time_hours").default(24), // Minimum hours notice required
   bookingBufferMinutes: integer("booking_buffer_minutes").default(15), // Buffer time between appointments
   bookingSlotIntervalMinutes: integer("booking_slot_interval_minutes").default(30), // Slot interval (15, 30, 60 min etc.)
+  // Business description (for booking page, SEO, etc.)
+  description: text("description"),
   // Industry type for AI receptionist context
   industry: text("industry"),
-  description: text("description"), // Business description for public landing page
   businessHours: text("business_hours"), // JSON string or simple text
   // Twilio phone number information
   twilioPhoneNumber: text("twilio_phone_number"),
@@ -181,6 +182,16 @@ export const staffHours = pgTable("staff_hours", {
   isOff: boolean("is_off").default(false), // true = day off
 });
 
+// Staff-Service Assignments (which services each staff member can perform)
+export const staffServices = pgTable("staff_services", {
+  id: serial("id").primaryKey(),
+  staffId: integer("staff_id").notNull(),
+  serviceId: integer("service_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  staffServiceUnique: unique("staff_service_unique").on(table.staffId, table.serviceId),
+}));
+
 // Appointments
 export const appointments = pgTable("appointments", {
   id: serial("id").primaryKey(),
@@ -192,7 +203,8 @@ export const appointments = pgTable("appointments", {
   endDate: timestamp("end_date").notNull(),
   status: text("status").default("scheduled"), // scheduled, confirmed, completed, cancelled
   notes: text("notes"),
-  manageToken: text("manage_token"), // Unique token for customer self-service cancel/reschedule
+  // Self-service manage token (for customer cancel/reschedule links)
+  manageToken: text("manage_token"),
   // Calendar integration fields
   googleCalendarEventId: text("google_calendar_event_id"),
   microsoftCalendarEventId: text("microsoft_calendar_event_id"),
@@ -682,6 +694,7 @@ export const insertServiceSchema = createInsertSchema(services).omit({ id: true 
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStaffHoursSchema = createInsertSchema(staffHours).omit({ id: true });
+export const insertStaffServiceSchema = createInsertSchema(staffServices).omit({ id: true, createdAt: true });
 export const insertStaffInviteSchema = createInsertSchema(staffInvites).omit({ id: true, createdAt: true });
 
 // Create appointment schema with date coercion to handle ISO strings from API
@@ -752,6 +765,9 @@ export type InsertStaffHours = z.infer<typeof insertStaffHoursSchema>;
 
 export type StaffInvite = typeof staffInvites.$inferSelect;
 export type InsertStaffInvite = z.infer<typeof insertStaffInviteSchema>;
+
+export type StaffService = typeof staffServices.$inferSelect;
+export type InsertStaffService = z.infer<typeof insertStaffServiceSchema>;
 
 export type Appointment = typeof appointments.$inferSelect;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;

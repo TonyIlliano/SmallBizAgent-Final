@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { UserPlus, Edit2, Trash2, Clock, Loader2, Calendar, Mail, Copy, Check, ExternalLink } from "lucide-react";
 
 interface Staff {
@@ -91,6 +92,10 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
     active: true,
   });
 
+  // Service assignments state
+  const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>([]);
+  const [allServicesMode, setAllServicesMode] = useState(true); // true = can do all services
+
   // Hours form state
   const [hoursForm, setHoursForm] = useState<Record<string, { startTime: string; endTime: string; isOff: boolean }>>({});
 
@@ -99,6 +104,16 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
     queryKey: ['/api/staff', { businessId }],
     queryFn: async () => {
       const res = await apiRequest('GET', `/api/staff?businessId=${businessId}`);
+      return res.json();
+    },
+    enabled: !!businessId,
+  });
+
+  // Fetch business services (for assignment checkboxes)
+  const { data: businessServices = [] } = useQuery({
+    queryKey: ['/api/services', { businessId }],
+    queryFn: async () => {
+      const res = await apiRequest('GET', `/api/services?businessId=${businessId}`);
       return res.json();
     },
     enabled: !!businessId,
@@ -139,7 +154,15 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
       const res = await apiRequest('POST', '/api/staff', { ...data, businessId });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (newStaff: any) => {
+      // Save service assignments if not "all services" mode
+      if (!allServicesMode && selectedServiceIds.length > 0 && newStaff?.id) {
+        try {
+          await apiRequest('PUT', `/api/staff/${newStaff.id}/services`, { serviceIds: selectedServiceIds });
+        } catch (e) {
+          console.error('Failed to save service assignments:', e);
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/staff'] });
       setStaffDialogOpen(false);
       resetStaffForm();
@@ -156,7 +179,16 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
       const res = await apiRequest('PUT', `/api/staff/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // Save service assignments
+      if (editingStaff) {
+        try {
+          const serviceIds = allServicesMode ? [] : selectedServiceIds;
+          await apiRequest('PUT', `/api/staff/${editingStaff.id}/services`, { serviceIds });
+        } catch (e) {
+          console.error('Failed to save service assignments:', e);
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/staff'] });
       setStaffDialogOpen(false);
       setEditingStaff(null);
@@ -247,9 +279,11 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
       bio: '',
       active: true,
     });
+    setSelectedServiceIds([]);
+    setAllServicesMode(true);
   };
 
-  const openEditStaffDialog = (member: Staff) => {
+  const openEditStaffDialog = async (member: Staff) => {
     setEditingStaff(member);
     setStaffForm({
       firstName: member.firstName,
@@ -261,6 +295,21 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
       bio: member.bio || '',
       active: member.active,
     });
+    // Fetch assigned services for this staff member
+    try {
+      const res = await apiRequest('GET', `/api/staff/${member.id}/services`);
+      const data = await res.json();
+      if (data.serviceIds && data.serviceIds.length > 0) {
+        setSelectedServiceIds(data.serviceIds);
+        setAllServicesMode(false);
+      } else {
+        setSelectedServiceIds([]);
+        setAllServicesMode(true);
+      }
+    } catch {
+      setSelectedServiceIds([]);
+      setAllServicesMode(true);
+    }
     setStaffDialogOpen(true);
   };
 
@@ -451,6 +500,56 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
                   rows={2}
                 />
               </div>
+              {/* Service Assignments */}
+              {businessServices.length > 0 && (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Services This Member Can Perform</Label>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Checkbox
+                      id="all-services"
+                      checked={allServicesMode}
+                      onCheckedChange={(checked) => {
+                        setAllServicesMode(!!checked);
+                        if (checked) setSelectedServiceIds([]);
+                      }}
+                    />
+                    <label htmlFor="all-services" className="text-sm cursor-pointer">
+                      All Services
+                    </label>
+                  </div>
+                  {!allServicesMode && (
+                    <div className="grid grid-cols-1 gap-2 pl-6 max-h-[140px] overflow-y-auto border rounded-md p-3 bg-muted/30">
+                      {businessServices.filter((s: any) => s.active !== false).map((service: any) => (
+                        <div key={service.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`service-${service.id}`}
+                            checked={selectedServiceIds.includes(service.id)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedServiceIds([...selectedServiceIds, service.id]);
+                              } else {
+                                setSelectedServiceIds(selectedServiceIds.filter(id => id !== service.id));
+                              }
+                            }}
+                          />
+                          <label htmlFor={`service-${service.id}`} className="text-sm cursor-pointer">
+                            {service.name}
+                            {service.duration && <span className="text-muted-foreground ml-1">({service.duration} min)</span>}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {allServicesMode
+                      ? "This member will appear for all services on the booking page and phone."
+                      : selectedServiceIds.length === 0
+                        ? "Select at least one service, or switch back to All Services."
+                        : `Selected ${selectedServiceIds.length} service${selectedServiceIds.length > 1 ? 's' : ''}.`}
+                  </p>
+                </div>
+              )}
+
               <div className="flex items-center space-x-2">
                 <Switch
                   checked={staffForm.active}

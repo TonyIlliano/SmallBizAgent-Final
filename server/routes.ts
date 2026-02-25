@@ -1070,6 +1070,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =================== STAFF-SERVICE ASSIGNMENTS ===================
+
+  // Get services assigned to a staff member
+  app.get("/api/staff/:id/services", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const staffId = parseInt(req.params.id);
+      const staffMember = await storage.getStaffMember(staffId);
+      if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+      const serviceIds = await storage.getStaffServices(staffId);
+      res.json({ serviceIds });
+    } catch (error) {
+      console.error('Error getting staff services:', error);
+      res.status(500).json({ message: "Error getting staff services" });
+    }
+  });
+
+  // Set services for a staff member (replace all)
+  app.put("/api/staff/:id/services", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const staffId = parseInt(req.params.id);
+      const staffMember = await storage.getStaffMember(staffId);
+      if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+      const { serviceIds } = req.body;
+      if (!Array.isArray(serviceIds)) {
+        return res.status(400).json({ message: "serviceIds must be an array" });
+      }
+      await storage.setStaffServices(staffId, serviceIds);
+      res.json({ success: true, serviceIds });
+    } catch (error) {
+      console.error('Error setting staff services:', error);
+      res.status(500).json({ message: "Error setting staff services" });
+    }
+  });
+
   // =================== STAFF PORTAL API ===================
 
   // Send invite to a staff member (owner only)

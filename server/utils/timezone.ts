@@ -72,6 +72,58 @@ export function createDateInTimezone(
  * @param timezone - IANA timezone string
  * @returns Object with hours (0-23) and minutes (0-59) in local time
  */
+/**
+ * Get a friendly timezone abbreviation from an IANA timezone string.
+ * Returns the standard abbreviation (EST, CST, MST, PST, etc.)
+ * and automatically handles daylight saving time (EDT, CDT, MDT, PDT).
+ *
+ * @param timezone - IANA timezone string (e.g., 'America/New_York')
+ * @param date - Optional date to check DST status (defaults to now)
+ * @returns Timezone abbreviation string (e.g., 'EST', 'EDT', 'PST', 'PDT')
+ */
+export function getTimezoneAbbreviation(timezone: string, date?: Date): string {
+  try {
+    const d = date || new Date();
+    // Intl.DateTimeFormat with timeZoneName: 'short' gives us the abbreviation
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'short'
+    });
+    const parts = formatter.formatToParts(d);
+    const tzPart = parts.find(p => p.type === 'timeZoneName');
+    if (tzPart) {
+      return tzPart.value; // e.g., "EST", "EDT", "PST", "PDT", "CST", "CDT"
+    }
+    // Fallback: return the IANA timezone itself
+    return timezone;
+  } catch {
+    return timezone;
+  }
+}
+
+/**
+ * Format a time string with timezone abbreviation for display.
+ * e.g., "2:30 PM EST", "10:00 AM PST"
+ *
+ * @param utcDate - Date object (UTC)
+ * @param timezone - IANA timezone string
+ * @returns Formatted time string like "2:30 PM EST"
+ */
+export function formatTimeWithTimezone(utcDate: Date, timezone: string): string {
+  try {
+    const timeStr = utcDate.toLocaleTimeString('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    const abbr = getTimezoneAbbreviation(timezone, utcDate);
+    return `${timeStr} ${abbr}`;
+  } catch {
+    return utcDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  }
+}
+
 export function getLocalTimeInTimezone(utcDate: Date, timezone: string): { hours: number; minutes: number } {
   try {
     const formatter = new Intl.DateTimeFormat('en-US', {

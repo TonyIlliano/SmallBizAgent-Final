@@ -400,6 +400,17 @@ async function fixExistingTables() {
     );
   `);
 
+  // Staff-Service assignments (which services each staff member can perform)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_services (
+      id SERIAL PRIMARY KEY,
+      staff_id INTEGER NOT NULL,
+      service_id INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(staff_id, service_id)
+    );
+  `);
+
   // Fix businesses table - add restaurant order type settings
   await addColumnIfNotExists('businesses', 'restaurant_pickup_enabled', 'BOOLEAN DEFAULT true');
   await addColumnIfNotExists('businesses', 'restaurant_delivery_enabled', 'BOOLEAN DEFAULT false');

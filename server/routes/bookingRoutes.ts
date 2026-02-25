@@ -4,7 +4,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { fireEvent } from "../services/webhookService";
 import notificationService from "../services/notificationService";
-import { createDateInTimezone } from "../utils/timezone";
+import { createDateInTimezone, getTimezoneAbbreviation, formatTimeWithTimezone } from "../utils/timezone";
 
 const router = Router();
 
@@ -36,6 +36,17 @@ router.get("/book/:slug", async (req, res) => {
     // Get business hours
     const hours = await storage.getBusinessHours(business.id);
 
+    // Get staff-service assignments (for filtering on booking page)
+    const staffServiceAssignments = await storage.getStaffServicesForBusiness(business.id);
+    // Build a map: staffId → serviceId[] (empty array = can do all services)
+    const staffServicesMap: Record<number, number[]> = {};
+    for (const assignment of staffServiceAssignments) {
+      if (!staffServicesMap[assignment.staffId]) {
+        staffServicesMap[assignment.staffId] = [];
+      }
+      staffServicesMap[assignment.staffId].push(assignment.serviceId);
+    }
+
     // Return public business info (no sensitive data)
     res.json({
       business: {
@@ -50,8 +61,9 @@ router.get("/book/:slug", async (req, res) => {
         website: business.website,
         logoUrl: business.logoUrl,
         timezone: business.timezone,
+        timezoneAbbr: getTimezoneAbbreviation(business.timezone || 'America/New_York'),
         industry: business.industry,
-        description: business.description,
+        description: business.description || null,
         bookingLeadTimeHours: business.bookingLeadTimeHours || 24,
         bookingBufferMinutes: business.bookingBufferMinutes || 15,
       },
@@ -71,6 +83,8 @@ router.get("/book/:slug", async (req, res) => {
         photoUrl: s.photoUrl,
       })),
       businessHours: hours,
+      // Staff-service map: staffId → serviceId[] (empty/missing = all services)
+      staffServices: staffServicesMap,
     });
   } catch (error) {
     console.error("Error fetching booking info:", error);
@@ -159,6 +173,20 @@ router.get("/book/:slug/slots", async (req, res) => {
       staffToCheck = activeStaff.filter(s => s.id === parseInt(staffId as string));
     }
 
+    // Filter staff by service assignments — only staff who can do this service should count
+    // Backward compat: staff with NO assignments can do ALL services
+    if (serviceId) {
+      const parsedServiceId = parseInt(serviceId as string);
+      const eligibleStaff: typeof staffToCheck = [];
+      for (const s of staffToCheck) {
+        const assignedServices = await storage.getStaffServices(s.id);
+        if (assignedServices.length === 0 || assignedServices.includes(parsedServiceId)) {
+          eligibleStaff.push(s);
+        }
+      }
+      staffToCheck = eligibleStaff;
+    }
+
     // Generate slots
     for (let minutes = openMinutes; minutes + serviceDuration <= closeMinutes; minutes += slotInterval) {
       const hour = Math.floor(minutes / 60);
@@ -220,7 +248,10 @@ router.get("/book/:slug/slots", async (req, res) => {
       });
     }
 
-    res.json({ slots });
+    // Include timezone abbreviation so frontend can show "2:30 PM EST"
+    const timezoneAbbr = getTimezoneAbbreviation(businessTimezone, requestedDate);
+
+    res.json({ slots, timezone: businessTimezone, timezoneAbbr });
   } catch (error) {
     console.error("Error fetching available slots:", error);
     res.status(500).json({ error: "Failed to fetch available time slots" });
@@ -322,15 +353,60 @@ router.post("/book/:slug", async (req, res) => {
 
     // Determine staff member
     let staffId = validatedData.staffId;
+
+    // Validate staff-service compatibility if a specific staff was chosen
+    if (staffId) {
+      const staffServiceIds = await storage.getStaffServices(staffId);
+      if (staffServiceIds.length > 0 && !staffServiceIds.includes(validatedData.serviceId)) {
+        const staffMember = await storage.getStaffMember(staffId);
+        return res.status(400).json({
+          error: `${staffMember?.firstName || 'That team member'} doesn't perform ${service.name}. Please choose a different staff member.`
+        });
+      }
+    }
+
     if (!staffId) {
-      // Auto-assign to an available staff member
+      // Auto-assign to an available staff member (who can do this service)
       const availableStaff = await storage.getAvailableStaffForSlot(
         business.id,
         startDate,
         validatedData.time
       );
-      if (availableStaff.length > 0) {
+      // Filter by service compatibility
+      const eligibleAvailableStaff: typeof availableStaff = [];
+      for (const s of availableStaff) {
+        const assignedServices = await storage.getStaffServices(s.id);
+        if (assignedServices.length === 0 || assignedServices.includes(validatedData.serviceId)) {
+          eligibleAvailableStaff.push(s);
+        }
+      }
+      if (eligibleAvailableStaff.length > 0) {
+        staffId = eligibleAvailableStaff[0].id;
+      } else if (availableStaff.length > 0) {
+        // Fallback: if no service-eligible staff found, use first available
         staffId = availableStaff[0].id;
+      }
+    }
+
+    // Re-verify time slot is still available (prevent race condition double-booking)
+    if (staffId) {
+      const bufferMinutes = business.bookingBufferMinutes || 15;
+      const slotEnd = new Date(startDate.getTime() + (service.duration || 60) * 60 * 1000);
+      const dayAppointments = existingAppointments.filter(apt =>
+        apt.staffId === staffId &&
+        apt.status !== 'cancelled'
+      );
+      const hasConflict = dayAppointments.some(apt => {
+        const aptStart = new Date(apt.startDate);
+        const aptEnd = new Date(apt.endDate);
+        const aptStartWithBuffer = aptStart.getTime() - bufferMinutes * 60 * 1000;
+        const aptEndWithBuffer = aptEnd.getTime() + bufferMinutes * 60 * 1000;
+        return (startDate.getTime() < aptEndWithBuffer && slotEnd.getTime() > aptStartWithBuffer);
+      });
+      if (hasConflict) {
+        return res.status(409).json({
+          error: "Sorry, that time slot was just booked. Please select a different time."
+        });
       }
     }
 
@@ -412,7 +488,8 @@ router.post("/book/:slug", async (req, res) => {
       manageUrl,
       manageToken,
       jobId: createdJob?.id || null,
-      message: `Your appointment has been booked for ${startDate.toLocaleDateString()} at ${validatedData.time}. You will receive a confirmation shortly.`,
+      timezoneAbbr: getTimezoneAbbreviation(businessTimezone, startDate),
+      message: `Your appointment has been booked for ${startDate.toLocaleDateString('en-US', { timeZone: businessTimezone, weekday: 'long', month: 'long', day: 'numeric' })} at ${formatTimeWithTimezone(startDate, businessTimezone)}. You will receive a confirmation shortly.`,
     });
   } catch (error: any) {
     console.error("Error creating booking:", error);

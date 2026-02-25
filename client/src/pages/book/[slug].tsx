@@ -40,6 +40,7 @@ interface BusinessInfo {
   website: string | null;
   logoUrl: string | null;
   timezone: string;
+  timezoneAbbr: string;
   industry: string | null;
   description: string | null;
   bookingLeadTimeHours: number;
@@ -81,6 +82,7 @@ interface BookingData {
   services: ServiceInfo[];
   staff: StaffInfo[];
   businessHours: BusinessHourInfo[];
+  staffServices?: Record<string, number[]>; // staffId → serviceId[] (empty/missing = all)
 }
 
 const STEPS = [
@@ -111,6 +113,7 @@ export default function PublicBooking() {
   // Data
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
+  const [slotsTimezoneAbbr, setSlotsTimezoneAbbr] = useState<string>("");
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
   // Form steps: 0 = landing page, 1-3 = booking flow
@@ -208,6 +211,7 @@ export default function PublicBooking() {
       }
       const data = await res.json();
       setSlots(data.slots || []);
+      if (data.timezoneAbbr) setSlotsTimezoneAbbr(data.timezoneAbbr);
       setSelectedTime(null);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -266,6 +270,18 @@ export default function PublicBooking() {
 
   const getSelectedService = () => bookingData?.services.find((s) => s.id === selectedService);
   const getSelectedStaffMember = () => bookingData?.staff.find((s) => s.id === selectedStaff);
+  const tzLabel = slotsTimezoneAbbr || bookingData?.business.timezoneAbbr || "";
+
+  // Filter staff by selected service (staff with no assignments = can do all)
+  const canStaffDoService = (staffId: number, serviceId: number | null) => {
+    if (!serviceId || !bookingData?.staffServices) return true;
+    const assignedServices = bookingData.staffServices[String(staffId)];
+    // No assignments = can do all services
+    if (!assignedServices || assignedServices.length === 0) return true;
+    return assignedServices.includes(serviceId);
+  };
+
+  const filteredStaff = bookingData?.staff.filter(s => canStaffDoService(s.id, selectedService)) || [];
 
   const generateIcsFile = () => {
     if (!confirmationData?.appointment) return;
@@ -559,7 +575,7 @@ export default function PublicBooking() {
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-primary" />
-                  <CardTitle className="text-lg">Hours</CardTitle>
+                  <CardTitle className="text-lg">Hours{bookingData.business.timezoneAbbr ? ` (${bookingData.business.timezoneAbbr})` : ""}</CardTitle>
                 </div>
               </CardHeader>
               <CardContent>
@@ -689,7 +705,7 @@ export default function PublicBooking() {
                 </div>
                 <div className="flex items-center gap-3">
                   <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="font-medium">{selectedTime && formatTime12(selectedTime)}</span>
+                  <span className="font-medium">{selectedTime && formatTime12(selectedTime)}{tzLabel ? ` ${tzLabel}` : ""}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -834,7 +850,13 @@ export default function PublicBooking() {
                       ? "border-primary bg-primary/5 ring-1 ring-primary/20 shadow-sm"
                       : "border-border hover:border-primary/30 hover:shadow-sm"
                   }`}
-                  onClick={() => setSelectedService(service.id)}>
+                  onClick={() => {
+                    setSelectedService(service.id);
+                    // Clear selected staff if they can't do the new service
+                    if (selectedStaff && !canStaffDoService(selectedStaff, service.id)) {
+                      setSelectedStaff(null);
+                    }
+                  }}>
                   {selectedService === service.id && (
                     <div className="absolute top-3 right-3"><CheckCircle className="h-5 w-5 text-primary" /></div>
                   )}
@@ -859,7 +881,7 @@ export default function PublicBooking() {
                 </div>
               ))}
 
-              {bookingData.staff.length > 1 && (
+              {filteredStaff.length > 1 && (
                 <div className="mt-6 pt-4 border-t">
                   <Label className="text-sm font-medium mb-3 block">Staff Preference (Optional)</Label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -871,7 +893,7 @@ export default function PublicBooking() {
                       </div>
                       <p className="text-sm font-medium">Any Available</p>
                     </div>
-                    {bookingData.staff.map((sm) => (
+                    {filteredStaff.map((sm) => (
                       <div key={sm.id} className={`p-3 border rounded-lg cursor-pointer transition-all text-center ${
                         selectedStaff === sm.id ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border hover:border-primary/30"
                       }`} onClick={() => setSelectedStaff(sm.id)}>
@@ -919,7 +941,9 @@ export default function PublicBooking() {
                     disabled={isDateDisabled} className="rounded-md border" />
                 </div>
                 <div>
-                  <Label className="text-sm font-medium mb-2 block">Available Times</Label>
+                  <Label className="text-sm font-medium mb-2 block">
+                    Available Times{tzLabel ? ` (${tzLabel})` : ""}
+                  </Label>
                   {!selectedDate ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                       <CalendarIcon className="h-8 w-8 text-muted-foreground/50 mb-2" />
@@ -986,7 +1010,7 @@ export default function PublicBooking() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Time</span>
-                    <span className="font-medium">{selectedTime && formatTime12(selectedTime)}</span>
+                    <span className="font-medium">{selectedTime && formatTime12(selectedTime)}{tzLabel ? ` ${tzLabel}` : ""}</span>
                   </div>
                   {getSelectedService()?.duration && (
                     <div className="flex justify-between">

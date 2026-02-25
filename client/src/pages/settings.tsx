@@ -110,10 +110,22 @@ const INDUSTRY_OPTIONS = [
   { value: "general", label: "General / Other" },
 ];
 
+// Timezone options for US businesses
+const TIMEZONE_OPTIONS = [
+  { value: "America/New_York", label: "Eastern Time (EST/EDT)" },
+  { value: "America/Chicago", label: "Central Time (CST/CDT)" },
+  { value: "America/Denver", label: "Mountain Time (MST/MDT)" },
+  { value: "America/Los_Angeles", label: "Pacific Time (PST/PDT)" },
+  { value: "America/Phoenix", label: "Arizona (MST, no DST)" },
+  { value: "America/Anchorage", label: "Alaska Time (AKST/AKDT)" },
+  { value: "Pacific/Honolulu", label: "Hawaii Time (HST)" },
+];
+
 // Business Profile Schema
 const businessProfileSchema = z.object({
   name: z.string().min(2, "Business name must be at least 2 characters"),
   industry: z.string().optional(),
+  timezone: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
   state: z.string().optional(),
@@ -296,6 +308,7 @@ export default function Settings() {
       businessForm.reset({
         name: business.name || "",
         industry: business.industry || "",
+        timezone: business.timezone || "America/New_York",
         address: business.address || "",
         city: business.city || "",
         state: business.state || "",
@@ -772,6 +785,34 @@ export default function Settings() {
                               </Select>
                               <FormDescription>
                                 This helps customize the AI receptionist for your business type
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={businessForm.control}
+                          name="timezone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Business Timezone</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select your timezone" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {TIMEZONE_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                All appointment times, booking page, and AI receptionist will use this timezone
                               </FormDescription>
                               <FormMessage />
                             </FormItem>

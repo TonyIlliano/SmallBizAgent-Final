@@ -6,6 +6,7 @@ import {
   Customer, InsertCustomer, customers,
   Staff, InsertStaff, staff,
   StaffHours, InsertStaffHours, staffHours,
+  staffServices,
   Appointment, InsertAppointment, appointments,
   Job, InsertJob, jobs,
   JobLineItem, InsertJobLineItem, jobLineItems,
@@ -29,7 +30,7 @@ import {
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
-import { eq, and, or, desc, ilike, sql, gte, lte } from "drizzle-orm";
+import { eq, and, or, desc, ilike, sql, gte, lte, inArray } from "drizzle-orm";
 import { db, pool } from "./db";
 
 /**
@@ -107,6 +108,12 @@ export interface IStorage {
   setStaffHours(staffId: number, hours: InsertStaffHours[]): Promise<StaffHours[]>;
   updateStaffHoursForDay(staffId: number, day: string, hours: Partial<StaffHours>): Promise<StaffHours>;
   getAvailableStaffForSlot(businessId: number, date: Date, time: string): Promise<Staff[]>;
+
+  // Staff-Service assignments
+  getStaffServices(staffId: number): Promise<number[]>; // returns serviceIds
+  getServiceStaff(serviceId: number): Promise<number[]>; // returns staffIds
+  setStaffServices(staffId: number, serviceIds: number[]): Promise<void>;
+  getStaffServicesForBusiness(businessId: number): Promise<{ staffId: number; serviceId: number }[]>;
 
   // Appointments
   getAppointments(businessId: number, params?: {
@@ -657,6 +664,39 @@ export class DatabaseStorage implements IStorage {
     }
 
     return availableStaff;
+  }
+
+  // Staff-Service assignments
+  async getStaffServices(staffId: number): Promise<number[]> {
+    const results = await db.select().from(staffServices).where(eq(staffServices.staffId, staffId));
+    return results.map(r => r.serviceId);
+  }
+
+  async getServiceStaff(serviceId: number): Promise<number[]> {
+    const results = await db.select().from(staffServices).where(eq(staffServices.serviceId, serviceId));
+    return results.map(r => r.staffId);
+  }
+
+  async setStaffServices(staffId: number, serviceIds: number[]): Promise<void> {
+    // Delete existing assignments
+    await db.delete(staffServices).where(eq(staffServices.staffId, staffId));
+    // Insert new assignments
+    if (serviceIds.length > 0) {
+      await db.insert(staffServices).values(
+        serviceIds.map(serviceId => ({ staffId, serviceId }))
+      );
+    }
+  }
+
+  async getStaffServicesForBusiness(businessId: number): Promise<{ staffId: number; serviceId: number }[]> {
+    // Get all staff for business, then get their service assignments
+    const businessStaff = await this.getStaff(businessId);
+    const staffIds = businessStaff.map(s => s.id);
+    if (staffIds.length === 0) return [];
+
+    const results = await db.select().from(staffServices)
+      .where(inArray(staffServices.staffId, staffIds));
+    return results.map(r => ({ staffId: r.staffId, serviceId: r.serviceId }));
   }
 
   // Appointments

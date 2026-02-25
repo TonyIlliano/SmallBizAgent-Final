@@ -11,6 +11,7 @@ import { getCachedMenu as getCloverCachedMenu, createOrder as createCloverOrder,
 import { getCachedMenu as getSquareCachedMenu, createOrder as createSquareOrder } from './squareService';
 import { canBusinessAcceptCalls } from './usageService';
 import { fireEvent } from './webhookService';
+import { getTimezoneAbbreviation } from '../utils/timezone';
 
 /**
  * ===========================================
@@ -1075,6 +1076,53 @@ async function checkAvailability(
     staffMember = await storage.getStaffMember(resolvedStaffId);
   }
 
+  // Staff-service compatibility check:
+  // If a specific staff member AND service are requested, verify the staff can do that service.
+  // Backward compat: if staff has NO service assignments, they can do ALL services.
+  if (resolvedStaffId && serviceId) {
+    const staffServiceIds = await storage.getStaffServices(resolvedStaffId);
+    if (staffServiceIds.length > 0 && !staffServiceIds.includes(serviceId)) {
+      // This staff member can't do this service — suggest eligible alternatives
+      const allStaff = await getCachedStaff(businessId);
+      const serviceLookup = await storage.getService(serviceId);
+      const serviceLabel = serviceLookup?.name || 'that service';
+      const staffLabel = staffMember ? staffMember.firstName : 'That team member';
+
+      // Find staff who either are in the eligible list OR have no assignments at all (backward compat)
+      const eligibleStaffWithFallback: typeof allStaff = [];
+      for (const s of allStaff.filter(st => st.active && st.id !== resolvedStaffId)) {
+        const theirServices = await storage.getStaffServices(s.id);
+        if (theirServices.length === 0 || theirServices.includes(serviceId)) {
+          eligibleStaffWithFallback.push(s);
+        }
+      }
+
+      if (eligibleStaffWithFallback.length > 0) {
+        const names = eligibleStaffWithFallback.map(s => s.firstName).join(', ');
+        return {
+          result: {
+            available: false,
+            staffServiceMismatch: true,
+            message: `${staffLabel} doesn't do ${serviceLabel}, but ${names} ${eligibleStaffWithFallback.length === 1 ? 'does' : 'do'}. Would you like me to check availability with ${eligibleStaffWithFallback.length === 1 ? eligibleStaffWithFallback[0].firstName : 'one of them'}?`,
+            eligibleStaff: eligibleStaffWithFallback.map(s => ({
+              id: s.id,
+              name: `${s.firstName} ${s.lastName || ''}`.trim(),
+              specialty: s.specialty
+            }))
+          }
+        };
+      } else {
+        return {
+          result: {
+            available: false,
+            staffServiceMismatch: true,
+            message: `I'm sorry, ${staffLabel} doesn't do ${serviceLabel} and I couldn't find another team member for that service. Would you like to try a different service?`
+          }
+        };
+      }
+    }
+  }
+
   // Get service duration if specified
   // If no service specified, get the shortest service duration for this business
   // This ensures we show all possible slots that could fit any service
@@ -1150,6 +1198,7 @@ async function checkAvailability(
 
   // Use business timezone for all date calculations
   const businessTimezone = business.timezone || 'America/New_York';
+  const tzAbbr = getTimezoneAbbreviation(businessTimezone);
 
   // Check if this is a range request (like "next week")
   if (isDateRangeRequest(dateStr)) {
@@ -1241,8 +1290,8 @@ async function checkAvailability(
     const daysList = availableDays.map(d => d.day).join(', ');
 
     const multiDayMsg = staffLabel
-      ? `${staffLabel} has availability on ${daysList}. The soonest opening is ${firstDay.date} at ${firstDay.slots[0]}. Would that work for you?`
-      : `We have availability on ${daysList}. The soonest opening is ${firstDay.date} at ${firstDay.slots[0]}. Would that work for you, or would you prefer a different day?`;
+      ? `${staffLabel} has availability on ${daysList}. The soonest opening is ${firstDay.date} at ${firstDay.slots[0]} ${tzAbbr}. Would that work for you?`
+      : `We have availability on ${daysList}. The soonest opening is ${firstDay.date} at ${firstDay.slots[0]} ${tzAbbr}. Would that work for you, or would you prefer a different day?`;
 
     return {
       result: {
@@ -1374,10 +1423,10 @@ async function checkAvailability(
   let bookedMsg: string;
 
   if (staffLabel) {
-    availableMsg = `${staffLabel} has openings on ${displayDate} in the ${timeDescription}. What time works best for you?`;
+    availableMsg = `${staffLabel} has openings on ${displayDate} in the ${timeDescription} ${tzAbbr}. What time works best for you?`;
     bookedMsg = `${staffLabel} is fully booked on ${displayDate}. Would you like to check a different day, or would another team member work for you?`;
   } else {
-    availableMsg = `We have openings on ${displayDate} in the ${timeDescription}. What time works best for you?`;
+    availableMsg = `We have openings on ${displayDate} in the ${timeDescription} ${tzAbbr}. What time works best for you?`;
     bookedMsg = `We're fully booked on ${displayDate}. Would you like to check a different day?`;
   }
 
@@ -1388,6 +1437,7 @@ async function checkAvailability(
     result: {
       available: availableSlots.length > 0,
       date: displayDate,
+      timezone: tzAbbr,
       staffId: resolvedStaffId,
       staffName: staffLabel,
       availableSlots: availableSlots, // Return all available slots
@@ -1577,6 +1627,51 @@ async function bookAppointment(
     console.log(`Auto-assigned only service "${services[0].name}" (ID ${serviceId}) for business ${businessId}`);
   }
 
+  // Staff-service compatibility check before booking:
+  // If a staff member is selected AND a service is resolved, verify the staff can perform it.
+  // Backward compat: staff with NO service assignments can do ALL services.
+  if (resolvedStaffId && serviceId) {
+    const staffServiceIds = await storage.getStaffServices(resolvedStaffId);
+    if (staffServiceIds.length > 0 && !staffServiceIds.includes(serviceId)) {
+      const serviceLookup = services.find(s => s.id === serviceId);
+      const serviceLabel = serviceLookup?.name || 'that service';
+      const staffLabel = staffMember ? staffMember.firstName : 'That team member';
+
+      // Find alternative staff who CAN do this service
+      const allStaff = await getCachedStaff(businessId);
+      const eligibleStaffWithFallback: typeof allStaff = [];
+      for (const s of allStaff.filter(st => st.active && st.id !== resolvedStaffId)) {
+        const theirServices = await storage.getStaffServices(s.id);
+        if (theirServices.length === 0 || theirServices.includes(serviceId)) {
+          eligibleStaffWithFallback.push(s);
+        }
+      }
+
+      if (eligibleStaffWithFallback.length > 0) {
+        const names = eligibleStaffWithFallback.map(s => s.firstName).join(', ');
+        return {
+          result: {
+            success: false,
+            staffServiceMismatch: true,
+            message: `${staffLabel} doesn't do ${serviceLabel}, but ${names} ${eligibleStaffWithFallback.length === 1 ? 'does' : 'do'}. Would you like me to book with ${eligibleStaffWithFallback.length === 1 ? eligibleStaffWithFallback[0].firstName : 'one of them'} instead?`,
+            eligibleStaff: eligibleStaffWithFallback.map(s => ({
+              id: s.id,
+              name: `${s.firstName} ${s.lastName || ''}`.trim()
+            }))
+          }
+        };
+      } else {
+        return {
+          result: {
+            success: false,
+            staffServiceMismatch: true,
+            message: `I'm sorry, ${staffLabel} doesn't do ${serviceLabel} and no other team members are available for that service right now. Would you like to try a different service?`
+          }
+        };
+      }
+    }
+  }
+
   // Parse date and time using natural language parser (in business timezone)
   const businessTimezone = business.timezone || 'America/New_York';
   const parsedDate = parseNaturalDate(params.date, businessTimezone);
@@ -1711,6 +1806,15 @@ async function bookAppointment(
     // Invalidate appointments cache after creating new appointment
     dataCache.invalidate(businessId, 'appointments');
 
+    // Set manage token for self-service cancel/reschedule (same as booking page)
+    const crypto = await import('crypto');
+    const manageToken = crypto.randomBytes(24).toString('hex');
+    try {
+      await storage.updateAppointment(appointment.id, { manageToken });
+    } catch (tokenErr) {
+      console.error('Failed to set manage token on VAPI appointment:', tokenErr);
+    }
+
     // Auto-create a linked Job for this appointment
     let createdJob: any = null;
     try {
@@ -1789,12 +1893,13 @@ async function bookAppointment(
       month: 'long',
       day: 'numeric'
     });
+    const tzAbbr = getTimezoneAbbreviation(businessTimezone, appointmentDate);
     const timeStr = appointmentDate.toLocaleTimeString('en-US', {
       timeZone: businessTimezone,
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
-    });
+    }) + ' ' + tzAbbr;
 
     // Build confirmation message with staff name if applicable
     const staffLabel = staffMember ? staffMember.firstName : null;
@@ -1806,7 +1911,7 @@ async function bookAppointment(
       try {
         await twilioService.sendSms(
           customerPhone,
-          `Your appointment${withStaff} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Reply HELP for assistance or CANCEL to cancel.`
+          `Your appointment${withStaff} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Reply HELP for assistance.`
         );
       } catch (smsError) {
         console.error('Failed to send SMS confirmation:', smsError);
