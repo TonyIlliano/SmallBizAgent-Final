@@ -142,6 +142,7 @@ export function getSquareAuthUrl(businessId: number, environment: string = 'sand
 
   const params = new URLSearchParams({
     client_id: appId,
+    redirect_uri: redirectUri,
     scope: SQUARE_SCOPES.join(' '),
     session: 'false',
     state,
