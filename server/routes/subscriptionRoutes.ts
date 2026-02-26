@@ -145,23 +145,23 @@ router.post('/webhook', async (req: Request, res: Response) => {
   let event: Stripe.Event;
 
   try {
-    if (endpointSecret) {
-      // Get the signature sent by Stripe
-      const signature = req.headers['stripe-signature'] as string;
-      if (!signature) {
-        return res.status(400).json({ error: 'Missing Stripe signature' });
-      }
-
-      // Verify the event
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        signature,
-        endpointSecret
-      );
-    } else {
-      // If no webhook secret for verification, just parse the event
-      event = req.body;
+    if (!endpointSecret) {
+      console.error('STRIPE_WEBHOOK_SECRET not configured - rejecting webhook');
+      return res.status(500).json({ error: 'Webhook not configured' });
     }
+
+    // Get the signature sent by Stripe
+    const signature = req.headers['stripe-signature'] as string;
+    if (!signature) {
+      return res.status(400).json({ error: 'Missing Stripe signature' });
+    }
+
+    // Verify the event
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      signature,
+      endpointSecret
+    );
 
     // Handle the event
     await subscriptionService.handleWebhookEvent(event);

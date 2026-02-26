@@ -15,6 +15,7 @@ export const WEBHOOK_EVENTS = [
   'appointment.updated',
   'appointment.cancelled',
   'appointment.completed',
+  'appointment.deleted',
   'customer.created',
   'customer.updated',
   'invoice.created',
@@ -24,6 +25,9 @@ export const WEBHOOK_EVENTS = [
   'call.completed',
   'quote.created',
   'quote.accepted',
+  'reservation.created',
+  'reservation.updated',
+  'reservation.cancelled',
 ] as const;
 
 export type WebhookEventType = typeof WEBHOOK_EVENTS[number];

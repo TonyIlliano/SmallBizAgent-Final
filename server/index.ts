@@ -8,6 +8,8 @@ import schedulerService from "./services/schedulerService";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import compression from "compression";
+import { pool } from "./db";
 
 /**
  * ===========================================
@@ -83,7 +85,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com", "https://maps.googleapis.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://js.stripe.com", "https://maps.googleapis.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
@@ -97,7 +99,7 @@ app.use(helmet({
 // Allow embedding booking pages in iframes on external websites
 app.use('/book', (_req, res, next) => {
   res.removeHeader('X-Frame-Options');
-  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  res.setHeader('Content-Security-Policy', "frame-ancestors https: http://localhost:*");
   next();
 });
 
@@ -163,8 +165,16 @@ app.use('/api/register', authLimiter);
 app.use('/api/forgot-password', authLimiter);
 app.use('/api/reset-password', authLimiter);
 
+// Stripe needs the raw body for webhook signature verification
+// This MUST come BEFORE express.json() so the body isn't parsed
+app.use('/api/stripe-webhook', express.raw({ type: 'application/json' }));
+app.use('/api/subscription/webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Compression - gzip responses for faster page loads
+app.use(compression());
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -200,18 +210,47 @@ app.use((req, res, next) => {
   try {
     // Run database migrations first
     await runMigrations();
-    
+
     // Seed the database with initial data
     await seed();
-    
+
+    // Health check endpoints (before auth middleware)
+    app.get('/health', async (_req, res) => {
+      try {
+        const client = await pool.connect();
+        await client.query('SELECT 1');
+        client.release();
+        res.status(200).json({
+          status: 'healthy',
+          timestamp: new Date().toISOString(),
+          uptime: process.uptime(),
+        });
+      } catch (error) {
+        res.status(503).json({
+          status: 'unhealthy',
+          error: 'Database connection failed',
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
+
+    app.get('/health/live', (_req, res) => {
+      res.status(200).json({ status: 'ok' });
+    });
+
     const server = await registerRoutes(app);
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
 
-      res.status(status).json({ message });
-      throw err;
+      if (status >= 500) {
+        console.error('Server error:', err);
+      }
+
+      if (!res.headersSent) {
+        res.status(status).json({ message });
+      }
     });
 
     // importantly only setup vite in development and after
@@ -236,6 +275,36 @@ app.use((req, res, next) => {
       schedulerService.startAllSchedulers();
       log('Reminder schedulers started');
     });
+    // Graceful shutdown
+    const shutdown = async (signal: string) => {
+      console.log(`${signal} received. Starting graceful shutdown...`);
+
+      server.close(() => {
+        console.log('HTTP server closed');
+      });
+
+      schedulerService.stopAllSchedulers();
+      console.log('Schedulers stopped');
+
+      try {
+        await pool.end();
+        console.log('Database pool closed');
+      } catch (err) {
+        console.error('Error closing database pool:', err);
+      }
+
+      // Force exit after 10 seconds
+      setTimeout(() => {
+        console.error('Forced shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+
+      process.exit(0);
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
   } catch (error) {
     console.error('Server startup error:', error);
     process.exit(1);

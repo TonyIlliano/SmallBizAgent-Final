@@ -3644,21 +3644,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return next();
     }
 
-    // If neither header matches, validate by checking businessId exists in our database
-    // This provides a fallback validation by ensuring the request references a real business
-    const businessIdFromMetadata =
-      req.body?.message?.assistant?.metadata?.businessId ||
-      req.body?.message?.call?.assistant?.metadata?.businessId ||
-      req.body?.metadata?.businessId;
-
-    if (!businessIdFromMetadata) {
-      console.error('Vapi webhook rejected: Missing secret and no businessId in metadata');
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    // Allow the request but log the missing validation
-    console.warn(`Vapi webhook received without secret validation for business ${businessIdFromMetadata}`);
-    next();
+    console.error('Vapi webhook rejected: invalid secret');
+    return res.status(401).json({ error: 'Unauthorized' });
   };
 
   // ==================== Order History API ====================
