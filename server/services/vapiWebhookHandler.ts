@@ -4021,6 +4021,38 @@ async function handleCreateOrder(
     if (result.success) {
       const totalFormatted = result.orderTotal ? `$${(result.orderTotal / 100).toFixed(2)}` : 'calculated at pickup';
 
+      // Save/update customer in our database for marketing purposes
+      if (phone) {
+        try {
+          let customer = await storage.getCustomerByPhone(phone, businessId);
+          if (!customer) {
+            // Parse caller name into first/last
+            const nameParts = (parameters.callerName || '').trim().split(/\s+/);
+            const firstName = nameParts[0] || 'Customer';
+            const lastName = nameParts.slice(1).join(' ') || '';
+
+            customer = await storage.createCustomer({
+              businessId,
+              firstName,
+              lastName,
+              phone,
+              email: '',
+            });
+            console.log(`Created customer ${customer.id} (${firstName} ${lastName}) from phone order`);
+          } else if (parameters.callerName && customer.firstName === 'Caller') {
+            // Update generic name if we now have a real name
+            const nameParts = parameters.callerName.trim().split(/\s+/);
+            await storage.updateCustomer(customer.id, {
+              firstName: nameParts[0],
+              lastName: nameParts.slice(1).join(' ') || customer.lastName,
+            });
+          }
+        } catch (custError) {
+          console.error('Error saving customer from order:', custError);
+          // Don't fail the order response — customer save is non-critical
+        }
+      }
+
       // Send order confirmation SMS to the caller (fire and forget — don't block the AI response)
       if (phone) {
         try {
