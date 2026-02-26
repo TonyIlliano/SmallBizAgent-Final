@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { PageLayout } from "@/components/layout/PageLayout";
@@ -37,6 +37,15 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────
 type ViewMode = "week" | "day";
+
+interface StaffData {
+  id: number;
+  firstName: string;
+  lastName: string;
+  role?: string;
+  specialty?: string;
+  color?: string;
+}
 
 interface AppointmentData {
   id: number;
@@ -171,7 +180,20 @@ function getStatusBadge(status: string) {
 const HOUR_START = 8; // 8 AM
 const HOUR_END = 18; // 6 PM
 const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
-const HOUR_HEIGHT = 64; // px per hour row
+const HOUR_HEIGHT = 64; // px per hour row (week view)
+const DAY_HOUR_HEIGHT = 80; // px per hour row (day view — larger for touch targets)
+
+// Staff column color palette
+const STAFF_COLORS = [
+  '#3B82F6', // blue
+  '#10B981', // emerald
+  '#F59E0B', // amber
+  '#EF4444', // red
+  '#8B5CF6', // violet
+  '#EC4899', // pink
+  '#06B6D4', // cyan
+  '#F97316', // orange
+];
 
 function formatHour(hour: number): string {
   if (hour === 0) return "12 AM";
@@ -211,6 +233,12 @@ export default function Appointments() {
     queryKey: ["/api/appointments", queryParams],
     refetchInterval: 10000,
     staleTime: 5000,
+  });
+
+  // ─── Fetch staff for day view ─────────────────────────────────
+  const { data: staffMembers = [] } = useQuery<StaffData[]>({
+    queryKey: ["/api/staff", { businessId }],
+    enabled: viewMode === "day" && !!businessId,
   });
 
   // ─── Send reminder mutation ─────────────────────────────────────
@@ -322,8 +350,9 @@ export default function Appointments() {
           onClickAppointment={(id) => navigate(`/appointments/${id}`)}
         />
       ) : (
-        <DayView
+        <StaffDayView
           appointments={appointments}
+          staffMembers={staffMembers}
           selectedDate={selectedDate}
           onClickAppointment={(id) => navigate(`/appointments/${id}`)}
           onSendReminder={(id) => sendReminderMutation.mutate(id)}
@@ -624,10 +653,11 @@ function MobileWeekView({
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// DAY VIEW
+// STAFF DAY VIEW — Staff columns time grid (Vagaro/Fresha style)
 // ═══════════════════════════════════════════════════════════════════════
-function DayView({
+function StaffDayView({
   appointments,
+  staffMembers,
   selectedDate,
   onClickAppointment,
   onSendReminder,
@@ -635,18 +665,55 @@ function DayView({
   onNewAppointment,
 }: {
   appointments: AppointmentData[];
+  staffMembers: StaffData[];
   selectedDate: Date;
   onClickAppointment: (id: number) => void;
   onSendReminder: (id: number) => void;
   reminderPending: boolean;
   onNewAppointment: () => void;
 }) {
-  // Sort by start time
-  const sorted = [...appointments].sort(
-    (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
-  );
+  const isMobile = useIsMobile();
+  const [currentTime, setCurrentTime] = useState(new Date());
 
-  if (sorted.length === 0) {
+  // Update current time every minute for the time indicator line
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Build columns: active staff + "Unassigned"
+  const columns: { id: number | null; name: string; color: string }[] = staffMembers.map(
+    (s, i) => ({
+      id: s.id,
+      name: `${s.firstName} ${s.lastName?.charAt(0) || ""}`.trim(),
+      color: STAFF_COLORS[i % STAFF_COLORS.length],
+    })
+  );
+  columns.push({ id: null, name: "Unassigned", color: "#9CA3AF" });
+
+  // Group appointments by staff column
+  const appointmentsByColumn = new Map<number | null, AppointmentData[]>();
+  columns.forEach((col) => appointmentsByColumn.set(col.id, []));
+
+  appointments.forEach((appt) => {
+    const staffId = appt.staff?.id ?? null;
+    const bucket = appointmentsByColumn.get(staffId);
+    if (bucket) {
+      bucket.push(appt);
+    } else {
+      // Staff not in current list — put in unassigned
+      appointmentsByColumn.get(null)!.push(appt);
+    }
+  });
+
+  // Check if the selected date is today (for the current time indicator)
+  const showTimeLine = isToday(selectedDate);
+  const timeLineTop =
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    DAY_HOUR_HEIGHT;
+
+  // No staff and no appointments — show empty state
+  if (staffMembers.length === 0 && appointments.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center bg-white rounded-lg border">
         <CalendarIcon className="h-12 w-12 text-gray-300 mb-4" />
@@ -662,114 +729,326 @@ function DayView({
     );
   }
 
+  // ── Mobile: single staff at a time with selector strip ──
+  if (isMobile) {
+    return (
+      <MobileStaffDayView
+        columns={columns}
+        appointmentsByColumn={appointmentsByColumn}
+        selectedDate={selectedDate}
+        showTimeLine={showTimeLine}
+        timeLineTop={timeLineTop}
+        onClickAppointment={onClickAppointment}
+        onNewAppointment={onNewAppointment}
+      />
+    );
+  }
+
+  // ── Desktop / iPad: multi-column grid ──
+  const colCount = columns.length;
+  const gridCols = `60px repeat(${colCount}, minmax(180px, 1fr))`;
+
   return (
-    <div className="space-y-3">
-      {sorted.map((appt) => {
-        const start = new Date(appt.startDate);
-        const end = new Date(appt.endDate);
-        const durationMinutes = Math.round(
-          (end.getTime() - start.getTime()) / 60000
-        );
-        const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
-        const canRemind = appt.status === "scheduled" || appt.status === "confirmed";
-
-        return (
+    <div className="bg-white rounded-lg border overflow-hidden">
+      {/* Staff header row */}
+      <div
+        className="grid border-b sticky top-0 z-30 bg-white"
+        style={{ gridTemplateColumns: gridCols }}
+      >
+        <div className="p-2 border-r bg-gray-50" /> {/* Time column spacer */}
+        {columns.map((col) => (
           <div
-            key={appt.id}
-            onClick={() => onClickAppointment(appt.id)}
-            className={`flex items-stretch bg-white rounded-lg border cursor-pointer transition-shadow hover:shadow-md overflow-hidden border-l-4 ${colors.border}`}
+            key={col.id ?? "unassigned"}
+            className={`flex items-center gap-2 px-3 py-3 border-r last:border-r-0 ${
+              col.id === null ? "bg-gray-50" : ""
+            }`}
           >
-            {/* Time block */}
-            <div className="flex flex-col items-center justify-center px-5 py-4 min-w-[90px] border-r bg-gray-50/50">
-              <span className="text-lg font-bold text-gray-900">
-                {formatTime(start)}
-              </span>
-              <span className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                <Clock className="h-3 w-3" />
-                {durationMinutes} min
-              </span>
+            {/* Color dot */}
+            <div
+              className="w-3 h-3 rounded-full flex-shrink-0"
+              style={{ backgroundColor: col.color }}
+            />
+            <span className="text-sm font-semibold text-gray-800 truncate">
+              {col.name}
+            </span>
+            <span className="text-xs text-gray-400 ml-auto flex-shrink-0">
+              {appointmentsByColumn.get(col.id)?.length || 0}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Scrollable time grid */}
+      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: "75vh" }}>
+        <div
+          className="grid relative"
+          style={{
+            gridTemplateColumns: gridCols,
+            minHeight: HOURS.length * DAY_HOUR_HEIGHT,
+          }}
+        >
+          {/* Current time indicator */}
+          {showTimeLine && timeLineTop >= 0 && timeLineTop <= HOURS.length * DAY_HOUR_HEIGHT && (
+            <div
+              className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
+              style={{ top: timeLineTop }}
+            >
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500 -ml-1" />
+              <div className="flex-1 h-0.5 bg-red-500" />
             </div>
+          )}
 
-            {/* Details */}
-            <div className="flex-1 px-4 py-3 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  {/* Customer name */}
-                  <h4 className="font-semibold text-gray-900 truncate">
-                    {appt.customer
-                      ? `${appt.customer.firstName} ${appt.customer.lastName}`
-                      : "Walk-in Customer"}
-                  </h4>
-                  {/* Customer phone */}
-                  {appt.customer?.phone && (
-                    <div className="text-xs text-gray-400 mt-0.5">
-                      {appt.customer.phone}
-                    </div>
-                  )}
-                  {/* Service */}
-                  <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                    <Scissors className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span className="truncate">
-                      {appt.service?.name || "General Appointment"}
-                      {appt.service?.price ? ` · $${appt.service.price}` : ""}
-                    </span>
+          {/* Hour rows */}
+          {HOURS.map((hour) => (
+            <div key={`row-${hour}`} className="contents">
+              {/* Time label */}
+              <div
+                className="text-xs text-gray-400 text-right pr-2 pt-1 border-b border-r bg-gray-50/50"
+                style={{ height: DAY_HOUR_HEIGHT }}
+              >
+                {formatHour(hour)}
+              </div>
+
+              {/* Staff column cells */}
+              {columns.map((col) => {
+                const colAppts = (appointmentsByColumn.get(col.id) || []).filter(
+                  (a) => new Date(a.startDate).getHours() === hour
+                );
+
+                return (
+                  <div
+                    key={`cell-${hour}-${col.id ?? "u"}`}
+                    className={`relative border-b border-r last:border-r-0 transition-colors hover:bg-gray-50/50 cursor-pointer ${
+                      col.id === null ? "bg-gray-50/30" : ""
+                    }`}
+                    style={{ height: DAY_HOUR_HEIGHT }}
+                    onClick={() => onNewAppointment()}
+                  >
+                    {colAppts.map((appt) => {
+                      const start = new Date(appt.startDate);
+                      const minuteOffset = start.getMinutes();
+                      const topPx = (minuteOffset / 60) * DAY_HOUR_HEIGHT;
+                      const end = new Date(appt.endDate);
+                      const durationMinutes =
+                        (end.getTime() - start.getTime()) / 60000;
+                      const heightPx = Math.max(
+                        (durationMinutes / 60) * DAY_HOUR_HEIGHT - 2,
+                        32
+                      );
+                      const colors =
+                        STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+
+                      const customerName = appt.customer
+                        ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
+                        : "Walk-in";
+
+                      return (
+                        <button
+                          key={appt.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onClickAppointment(appt.id);
+                          }}
+                          className={`absolute left-1 right-1 rounded-md px-2.5 py-1.5 border-l-4 text-left overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] z-10 ${colors.bg} ${colors.border}`}
+                          style={{ top: topPx, height: heightPx }}
+                          title={`${formatTime(start)} — ${customerName}${appt.service ? ` — ${appt.service.name}` : ""}`}
+                        >
+                          <div
+                            className={`text-xs font-bold truncate ${colors.text}`}
+                          >
+                            {formatTime(start)}
+                          </div>
+                          <div className="text-xs font-medium text-gray-800 truncate">
+                            {customerName}
+                          </div>
+                          {heightPx > 50 && appt.service && (
+                            <div className="text-[11px] text-gray-500 truncate mt-0.5">
+                              <Scissors className="inline h-3 w-3 mr-1" />
+                              {appt.service.name}
+                            </div>
+                          )}
+                          {heightPx > 70 && (
+                            <div className="mt-1">
+                              {getStatusBadge(appt.status)}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
-                  {/* Staff */}
-                  <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                    <User className="h-3.5 w-3.5 flex-shrink-0" />
-                    {appt.staff ? (
-                      <span className="truncate">
-                        {appt.staff.firstName} {appt.staff.lastName}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">Unassigned</span>
-                    )}
-                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MOBILE STAFF DAY VIEW — Single staff at a time with staff selector
+// ═══════════════════════════════════════════════════════════════════════
+function MobileStaffDayView({
+  columns,
+  appointmentsByColumn,
+  selectedDate,
+  showTimeLine,
+  timeLineTop,
+  onClickAppointment,
+  onNewAppointment,
+}: {
+  columns: { id: number | null; name: string; color: string }[];
+  appointmentsByColumn: Map<number | null, AppointmentData[]>;
+  selectedDate: Date;
+  showTimeLine: boolean;
+  timeLineTop: number;
+  onClickAppointment: (id: number) => void;
+  onNewAppointment: () => void;
+}) {
+  const [activeStaffIndex, setActiveStaffIndex] = useState(0);
+  const activeCol = columns[activeStaffIndex];
+  const activeAppts = appointmentsByColumn.get(activeCol?.id ?? null) || [];
+  const MOBILE_DAY_HOUR_HEIGHT = 70;
+
+  return (
+    <div className="bg-white rounded-lg border overflow-hidden">
+      {/* Staff selector strip */}
+      <div className="flex border-b overflow-x-auto">
+        {columns.map((col, i) => {
+          const isActive = i === activeStaffIndex;
+          const count = appointmentsByColumn.get(col.id)?.length || 0;
+
+          return (
+            <button
+              key={col.id ?? "unassigned"}
+              onClick={() => setActiveStaffIndex(i)}
+              className={`flex-shrink-0 flex items-center gap-2 px-4 py-3 text-center transition-colors relative border-r last:border-r-0 ${
+                isActive ? "bg-primary/10" : "hover:bg-gray-50"
+              }`}
+            >
+              <div
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: col.color }}
+              />
+              <span
+                className={`text-sm font-medium whitespace-nowrap ${
+                  isActive ? "text-primary" : "text-gray-600"
+                }`}
+              >
+                {col.name}
+              </span>
+              {count > 0 && (
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                    isActive
+                      ? "bg-primary text-white"
+                      : "bg-gray-200 text-gray-600"
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
+              {isActive && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Single-staff time grid */}
+      <div className="overflow-y-auto" style={{ maxHeight: "65vh" }}>
+        <div
+          className="grid grid-cols-[50px_1fr] relative"
+          style={{ minHeight: HOURS.length * MOBILE_DAY_HOUR_HEIGHT }}
+        >
+          {/* Current time indicator */}
+          {showTimeLine && (
+            <div
+              className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
+              style={{
+                top:
+                  ((new Date().getHours() * 60 +
+                    new Date().getMinutes() -
+                    HOUR_START * 60) /
+                    60) *
+                  MOBILE_DAY_HOUR_HEIGHT,
+              }}
+            >
+              <div className="w-2 h-2 rounded-full bg-red-500" />
+              <div className="flex-1 h-0.5 bg-red-500" />
+            </div>
+          )}
+
+          {HOURS.map((hour) => {
+            const cellAppts = activeAppts.filter(
+              (a) => new Date(a.startDate).getHours() === hour
+            );
+
+            return (
+              <div key={`mobile-staff-${hour}`} className="contents">
+                {/* Time label */}
+                <div
+                  className="text-[11px] text-gray-400 text-right pr-2 pt-1 border-b"
+                  style={{ height: MOBILE_DAY_HOUR_HEIGHT }}
+                >
+                  {formatHour(hour)}
                 </div>
+                {/* Single staff cell */}
+                <div
+                  className="relative border-b cursor-pointer"
+                  style={{ height: MOBILE_DAY_HOUR_HEIGHT }}
+                  onClick={() => onNewAppointment()}
+                >
+                  {cellAppts.map((appt) => {
+                    const start = new Date(appt.startDate);
+                    const minuteOffset = start.getMinutes();
+                    const topPx =
+                      (minuteOffset / 60) * MOBILE_DAY_HOUR_HEIGHT;
+                    const end = new Date(appt.endDate);
+                    const durationMinutes =
+                      (end.getTime() - start.getTime()) / 60000;
+                    const heightPx = Math.max(
+                      (durationMinutes / 60) * MOBILE_DAY_HOUR_HEIGHT - 2,
+                      28
+                    );
+                    const colors =
+                      STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
 
-                {/* Right side: status + actions */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {getStatusBadge(appt.status)}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
+                    const customerName = appt.customer
+                      ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
+                      : "Walk-in";
+
+                    return (
+                      <button
+                        key={appt.id}
                         onClick={(e) => {
                           e.stopPropagation();
                           onClickAppointment(appt.id);
                         }}
+                        className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border}`}
+                        style={{ top: topPx, height: heightPx }}
                       >
-                        Edit Appointment
-                      </DropdownMenuItem>
-                      {canRemind && (
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSendReminder(appt.id);
-                          }}
-                          disabled={reminderPending}
+                        <div
+                          className={`text-xs font-semibold truncate ${colors.text}`}
                         >
-                          <MessageSquare className="mr-2 h-4 w-4" />
-                          Send SMS Reminder
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                          {formatTime(start)} — {customerName}
+                        </div>
+                        {heightPx > 32 && appt.service && (
+                          <div className="text-[11px] text-gray-500 truncate">
+                            {appt.service.name}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
