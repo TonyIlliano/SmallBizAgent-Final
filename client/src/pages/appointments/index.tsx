@@ -495,17 +495,12 @@ function WeekView({
                         style={{ top: topPx, height: heightPx }}
                         title={tooltipParts.join(" — ")}
                       >
-                        <div className={`text-[10px] font-semibold truncate ${colors.text}`}>
-                          {formatTime(start)}
-                        </div>
-                        <div className="text-[10px] text-gray-600 truncate">
+                        <div className={`text-[10px] font-semibold whitespace-nowrap truncate ${colors.text}`}>
                           {customerName}
                         </div>
-                        {heightPx > 30 && appt.service && (
-                          <div className="text-[9px] text-gray-400 truncate">
-                            {appt.service.name}
-                          </div>
-                        )}
+                        <div className="text-[9px] text-gray-500 whitespace-nowrap truncate">
+                          {appt.service?.name || "Appointment"} · {formatTime(start)}
+                        </div>
                       </button>
                     );
                   })}
@@ -631,14 +626,12 @@ function MobileWeekView({
                         className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border}`}
                         style={{ top: topPx, height: heightPx }}
                       >
-                        <div className={`text-xs font-semibold truncate ${colors.text}`}>
-                          {formatTime(start)} — {customerName}
+                        <div className={`text-xs font-semibold whitespace-nowrap truncate ${colors.text}`}>
+                          {customerName}
                         </div>
-                        {heightPx > 28 && appt.service && (
-                          <div className="text-[11px] text-gray-500 truncate">
-                            {appt.service.name}
-                          </div>
-                        )}
+                        <div className="text-[11px] text-gray-500 whitespace-nowrap truncate">
+                          {appt.service?.name || "Appointment"} · {formatTime(start)}
+                        </div>
                       </button>
                     );
                   })}
