@@ -861,7 +861,7 @@ function StaffDayView({
                           <div className="text-xs font-medium text-gray-800 truncate">
                             {customerName}
                           </div>
-                          {heightPx > 50 && appt.service && (
+                          {appt.service && (
                             <div className="text-[11px] text-gray-500 truncate mt-0.5">
                               <Scissors className="inline h-3 w-3 mr-1" />
                               {appt.service.name}
@@ -1035,7 +1035,7 @@ function MobileStaffDayView({
                         >
                           {formatTime(start)} — {customerName}
                         </div>
-                        {heightPx > 32 && appt.service && (
+                        {appt.service && (
                           <div className="text-[11px] text-gray-500 truncate">
                             {appt.service.name}
                           </div>
