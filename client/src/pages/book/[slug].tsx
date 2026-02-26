@@ -83,11 +83,25 @@ interface BookingData {
   staff: StaffInfo[];
   businessHours: BusinessHourInfo[];
   staffServices?: Record<string, number[]>; // staffId → serviceId[] (empty/missing = all)
+  reservation?: {
+    enabled: boolean;
+    maxPartySize: number;
+    slotDurationMinutes: number;
+    maxCapacityPerSlot: number;
+    leadTimeHours: number;
+    maxDaysAhead: number;
+  } | null;
 }
 
 const STEPS = [
   { num: 1, label: "Service" },
   { num: 2, label: "Date & Time" },
+  { num: 3, label: "Details" },
+];
+
+const RESERVATION_STEPS = [
+  { num: 1, label: "Party & Date" },
+  { num: 2, label: "Time" },
   { num: 3, label: "Details" },
 ];
 
@@ -132,6 +146,12 @@ export default function PublicBooking() {
   });
   const [notes, setNotes] = useState("");
 
+  // Reservation mode state
+  const [selectedPartySize, setSelectedPartySize] = useState<number>(2);
+  const [specialRequests, setSpecialRequests] = useState("");
+  const [reservationSlots, setReservationSlots] = useState<{ time: string; available: boolean; remainingSeats: number }[]>([]);
+  const [isLoadingReservationSlots, setIsLoadingReservationSlots] = useState(false);
+
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
@@ -168,6 +188,8 @@ export default function PublicBooking() {
     };
   }, []);
 
+  const isReservationMode = bookingData?.business.industry === 'restaurant' && bookingData?.reservation?.enabled;
+
   // Fetch business data on mount
   useEffect(() => {
     fetchBookingData();
@@ -179,6 +201,13 @@ export default function PublicBooking() {
       fetchTimeSlots();
     }
   }, [selectedDate, selectedService, selectedStaff]);
+
+  // Fetch reservation slots when date or party size changes (reservation mode)
+  useEffect(() => {
+    if (isReservationMode && selectedDate && selectedPartySize) {
+      fetchReservationSlots();
+    }
+  }, [selectedDate, selectedPartySize, isReservationMode]);
 
   const fetchBookingData = async () => {
     try {
@@ -220,6 +249,28 @@ export default function PublicBooking() {
     }
   };
 
+  const fetchReservationSlots = async () => {
+    if (!selectedDate || !selectedPartySize) return;
+    try {
+      setIsLoadingReservationSlots(true);
+      const dateStr = selectedDate.toISOString().split("T")[0];
+      const url = `/api/book/${slug}/reservation-slots?date=${dateStr}&partySize=${selectedPartySize}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to load reservation slots");
+      }
+      const data = await res.json();
+      setReservationSlots(data.slots || []);
+      if (data.timezoneAbbr) setSlotsTimezoneAbbr(data.timezoneAbbr);
+      setSelectedTime(null);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setIsLoadingReservationSlots(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!selectedService || !selectedDate || !selectedTime) return;
     try {
@@ -248,6 +299,33 @@ export default function PublicBooking() {
     }
   };
 
+  const handleReservationSubmit = async () => {
+    if (!selectedDate || !selectedTime) return;
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/book/${slug}/reserve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          partySize: selectedPartySize,
+          date: selectedDate.toISOString().split("T")[0],
+          time: selectedTime,
+          customer: customerInfo,
+          specialRequests: specialRequests || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create reservation");
+      setConfirmationData(data);
+      setBookingConfirmed(true);
+      setStep(4);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const formatTime12 = (time: string) => {
     const [hour, min] = time.split(":").map(Number);
     const ampm = hour >= 12 ? "PM" : "AM";
@@ -261,6 +339,20 @@ export default function PublicBooking() {
     const minDate = new Date(now.getTime() + leadTimeHours * 60 * 60 * 1000);
     if (date < minDate) return true;
     const maxDate = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+    if (date > maxDate) return true;
+    const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+    const dayHours = bookingData?.businessHours.find((h) => h.day.toLowerCase() === dayName);
+    if (dayHours?.isClosed || !dayHours?.open) return true;
+    return false;
+  };
+
+  const isReservationDateDisabled = (date: Date) => {
+    const now = new Date();
+    const leadTimeHours = bookingData?.reservation?.leadTimeHours || 2;
+    const maxDaysAhead = bookingData?.reservation?.maxDaysAhead || 30;
+    const minDate = new Date(now.getTime() + leadTimeHours * 60 * 60 * 1000);
+    if (date < minDate) return true;
+    const maxDate = new Date(now.getTime() + maxDaysAhead * 24 * 60 * 60 * 1000);
     if (date > maxDate) return true;
     const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
     const dayHours = bookingData?.businessHours.find((h) => h.day.toLowerCase() === dayName);
@@ -331,6 +423,40 @@ export default function PublicBooking() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `appointment-${confirmationData.appointment.id}.ics`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const generateReservationIcsFile = () => {
+    if (!confirmationData?.reservation) return;
+    const start = new Date(confirmationData.reservation.startDate);
+    const end = new Date(confirmationData.reservation.endDate);
+    const now = new Date();
+    const fmtIcs = (d: Date) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    const escIcs = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+    const location = [bookingData?.business.address, bookingData?.business.city, bookingData?.business.state].filter(Boolean).join(", ");
+    const partyStr = `${confirmationData.reservation.partySize} ${confirmationData.reservation.partySize === 1 ? 'guest' : 'guests'}`;
+    const summary = `Reservation at ${bookingData?.business.name || ""} (${partyStr})`;
+    const descParts = [
+      `Reservation for ${partyStr}`,
+      confirmationData.reservation.specialRequests ? `Special requests: ${confirmationData.reservation.specialRequests}` : "",
+      bookingData?.business.phone ? `Phone: ${bookingData.business.phone}` : "",
+      confirmationData.manageUrl ? `Manage reservation: https://www.smallbizagent.ai${confirmationData.manageUrl}` : "",
+    ].filter(Boolean).join("\\n");
+    const ics = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SmallBizAgent//Booking//EN",
+      "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "BEGIN:VEVENT",
+      `UID:sba-res-${confirmationData.reservation.id}@smallbizagent.ai`,
+      `DTSTAMP:${fmtIcs(now)}`, `DTSTART:${fmtIcs(start)}`, `DTEND:${fmtIcs(end)}`,
+      `SUMMARY:${escIcs(summary)}`, location ? `LOCATION:${escIcs(location)}` : "",
+      `DESCRIPTION:${escIcs(descParts)}`, `STATUS:CONFIRMED`,
+      `BEGIN:VALARM`, `TRIGGER:-PT60M`, `ACTION:DISPLAY`,
+      `DESCRIPTION:Reminder: ${escIcs(summary)}`, `END:VALARM`,
+      "END:VEVENT", "END:VCALENDAR",
+    ].filter(Boolean).join("\r\n");
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `reservation-${confirmationData.reservation.id}.ics`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -473,7 +599,7 @@ export default function PublicBooking() {
                     className="bg-white text-primary hover:bg-white/90 font-semibold shadow-lg px-8"
                   >
                     <CalendarIcon className="mr-2 h-5 w-5" />
-                    Book Appointment
+                    {isReservationMode ? "Make a Reservation" : "Book Appointment"}
                   </Button>
                 </div>
               </div>
@@ -690,47 +816,76 @@ export default function PublicBooking() {
               </div>
               <CardTitle className="text-2xl">You're All Set!</CardTitle>
               <CardDescription className="text-base">
-                Booking reference: <strong>#{confirmationData.appointment?.id}</strong>
+                {isReservationMode
+                  ? <>Reservation reference: <strong>#{confirmationData.reservation?.id}</strong></>
+                  : <>Booking reference: <strong>#{confirmationData.appointment?.id}</strong></>
+                }
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-2">
-              <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <CalendarIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="font-medium">
-                    {selectedDate?.toLocaleDateString("en-US", {
-                      weekday: "long", month: "long", day: "numeric", year: "numeric",
-                    })}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="font-medium">{selectedTime && formatTime12(selectedTime)}{tzLabel ? ` ${tzLabel}` : ""}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span>{confirmationData.appointment?.serviceName}</span>
-                  {getSelectedService()?.duration && (
-                    <Badge variant="secondary" className="text-xs ml-auto">
-                      {getSelectedService()!.duration} min
-                    </Badge>
-                  )}
-                </div>
-                {getSelectedStaffMember() && (
+              {isReservationMode ? (
+                <div className="bg-muted/50 rounded-lg p-4 space-y-3">
                   <div className="flex items-center gap-3">
                     <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <span>with {getSelectedStaffMember()?.firstName} {getSelectedStaffMember()?.lastName}</span>
+                    <span className="font-medium">Party of {confirmationData.reservation?.partySize}</span>
                   </div>
-                )}
-                {getSelectedService()?.price && (
-                  <div className="flex items-center gap-3 pt-1 border-t">
-                    <span className="font-medium">Total</span>
-                    <span className="ml-auto font-semibold text-lg">
-                      {formatCurrency(getSelectedService()!.price!)}
+                  <div className="flex items-center gap-3">
+                    <CalendarIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="font-medium">
+                      {selectedDate?.toLocaleDateString("en-US", {
+                        weekday: "long", month: "long", day: "numeric", year: "numeric",
+                      })}
                     </span>
                   </div>
-                )}
-              </div>
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="font-medium">{selectedTime && formatTime12(selectedTime)}{tzLabel ? ` ${tzLabel}` : ""}</span>
+                  </div>
+                  {confirmationData.reservation?.specialRequests && (
+                    <div className="flex items-start gap-3 pt-1 border-t">
+                      <span className="text-sm text-muted-foreground">Special requests: {confirmationData.reservation.specialRequests}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <CalendarIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="font-medium">
+                      {selectedDate?.toLocaleDateString("en-US", {
+                        weekday: "long", month: "long", day: "numeric", year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="font-medium">{selectedTime && formatTime12(selectedTime)}{tzLabel ? ` ${tzLabel}` : ""}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span>{confirmationData.appointment?.serviceName}</span>
+                    {getSelectedService()?.duration && (
+                      <Badge variant="secondary" className="text-xs ml-auto">
+                        {getSelectedService()!.duration} min
+                      </Badge>
+                    )}
+                  </div>
+                  {getSelectedStaffMember() && (
+                    <div className="flex items-center gap-3">
+                      <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <span>with {getSelectedStaffMember()?.firstName} {getSelectedStaffMember()?.lastName}</span>
+                    </div>
+                  )}
+                  {getSelectedService()?.price && (
+                    <div className="flex items-center gap-3 pt-1 border-t">
+                      <span className="font-medium">Total</span>
+                      <span className="ml-auto font-semibold text-lg">
+                        {formatCurrency(getSelectedService()!.price!)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3">
                 <p className="text-sm text-blue-800 dark:text-blue-300 flex items-start gap-2">
@@ -739,14 +894,14 @@ export default function PublicBooking() {
                 </p>
               </div>
 
-              <Button variant="outline" className="w-full" onClick={generateIcsFile}>
+              <Button variant="outline" className="w-full" onClick={isReservationMode ? generateReservationIcsFile : generateIcsFile}>
                 <Download className="mr-2 h-4 w-4" /> Add to Calendar
               </Button>
 
               {confirmationData.manageUrl && (
                 <a href={confirmationData.manageUrl} className="block">
                   <Button variant="outline" className="w-full">
-                    <CalendarIcon className="mr-2 h-4 w-4" /> Manage / Reschedule Appointment
+                    <CalendarIcon className="mr-2 h-4 w-4" /> {isReservationMode ? "Manage Reservation" : "Manage / Reschedule Appointment"}
                   </Button>
                 </a>
               )}
@@ -796,7 +951,9 @@ export default function PublicBooking() {
               )}
               <div className="text-primary-foreground">
                 <h1 className="text-xl sm:text-2xl font-bold">{bookingData.business.name}</h1>
-                <p className="text-primary-foreground/80 text-sm sm:text-base">Book an appointment online</p>
+                <p className="text-primary-foreground/80 text-sm sm:text-base">
+                  {isReservationMode ? "Reserve a table online" : "Book an appointment online"}
+                </p>
                 {businessLocation && (
                   <p className="text-sm text-primary-foreground/60 flex items-center gap-1 mt-1">
                     <MapPin className="h-3 w-3" />{businessLocation}
@@ -814,7 +971,7 @@ export default function PublicBooking() {
 
         {/* Step Indicator */}
         <div className="flex items-center justify-center gap-1">
-          {STEPS.map((s, i) => (
+          {(isReservationMode ? RESERVATION_STEPS : STEPS).map((s, i) => (
             <div key={s.num} className="flex items-center">
               <div className="flex flex-col items-center gap-1">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-200 ${
@@ -828,15 +985,202 @@ export default function PublicBooking() {
                   {s.label}
                 </span>
               </div>
-              {i < STEPS.length - 1 && (
+              {i < (isReservationMode ? RESERVATION_STEPS : STEPS).length - 1 && (
                 <div className={`w-12 sm:w-16 h-0.5 mx-2 mb-5 transition-colors ${step > s.num ? "bg-primary" : "bg-muted"}`} />
               )}
             </div>
           ))}
         </div>
 
+        {/* ========================================
+           RESERVATION MODE STEPS (restaurants)
+           ======================================== */}
+        {isReservationMode && step === 1 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Party Size & Date</CardTitle>
+              <CardDescription>How many guests and when?</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Party Size */}
+              <div>
+                <Label className="text-sm font-medium mb-3 block">Party Size</Label>
+                <div className="grid grid-cols-5 sm:grid-cols-8 gap-2">
+                  {Array.from({ length: bookingData?.reservation?.maxPartySize || 10 }, (_, i) => i + 1).map(n => (
+                    <Button
+                      key={n}
+                      variant={selectedPartySize === n ? "default" : "outline"}
+                      size="sm"
+                      className="h-10"
+                      onClick={() => {
+                        setSelectedPartySize(n);
+                        setSelectedTime(null);
+                      }}
+                    >
+                      {n}
+                    </Button>
+                  ))}
+                </div>
+                {bookingData?.reservation?.maxPartySize && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    For parties larger than {bookingData.reservation.maxPartySize}, please call us at {bookingData.business.phone}
+                  </p>
+                )}
+              </div>
+
+              {/* Date */}
+              <div>
+                <Label className="text-sm font-medium mb-3 block">Select Date</Label>
+                <div className="flex justify-center">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(date) => {
+                      setSelectedDate(date);
+                      setSelectedTime(null);
+                    }}
+                    disabled={isReservationDateDisabled}
+                    className="rounded-md border"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  disabled={!selectedDate}
+                  onClick={() => setStep(2)}
+                >
+                  Next <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {isReservationMode && step === 2 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Select Time</CardTitle>
+              <CardDescription>
+                Available times for {selectedPartySize} {selectedPartySize === 1 ? 'guest' : 'guests'} on{' '}
+                {selectedDate?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoadingReservationSlots ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : reservationSlots.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No time slots available for this date.</p>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {reservationSlots.filter(s => s.available).map((slot) => (
+                    <Button
+                      key={slot.time}
+                      variant={selectedTime === slot.time ? "default" : "outline"}
+                      size="sm"
+                      className="h-10"
+                      onClick={() => setSelectedTime(slot.time)}
+                    >
+                      {formatTime12(slot.time)}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              {reservationSlots.length > 0 && reservationSlots.filter(s => s.available).length === 0 && !isLoadingReservationSlots && (
+                <p className="text-center text-muted-foreground py-4">All time slots are fully booked for this date. Please try another date.</p>
+              )}
+              {tzLabel && reservationSlots.filter(s => s.available).length > 0 && (
+                <p className="text-xs text-muted-foreground text-center mt-3">All times shown in {tzLabel}</p>
+              )}
+              <div className="flex justify-between mt-6">
+                <Button variant="outline" onClick={() => setStep(1)}>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                </Button>
+                <Button disabled={!selectedTime} onClick={() => setStep(3)}>
+                  Next <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {isReservationMode && step === 3 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Your Details</CardTitle>
+              <CardDescription>Complete your reservation</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Reservation Summary */}
+              <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span>Party of {selectedPartySize}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                  <span>{selectedDate?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span>{selectedTime && formatTime12(selectedTime)}{tzLabel ? ` ${tzLabel}` : ""}</span>
+                </div>
+              </div>
+
+              {/* Customer Info */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="res-firstName">First Name *</Label>
+                  <Input id="res-firstName" value={customerInfo.firstName}
+                    onChange={(e) => setCustomerInfo({ ...customerInfo, firstName: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="res-lastName">Last Name *</Label>
+                  <Input id="res-lastName" value={customerInfo.lastName}
+                    onChange={(e) => setCustomerInfo({ ...customerInfo, lastName: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="res-email">Email *</Label>
+                <Input id="res-email" type="email" value={customerInfo.email}
+                  onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="res-phone">Phone *</Label>
+                <Input id="res-phone" type="tel" value={customerInfo.phone}
+                  onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="res-special">Special Requests (optional)</Label>
+                <Textarea id="res-special" placeholder="Dietary restrictions, celebrations, seating preferences..."
+                  value={specialRequests}
+                  onChange={(e) => setSpecialRequests(e.target.value)}
+                  rows={3} />
+              </div>
+
+              <div className="flex justify-between mt-4">
+                <Button variant="outline" onClick={() => setStep(2)}>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                </Button>
+                <Button
+                  disabled={isSubmitting || !customerInfo.firstName || !customerInfo.lastName || !customerInfo.email || !customerInfo.phone}
+                  onClick={handleReservationSubmit}
+                >
+                  {isSubmitting ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Reserving...</>
+                  ) : (
+                    "Confirm Reservation"
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Step 1: Select Service */}
-        {step === 1 && (
+        {!isReservationMode && step === 1 && (
           <Card>
             <CardHeader>
               <CardTitle>Select a Service</CardTitle>
@@ -927,7 +1271,7 @@ export default function PublicBooking() {
         )}
 
         {/* Step 2: Select Date & Time */}
-        {step === 2 && (
+        {!isReservationMode && step === 2 && (
           <Card>
             <CardHeader>
               <CardTitle>Select Date & Time</CardTitle>
@@ -984,7 +1328,7 @@ export default function PublicBooking() {
         )}
 
         {/* Step 3: Customer Details */}
-        {step === 3 && (
+        {!isReservationMode && step === 3 && (
           <Card>
             <CardHeader>
               <CardTitle>Your Details</CardTitle>

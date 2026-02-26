@@ -26,7 +26,8 @@ import {
   StaffInvite, InsertStaffInvite, staffInvites,
   BusinessKnowledge, InsertBusinessKnowledge, businessKnowledge,
   UnansweredQuestion, InsertUnansweredQuestion, unansweredQuestions,
-  WebsiteScrapeCache, InsertWebsiteScrapeCache, websiteScrapeCache
+  WebsiteScrapeCache, InsertWebsiteScrapeCache, websiteScrapeCache,
+  RestaurantReservation, InsertRestaurantReservation, restaurantReservations
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -276,6 +277,22 @@ export interface IStorage {
   // Website Scrape Cache
   getWebsiteScrapeCache(businessId: number): Promise<WebsiteScrapeCache | undefined>;
   upsertWebsiteScrapeCache(businessId: number, data: Partial<InsertWebsiteScrapeCache>): Promise<WebsiteScrapeCache>;
+
+  // Restaurant Reservations
+  getRestaurantReservations(businessId: number, params?: {
+    date?: string;
+    status?: string;
+    customerId?: number;
+  }): Promise<RestaurantReservation[]>;
+  getRestaurantReservation(id: number): Promise<RestaurantReservation | undefined>;
+  getRestaurantReservationByManageToken(token: string): Promise<RestaurantReservation | undefined>;
+  createRestaurantReservation(data: InsertRestaurantReservation): Promise<RestaurantReservation>;
+  updateRestaurantReservation(id: number, data: Partial<RestaurantReservation>): Promise<RestaurantReservation>;
+  getReservationSlotCapacity(businessId: number, date: string, time: string, slotDurationMinutes: number): Promise<{
+    totalCapacity: number;
+    bookedSeats: number;
+    remainingSeats: number;
+  }>;
 }
 
 // Database storage implementation
@@ -1609,6 +1626,100 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return created;
     }
+  }
+
+  // =================== Restaurant Reservations ===================
+
+  async getRestaurantReservations(businessId: number, params?: {
+    date?: string;
+    status?: string;
+    customerId?: number;
+  }): Promise<RestaurantReservation[]> {
+    const conditions = [eq(restaurantReservations.businessId, businessId)];
+
+    if (params?.date) {
+      conditions.push(eq(restaurantReservations.reservationDate, params.date));
+    }
+    if (params?.status) {
+      conditions.push(eq(restaurantReservations.status, params.status));
+    }
+    if (params?.customerId) {
+      conditions.push(eq(restaurantReservations.customerId, params.customerId));
+    }
+
+    return db.select().from(restaurantReservations)
+      .where(and(...conditions))
+      .orderBy(restaurantReservations.reservationDate, restaurantReservations.reservationTime);
+  }
+
+  async getRestaurantReservation(id: number): Promise<RestaurantReservation | undefined> {
+    const [reservation] = await db.select().from(restaurantReservations)
+      .where(eq(restaurantReservations.id, id));
+    return reservation;
+  }
+
+  async getRestaurantReservationByManageToken(token: string): Promise<RestaurantReservation | undefined> {
+    const [reservation] = await db.select().from(restaurantReservations)
+      .where(eq(restaurantReservations.manageToken, token));
+    return reservation;
+  }
+
+  async createRestaurantReservation(data: InsertRestaurantReservation): Promise<RestaurantReservation> {
+    const [reservation] = await db.insert(restaurantReservations)
+      .values(data)
+      .returning();
+    return reservation;
+  }
+
+  async updateRestaurantReservation(id: number, data: Partial<RestaurantReservation>): Promise<RestaurantReservation> {
+    const [reservation] = await db.update(restaurantReservations)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(restaurantReservations.id, id))
+      .returning();
+    return reservation;
+  }
+
+  async getReservationSlotCapacity(businessId: number, date: string, time: string, slotDurationMinutes: number): Promise<{
+    totalCapacity: number;
+    bookedSeats: number;
+    remainingSeats: number;
+  }> {
+    // Get the business to read max capacity
+    const business = await this.getBusiness(businessId);
+    const totalCapacity = business?.reservationMaxCapacityPerSlot || 40;
+
+    // Parse the requested slot start/end times
+    // time is "HH:MM", date is "YYYY-MM-DD"
+    const [hours, minutes] = time.split(':').map(Number);
+    const slotStart = new Date(`${date}T${time}:00`);
+    const slotEnd = new Date(slotStart.getTime() + slotDurationMinutes * 60 * 1000);
+
+    // Get all non-cancelled reservations for this date
+    const dayReservations = await db.select().from(restaurantReservations)
+      .where(and(
+        eq(restaurantReservations.businessId, businessId),
+        eq(restaurantReservations.reservationDate, date),
+        sql`${restaurantReservations.status} NOT IN ('cancelled', 'no_show')`
+      ));
+
+    // Sum party sizes of overlapping reservations
+    // A reservation overlaps if its time range intersects with the requested slot
+    let bookedSeats = 0;
+    for (const res of dayReservations) {
+      const resStart = new Date(res.startDate);
+      const resEnd = new Date(res.endDate);
+
+      // Check overlap: two intervals overlap if one starts before the other ends AND vice versa
+      if (resStart < slotEnd && resEnd > slotStart) {
+        bookedSeats += res.partySize;
+      }
+    }
+
+    return {
+      totalCapacity,
+      bookedSeats,
+      remainingSeats: Math.max(0, totalCapacity - bookedSeats),
+    };
   }
 }
 

@@ -826,6 +826,16 @@ async function handleFunctionCall(
       case 'createOrder':
         return await handleCreateOrder(businessId, parameters as any, callerPhone);
 
+      // ========== Restaurant Reservation Functions ==========
+      case 'checkReservationAvailability':
+        return await handleCheckReservationAvailability(businessId, parameters as any);
+
+      case 'makeReservation':
+        return await handleMakeReservation(businessId, parameters as any, callerPhone || '');
+
+      case 'cancelReservation':
+        return await handleCancelReservation(businessId, parameters as any, callerPhone || '');
+
       default:
         return { error: `Unknown function: ${name}` };
     }
@@ -4071,6 +4081,451 @@ async function handleCreateOrder(
       result: {
         error: 'Order creation failed',
         message: "I'm sorry, there was an issue placing your order. Let me transfer you to a staff member who can help. One moment please."
+      }
+    };
+  }
+}
+
+// ========================================
+// RESTAURANT RESERVATION HANDLERS
+// ========================================
+
+/**
+ * Check available reservation times for a given date and party size.
+ */
+async function handleCheckReservationAvailability(
+  businessId: number,
+  params: { date: string; partySize: number }
+): Promise<any> {
+  try {
+    const business = await getCachedBusiness(businessId);
+    if (!business) return { error: 'Business not found' };
+
+    if (!business.reservationEnabled) {
+      return { result: { available: false, message: "I'm sorry, we're not currently accepting reservations online. Please call us directly." } };
+    }
+
+    const businessTimezone = business.timezone || 'America/New_York';
+    const slotDuration = business.reservationSlotDurationMinutes || 90;
+    const slotInterval = business.bookingSlotIntervalMinutes || 30;
+    const maxPartySize = business.reservationMaxPartySize || 10;
+    const maxDaysAhead = business.reservationMaxDaysAhead || 30;
+    const leadTimeHours = business.reservationLeadTimeHours || 2;
+
+    if (params.partySize > maxPartySize) {
+      return {
+        result: {
+          available: false,
+          message: `I'm sorry, our maximum party size for online reservations is ${maxPartySize}. For larger groups, I can transfer you to a manager who can help arrange that.`
+        }
+      };
+    }
+
+    // Parse the date
+    const parsedDate = parseNaturalDate(params.date, businessTimezone);
+    const dateStr = parsedDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // Check if date is too far ahead
+    const now = new Date();
+    const maxFutureDate = new Date(now.getTime() + maxDaysAhead * 24 * 60 * 60 * 1000);
+    if (parsedDate > maxFutureDate) {
+      return {
+        result: {
+          available: false,
+          message: `I'm sorry, we can only take reservations up to ${maxDaysAhead} days in advance. Would you like to try a closer date?`
+        }
+      };
+    }
+
+    // Get business hours for that day
+    const businessHours = await getCachedBusinessHours(businessId);
+    const daysMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = daysMap[parsedDate.getDay()];
+    const dayHours = businessHours.find((h: any) => h.day.toLowerCase() === dayName);
+
+    if (!dayHours || dayHours.isClosed) {
+      const friendlyDate = parsedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: businessTimezone });
+      return {
+        result: {
+          available: false,
+          date: dateStr,
+          friendlyDate,
+          message: `I'm sorry, we're closed on ${friendlyDate}. Would you like to try a different date?`
+        }
+      };
+    }
+
+    // Parse open/close hours
+    const [openHour, openMin] = (dayHours.open || '09:00').split(':').map(Number);
+    const [closeHour, closeMin] = (dayHours.close || '21:00').split(':').map(Number);
+
+    // Minimum booking time (lead time from now)
+    const leadTimeMs = leadTimeHours * 60 * 60 * 1000;
+    const minBookingTime = new Date(now.getTime() + leadTimeMs);
+
+    // Generate available time slots
+    const availableTimes: string[] = [];
+    let currentHour = openHour;
+    let currentMin = openMin;
+
+    while (true) {
+      const slotEndMinutes = currentHour * 60 + currentMin + slotDuration;
+      const closeMinutes = closeHour * 60 + closeMin;
+      if (slotEndMinutes > closeMinutes) break;
+
+      const timeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
+
+      // Check if past lead time
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const slotDateTime = createDateInTimezone(year, month - 1, day, currentHour, currentMin, businessTimezone);
+
+      if (slotDateTime > minBookingTime) {
+        // Check capacity
+        const capacity = await storage.getReservationSlotCapacity(businessId, dateStr, timeStr, slotDuration);
+        if (capacity.remainingSeats >= params.partySize) {
+          // Format for voice: "6:30 PM"
+          const hour12 = currentHour % 12 || 12;
+          const ampm = currentHour >= 12 ? 'PM' : 'AM';
+          const minStr = currentMin > 0 ? `:${String(currentMin).padStart(2, '0')}` : '';
+          availableTimes.push(`${hour12}${minStr} ${ampm}`);
+        }
+      }
+
+      // Advance by slot interval
+      currentMin += slotInterval;
+      if (currentMin >= 60) {
+        currentHour += Math.floor(currentMin / 60);
+        currentMin = currentMin % 60;
+      }
+    }
+
+    const friendlyDate = parsedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: businessTimezone });
+    const tzAbbr = getTimezoneAbbreviation(businessTimezone, parsedDate);
+
+    if (availableTimes.length === 0) {
+      return {
+        result: {
+          available: false,
+          date: dateStr,
+          friendlyDate,
+          message: `I'm sorry, we don't have availability for a party of ${params.partySize} on ${friendlyDate}. Would you like to try a different date or a smaller party size?`
+        }
+      };
+    }
+
+    return {
+      result: {
+        available: true,
+        date: dateStr,
+        friendlyDate,
+        partySize: params.partySize,
+        availableTimes,
+        timezone: tzAbbr,
+        message: `We have ${availableTimes.length} time${availableTimes.length > 1 ? 's' : ''} available on ${friendlyDate} for a party of ${params.partySize}: ${availableTimes.slice(0, 5).join(', ')}${availableTimes.length > 5 ? ` and ${availableTimes.length - 5} more` : ''}.`
+      }
+    };
+  } catch (error) {
+    console.error(`Error checking reservation availability for business ${businessId}:`, error);
+    return { error: 'Failed to check reservation availability' };
+  }
+}
+
+/**
+ * Make a reservation after the customer confirms all details.
+ */
+async function handleMakeReservation(
+  businessId: number,
+  params: { date: string; time: string; partySize: number; customerName: string; specialRequests?: string },
+  callerPhone: string
+): Promise<any> {
+  try {
+    const business = await getCachedBusiness(businessId);
+    if (!business) return { error: 'Business not found' };
+
+    if (!business.reservationEnabled) {
+      return { result: { success: false, message: "I'm sorry, we're not currently accepting reservations." } };
+    }
+
+    const businessTimezone = business.timezone || 'America/New_York';
+    const slotDuration = business.reservationSlotDurationMinutes || 90;
+
+    // Normalize time format — AI might send "6:30 PM" or "18:30" or "6:30pm"
+    let normalizedTime = params.time;
+    const timeMatch = params.time.match(/(\d{1,2}):?(\d{2})?\s*(am|pm|AM|PM)?/);
+    if (timeMatch) {
+      let hour = parseInt(timeMatch[1]);
+      const min = parseInt(timeMatch[2] || '0');
+      const ampm = (timeMatch[3] || '').toLowerCase();
+      if (ampm === 'pm' && hour < 12) hour += 12;
+      if (ampm === 'am' && hour === 12) hour = 0;
+      normalizedTime = `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    }
+
+    // Parse date
+    let dateStr = params.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const parsed = parseNaturalDate(dateStr, businessTimezone);
+      dateStr = parsed.toISOString().split('T')[0];
+    }
+
+    // Re-verify capacity (race condition prevention)
+    const capacity = await storage.getReservationSlotCapacity(businessId, dateStr, normalizedTime, slotDuration);
+    if (capacity.remainingSeats < params.partySize) {
+      return {
+        result: {
+          success: false,
+          message: "I'm sorry, that time slot just filled up. Would you like me to check for another available time?"
+        }
+      };
+    }
+
+    // Find or create customer by phone
+    const phone = callerPhone || '';
+    let customer = phone ? await storage.getCustomerByPhone(phone, businessId) : null;
+
+    // Parse customer name
+    const nameParts = params.customerName.trim().split(/\s+/);
+    const firstName = nameParts[0] || 'Guest';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    if (!customer && phone) {
+      customer = await storage.createCustomer({
+        businessId,
+        firstName,
+        lastName,
+        phone,
+        email: null,
+      });
+    } else if (customer) {
+      // Update name if provided
+      if (firstName !== 'Guest') {
+        customer = await storage.updateCustomer(customer.id, { firstName, lastName });
+      }
+    }
+
+    if (!customer) {
+      return {
+        result: {
+          success: false,
+          message: "I'm sorry, I wasn't able to save your information. Could you give me your phone number?"
+        }
+      };
+    }
+
+    // Check for duplicate reservation
+    const existingReservations = await storage.getRestaurantReservations(businessId, {
+      date: dateStr,
+      customerId: customer.id,
+    });
+    const activeDuplicate = existingReservations.find(r => r.status !== 'cancelled' && r.status !== 'no_show');
+    if (activeDuplicate) {
+      return {
+        result: {
+          success: false,
+          message: `It looks like you already have a reservation on this date. Would you like me to modify it instead?`
+        }
+      };
+    }
+
+    // Calculate start/end dates
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const [hour, min] = normalizedTime.split(':').map(Number);
+    const startDate = createDateInTimezone(year, month - 1, day, hour, min, businessTimezone);
+    const endDate = new Date(startDate.getTime() + slotDuration * 60 * 1000);
+
+    // Create reservation
+    const crypto = await import('crypto');
+    const manageToken = crypto.randomBytes(24).toString('hex');
+
+    const reservation = await storage.createRestaurantReservation({
+      businessId,
+      customerId: customer.id,
+      partySize: params.partySize,
+      reservationDate: dateStr,
+      reservationTime: normalizedTime,
+      startDate,
+      endDate,
+      status: 'confirmed',
+      specialRequests: params.specialRequests || null,
+      manageToken,
+      source: 'phone',
+    });
+
+    // Fire webhook
+    fireEvent(businessId, 'reservation.created', { reservation }).catch(() => {});
+
+    // Send SMS confirmation (fire-and-forget)
+    if (phone) {
+      try {
+        const friendlyDate = startDate.toLocaleDateString('en-US', {
+          weekday: 'long', month: 'long', day: 'numeric', timeZone: businessTimezone
+        });
+        const friendlyTime = startDate.toLocaleTimeString('en-US', {
+          hour: 'numeric', minute: '2-digit', hour12: true, timeZone: businessTimezone
+        });
+        const manageUrl = business.bookingSlug
+          ? `https://www.smallbizagent.ai/book/${business.bookingSlug}/manage-reservation/${manageToken}`
+          : null;
+        const smsMessage = manageUrl
+          ? `Your reservation for ${params.partySize} at ${business.name} is confirmed for ${friendlyDate} at ${friendlyTime}. Manage: ${manageUrl}`
+          : `Your reservation for ${params.partySize} at ${business.name} is confirmed for ${friendlyDate} at ${friendlyTime}.`;
+        twilioService.sendSms(phone, smsMessage).catch(e =>
+          console.error('Failed to send reservation SMS:', e));
+      } catch (e) {
+        console.error('Error building reservation SMS:', e);
+      }
+    }
+
+    const friendlyDate = startDate.toLocaleDateString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric', timeZone: businessTimezone
+    });
+    const friendlyTime = startDate.toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true, timeZone: businessTimezone
+    });
+
+    return {
+      result: {
+        success: true,
+        reservationId: reservation.id,
+        date: friendlyDate,
+        time: friendlyTime,
+        partySize: params.partySize,
+        customerName: params.customerName,
+        message: `Your reservation for ${params.partySize} on ${friendlyDate} at ${friendlyTime} is confirmed. You'll receive a text confirmation shortly.`
+      }
+    };
+  } catch (error) {
+    console.error(`Error making reservation for business ${businessId}:`, error);
+    return {
+      result: {
+        success: false,
+        message: "I'm sorry, I had trouble making your reservation. Would you like me to try again?"
+      }
+    };
+  }
+}
+
+/**
+ * Cancel an existing reservation.
+ */
+async function handleCancelReservation(
+  businessId: number,
+  params: { customerName: string; date?: string },
+  callerPhone: string
+): Promise<any> {
+  try {
+    const business = await getCachedBusiness(businessId);
+    if (!business) return { error: 'Business not found' };
+
+    const businessTimezone = business.timezone || 'America/New_York';
+
+    // Look up by phone number first
+    const phone = callerPhone || '';
+    let customer = phone ? await storage.getCustomerByPhone(phone, businessId) : null;
+
+    // If phone lookup fails, try finding by customer name
+    if (!customer && params.customerName) {
+      const allCustomers = await storage.getCustomers(businessId);
+      const nameParts = params.customerName.trim().toLowerCase().split(/\s+/);
+
+      // Try exact full name match first
+      customer = allCustomers.find(c => {
+        const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
+        return fullName === params.customerName.trim().toLowerCase();
+      }) || null;
+
+      // If no exact match, try partial matching (first name or last name)
+      if (!customer && nameParts.length >= 1) {
+        const matches = allCustomers.filter(c => {
+          const first = c.firstName.toLowerCase();
+          const last = c.lastName.toLowerCase();
+          // Match if any provided name part matches first or last name
+          return nameParts.some(part => first === part || last === part);
+        });
+
+        if (matches.length === 1) {
+          // Only use if there's exactly one match to avoid cancelling wrong person's reservation
+          customer = matches[0];
+        } else if (matches.length > 1) {
+          // Multiple matches — ask for clarification
+          const names = matches.map(c => `${c.firstName} ${c.lastName}`).join(', ');
+          return {
+            result: {
+              success: false,
+              message: `I found multiple customers with that name: ${names}. Could you provide the full name or the phone number on the reservation?`
+            }
+          };
+        }
+      }
+    }
+
+    if (!customer) {
+      return {
+        result: {
+          success: false,
+          message: "I couldn't find a reservation under that name or phone number. Could you provide the full name on the reservation?"
+        }
+      };
+    }
+
+    // Get upcoming reservations for this customer
+    const now = new Date();
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone: businessTimezone }); // YYYY-MM-DD
+
+    // If a specific date was given, use that; otherwise look at all upcoming
+    let targetDate: string | undefined;
+    if (params.date) {
+      const parsedDate = parseNaturalDate(params.date, businessTimezone);
+      targetDate = parsedDate.toISOString().split('T')[0];
+    }
+
+    const reservations = await storage.getRestaurantReservations(businessId, {
+      customerId: customer.id,
+      date: targetDate,
+    });
+
+    // Filter to upcoming, non-cancelled reservations
+    const upcomingReservations = reservations.filter(r =>
+      r.status !== 'cancelled' &&
+      r.status !== 'no_show' &&
+      r.status !== 'completed' &&
+      r.reservationDate >= todayStr
+    );
+
+    if (upcomingReservations.length === 0) {
+      return {
+        result: {
+          success: false,
+          message: "I couldn't find any upcoming reservations for you. Is there anything else I can help with?"
+        }
+      };
+    }
+
+    // Cancel the most recent/relevant reservation
+    const toCancel = upcomingReservations[0];
+    await storage.updateRestaurantReservation(toCancel.id, { status: 'cancelled' });
+
+    fireEvent(businessId, 'reservation.cancelled', { reservation: toCancel }).catch(() => {});
+
+    const friendlyDate = new Date(toCancel.startDate).toLocaleDateString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric', timeZone: businessTimezone
+    });
+    const friendlyTime = new Date(toCancel.startDate).toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true, timeZone: businessTimezone
+    });
+
+    return {
+      result: {
+        success: true,
+        message: `Your reservation for ${toCancel.partySize} on ${friendlyDate} at ${friendlyTime} has been cancelled. Is there anything else I can help with?`
+      }
+    };
+  } catch (error) {
+    console.error(`Error cancelling reservation for business ${businessId}:`, error);
+    return {
+      result: {
+        success: false,
+        message: "I'm sorry, I had trouble cancelling your reservation. Would you like me to transfer you to a staff member?"
       }
     };
   }

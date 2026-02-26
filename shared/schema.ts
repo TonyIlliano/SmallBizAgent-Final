@@ -85,6 +85,13 @@ export const businesses = pgTable("businesses", {
   // Restaurant order type settings
   restaurantPickupEnabled: boolean("restaurant_pickup_enabled").default(true),
   restaurantDeliveryEnabled: boolean("restaurant_delivery_enabled").default(false),
+  // Restaurant reservation configuration
+  reservationEnabled: boolean("reservation_enabled").default(false),
+  reservationMaxPartySize: integer("reservation_max_party_size").default(10),
+  reservationSlotDurationMinutes: integer("reservation_slot_duration_minutes").default(90),
+  reservationMaxCapacityPerSlot: integer("reservation_max_capacity_per_slot").default(40),
+  reservationLeadTimeHours: integer("reservation_lead_time_hours").default(2),
+  reservationMaxDaysAhead: integer("reservation_max_days_ahead").default(30),
   // Multi-location tracking
   numberOfLocations: integer("number_of_locations").default(1),
   // Subscription information
@@ -530,6 +537,25 @@ export const squareOrderLog = pgTable("square_order_log", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Restaurant Reservations (capacity-based reservation system for restaurants)
+export const restaurantReservations = pgTable("restaurant_reservations", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  partySize: integer("party_size").notNull(),
+  reservationDate: text("reservation_date").notNull(), // YYYY-MM-DD in business timezone
+  reservationTime: text("reservation_time").notNull(), // HH:MM in business timezone
+  startDate: timestamp("start_date").notNull(),        // UTC timestamp for slot start
+  endDate: timestamp("end_date").notNull(),            // UTC timestamp for slot end
+  status: text("status").default("confirmed"),          // confirmed, seated, completed, cancelled, no_show
+  specialRequests: text("special_requests"),
+  manageToken: text("manage_token"),                   // For customer self-service cancel/modify
+  source: text("source").default("online"),            // online, phone, walk_in, manual
+  vapiCallId: text("vapi_call_id"),                    // If booked via AI phone
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Password Reset Tokens
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: serial("id").primaryKey(),
@@ -704,6 +730,13 @@ export const insertAppointmentSchema = baseInsertAppointmentSchema.extend({
   endDate: z.coerce.date(),
 });
 
+// Restaurant reservation schema with date coercion
+const baseInsertRestaurantReservationSchema = createInsertSchema(restaurantReservations).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertRestaurantReservationSchema = baseInsertRestaurantReservationSchema.extend({
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+});
+
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertJobLineItemSchema = createInsertSchema(jobLineItems).omit({ id: true, createdAt: true });
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true, updatedAt: true });
@@ -771,6 +804,9 @@ export type InsertStaffService = z.infer<typeof insertStaffServiceSchema>;
 
 export type Appointment = typeof appointments.$inferSelect;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
+
+export type RestaurantReservation = typeof restaurantReservations.$inferSelect;
+export type InsertRestaurantReservation = z.infer<typeof insertRestaurantReservationSchema>;
 
 export type Job = typeof jobs.$inferSelect;
 export type InsertJob = z.infer<typeof insertJobSchema>;

@@ -43,6 +43,7 @@ import PortalInvoice from "@/pages/portal/invoice";
 import PortalQuote from "@/pages/portal/quote";
 import PublicBooking from "@/pages/book/[slug]";
 import ManageAppointment from "@/pages/book/manage";
+import ManageReservation from "@/pages/book/manage-reservation";
 // Admin pages
 import AdminDashboard from "@/pages/admin/index";
 import PhoneManagement from "@/pages/admin/phone-management";
@@ -136,6 +137,7 @@ function Router() {
       <Route path="/portal" component={CustomerPortal} />
       <Route path="/portal/invoice/:token" component={PortalInvoice} />
       <Route path="/portal/quote/:token" component={PortalQuote} />
+      <Route path="/book/:slug/manage-reservation/:token" component={ManageReservation} />
       <Route path="/book/:slug/manage/:token" component={ManageAppointment} />
       <Route path="/book/:slug" component={PublicBooking} />
       <Route component={NotFound} />

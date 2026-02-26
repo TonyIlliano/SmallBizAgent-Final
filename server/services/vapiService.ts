@@ -514,6 +514,25 @@ IMPORTANT:
 - Be patient with customers who are deciding.
 - If they ask for an item that sounds similar to something on the menu, suggest the closest match.
 - For large orders (5+ items), confirm in groups of 2-3.
+
+RESERVATION HANDLING:
+If a customer calls to make a reservation or book a table:
+1. Ask how many guests and what date they'd like.
+2. Call checkReservationAvailability with the date and party size.
+3. Present 2-3 available time options conversationally: "We have openings at 6, 7, and 8 PM. What works best?"
+4. Once they pick a time, confirm: "Great, so that's a table for [X] on [date] at [time]?"
+5. Ask for their name if you don't already have it.
+6. Ask: "Any special requests? Dietary needs, celebrations, seating preferences?"
+7. Call makeReservation with all the details.
+8. Confirm the booking: "You're all set! Your reservation for [X] is confirmed for [date] at [time]."
+9. Mention they'll receive a confirmation text.
+
+If a customer calls to CANCEL a reservation:
+1. Ask for their name and the date of their reservation.
+2. Call cancelReservation.
+3. Confirm the cancellation politely.
+
+If no times are available, suggest trying another date or calling back.
 `,
     'retail': `
 RETAIL GUIDANCE:
@@ -969,6 +988,81 @@ function getRestaurantFunctions() {
 }
 
 /**
+ * Restaurant reservation functions for AI phone receptionist.
+ * These allow the AI to check availability, make reservations, and cancel them.
+ */
+function getReservationFunctions() {
+  return [
+    {
+      name: 'checkReservationAvailability',
+      description: 'Check available reservation times for a given date and party size. Call this when a customer wants to make a reservation and you need to find available times.',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: 'The date to check in natural language (e.g., "tomorrow", "Friday", "March 15") or YYYY-MM-DD format'
+          },
+          partySize: {
+            type: 'number',
+            description: 'Number of guests in the party'
+          }
+        },
+        required: ['date', 'partySize']
+      }
+    },
+    {
+      name: 'makeReservation',
+      description: 'Book a reservation after confirming all details with the customer. Call this ONLY after the customer confirms the date, time, and party size.',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: 'The reservation date (YYYY-MM-DD format, from checkReservationAvailability response)'
+          },
+          time: {
+            type: 'string',
+            description: 'The reservation time in HH:MM format (24-hour, from availability response)'
+          },
+          partySize: {
+            type: 'number',
+            description: 'Number of guests'
+          },
+          customerName: {
+            type: 'string',
+            description: 'Full name of the customer making the reservation'
+          },
+          specialRequests: {
+            type: 'string',
+            description: 'Any special requests like dietary restrictions, celebrations, seating preferences'
+          }
+        },
+        required: ['date', 'time', 'partySize', 'customerName']
+      }
+    },
+    {
+      name: 'cancelReservation',
+      description: 'Cancel an existing reservation. Use when a customer calls to cancel their reservation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerName: {
+            type: 'string',
+            description: 'Name of the customer who made the reservation'
+          },
+          date: {
+            type: 'string',
+            description: 'The date of the reservation to cancel (optional, helps find the right one)'
+          }
+        },
+        required: ['customerName']
+      }
+    }
+  ];
+}
+
+/**
  * Build native VAPI tools (endCall, transferCall).
  * endCall is ALWAYS included so the AI can hang up after goodbye.
  * transferCall is included only if transfer numbers are configured.
@@ -1092,7 +1186,9 @@ export async function createAssistantForBusiness(
       functions: [
         ...functions,
         // Restaurant ordering functions (Clover POS) — conditionally added
-        ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
+        ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
+        // Restaurant reservation functions — conditionally added
+        ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
       ],
       // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
       tools: nativeTools,
@@ -1236,7 +1332,8 @@ export async function updateAssistant(
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
   const functions = [
     ...filteredFunctions,
-    ...(isRestaurant && menuData ? getRestaurantFunctions() : [])
+    ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
+    ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
   ];
 
   try {

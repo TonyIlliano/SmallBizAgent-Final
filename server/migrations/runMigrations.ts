@@ -415,6 +415,35 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'restaurant_pickup_enabled', 'BOOLEAN DEFAULT true');
   await addColumnIfNotExists('businesses', 'restaurant_delivery_enabled', 'BOOLEAN DEFAULT false');
 
+  // Restaurant reservation configuration columns
+  await addColumnIfNotExists('businesses', 'reservation_enabled', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('businesses', 'reservation_max_party_size', 'INTEGER DEFAULT 10');
+  await addColumnIfNotExists('businesses', 'reservation_slot_duration_minutes', 'INTEGER DEFAULT 90');
+  await addColumnIfNotExists('businesses', 'reservation_max_capacity_per_slot', 'INTEGER DEFAULT 40');
+  await addColumnIfNotExists('businesses', 'reservation_lead_time_hours', 'INTEGER DEFAULT 2');
+  await addColumnIfNotExists('businesses', 'reservation_max_days_ahead', 'INTEGER DEFAULT 30');
+
+  // Restaurant Reservations table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS restaurant_reservations (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      party_size INTEGER NOT NULL,
+      reservation_date TEXT NOT NULL,
+      reservation_time TEXT NOT NULL,
+      start_date TIMESTAMP NOT NULL,
+      end_date TIMESTAMP NOT NULL,
+      status TEXT DEFAULT 'confirmed',
+      special_requests TEXT,
+      manage_token TEXT,
+      source TEXT DEFAULT 'online',
+      vapi_call_id TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Fix businesses table - add multi-location tracking
   await addColumnIfNotExists('businesses', 'number_of_locations', 'INTEGER DEFAULT 1');
 

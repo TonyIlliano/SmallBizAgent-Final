@@ -795,6 +795,115 @@ export async function sendQuoteFollowUpNotification(quoteId: number, businessId:
   }
 }
 
+/**
+ * Send reservation confirmation notifications (SMS + email based on settings)
+ */
+export async function sendReservationConfirmation(reservationId: number, businessId: number) {
+  try {
+    const settings = await storage.getNotificationSettings(businessId);
+    // Default to sending if no settings configured yet (reuse appointment setting for now)
+    const sendEmail = settings?.appointmentConfirmationEmail !== false;
+    const sendSms = settings?.appointmentConfirmationSms !== false;
+
+    if (!sendEmail && !sendSms) return;
+
+    const reservation = await storage.getRestaurantReservation(reservationId);
+    if (!reservation) return;
+
+    const customer = await storage.getCustomer(reservation.customerId);
+    if (!customer) return;
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    const reservationDate = new Date(reservation.startDate);
+    const dateStr = formatDate(reservationDate);
+    const timeStr = formatTime(reservationDate);
+    const partyStr = reservation.partySize === 1 ? '1 guest' : `${reservation.partySize} guests`;
+
+    // Build manage URL
+    const manageUrl = reservation.manageToken && business.bookingSlug
+      ? `https://www.smallbizagent.ai/book/${business.bookingSlug}/manage-reservation/${reservation.manageToken}`
+      : null;
+
+    // Send SMS
+    if (sendSms && customer.phone) {
+      try {
+        const message = manageUrl
+          ? `Hi ${customer.firstName}! Your reservation for ${partyStr} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Manage: ${manageUrl}`
+          : `Hi ${customer.firstName}! Your reservation for ${partyStr} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to modify.`;
+        await twilioService.sendSms(customer.phone, message);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'reservation_confirmation',
+          channel: 'sms',
+          recipient: customer.phone,
+          message,
+          status: 'sent',
+          referenceType: 'reservation',
+          referenceId: reservationId,
+        });
+      } catch (err) {
+        console.error('Failed to send reservation confirmation SMS:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'reservation_confirmation',
+          channel: 'sms',
+          recipient: customer.phone,
+          status: 'failed',
+          referenceType: 'reservation',
+          referenceId: reservationId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+    }
+
+    // Send email (reuse appointment confirmation email template for now with reservation details)
+    if (sendEmail && customer.email) {
+      try {
+        await sendAppointmentConfirmationEmail(
+          customer.email,
+          customer.firstName,
+          business.name,
+          `Reservation for ${partyStr}`,
+          dateStr,
+          timeStr,
+          business.phone || '',
+          manageUrl
+        );
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'reservation_confirmation',
+          channel: 'email',
+          recipient: customer.email,
+          subject: `Reservation Confirmed - ${business.name}`,
+          status: 'sent',
+          referenceType: 'reservation',
+          referenceId: reservationId,
+        });
+      } catch (err) {
+        console.error('Failed to send reservation confirmation email:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'reservation_confirmation',
+          channel: 'email',
+          recipient: customer.email,
+          status: 'failed',
+          referenceType: 'reservation',
+          referenceId: reservationId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`Error in sendReservationConfirmation for reservation ${reservationId}:`, error);
+  }
+}
+
 export default {
   sendAppointmentConfirmation,
   sendAppointmentReminder,
@@ -806,4 +915,5 @@ export default {
   sendQuoteSentNotification,
   sendQuoteConvertedNotification,
   sendQuoteFollowUpNotification,
+  sendReservationConfirmation,
 };
