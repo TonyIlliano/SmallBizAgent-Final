@@ -854,15 +854,13 @@ function StaffDayView({
                           title={`${formatTime(start)} — ${customerName}${appt.service ? ` — ${appt.service.name}` : ""}`}
                         >
                           <div
-                            className={`text-xs font-bold truncate ${colors.text}`}
+                            className={`text-xs font-bold whitespace-nowrap truncate ${colors.text}`}
                           >
-                            {formatTime(start)} — {customerName}
+                            {customerName}
                           </div>
-                          {appt.service && (
-                            <div className="text-[11px] text-gray-500 truncate">
-                              {appt.service.name}
-                            </div>
-                          )}
+                          <div className="text-[11px] text-gray-500 whitespace-nowrap truncate">
+                            {appt.service?.name || "Appointment"} · {formatTime(start)}
+                          </div>
                         </button>
                       );
                     })}
@@ -1022,15 +1020,13 @@ function MobileStaffDayView({
                         style={{ top: topPx, height: heightPx }}
                       >
                         <div
-                          className={`text-xs font-semibold truncate ${colors.text}`}
+                          className={`text-xs font-semibold whitespace-nowrap truncate ${colors.text}`}
                         >
-                          {formatTime(start)} — {customerName}
+                          {customerName}
                         </div>
-                        {appt.service && (
-                          <div className="text-[11px] text-gray-500 truncate">
-                            {appt.service.name}
-                          </div>
-                        )}
+                        <div className="text-[11px] text-gray-500 whitespace-nowrap truncate">
+                          {appt.service?.name || "Appointment"} · {formatTime(start)}
+                        </div>
                       </button>
                     );
                   })}
