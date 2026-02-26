@@ -83,7 +83,7 @@ const SquareIntegration = ({ businessId }: SquareIntegrationProps) => {
   const handleConnect = async () => {
     try {
       setIsConnecting(true);
-      const response = await apiRequest('GET', `/api/square/auth-url?businessId=${businessId}&environment=sandbox`);
+      const response = await apiRequest('GET', `/api/square/auth-url?businessId=${businessId}&environment=production`);
       const data = await response.json();
 
       if (data.authUrl) {
