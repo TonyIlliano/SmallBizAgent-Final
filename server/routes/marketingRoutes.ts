@@ -8,6 +8,7 @@
 import { Request, Response } from 'express';
 import { isAuthenticated } from '../auth';
 import * as marketingService from '../services/marketingService';
+import { pool } from '../db';
 
 const getBusinessId = (req: Request): number => {
   if (req.isAuthenticated() && req.user?.businessId) {
@@ -165,6 +166,29 @@ export function registerMarketingRoutes(app: any) {
       res.json(result);
     } catch (error: any) {
       console.error('[Marketing] Error sending birthday campaigns:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  /**
+   * GET /api/marketing/sms-consent-stats — Get SMS opt-in statistics
+   */
+  app.get('/api/marketing/sms-consent-stats', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const result = await pool.query(
+        `SELECT
+           COUNT(*)::int AS "totalCustomers",
+           COUNT(*) FILTER (WHERE sms_opt_in = true)::int AS "smsOptIn",
+           COUNT(*) FILTER (WHERE marketing_opt_in = true)::int AS "marketingOptIn",
+           COUNT(*) FILTER (WHERE birthday IS NOT NULL)::int AS "withBirthday"
+         FROM customers
+         WHERE business_id = $1`,
+        [businessId]
+      );
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error('[Marketing] Error fetching SMS consent stats:', error);
       res.status(500).json({ message: error.message });
     }
   });
