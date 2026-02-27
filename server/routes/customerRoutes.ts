@@ -90,13 +90,20 @@ router.post("/customers", async (req, res) => {
       city: z.string().optional(),
       state: z.string().optional(),
       zipcode: z.string().optional(),
+      birthday: z.string().optional(), // MM-DD format
+      // SMS consent fields (TCPA compliance)
+      smsOptIn: z.boolean().optional(),
+      smsOptInDate: z.string().optional(),
+      smsOptInMethod: z.string().optional(),
+      marketingOptIn: z.boolean().optional(),
+      marketingOptInDate: z.string().optional(),
     });
 
     // Validate the request body
     const validatedData = createCustomerSchema.parse(req.body);
 
     // Create the customer
-    const customerData = {
+    const customerData: any = {
       businessId,
       firstName: validatedData.firstName,
       lastName: validatedData.lastName,
@@ -106,7 +113,23 @@ router.post("/customers", async (req, res) => {
       city: validatedData.city || null,
       state: validatedData.state || null,
       zipcode: validatedData.zipcode || null,
+      birthday: validatedData.birthday || null,
     };
+
+    // Add SMS consent fields if provided
+    if (validatedData.smsOptIn !== undefined) {
+      customerData.smsOptIn = validatedData.smsOptIn;
+      if (validatedData.smsOptIn) {
+        customerData.smsOptInDate = validatedData.smsOptInDate ? new Date(validatedData.smsOptInDate) : new Date();
+        customerData.smsOptInMethod = validatedData.smsOptInMethod || 'manual';
+      }
+    }
+    if (validatedData.marketingOptIn !== undefined) {
+      customerData.marketingOptIn = validatedData.marketingOptIn;
+      if (validatedData.marketingOptIn) {
+        customerData.marketingOptInDate = validatedData.marketingOptInDate ? new Date(validatedData.marketingOptInDate) : new Date();
+      }
+    }
 
     const newCustomer = await storage.createCustomer(customerData);
 
@@ -153,13 +176,30 @@ router.patch("/customers/:id", async (req, res) => {
       city: z.string().optional(),
       state: z.string().optional(),
       zipcode: z.string().optional(),
+      birthday: z.string().optional(), // MM-DD format
+      // SMS consent fields (TCPA compliance)
+      smsOptIn: z.boolean().optional(),
+      smsOptInDate: z.string().optional(),
+      smsOptInMethod: z.string().optional(),
+      marketingOptIn: z.boolean().optional(),
+      marketingOptInDate: z.string().optional(),
     });
 
     // Validate the request body
     const validatedData = updateCustomerSchema.parse(req.body);
 
+    // Build update data with consent timestamps
+    const updateData: any = { ...validatedData };
+    if (validatedData.smsOptIn === true && !existingCustomer.smsOptIn) {
+      updateData.smsOptInDate = validatedData.smsOptInDate ? new Date(validatedData.smsOptInDate) : new Date();
+      updateData.smsOptInMethod = validatedData.smsOptInMethod || 'manual';
+    }
+    if (validatedData.marketingOptIn === true && !existingCustomer.marketingOptIn) {
+      updateData.marketingOptInDate = validatedData.marketingOptInDate ? new Date(validatedData.marketingOptInDate) : new Date();
+    }
+
     // Update the customer
-    const updatedCustomer = await storage.updateCustomer(customerId, validatedData);
+    const updatedCustomer = await storage.updateCustomer(customerId, updateData);
 
     res.json(updatedCustomer);
   } catch (error: any) {

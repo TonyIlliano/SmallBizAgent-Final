@@ -3,6 +3,7 @@ import reminderService from "./reminderService";
 import { processDueRecurringSchedules } from "../routes/recurring";
 import { updateVapiAssistant } from "./vapiProvisioningService";
 import { sendQuoteFollowUpNotification } from "./notificationService";
+import { sendBirthdayCampaigns } from "./marketingService";
 
 // Track scheduled jobs to prevent duplicates
 const scheduledJobs: Map<string, NodeJS.Timeout> = new Map();
@@ -360,6 +361,68 @@ async function runOverageBillingCheck(): Promise<void> {
 }
 
 /**
+ * Start the daily birthday campaign scheduler.
+ * Runs once per day (every 24 hours) to find customers with birthdays today
+ * and send them a personalized birthday discount via SMS/email.
+ * Only sends to customers with marketing_opt_in = true.
+ * Deduplicates — won't send multiple birthday messages in the same year.
+ */
+export function startBirthdayCampaignScheduler(): void {
+  const jobKey = 'birthday-campaigns';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Birthday campaign scheduler already running');
+    return;
+  }
+
+  console.log('Starting birthday campaign scheduler');
+
+  // Run immediately on start
+  runBirthdayCampaignCheck();
+
+  // Then run every 24 hours
+  const intervalId = setInterval(() => {
+    runBirthdayCampaignCheck();
+  }, 24 * 60 * 60 * 1000);
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+async function runBirthdayCampaignCheck(): Promise<void> {
+  try {
+    console.log(`[BirthdayCampaign] Running birthday campaign check at ${new Date().toISOString()}`);
+    const allBusinesses = await storage.getAllBusinesses();
+    let totalSent = 0;
+
+    for (const business of allBusinesses) {
+      // Only send for businesses that have birthday campaigns enabled
+      if (!(business as any).birthdayCampaignEnabled) continue;
+
+      try {
+        const result = await sendBirthdayCampaigns(business.id, {
+          discountPercent: (business as any).birthdayDiscountPercent || 15,
+          validDays: (business as any).birthdayCouponValidDays || 7,
+          channel: (business as any).birthdayCampaignChannel || 'both',
+          customMessage: (business as any).birthdayCampaignMessage || undefined,
+        });
+        if (result.sentCount > 0) {
+          console.log(`[BirthdayCampaign] Business ${business.id}: sent ${result.sentCount} birthday messages`);
+          totalSent += result.sentCount;
+        }
+      } catch (err) {
+        console.error(`[BirthdayCampaign] Error for business ${business.id}:`, err);
+      }
+      // Small delay between businesses
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    console.log(`[BirthdayCampaign] Done — ${totalSent} total birthday messages sent`);
+  } catch (error) {
+    console.error('[BirthdayCampaign] Error:', error);
+  }
+}
+
+/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -390,6 +453,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start overage billing (bills for call minutes exceeding plan limits)
     startOverageBillingScheduler();
 
+    // Start birthday campaign scheduler (sends birthday discounts to opted-in customers)
+    startBirthdayCampaignScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -415,6 +481,7 @@ export default {
   startOverdueInvoiceScheduler,
   startQuoteFollowUpScheduler,
   startOverageBillingScheduler,
+  startBirthdayCampaignScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

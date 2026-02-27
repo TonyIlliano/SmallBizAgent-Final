@@ -92,6 +92,12 @@ export const businesses = pgTable("businesses", {
   reservationMaxCapacityPerSlot: integer("reservation_max_capacity_per_slot").default(40),
   reservationLeadTimeHours: integer("reservation_lead_time_hours").default(2),
   reservationMaxDaysAhead: integer("reservation_max_days_ahead").default(30),
+  // Birthday campaign settings
+  birthdayCampaignEnabled: boolean("birthday_campaign_enabled").default(false),
+  birthdayDiscountPercent: integer("birthday_discount_percent").default(15),
+  birthdayCouponValidDays: integer("birthday_coupon_valid_days").default(7),
+  birthdayCampaignChannel: text("birthday_campaign_channel").default("both"), // sms, email, both
+  birthdayCampaignMessage: text("birthday_campaign_message"), // Custom template, null = use default
   // Multi-location tracking
   numberOfLocations: integer("number_of_locations").default(1),
   // Subscription information
@@ -145,6 +151,13 @@ export const customers = pgTable("customers", {
   state: text("state"),
   zip: text("zip"),
   notes: text("notes"),
+  birthday: text("birthday"), // MM-DD format for annual birthday campaigns
+  // SMS consent fields (TCPA compliance)
+  smsOptIn: boolean("sms_opt_in").default(false),
+  smsOptInDate: timestamp("sms_opt_in_date"),
+  smsOptInMethod: text("sms_opt_in_method"), // 'booking_form', 'manual', 'phone', 'import'
+  marketingOptIn: boolean("marketing_opt_in").default(false),
+  marketingOptInDate: timestamp("marketing_opt_in_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

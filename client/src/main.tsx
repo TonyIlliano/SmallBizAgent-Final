@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { ThemeProvider } from "next-themes";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Register service worker for PWA functionality
 if ('serviceWorker' in navigator) {
@@ -17,7 +18,9 @@ if ('serviceWorker' in navigator) {
 }
 
 createRoot(document.getElementById("root")!).render(
-  <ThemeProvider attribute="class">
-    <App />
-  </ThemeProvider>
+  <ErrorBoundary>
+    <ThemeProvider attribute="class">
+      <App />
+    </ThemeProvider>
+  </ErrorBoundary>
 );

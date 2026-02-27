@@ -18,6 +18,23 @@ import {
   sendQuoteFollowUpEmail,
 } from "../emailService";
 
+// TCPA compliance: Check if customer has opted in to SMS
+function canSendSms(customer: any, isMarketing: boolean = false): boolean {
+  if (!customer?.phone) return false;
+  // Marketing messages require explicit marketing opt-in
+  if (isMarketing) return customer.marketingOptIn === true;
+  // Transactional messages (appointment confirmations, reminders, invoices) require SMS opt-in
+  return customer.smsOptIn === true;
+}
+
+// TCPA compliance: Standard SMS footer
+function getSmsFooter(isMarketing: boolean = false): string {
+  if (isMarketing) {
+    return '\n\nReply STOP to opt out. Msg & data rates may apply.';
+  }
+  return '\n\nMsg & data rates may apply.';
+}
+
 // Helper to format currency
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
@@ -110,7 +127,7 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
     }
 
     // Send SMS
-    if (sendSms && customer.phone) {
+    if (sendSms && canSendSms(customer)) {
       try {
         const message = manageUrl
           ? `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Manage or reschedule: ${manageUrl} - ${business.name}`
@@ -557,10 +574,10 @@ export async function sendQuoteSentNotification(
       }
     }
 
-    // Send SMS if customer has phone
-    if (customer.phone) {
+    // Send SMS if customer has opted in
+    if (canSendSms(customer)) {
       try {
-        const message = `Hi ${customer.firstName}! ${business.name} has sent you a quote #${quote.quoteNumber} for ${amount}. View it here: ${quoteUrl}`;
+        const message = `Hi ${customer.firstName}! ${business.name} has sent you a quote #${quote.quoteNumber} for ${amount}. View it here: ${quoteUrl}${getSmsFooter()}`;
         await twilioService.sendSms(customer.phone, message);
         await storage.createNotificationLog({
           businessId,
@@ -634,9 +651,9 @@ export async function sendInvoiceSentNotification(
       }
     }
 
-    if (customer.phone) {
+    if (canSendSms(customer)) {
       try {
-        const message = `Hi ${customer.firstName}! ${business.name} has sent you invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). View & pay here: ${invoiceUrl}`;
+        const message = `Hi ${customer.firstName}! ${business.name} has sent you invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). View & pay here: ${invoiceUrl}${getSmsFooter()}`;
         await twilioService.sendSms(customer.phone, message);
         await storage.createNotificationLog({
           businessId,
@@ -709,9 +726,9 @@ export async function sendQuoteConvertedNotification(
       }
     }
 
-    if (customer.phone) {
+    if (canSendSms(customer)) {
       try {
-        const message = `Hi ${customer.firstName}! Your accepted quote from ${business.name} has been converted to invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). Call ${business.phone || 'us'} with any questions.`;
+        const message = `Hi ${customer.firstName}! Your accepted quote from ${business.name} has been converted to invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). Call ${business.phone || 'us'} with any questions.${getSmsFooter()}`;
         await twilioService.sendSms(customer.phone, message);
         await storage.createNotificationLog({
           businessId,
@@ -827,7 +844,7 @@ export async function sendReservationConfirmation(reservationId: number, busines
       : null;
 
     // Send SMS
-    if (sendSms && customer.phone) {
+    if (sendSms && canSendSms(customer)) {
       try {
         const message = manageUrl
           ? `Hi ${customer.firstName}! Your reservation for ${partyStr} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Manage: ${manageUrl}`

@@ -144,6 +144,7 @@ export default function PublicBooking() {
     email: "",
     phone: "",
   });
+  const [smsOptIn, setSmsOptIn] = useState(false);
   const [notes, setNotes] = useState("");
 
   // Reservation mode state
@@ -283,7 +284,7 @@ export default function PublicBooking() {
           staffId: selectedStaff,
           date: selectedDate.toISOString().split("T")[0],
           time: selectedTime,
-          customer: customerInfo,
+          customer: { ...customerInfo, smsOptIn },
           notes,
         }),
       });
@@ -310,7 +311,7 @@ export default function PublicBooking() {
           partySize: selectedPartySize,
           date: selectedDate.toISOString().split("T")[0],
           time: selectedTime,
-          customer: customerInfo,
+          customer: { ...customerInfo, smsOptIn },
           specialRequests: specialRequests || undefined,
         }),
       });
@@ -1160,6 +1161,15 @@ export default function PublicBooking() {
                   rows={3} />
               </div>
 
+              <div className="flex items-start space-x-2 pt-2">
+                <input type="checkbox" id="res-smsOptIn" checked={smsOptIn}
+                  onChange={(e) => setSmsOptIn(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-gray-300" />
+                <label htmlFor="res-smsOptIn" className="text-sm text-muted-foreground">
+                  I agree to receive SMS reservation confirmations and updates. Msg & data rates may apply.
+                </label>
+              </div>
+
               <div className="flex justify-between mt-4">
                 <Button variant="outline" onClick={() => setStep(2)}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -1397,6 +1407,15 @@ export default function PublicBooking() {
                 <Label htmlFor="notes">Notes (Optional)</Label>
                 <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)}
                   placeholder="Any special requests or information..." rows={3} />
+              </div>
+
+              <div className="flex items-start space-x-2 pt-2">
+                <input type="checkbox" id="smsOptIn" checked={smsOptIn}
+                  onChange={(e) => setSmsOptIn(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-gray-300" />
+                <label htmlFor="smsOptIn" className="text-sm text-muted-foreground">
+                  I agree to receive SMS appointment confirmations and reminders. Msg & data rates may apply.
+                </label>
               </div>
 
               <div className="flex justify-between pt-4">

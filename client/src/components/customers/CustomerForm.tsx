@@ -21,6 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
 
 const customerSchema = z.object({
   businessId: z.number(),
@@ -33,6 +35,9 @@ const customerSchema = z.object({
   state: z.string().optional().or(z.literal("")),
   zip: z.string().optional().or(z.literal("")),
   notes: z.string().optional().or(z.literal("")),
+  birthday: z.string().optional().or(z.literal("")), // MM-DD format
+  smsOptIn: z.boolean().optional().default(false),
+  marketingOptIn: z.boolean().optional().default(false),
 });
 
 type CustomerFormData = z.infer<typeof customerSchema>;
@@ -64,6 +69,9 @@ export function CustomerForm({ customer, isEdit = false, onSuccess }: CustomerFo
       state: customer?.state || "",
       zip: customer?.zip || "",
       notes: customer?.notes || "",
+      birthday: customer?.birthday || "",
+      smsOptIn: customer?.smsOptIn ?? false,
+      marketingOptIn: customer?.marketingOptIn ?? false,
     },
   });
 
@@ -91,7 +99,7 @@ export function CustomerForm({ customer, isEdit = false, onSuccess }: CustomerFo
 
   const updateMutation = useMutation({
     mutationFn: (data: CustomerFormData) => {
-      return apiRequest("PUT", `/api/customers/${customer.id}`, data);
+      return apiRequest("PATCH", `/api/customers/${customer.id}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
@@ -124,10 +132,19 @@ export function CustomerForm({ customer, isEdit = false, onSuccess }: CustomerFo
   const onSubmit = async (data: CustomerFormData) => {
     setIsSubmitting(true);
     try {
+      // Add consent timestamps and method when toggling opt-in
+      const submitData: any = { ...data };
+      if (data.smsOptIn && !customer?.smsOptIn) {
+        submitData.smsOptInDate = new Date().toISOString();
+        submitData.smsOptInMethod = 'manual';
+      }
+      if (data.marketingOptIn && !customer?.marketingOptIn) {
+        submitData.marketingOptInDate = new Date().toISOString();
+      }
       if (isEdit) {
-        await updateMutation.mutateAsync(data);
+        await updateMutation.mutateAsync(submitData);
       } else {
-        await createMutation.mutateAsync(data);
+        await createMutation.mutateAsync(submitData);
       }
     } finally {
       setIsSubmitting(false);
@@ -196,6 +213,36 @@ export function CustomerForm({ customer, isEdit = false, onSuccess }: CustomerFo
                         value={field.value || ""}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="birthday"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Birthday</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="text"
+                        placeholder="MM-DD (e.g., 03-15)"
+                        {...field}
+                        value={field.value || ""}
+                        maxLength={5}
+                        onChange={(e) => {
+                          let val = e.target.value.replace(/[^0-9-]/g, '');
+                          // Auto-add dash after 2 digits
+                          if (val.length === 2 && !val.includes('-') && customer?.birthday !== val) {
+                            val = val + '-';
+                          }
+                          field.onChange(val);
+                        }}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      For birthday specials & discounts
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -276,6 +323,50 @@ export function CustomerForm({ customer, isEdit = false, onSuccess }: CustomerFo
                 </FormItem>
               )}
             />
+            <Separator />
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium">SMS Preferences</h3>
+              <FormField
+                control={form.control}
+                name="smsOptIn"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">SMS Notifications</FormLabel>
+                      <FormDescription>
+                        Receive appointment confirmations, reminders, and updates via text message.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="marketingOptIn"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">Marketing Messages</FormLabel>
+                      <FormDescription>
+                        Receive promotional offers, discounts, birthday specials, and other marketing messages. Msg & data rates may apply. Reply STOP to opt out.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
             <div className="flex justify-end space-x-4">
               <Button
                 type="button"

@@ -131,4 +131,41 @@ export function registerMarketingRoutes(app: any) {
       res.status(500).json({ message: error.message });
     }
   });
+
+  /**
+   * GET /api/marketing/birthdays — Get upcoming customer birthdays (next 7 days)
+   */
+  app.get('/api/marketing/birthdays', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const daysAhead = parseInt(req.query.days as string) || 7;
+      const birthdays = await marketingService.getUpcomingBirthdays(businessId, daysAhead);
+      res.json(birthdays);
+    } catch (error: any) {
+      console.error('[Marketing] Error fetching upcoming birthdays:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  /**
+   * POST /api/marketing/birthday-campaign — Send birthday discount messages
+   * Body: { daysAhead?, discountPercent?, validDays?, customMessage?, channel? }
+   */
+  app.post('/api/marketing/birthday-campaign', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { daysAhead, discountPercent, validDays, customMessage, channel } = req.body;
+      const result = await marketingService.sendBirthdayCampaigns(businessId, {
+        daysAhead,
+        discountPercent,
+        validDays,
+        customMessage,
+        channel,
+      });
+      res.json(result);
+    } catch (error: any) {
+      console.error('[Marketing] Error sending birthday campaigns:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
 }

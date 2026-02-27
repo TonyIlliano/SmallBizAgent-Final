@@ -283,6 +283,7 @@ router.post("/book/:slug", async (req, res) => {
         lastName: z.string().min(1, "Last name is required"),
         email: z.string().email("Valid email is required"),
         phone: z.string().min(1, "Phone number is required"),
+        smsOptIn: z.boolean().optional(),
       }),
       notes: z.string().optional(),
     });
@@ -333,14 +334,23 @@ router.post("/book/:slug", async (req, res) => {
         lastName: validatedData.customer.lastName,
         email: validatedData.customer.email,
         phone: validatedData.customer.phone,
+        smsOptIn: validatedData.customer.smsOptIn === true,
+        smsOptInDate: validatedData.customer.smsOptIn ? new Date() : undefined,
+        smsOptInMethod: validatedData.customer.smsOptIn ? 'booking_form' : undefined,
       });
     } else {
-      // Update existing customer info
-      customer = await storage.updateCustomer(customer.id, {
+      // Update existing customer info + consent if given
+      const updateData: any = {
         firstName: validatedData.customer.firstName,
         lastName: validatedData.customer.lastName,
         email: validatedData.customer.email,
-      });
+      };
+      if (validatedData.customer.smsOptIn === true) {
+        updateData.smsOptIn = true;
+        updateData.smsOptInDate = new Date();
+        updateData.smsOptInMethod = 'booking_form';
+      }
+      customer = await storage.updateCustomer(customer.id, updateData);
     }
 
     // Prevent duplicate bookings — check if this customer already has an active appointment today
@@ -847,6 +857,7 @@ router.post("/book/:slug/reserve", async (req, res) => {
         lastName: z.string().min(1, "Last name is required"),
         email: z.string().email("Valid email is required"),
         phone: z.string().min(1, "Phone number is required"),
+        smsOptIn: z.boolean().optional(),
       }),
       specialRequests: z.string().optional(),
     });
@@ -905,13 +916,22 @@ router.post("/book/:slug/reserve", async (req, res) => {
         lastName: validatedData.customer.lastName,
         email: validatedData.customer.email,
         phone: validatedData.customer.phone,
+        smsOptIn: validatedData.customer.smsOptIn === true,
+        smsOptInDate: validatedData.customer.smsOptIn ? new Date() : undefined,
+        smsOptInMethod: validatedData.customer.smsOptIn ? 'booking_form' : undefined,
       });
     } else {
-      customer = await storage.updateCustomer(customer.id, {
+      const updateData: any = {
         firstName: validatedData.customer.firstName,
         lastName: validatedData.customer.lastName,
         email: validatedData.customer.email,
-      });
+      };
+      if (validatedData.customer.smsOptIn === true) {
+        updateData.smsOptIn = true;
+        updateData.smsOptInDate = new Date();
+        updateData.smsOptInMethod = 'booking_form';
+      }
+      customer = await storage.updateCustomer(customer.id, updateData);
     }
 
     // Check for duplicate reservation (same customer, same date)

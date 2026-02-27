@@ -310,16 +310,17 @@ export async function sendWinBackCampaign(
         .replace(/\{businessName\}/g, business.name || "")
         .replace(/\{daysSinceVisit\}/g, String(daysSinceVisit));
 
-      // Send SMS
+      // Send SMS (TCPA: requires marketing opt-in)
       if (channel === "sms" || channel === "both") {
-        if (customer.phone) {
+        if (customer.phone && customer.marketing_opt_in === true) {
           try {
+            const smsMessage = message + '\n\nReply STOP to opt out. Msg & data rates may apply.';
             const { sendSms } = await import("./twilioService");
-            await sendSms(customer.phone, message, business.twilio_phone_number || undefined);
+            await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
             await pool.query(
               `INSERT INTO notification_log (business_id, customer_id, type, channel, recipient, message, status, reference_type)
                VALUES ($1, $2, 'marketing_campaign', 'sms', $3, $4, 'sent', 'campaign')`,
-              [businessId, customer.id, customer.phone, message]
+              [businessId, customer.id, customer.phone, smsMessage]
             );
             sentCount++;
           } catch (err) {
@@ -577,10 +578,11 @@ export async function sendBulkReviewRequests(businessId: number, customerIds: nu
           .replace(/\{businessName\}/g, business.name || "")
           .replace(/\{reviewLink\}/g, reviewUrl || "");
 
-        if (sentVia === "sms" && customer.phone) {
+        if (sentVia === "sms" && customer.phone && customer.marketing_opt_in === true) {
           try {
+            const smsMessage = message + '\n\nReply STOP to opt out. Msg & data rates may apply.';
             const { sendSms } = await import("./twilioService");
-            await sendSms(customer.phone, message, business.twilio_phone_number || undefined);
+            await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
             sent++;
           } catch (err) {
             console.error(`[MarketingService] Failed to send review SMS to customer ${customerId}:`, err);
@@ -734,15 +736,16 @@ export async function sendCampaign(
         .replace(/\{businessName\}/g, business.name || "")
         .replace(/\{daysSinceVisit\}/g, String(daysSinceVisit));
 
-      // Send SMS
-      if ((channel === "sms" || channel === "both") && customer.phone) {
+      // Send SMS (TCPA: requires marketing opt-in)
+      if ((channel === "sms" || channel === "both") && customer.phone && customer.marketing_opt_in === true) {
         try {
+          const smsMessage = message + '\n\nReply STOP to opt out. Msg & data rates may apply.';
           const { sendSms } = await import("./twilioService");
-          await sendSms(customer.phone, message, business.twilio_phone_number || undefined);
+          await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
           await pool.query(
             `INSERT INTO notification_log (business_id, customer_id, type, channel, recipient, message, status, reference_type, reference_id)
              VALUES ($1, $2, 'marketing_campaign', 'sms', $3, $4, 'sent', 'campaign', $5)`,
-            [businessId, customer.id, customer.phone, message, campaign.id]
+            [businessId, customer.id, customer.phone, smsMessage, campaign.id]
           );
           sentCount++;
         } catch (err) {
@@ -817,6 +820,174 @@ export async function getCampaignHistory(businessId: number) {
   }
 }
 
+/**
+ * Birthday Campaign: Find customers with birthdays today or within the next N days
+ * and send them a personalized birthday discount message.
+ *
+ * This is designed to be called by a daily cron job.
+ * Only sends to customers who have marketing_opt_in = true.
+ */
+export async function sendBirthdayCampaigns(businessId: number, options?: {
+  daysAhead?: number; // How many days before birthday to send (default: 0 = day of)
+  discountPercent?: number; // Discount amount (default: 15%)
+  validDays?: number; // How many days the coupon is valid (default: 7)
+  customMessage?: string; // Custom message template
+  channel?: "sms" | "email" | "both"; // Delivery channel (default: both)
+}) {
+  try {
+    const daysAhead = options?.daysAhead ?? 0;
+    const discountPercent = options?.discountPercent ?? 15;
+    const validDays = options?.validDays ?? 7;
+    const channel = options?.channel ?? "both";
+
+    // Get business info
+    const businessResult = await pool.query(
+      `SELECT name, twilio_phone_number FROM businesses WHERE id = $1`,
+      [businessId]
+    );
+    const business = businessResult.rows[0];
+    if (!business) return { sentCount: 0, error: "Business not found" };
+
+    // Find customers with birthdays matching today + daysAhead
+    // birthday is stored as MM-DD format
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() + daysAhead);
+    const targetMMDD = `${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+
+    const customersResult = await pool.query(
+      `SELECT id, first_name, last_name, email, phone, birthday, marketing_opt_in
+       FROM customers
+       WHERE business_id = $1
+         AND birthday = $2
+         AND marketing_opt_in = true`,
+      [businessId, targetMMDD]
+    );
+
+    if (customersResult.rows.length === 0) {
+      return { sentCount: 0, targetDate: targetMMDD, customersFound: 0 };
+    }
+
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + validDays);
+    const expiryStr = expiryDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+
+    let sentCount = 0;
+
+    for (const customer of customersResult.rows) {
+      const defaultMessage = options?.customMessage
+        ? options.customMessage
+            .replace(/\{firstName\}/g, customer.first_name || "")
+            .replace(/\{businessName\}/g, business.name || "")
+            .replace(/\{discount\}/g, `${discountPercent}%`)
+            .replace(/\{expiryDate\}/g, expiryStr)
+        : `Happy Birthday, ${customer.first_name}! 🎂 ${business.name} wants to celebrate with you — enjoy ${discountPercent}% off your next visit! Valid through ${expiryStr}. Show this text to redeem.`;
+
+      // Check we haven't already sent a birthday message this year
+      const alreadySentResult = await pool.query(
+        `SELECT COUNT(*) FROM notification_log
+         WHERE business_id = $1 AND customer_id = $2 AND type = 'birthday_campaign'
+           AND created_at >= date_trunc('year', CURRENT_DATE)`,
+        [businessId, customer.id]
+      );
+      if (parseInt(alreadySentResult.rows[0].count) > 0) continue;
+
+      // Send SMS
+      if ((channel === "sms" || channel === "both") && customer.phone) {
+        try {
+          const smsMessage = defaultMessage + '\n\nReply STOP to opt out. Msg & data rates may apply.';
+          const { sendSms } = await import("./twilioService");
+          await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
+          await pool.query(
+            `INSERT INTO notification_log (business_id, customer_id, type, channel, recipient, message, status)
+             VALUES ($1, $2, 'birthday_campaign', 'sms', $3, $4, 'sent')`,
+            [businessId, customer.id, customer.phone, smsMessage]
+          );
+          sentCount++;
+        } catch (err) {
+          console.error(`[MarketingService] Failed birthday SMS to customer ${customer.id}:`, err);
+        }
+      }
+
+      // Send Email
+      if ((channel === "email" || channel === "both") && customer.email) {
+        try {
+          const { sendEmail } = await import("../emailService");
+          await sendEmail({
+            to: customer.email,
+            subject: `Happy Birthday, ${customer.first_name}! 🎂 A special gift from ${business.name}`,
+            text: defaultMessage,
+            html: `<div style="text-align:center; padding:20px; font-family:sans-serif;">
+              <h1>🎂 Happy Birthday, ${customer.first_name}!</h1>
+              <p style="font-size:18px;">${business.name} wants to celebrate with you!</p>
+              <div style="background:#f0f9ff; border-radius:12px; padding:20px; margin:20px 0; display:inline-block;">
+                <p style="font-size:24px; font-weight:bold; color:#2563eb; margin:0;">${discountPercent}% OFF</p>
+                <p style="color:#666; margin:5px 0 0;">your next visit</p>
+              </div>
+              <p style="color:#888;">Valid through ${expiryStr}. Just mention this email when you visit!</p>
+            </div>`,
+          });
+          await pool.query(
+            `INSERT INTO notification_log (business_id, customer_id, type, channel, recipient, subject, message, status)
+             VALUES ($1, $2, 'birthday_campaign', 'email', $3, $4, $5, 'sent')`,
+            [businessId, customer.id, customer.email, `Happy Birthday! 🎂 ${discountPercent}% off from ${business.name}`, defaultMessage]
+          );
+          sentCount++;
+        } catch (err) {
+          console.error(`[MarketingService] Failed birthday email to customer ${customer.id}:`, err);
+        }
+      }
+    }
+
+    return {
+      sentCount,
+      targetDate: targetMMDD,
+      customersFound: customersResult.rows.length,
+    };
+  } catch (error) {
+    console.error("[MarketingService] Error sending birthday campaigns:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get birthday campaign settings for a business.
+ * Returns upcoming birthdays in the next 7 days.
+ */
+export async function getUpcomingBirthdays(businessId: number, daysAhead: number = 7) {
+  try {
+    // Generate all MM-DD values for the next N days
+    const targetDates: string[] = [];
+    for (let i = 0; i <= daysAhead; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      targetDates.push(`${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+    }
+
+    const result = await pool.query(
+      `SELECT id, first_name, last_name, email, phone, birthday, marketing_opt_in
+       FROM customers
+       WHERE business_id = $1
+         AND birthday = ANY($2)
+       ORDER BY birthday`,
+      [businessId, targetDates]
+    );
+
+    return result.rows.map((c: any) => ({
+      id: c.id,
+      firstName: c.first_name,
+      lastName: c.last_name,
+      email: c.email,
+      phone: c.phone,
+      birthday: c.birthday,
+      marketingOptIn: c.marketing_opt_in,
+      isToday: c.birthday === targetDates[0],
+    }));
+  } catch (error) {
+    console.error("[MarketingService] Error getting upcoming birthdays:", error);
+    throw error;
+  }
+}
+
 export default {
   getMarketingInsights,
   getInactiveCustomers,
@@ -826,4 +997,6 @@ export default {
   getCampaignTemplates,
   sendCampaign,
   getCampaignHistory,
+  sendBirthdayCampaigns,
+  getUpcomingBirthdays,
 };

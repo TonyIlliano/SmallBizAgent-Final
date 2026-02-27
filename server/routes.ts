@@ -153,6 +153,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication first
   setupAuth(app);
   
+  // ── SEO: Dynamic sitemap.xml ──
+  app.get('/sitemap.xml', async (_req: Request, res: Response) => {
+    try {
+      // Get all businesses with booking enabled
+      const result = await pool.query(
+        `SELECT booking_slug, updated_at FROM businesses WHERE booking_enabled = true AND booking_slug IS NOT NULL`
+      );
+
+      const today = new Date().toISOString().split('T')[0];
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.smallbizagent.ai/</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://www.smallbizagent.ai/auth</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>`;
+
+      for (const biz of result.rows) {
+        const lastmod = biz.updated_at ? new Date(biz.updated_at).toISOString().split('T')[0] : today;
+        xml += `
+  <url>
+    <loc>https://www.smallbizagent.ai/book/${biz.booking_slug}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`;
+      }
+
+      xml += '\n</urlset>';
+      res.set('Content-Type', 'application/xml');
+      res.send(xml);
+    } catch (error) {
+      console.error('Error generating sitemap:', error);
+      res.status(500).send('Error generating sitemap');
+    }
+  });
+
   // Register analytics routes
   registerAnalyticsRoutes(app);
 
@@ -1357,10 +1401,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Appointment not found" });
       }
 
-      // Fetch related data
-      const customer = await storage.getCustomer(appointment.customerId);
-      const staff = appointment.staffId ? await storage.getStaffMember(appointment.staffId) : null;
-      const service = appointment.serviceId ? await storage.getService(appointment.serviceId) : null;
+      // Fetch related data in parallel
+      const [customer, staff, service] = await Promise.all([
+        storage.getCustomer(appointment.customerId),
+        appointment.staffId ? storage.getStaffMember(appointment.staffId) : null,
+        appointment.serviceId ? storage.getService(appointment.serviceId) : null,
+      ]);
 
       res.json({
         ...appointment,
@@ -3179,6 +3225,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check if sender is an existing customer
       const customer = await storage.getCustomerByPhone(From, businessId);
+      const bodyTrimmed = (Body || '').trim().toUpperCase();
+
+      // ── TCPA: Handle STOP/UNSUBSCRIBE keywords ──
+      if (['STOP', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'].includes(bodyTrimmed)) {
+        if (customer) {
+          await storage.updateCustomer(customer.id, {
+            smsOptIn: false,
+            marketingOptIn: false,
+          });
+          console.log(`[SMS] Customer ${customer.id} opted out via STOP keyword`);
+        }
+        const twiml = new twilio.twiml.MessagingResponse();
+        twiml.message(`You have been unsubscribed from ${business.name} messages. Reply START to re-subscribe.`);
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+
+      // ── Handle START/SUBSCRIBE keywords (re-opt-in) ──
+      if (['START', 'SUBSCRIBE', 'YES'].includes(bodyTrimmed)) {
+        if (customer) {
+          await storage.updateCustomer(customer.id, {
+            smsOptIn: true,
+            smsOptInDate: new Date(),
+            smsOptInMethod: 'sms_keyword',
+            marketingOptIn: true,
+            marketingOptInDate: new Date(),
+          });
+          console.log(`[SMS] Customer ${customer.id} re-opted in via START keyword`);
+        }
+        const twiml = new twilio.twiml.MessagingResponse();
+        twiml.message(`You're subscribed to ${business.name} updates! Reply STOP to opt out. Msg & data rates may apply.`);
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+
+      // ── Handle BIRTHDAY text-in (e.g., "BIRTHDAY 03-15" or "BIRTHDAY March 15") ──
+      const birthdayMatch = (Body || '').trim().match(/^birthday\s+(\d{1,2})[\/\-](\d{1,2})$/i) ||
+                            (Body || '').trim().match(/^birthday\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})$/i);
+      if (birthdayMatch && customer) {
+        let month: string, day: string;
+        const monthNames: Record<string, string> = {
+          january: '01', february: '02', march: '03', april: '04',
+          may: '05', june: '06', july: '07', august: '08',
+          september: '09', october: '10', november: '11', december: '12'
+        };
+        if (monthNames[birthdayMatch[1].toLowerCase()]) {
+          month = monthNames[birthdayMatch[1].toLowerCase()];
+          day = birthdayMatch[2].padStart(2, '0');
+        } else {
+          month = birthdayMatch[1].padStart(2, '0');
+          day = birthdayMatch[2].padStart(2, '0');
+        }
+        const birthday = `${month}-${day}`;
+        await storage.updateCustomer(customer.id, { birthday });
+        console.log(`[SMS] Customer ${customer.id} set birthday to ${birthday} via text`);
+
+        const twiml = new twilio.twiml.MessagingResponse();
+        twiml.message(`Thanks, ${customer.firstName}! We saved your birthday (${month}/${day}). Look out for a special treat from ${business.name}! 🎂`);
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
 
       // Log the SMS as a call log entry with 'sms' status
       await storage.createCallLog({

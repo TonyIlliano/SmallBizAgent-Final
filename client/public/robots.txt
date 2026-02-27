@@ -1,0 +1,27 @@
+# SmallBizAgent - robots.txt
+User-agent: *
+
+# Allow public pages
+Allow: /book/
+Allow: /auth
+
+# Disallow authenticated dashboard routes
+Disallow: /dashboard
+Disallow: /customers
+Disallow: /appointments
+Disallow: /jobs
+Disallow: /invoices
+Disallow: /quotes
+Disallow: /staff
+Disallow: /services
+Disallow: /settings
+Disallow: /marketing
+Disallow: /receptionist
+Disallow: /reports
+Disallow: /menu
+Disallow: /orders
+Disallow: /schedule
+Disallow: /api/
+
+# Sitemap
+Sitemap: https://www.smallbizagent.ai/sitemap.xml

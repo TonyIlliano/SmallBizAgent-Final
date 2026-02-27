@@ -63,6 +63,12 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'provisioning_status', "TEXT DEFAULT 'pending'");
   await addColumnIfNotExists('businesses', 'provisioning_result', 'TEXT');
   await addColumnIfNotExists('businesses', 'provisioning_completed_at', 'TIMESTAMP');
+  // Birthday campaign settings
+  await addColumnIfNotExists('businesses', 'birthday_campaign_enabled', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('businesses', 'birthday_discount_percent', 'INTEGER DEFAULT 15');
+  await addColumnIfNotExists('businesses', 'birthday_coupon_valid_days', 'INTEGER DEFAULT 7');
+  await addColumnIfNotExists('businesses', 'birthday_campaign_channel', "TEXT DEFAULT 'both'");
+  await addColumnIfNotExists('businesses', 'birthday_campaign_message', 'TEXT');
 
   // Fix services table
   await addColumnIfNotExists('services', 'active', 'BOOLEAN DEFAULT true');
@@ -73,8 +79,15 @@ async function fixExistingTables() {
   await addColumnIfNotExists('customers', 'state', 'TEXT');
   await addColumnIfNotExists('customers', 'zip', 'TEXT');
   await addColumnIfNotExists('customers', 'notes', 'TEXT');
+  await addColumnIfNotExists('customers', 'birthday', 'TEXT'); // MM-DD format for birthday campaigns
   await addColumnIfNotExists('customers', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
   await addColumnIfNotExists('customers', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+  // SMS consent fields (TCPA compliance)
+  await addColumnIfNotExists('customers', 'sms_opt_in', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('customers', 'sms_opt_in_date', 'TIMESTAMP');
+  await addColumnIfNotExists('customers', 'sms_opt_in_method', 'TEXT');
+  await addColumnIfNotExists('customers', 'marketing_opt_in', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('customers', 'marketing_opt_in_date', 'TIMESTAMP');
 
   // Fix appointments - ensure all columns exist
   await addColumnIfNotExists('appointments', 'business_id', 'INTEGER NOT NULL');
@@ -1389,6 +1402,82 @@ async function createBaseTables() {
 }
 
 /**
+ * Create database performance indexes.
+ * Uses CREATE INDEX IF NOT EXISTS so it's safe to run multiple times.
+ */
+async function createPerformanceIndexes() {
+  console.log('Creating performance indexes...');
+
+  const indexes = [
+    // ── Phase 1: business_id indexes (critical for tenant isolation) ──
+    'CREATE INDEX IF NOT EXISTS idx_appointments_business_id ON appointments (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_customers_business_id ON customers (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_business_id ON jobs (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_business_id ON invoices (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_call_logs_business_id ON call_logs (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_quotes_business_id ON quotes (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_notification_log_business_id ON notification_log (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_business_id ON staff (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_services_business_id ON services (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_business_hours_business_id ON business_hours (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_marketing_campaigns_business_id ON marketing_campaigns (business_id)',
+
+    // ── Phase 2: Composite indexes for common query patterns ──
+    'CREATE INDEX IF NOT EXISTS idx_appointments_biz_status_date ON appointments (business_id, status, start_date)',
+    'CREATE INDEX IF NOT EXISTS idx_appointments_biz_customer ON appointments (business_id, customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_biz_status ON jobs (business_id, status)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_biz_status_created ON invoices (business_id, status, created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_customers_biz_created ON customers (business_id, created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_customers_biz_birthday ON customers (business_id, birthday)',
+    'CREATE INDEX IF NOT EXISTS idx_call_logs_biz_time ON call_logs (business_id, call_time)',
+    'CREATE INDEX IF NOT EXISTS idx_quotes_biz_status ON quotes (business_id, status)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_biz_active ON staff (business_id, active)',
+    'CREATE INDEX IF NOT EXISTS idx_notification_log_biz_customer ON notification_log (business_id, customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_reservations_biz_date_status ON restaurant_reservations (business_id, reservation_date, status)',
+
+    // ── Phase 3: Foreign key indexes ──
+    'CREATE INDEX IF NOT EXISTS idx_appointments_customer_id ON appointments (customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_appointments_staff_id ON appointments (staff_id)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_customer_id ON jobs (customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices (customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_job_line_items_job_id ON job_line_items (job_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items (invoice_id)',
+    'CREATE INDEX IF NOT EXISTS idx_quote_items_quote_id ON quote_items (quote_id)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_hours_staff_id ON staff_hours (staff_id)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_services_staff_id ON staff_services (staff_id)',
+    'CREATE INDEX IF NOT EXISTS idx_review_requests_business_id ON review_requests (business_id)',
+
+    // ── Phase 4: Date indexes for range queries ──
+    'CREATE INDEX IF NOT EXISTS idx_appointments_start_date ON appointments (start_date)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_created_at ON invoices (created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_call_logs_call_time ON call_logs (call_time)',
+
+    // ── Phase 5: Token/lookup indexes ──
+    'CREATE INDEX IF NOT EXISTS idx_appointments_manage_token ON appointments (manage_token)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_access_token ON invoices (access_token)',
+    'CREATE INDEX IF NOT EXISTS idx_quotes_access_token ON quotes (access_token)',
+    'CREATE INDEX IF NOT EXISTS idx_reservations_manage_token ON restaurant_reservations (manage_token)',
+    'CREATE INDEX IF NOT EXISTS idx_businesses_booking_slug ON businesses (booking_slug)',
+  ];
+
+  let created = 0;
+  for (const sql of indexes) {
+    try {
+      await pool.query(sql);
+      created++;
+    } catch (err: any) {
+      // Skip if table doesn't exist yet (some tables may not be used by all deployments)
+      if (!err.message.includes('does not exist')) {
+        console.log(`Note: Could not create index: ${err.message}`);
+      }
+    }
+  }
+
+  console.log(`Performance indexes checked: ${created}/${indexes.length} applied`);
+}
+
+/**
  * Run all SQL migration files in the migrations directory
  */
 async function runMigrations() {
@@ -1472,6 +1561,9 @@ async function runMigrations() {
     } catch (error) {
       console.error('Error running tiered subscription plans migration:', error);
     }
+
+    // Create performance indexes
+    await createPerformanceIndexes();
 
     console.log('All migrations applied successfully');
   } catch (error) {
