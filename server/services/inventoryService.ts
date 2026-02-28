@@ -369,7 +369,8 @@ export async function syncInventory(businessId: number) {
   if (!business) throw new Error("Business not found");
 
   // Must be a restaurant with POS connected
-  if (business.type !== "restaurant") {
+  const isRestaurant = business.industry?.toLowerCase() === "restaurant" || business.type === "restaurant";
+  if (!isRestaurant) {
     throw new Error("Inventory tracking is only available for restaurants");
   }
 

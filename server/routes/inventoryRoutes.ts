@@ -37,7 +37,8 @@ async function requireRestaurantWithPOS(req: Request, res: Response, next: Funct
       return res.status(404).json({ error: 'Business not found' });
     }
 
-    if (business.type !== 'restaurant') {
+    const isRestaurant = business.industry?.toLowerCase() === 'restaurant' || business.type === 'restaurant';
+    if (!isRestaurant) {
       return res.status(403).json({ error: 'Inventory tracking is only available for restaurants' });
     }
 
