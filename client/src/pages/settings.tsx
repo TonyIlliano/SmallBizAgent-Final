@@ -250,13 +250,23 @@ export default function Settings() {
     enabled: !!businessId,
   });
 
-  // Check if this is a restaurant business for conditional tab rendering
-  const isRestaurant = business?.industry?.toLowerCase() === 'restaurant';
+  // Industry-aware tab visibility
+  const industryLower = business?.industry?.toLowerCase() || '';
+  const isRestaurant = industryLower === 'restaurant';
   // Check if restaurant has POS connected (for inventory tab)
   const hasPOS = isRestaurant && (
     (business?.cloverMerchantId && business?.cloverAccessToken) ||
     (business?.squareAccessToken && business?.squareLocationId)
   );
+
+  // Compute visible tab count for grid layout
+  // Universal tabs: Profile, Team, Hours, Notifications, Reviews, Integrations, Subscription, App = 8
+  // Service businesses add: Services, Booking = +2 = 10
+  // Restaurants add: Restaurant = +1 = 9, + Inventory if POS = 10
+  const tabCount = 8
+    + (isRestaurant ? 0 : 2) // Services + Booking for non-restaurants
+    + (isRestaurant ? 1 : 0) // Restaurant tab
+    + (hasPOS ? 1 : 0);      // Inventory tab
 
   // Fetch business hours
   const { data: businessHours = [], isLoading: isLoadingHours } = useQuery<any[]>({
@@ -724,14 +734,16 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`flex w-full overflow-x-auto md:grid md:w-full ${hasPOS ? 'md:grid-cols-12' : isRestaurant ? 'md:grid-cols-11' : 'md:grid-cols-10'} mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]`}>
+          <TabsList className="flex w-full overflow-x-auto md:grid md:w-full mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" style={{ gridTemplateColumns: `repeat(${tabCount}, minmax(0, 1fr))` }}>
             <TabsTrigger value="profile" className="whitespace-nowrap flex-shrink-0">Profile</TabsTrigger>
             <TabsTrigger value="team" className="whitespace-nowrap flex-shrink-0">Team</TabsTrigger>
             <TabsTrigger value="hours" className="whitespace-nowrap flex-shrink-0">Hours</TabsTrigger>
-            <TabsTrigger value="services" className="whitespace-nowrap flex-shrink-0">Services</TabsTrigger>
-            <TabsTrigger value="booking" className="whitespace-nowrap flex-shrink-0">Booking</TabsTrigger>
+            {/* Services & Booking — service businesses only (salons, plumbers, etc.) */}
+            {!isRestaurant && <TabsTrigger value="services" className="whitespace-nowrap flex-shrink-0">Services</TabsTrigger>}
+            {!isRestaurant && <TabsTrigger value="booking" className="whitespace-nowrap flex-shrink-0">Booking</TabsTrigger>}
             <TabsTrigger value="notifications" className="whitespace-nowrap flex-shrink-0">Notifications</TabsTrigger>
             <TabsTrigger value="reviews" className="whitespace-nowrap flex-shrink-0">Reviews</TabsTrigger>
+            {/* Restaurant-specific tabs */}
             {isRestaurant && <TabsTrigger value="restaurant" className="whitespace-nowrap flex-shrink-0">Restaurant</TabsTrigger>}
             {hasPOS && <TabsTrigger value="inventory" className="whitespace-nowrap flex-shrink-0">Inventory</TabsTrigger>}
             <TabsTrigger value="integrations" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
@@ -1588,6 +1600,7 @@ export default function Settings() {
             </Card>
           </TabsContent>
           
+          {!isRestaurant && (
           <TabsContent value="services" className="space-y-4">
             <Card>
               <CardHeader>
@@ -1776,10 +1789,13 @@ export default function Settings() {
               </DialogContent>
             </Dialog>
           </TabsContent>
+          )}
 
+          {!isRestaurant && (
           <TabsContent value="booking" className="space-y-4">
             {business && <BookingSettings business={business} />}
           </TabsContent>
+          )}
 
           <TabsContent value="notifications" className="space-y-4">
             {businessId && <NotificationSettingsPanel businessId={businessId} />}
