@@ -3,8 +3,8 @@ import { reviewSettings, reviewRequests, customers, jobs, businesses } from "@sh
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import twilio from "twilio";
 
-// Minimum days between review requests to the same customer (prevents spam)
-const REVIEW_COOLDOWN_DAYS = 30;
+// Default cooldown if not configured per-business (fallback)
+const DEFAULT_REVIEW_COOLDOWN_DAYS = 90;
 
 // Twilio setup
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -147,8 +147,10 @@ export async function sendReviewRequestSms(
     }
 
     // Cooldown: don't spam the same customer with review requests
+    // Uses per-business setting (great for restaurants where customers visit often)
+    const cooldownDays = settings.reviewCooldownDays ?? DEFAULT_REVIEW_COOLDOWN_DAYS;
     const cooldownDate = new Date();
-    cooldownDate.setDate(cooldownDate.getDate() - REVIEW_COOLDOWN_DAYS);
+    cooldownDate.setDate(cooldownDate.getDate() - cooldownDays);
     const [recentRequest] = await db.select()
       .from(reviewRequests)
       .where(and(
@@ -158,7 +160,7 @@ export async function sendReviewRequestSms(
       ));
 
     if (recentRequest) {
-      return { success: false, error: `Review request already sent to this customer within the last ${REVIEW_COOLDOWN_DAYS} days` };
+      return { success: false, error: `Review request already sent to this customer within the last ${cooldownDays} days` };
     }
 
     // Build the message
@@ -236,8 +238,10 @@ export async function sendReviewRequestEmail(
     }
 
     // Cooldown: don't spam the same customer with review requests
+    // Uses per-business setting (great for restaurants where customers visit often)
+    const cooldownDays = settings.reviewCooldownDays ?? DEFAULT_REVIEW_COOLDOWN_DAYS;
     const cooldownDate = new Date();
-    cooldownDate.setDate(cooldownDate.getDate() - REVIEW_COOLDOWN_DAYS);
+    cooldownDate.setDate(cooldownDate.getDate() - cooldownDays);
     const [recentRequest] = await db.select()
       .from(reviewRequests)
       .where(and(
@@ -247,7 +251,7 @@ export async function sendReviewRequestEmail(
       ));
 
     if (recentRequest) {
-      return { success: false, error: `Review request already sent to this customer within the last ${REVIEW_COOLDOWN_DAYS} days` };
+      return { success: false, error: `Review request already sent to this customer within the last ${cooldownDays} days` };
     }
 
     // Get business info

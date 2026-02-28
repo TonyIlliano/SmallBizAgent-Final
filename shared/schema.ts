@@ -384,6 +384,7 @@ export const reviewSettings = pgTable("review_settings", {
   reviewRequestEnabled: boolean("review_request_enabled").default(true),
   autoSendAfterJobCompletion: boolean("auto_send_after_job_completion").default(true),
   delayHoursAfterCompletion: integer("delay_hours_after_completion").default(2), // Wait before sending
+  reviewCooldownDays: integer("review_cooldown_days").default(90), // Min days between review requests per customer (prevents spam for repeat customers like restaurants)
   smsTemplate: text("sms_template").default("Hi {customerName}! Thank you for choosing {businessName}. We'd love to hear about your experience. Please leave us a review: {reviewLink}"),
   emailSubject: text("email_subject").default("How was your experience with {businessName}?"),
   emailTemplate: text("email_template"),

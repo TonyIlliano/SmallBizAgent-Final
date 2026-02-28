@@ -563,10 +563,11 @@ export async function sendBulkReviewRequests(businessId: number, customerIds: nu
           continue;
         }
 
-        // 30-day cooldown: skip if we already sent a review request recently
+        // Per-business cooldown: skip if we already sent a review request recently
+        const cooldownDays = settings?.review_cooldown_days ?? 90;
         const cooldownCheck = await pool.query(
-          `SELECT id FROM review_requests WHERE customer_id = $1 AND business_id = $2 AND sent_at > NOW() - INTERVAL '30 days'`,
-          [customerId, businessId]
+          `SELECT id FROM review_requests WHERE customer_id = $1 AND business_id = $2 AND sent_at > NOW() - INTERVAL '1 day' * $3`,
+          [customerId, businessId, cooldownDays]
         );
         if (cooldownCheck.rows.length > 0) {
           skipped++;

@@ -70,6 +70,9 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'birthday_campaign_channel', "TEXT DEFAULT 'both'");
   await addColumnIfNotExists('businesses', 'birthday_campaign_message', 'TEXT');
 
+  // Review settings - configurable cooldown per business (restaurants need longer cooldown)
+  await addColumnIfNotExists('review_settings', 'review_cooldown_days', 'INTEGER DEFAULT 90');
+
   // Fix services table
   await addColumnIfNotExists('services', 'active', 'BOOLEAN DEFAULT true');
 
