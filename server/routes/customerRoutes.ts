@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { eq, and, desc, like, ilike, or } from "drizzle-orm";
 import { customers, insertCustomerSchema } from "@shared/schema";
 import { z } from "zod";
+import { pool } from "../db";
 
 const router = Router();
 
@@ -35,6 +36,89 @@ router.get("/customers", async (req, res) => {
   } catch (error) {
     console.error("Error fetching customers:", error);
     res.status(500).json({ error: "Failed to fetch customers" });
+  }
+});
+
+// Get enriched customer list with stats (revenue, calls, last visit, status)
+router.get("/customers/enriched", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const user = req.user;
+    const businessId = user.businessId;
+
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+
+    const search = (req.query.search as string) || '';
+
+    // Single query that joins customers with their invoice totals, appointment data, and call counts
+    let query = `
+      SELECT
+        c.*,
+        COALESCE(inv.total_revenue, 0) AS total_revenue,
+        COALESCE(inv.paid_invoice_count, 0) AS paid_invoice_count,
+        COALESCE(inv.open_invoice_count, 0) AS open_invoice_count,
+        apt.last_visit,
+        COALESCE(apt.appointment_count, 0) AS appointment_count,
+        COALESCE(calls.call_count, 0) AS call_count,
+        calls.last_call_date
+      FROM customers c
+      LEFT JOIN (
+        SELECT
+          customer_id,
+          SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END) AS total_revenue,
+          COUNT(CASE WHEN status = 'paid' THEN 1 END) AS paid_invoice_count,
+          COUNT(CASE WHEN status IN ('pending', 'overdue') THEN 1 END) AS open_invoice_count
+        FROM invoices
+        WHERE business_id = $1
+        GROUP BY customer_id
+      ) inv ON inv.customer_id = c.id
+      LEFT JOIN (
+        SELECT
+          customer_id,
+          MAX(CASE WHEN status IN ('completed', 'confirmed') THEN start_date END) AS last_visit,
+          COUNT(*) AS appointment_count
+        FROM appointments
+        WHERE business_id = $1
+        GROUP BY customer_id
+      ) apt ON apt.customer_id = c.id
+      LEFT JOIN (
+        SELECT
+          caller_id,
+          COUNT(*) AS call_count,
+          MAX(call_time) AS last_call_date
+        FROM call_logs
+        WHERE business_id = $1
+        GROUP BY caller_id
+      ) calls ON calls.caller_id = c.phone
+      WHERE c.business_id = $1
+    `;
+
+    const params: any[] = [businessId];
+
+    if (search) {
+      params.push(`%${search}%`);
+      const searchIdx = params.length;
+      query += ` AND (
+        c.first_name ILIKE $${searchIdx}
+        OR c.last_name ILIKE $${searchIdx}
+        OR c.phone ILIKE $${searchIdx}
+        OR c.email ILIKE $${searchIdx}
+      )`;
+    }
+
+    query += ` ORDER BY c.created_at DESC`;
+
+    const result = await pool.query(query, params);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching enriched customers:", error);
+    res.status(500).json({ error: "Failed to fetch enriched customers" });
   }
 });
 
