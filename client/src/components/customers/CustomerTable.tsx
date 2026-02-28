@@ -176,20 +176,29 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
     {
       header: "Revenue",
       accessorKey: "total_revenue",
-      cell: (customer: any) => (
-        <div className="text-right">
-          <div className="font-medium">
-            {Number(customer.total_revenue) > 0
-              ? formatCurrency(Number(customer.total_revenue))
-              : "—"}
-          </div>
-          {Number(customer.paid_invoice_count) > 0 && (
-            <div className="text-xs text-muted-foreground">
-              {customer.paid_invoice_count} invoice{Number(customer.paid_invoice_count) !== 1 ? 's' : ''}
+      cell: (customer: any) => {
+        const totalRevenue = Number(customer.total_revenue) || 0;
+        const invoiceCount = Number(customer.paid_invoice_count) || 0;
+        const completedAppts = Number(customer.completed_appointment_count) || 0;
+
+        // Build detail parts
+        const details: string[] = [];
+        if (invoiceCount > 0) details.push(`${invoiceCount} invoice${invoiceCount !== 1 ? 's' : ''}`);
+        if (completedAppts > 0) details.push(`${completedAppts} appt${completedAppts !== 1 ? 's' : ''}`);
+
+        return (
+          <div className="text-right">
+            <div className="font-medium">
+              {totalRevenue > 0 ? formatCurrency(totalRevenue) : "—"}
             </div>
-          )}
-        </div>
-      ),
+            {details.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                {details.join(' + ')}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       header: "Last Visit",

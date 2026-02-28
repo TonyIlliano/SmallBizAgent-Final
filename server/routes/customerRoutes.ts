@@ -55,22 +55,25 @@ router.get("/customers/enriched", async (req, res) => {
 
     const search = (req.query.search as string) || '';
 
-    // Single query that joins customers with their invoice totals, appointment data, and call counts
+    // Single query that joins customers with invoice totals, appointment data (with service revenue), and call counts
     let query = `
       SELECT
         c.*,
-        COALESCE(inv.total_revenue, 0) AS total_revenue,
+        COALESCE(inv.invoice_revenue, 0) AS invoice_revenue,
         COALESCE(inv.paid_invoice_count, 0) AS paid_invoice_count,
         COALESCE(inv.open_invoice_count, 0) AS open_invoice_count,
+        COALESCE(apt.appointment_revenue, 0) AS appointment_revenue,
+        COALESCE(inv.invoice_revenue, 0) + COALESCE(apt.appointment_revenue, 0) AS total_revenue,
         apt.last_visit,
         COALESCE(apt.appointment_count, 0) AS appointment_count,
+        COALESCE(apt.completed_count, 0) AS completed_appointment_count,
         COALESCE(calls.call_count, 0) AS call_count,
         calls.last_call_date
       FROM customers c
       LEFT JOIN (
         SELECT
           customer_id,
-          SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END) AS total_revenue,
+          SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END) AS invoice_revenue,
           COUNT(CASE WHEN status = 'paid' THEN 1 END) AS paid_invoice_count,
           COUNT(CASE WHEN status IN ('pending', 'overdue') THEN 1 END) AS open_invoice_count
         FROM invoices
@@ -79,12 +82,15 @@ router.get("/customers/enriched", async (req, res) => {
       ) inv ON inv.customer_id = c.id
       LEFT JOIN (
         SELECT
-          customer_id,
-          MAX(CASE WHEN status IN ('completed', 'confirmed') THEN start_date END) AS last_visit,
-          COUNT(*) AS appointment_count
-        FROM appointments
-        WHERE business_id = $1
-        GROUP BY customer_id
+          a.customer_id,
+          MAX(CASE WHEN a.status IN ('completed', 'confirmed') THEN a.start_date END) AS last_visit,
+          COUNT(*) AS appointment_count,
+          COUNT(CASE WHEN a.status = 'completed' THEN 1 END) AS completed_count,
+          COALESCE(SUM(CASE WHEN a.status = 'completed' THEN s.price ELSE 0 END), 0) AS appointment_revenue
+        FROM appointments a
+        LEFT JOIN services s ON s.id = a.service_id
+        WHERE a.business_id = $1
+        GROUP BY a.customer_id
       ) apt ON apt.customer_id = c.id
       LEFT JOIN (
         SELECT
