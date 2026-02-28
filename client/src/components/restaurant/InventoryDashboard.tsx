@@ -212,6 +212,19 @@ export default function InventoryDashboard({ businessId, business }: InventoryDa
     },
   });
 
+  // Save inventory alert settings to business
+  const saveAlertSettingsMutation = useMutation({
+    mutationFn: (data: { inventoryAlertsEnabled?: boolean; inventoryAlertChannel?: string; inventoryDefaultThreshold?: number }) =>
+      apiRequest("PUT", `/api/business/${businessId}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/business"] });
+      toast({ title: "Alert settings updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to save", description: err.message, variant: "destructive" });
+    },
+  });
+
   // Check alerts mutation
   const checkAlertsMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/inventory/check-alerts"),
@@ -313,48 +326,100 @@ export default function InventoryDashboard({ businessId, business }: InventoryDa
             Get notified via SMS and/or email when items drop below their threshold
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5">
+          {/* Enable/Disable Toggle */}
           <div className="flex items-center justify-between">
             <div>
-              <Label className="font-medium">Enable Alerts</Label>
+              <Label htmlFor="inventory-alerts-toggle" className="font-medium">Enable Alerts</Label>
               <p className="text-sm text-muted-foreground">
                 Receive notifications when items are running low
               </p>
             </div>
-            <Badge variant={business?.inventoryAlertsEnabled ? "default" : "secondary"}>
-              {business?.inventoryAlertsEnabled ? "Active" : "Off"}
-            </Badge>
+            <Switch
+              id="inventory-alerts-toggle"
+              checked={business?.inventoryAlertsEnabled ?? false}
+              onCheckedChange={(checked) =>
+                saveAlertSettingsMutation.mutate({ inventoryAlertsEnabled: checked })
+              }
+              disabled={saveAlertSettingsMutation.isPending}
+            />
           </div>
+
+          {/* Alert Channel Select */}
           <div className="flex items-center justify-between">
             <div>
               <Label className="font-medium">Alert Channel</Label>
               <p className="text-sm text-muted-foreground">
-                {business?.inventoryAlertChannel === "sms"
-                  ? "SMS only"
-                  : business?.inventoryAlertChannel === "email"
-                    ? "Email only"
-                    : "SMS & Email"}
+                How you want to be notified
+              </p>
+            </div>
+            <Select
+              value={business?.inventoryAlertChannel ?? "both"}
+              onValueChange={(value) =>
+                saveAlertSettingsMutation.mutate({ inventoryAlertChannel: value })
+              }
+              disabled={saveAlertSettingsMutation.isPending}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="both">SMS & Email</SelectItem>
+                <SelectItem value="sms">SMS Only</SelectItem>
+                <SelectItem value="email">Email Only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Default Threshold */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="font-medium">Default Threshold</Label>
+              <p className="text-sm text-muted-foreground">
+                Default low-stock threshold for new items
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => checkAlertsMutation.mutate()}
-                disabled={checkAlertsMutation.isPending || !business?.inventoryAlertsEnabled}
-              >
-                {checkAlertsMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Bell className="h-4 w-4 mr-1" />
-                )}
-                Check Now
-              </Button>
+              <Input
+                type="number"
+                min={1}
+                className="w-20 h-9 text-center"
+                defaultValue={business?.inventoryDefaultThreshold ?? 10}
+                onBlur={(e) => {
+                  const val = parseInt(e.target.value) || 10;
+                  if (val !== (business?.inventoryDefaultThreshold ?? 10)) {
+                    saveAlertSettingsMutation.mutate({ inventoryDefaultThreshold: val });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+              />
+              <span className="text-sm text-muted-foreground">units</span>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Manage alert preferences in your Business Profile settings (inventory alerts toggle, channel, default threshold).
-          </p>
+
+          {/* Check Now button */}
+          <div className="flex items-center justify-between pt-2 border-t">
+            <p className="text-sm text-muted-foreground">
+              Manually check all items against thresholds and send alerts
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => checkAlertsMutation.mutate()}
+              disabled={checkAlertsMutation.isPending || !business?.inventoryAlertsEnabled}
+            >
+              {checkAlertsMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              ) : (
+                <Bell className="h-4 w-4 mr-1" />
+              )}
+              Check Now
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
