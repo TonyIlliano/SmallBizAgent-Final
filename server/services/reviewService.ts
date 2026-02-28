@@ -1,7 +1,10 @@
 import { db } from "../db";
 import { reviewSettings, reviewRequests, customers, jobs, businesses } from "@shared/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, gte } from "drizzle-orm";
 import twilio from "twilio";
+
+// Minimum days between review requests to the same customer (prevents spam)
+const REVIEW_COOLDOWN_DAYS = 30;
 
 // Twilio setup
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -115,6 +118,11 @@ export async function sendReviewRequestSms(
       return { success: false, error: 'Customer not found or has no phone number' };
     }
 
+    // TCPA compliance: only send SMS to customers who opted in
+    if (!customer.smsOptIn) {
+      return { success: false, error: 'Customer has not opted in to SMS (TCPA compliance)' };
+    }
+
     // Get business info
     const [business] = await db.select()
       .from(businesses)
@@ -136,6 +144,21 @@ export async function sendReviewRequestSms(
       if (existingRequest) {
         return { success: false, error: 'Review request already sent for this job' };
       }
+    }
+
+    // Cooldown: don't spam the same customer with review requests
+    const cooldownDate = new Date();
+    cooldownDate.setDate(cooldownDate.getDate() - REVIEW_COOLDOWN_DAYS);
+    const [recentRequest] = await db.select()
+      .from(reviewRequests)
+      .where(and(
+        eq(reviewRequests.customerId, customerId),
+        eq(reviewRequests.businessId, businessId),
+        gte(reviewRequests.sentAt, cooldownDate)
+      ));
+
+    if (recentRequest) {
+      return { success: false, error: `Review request already sent to this customer within the last ${REVIEW_COOLDOWN_DAYS} days` };
     }
 
     // Build the message
@@ -210,6 +233,21 @@ export async function sendReviewRequestEmail(
 
     if (!customer || !customer.email) {
       return { success: false, error: 'Customer not found or has no email' };
+    }
+
+    // Cooldown: don't spam the same customer with review requests
+    const cooldownDate = new Date();
+    cooldownDate.setDate(cooldownDate.getDate() - REVIEW_COOLDOWN_DAYS);
+    const [recentRequest] = await db.select()
+      .from(reviewRequests)
+      .where(and(
+        eq(reviewRequests.customerId, customerId),
+        eq(reviewRequests.businessId, businessId),
+        gte(reviewRequests.sentAt, cooldownDate)
+      ));
+
+    if (recentRequest) {
+      return { success: false, error: `Review request already sent to this customer within the last ${REVIEW_COOLDOWN_DAYS} days` };
     }
 
     // Get business info
@@ -299,11 +337,13 @@ export async function sendReviewRequestForCompletedJob(
       return { success: false, error: 'Customer not found' };
     }
 
-    // Prefer SMS if customer has phone, otherwise try email
-    if (customer.phone) {
+    // Prefer SMS if customer has phone AND opted in, otherwise try email
+    if (customer.phone && customer.smsOptIn) {
       return await sendReviewRequestSms(businessId, job.customerId, jobId);
     } else if (customer.email) {
       return await sendReviewRequestEmail(businessId, job.customerId, jobId);
+    } else if (customer.phone && !customer.smsOptIn) {
+      return { success: false, error: 'Customer has not opted in to SMS and has no email' };
     } else {
       return { success: false, error: 'Customer has no contact information' };
     }

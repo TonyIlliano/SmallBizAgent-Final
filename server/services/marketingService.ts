@@ -556,19 +556,22 @@ export async function sendBulkReviewRequests(businessId: number, customerIds: nu
           continue;
         }
 
-        // Determine channel (prefer SMS if phone available)
-        const sentVia = customer.phone ? "sms" : customer.email ? "email" : null;
+        // Determine channel: SMS only if customer opted in (TCPA), otherwise email
+        const sentVia = (customer.phone && customer.sms_opt_in === true) ? "sms" : customer.email ? "email" : null;
         if (!sentVia) {
           skipped++;
           continue;
         }
 
-        // Insert review request record
-        await pool.query(
-          `INSERT INTO review_requests (business_id, customer_id, sent_via, platform, review_link, status, sent_at, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'sent', NOW(), NOW())`,
-          [businessId, customerId, sentVia, settings?.preferred_platform || "google", reviewUrl]
+        // 30-day cooldown: skip if we already sent a review request recently
+        const cooldownCheck = await pool.query(
+          `SELECT id FROM review_requests WHERE customer_id = $1 AND business_id = $2 AND sent_at > NOW() - INTERVAL '30 days'`,
+          [customerId, businessId]
         );
+        if (cooldownCheck.rows.length > 0) {
+          skipped++;
+          continue;
+        }
 
         // Send the review request message
         const smsTemplate = settings?.sms_template ||
@@ -578,11 +581,17 @@ export async function sendBulkReviewRequests(businessId: number, customerIds: nu
           .replace(/\{businessName\}/g, business.name || "")
           .replace(/\{reviewLink\}/g, reviewUrl || "");
 
-        if (sentVia === "sms" && customer.phone && customer.marketing_opt_in === true) {
+        if (sentVia === "sms" && customer.phone && customer.sms_opt_in === true) {
           try {
             const smsMessage = message + '\n\nReply STOP to opt out. Msg & data rates may apply.';
             const { sendSms } = await import("./twilioService");
             await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
+            // Record AFTER successful send
+            await pool.query(
+              `INSERT INTO review_requests (business_id, customer_id, sent_via, platform, review_link, status, sent_at, created_at)
+               VALUES ($1, $2, $3, $4, $5, 'sent', NOW(), NOW())`,
+              [businessId, customerId, sentVia, settings?.preferred_platform || "google", reviewUrl]
+            );
             sent++;
           } catch (err) {
             console.error(`[MarketingService] Failed to send review SMS to customer ${customerId}:`, err);
@@ -597,6 +606,12 @@ export async function sendBulkReviewRequests(businessId: number, customerIds: nu
               text: message,
               html: `<p>${message.replace(/\n/g, "<br>")}</p>`,
             });
+            // Record AFTER successful send
+            await pool.query(
+              `INSERT INTO review_requests (business_id, customer_id, sent_via, platform, review_link, status, sent_at, created_at)
+               VALUES ($1, $2, $3, $4, $5, 'sent', NOW(), NOW())`,
+              [businessId, customerId, sentVia, settings?.preferred_platform || "google", reviewUrl]
+            );
             sent++;
           } catch (err) {
             console.error(`[MarketingService] Failed to send review email to customer ${customerId}:`, err);

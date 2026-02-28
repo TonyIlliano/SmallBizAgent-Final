@@ -1487,6 +1487,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (validatedData.status === 'completed' && existing.status !== 'completed') {
         fireEvent(existing.businessId, 'appointment.completed', { appointment })
           .catch(err => console.error('Webhook fire error:', err));
+
+        // Auto-send review request after appointment completion (fire-and-forget, respects opt-in + cooldown)
+        import('./services/reviewService').then(reviewService => {
+          reviewService.getReviewSettings(existing.businessId).then(settings => {
+            if (settings?.autoSendAfterJobCompletion && settings?.reviewRequestEnabled) {
+              const delayMs = (settings.delayHoursAfterCompletion || 2) * 60 * 60 * 1000;
+              setTimeout(() => {
+                // Try SMS first (if opted in), then email
+                const tryReview = async () => {
+                  const customerRecord = await storage.getCustomer(appointment.customerId);
+                  if (!customerRecord) return;
+
+                  let result;
+                  if (customerRecord.phone && customerRecord.smsOptIn) {
+                    result = await reviewService.sendReviewRequestSms(existing.businessId, appointment.customerId);
+                  } else if (customerRecord.email) {
+                    result = await reviewService.sendReviewRequestEmail(existing.businessId, appointment.customerId);
+                  } else {
+                    return;
+                  }
+                  if (result.success) {
+                    console.log(`[Review] Auto-sent review request for appointment ${appointment.id}`);
+                  } else {
+                    console.log(`[Review] Skipped auto-review for appointment ${appointment.id}: ${result.error}`);
+                  }
+                };
+                tryReview().catch(err => console.error('[Review] Auto-review error:', err));
+              }, delayMs);
+            }
+          }).catch(err => console.error('[Review] Error checking review settings:', err));
+        }).catch(err => console.error('[Review] Error importing review service:', err));
       }
 
       res.json(appointment);
@@ -1663,6 +1694,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Fire webhook event for job completed (fire-and-forget)
         fireEvent(existing.businessId, 'job.completed', { job })
           .catch(err => console.error('Webhook fire error:', err));
+
+        // Auto-send review request after job completion (fire-and-forget, respects opt-in + cooldown)
+        import('./services/reviewService').then(reviewService => {
+          // Use configured delay (default 2 hours) before sending
+          reviewService.getReviewSettings(existing.businessId).then(settings => {
+            if (settings?.autoSendAfterJobCompletion && settings?.reviewRequestEnabled) {
+              const delayMs = (settings.delayHoursAfterCompletion || 2) * 60 * 60 * 1000;
+              setTimeout(() => {
+                reviewService.sendReviewRequestForCompletedJob(job.id, existing.businessId)
+                  .then(result => {
+                    if (result.success) {
+                      console.log(`[Review] Auto-sent review request for job ${job.id}`);
+                    } else {
+                      console.log(`[Review] Skipped auto-review for job ${job.id}: ${result.error}`);
+                    }
+                  })
+                  .catch(err => console.error('[Review] Auto-review error:', err));
+              }, delayMs);
+            }
+          }).catch(err => console.error('[Review] Error checking review settings:', err));
+        }).catch(err => console.error('[Review] Error importing review service:', err));
       }
 
       // Sync linked appointment when job changes
