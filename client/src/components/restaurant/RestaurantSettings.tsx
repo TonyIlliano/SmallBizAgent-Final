@@ -259,8 +259,7 @@ export default function RestaurantSettings({ businessId }: RestaurantSettingsPro
         </div>
       </div>
 
-      {/* Online Reservations Section */}
-      <ReservationSettings businessId={businessId} business={business} />
+      {/* Online Reservations moved to its own tab in Settings */}
     </div>
   );
 }
@@ -269,7 +268,7 @@ export default function RestaurantSettings({ businessId }: RestaurantSettingsPro
 // Reservation Settings Sub-Component
 // ==========================================
 
-function ReservationSettings({ businessId, business }: { businessId: number; business: any }) {
+export function ReservationSettings({ businessId, business }: { businessId: number; business: any }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);

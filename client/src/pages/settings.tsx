@@ -12,6 +12,7 @@ import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
 import QuickBooksIntegration from "@/components/quickbooks/QuickBooksIntegration";
 import { StripeConnectIntegration } from "@/components/stripe/StripeConnectIntegration";
 import RestaurantSettings from "@/components/restaurant/RestaurantSettings";
+import { ReservationSettings } from "@/components/restaurant/RestaurantSettings";
 import InventoryDashboard from "@/components/restaurant/InventoryDashboard";
 import ReviewSettings from "@/components/reviews/ReviewSettings";
 import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
@@ -262,10 +263,10 @@ export default function Settings() {
   // Compute visible tab count for grid layout
   // Universal tabs: Profile, Team, Hours, Notifications, Reviews, Integrations, Subscription, App = 8
   // Service businesses add: Services, Booking = +2 = 10
-  // Restaurants add: Restaurant = +1 = 9, + Inventory if POS = 10
+  // Restaurants add: Restaurant + Reservations = +2 = 10, + Inventory if POS = 11
   const tabCount = 8
     + (isRestaurant ? 0 : 2) // Services + Booking for non-restaurants
-    + (isRestaurant ? 1 : 0) // Restaurant tab
+    + (isRestaurant ? 2 : 0) // Restaurant + Reservations tabs
     + (hasPOS ? 1 : 0);      // Inventory tab
 
   // Fetch business hours
@@ -745,6 +746,7 @@ export default function Settings() {
             <TabsTrigger value="reviews" className="whitespace-nowrap flex-shrink-0">Reviews</TabsTrigger>
             {/* Restaurant-specific tabs */}
             {isRestaurant && <TabsTrigger value="restaurant" className="whitespace-nowrap flex-shrink-0">Restaurant</TabsTrigger>}
+            {isRestaurant && <TabsTrigger value="reservations" className="whitespace-nowrap flex-shrink-0">Reservations</TabsTrigger>}
             {hasPOS && <TabsTrigger value="inventory" className="whitespace-nowrap flex-shrink-0">Inventory</TabsTrigger>}
             <TabsTrigger value="integrations" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
             <TabsTrigger value="subscription" className="whitespace-nowrap flex-shrink-0">Subscription</TabsTrigger>
@@ -1808,6 +1810,14 @@ export default function Settings() {
           {isRestaurant && (
             <TabsContent value="restaurant" className="space-y-4">
               {businessId && <RestaurantSettings businessId={businessId} />}
+            </TabsContent>
+          )}
+
+          {isRestaurant && (
+            <TabsContent value="reservations" className="space-y-4">
+              {businessId && business && (
+                <ReservationSettings businessId={businessId} business={business} />
+              )}
             </TabsContent>
           )}
 
