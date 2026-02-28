@@ -196,6 +196,12 @@ export default function Settings() {
   const urlParams = new URLSearchParams(window.location.search);
   const initialTab = urlParams.get('tab') || "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
+
+  // Keep URL in sync with active tab so refresh stays on current tab
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    window.history.replaceState({}, '', `/settings?tab=${tab}`);
+  };
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingService, setEditingService] = useState<any>(null);
 
@@ -734,7 +740,7 @@ export default function Settings() {
           </p>
         </div>
         
-        <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
+        <Tabs defaultValue="profile" value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="flex w-full overflow-x-auto md:grid md:w-full mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" style={{ gridTemplateColumns: `repeat(${tabCount}, minmax(0, 1fr))` }}>
             <TabsTrigger value="profile" className="whitespace-nowrap flex-shrink-0">Profile</TabsTrigger>
             <TabsTrigger value="team" className="whitespace-nowrap flex-shrink-0">Team</TabsTrigger>
