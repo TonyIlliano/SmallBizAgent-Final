@@ -58,15 +58,20 @@ async function requireRestaurantWithPOS(req: Request, res: Response, next: Funct
 
 export function registerInventoryRoutes(app: Express) {
 
-  // ── GET /api/inventory/items — List all inventory items ──
+  // ── GET /api/inventory/items — Paginated inventory items ──
   app.get('/api/inventory/items', isAuthenticated, requireRestaurantWithPOS, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
-      const category = req.query.category as string | undefined;
-      const lowStockOnly = req.query.lowStock === 'true';
-
-      const items = await getInventoryItems(businessId, { category, lowStockOnly });
-      res.json(items);
+      const result = await getInventoryItems(businessId, {
+        category: req.query.category as string | undefined,
+        lowStockOnly: req.query.lowStock === 'true',
+        search: req.query.search as string | undefined,
+        page: req.query.page ? parseInt(req.query.page as string) : 1,
+        pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string) : 25,
+        sortBy: req.query.sortBy as string | undefined,
+        sortDir: req.query.sortDir as string | undefined,
+      });
+      res.json(result);
     } catch (err: any) {
       console.error('[Inventory Routes] Error fetching items:', err);
       res.status(500).json({ error: err.message });

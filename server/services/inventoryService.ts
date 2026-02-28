@@ -650,33 +650,88 @@ export async function handleCloverInventoryWebhook(
 // ============================================
 
 /**
- * Get all inventory items for a business
+ * Get paginated inventory items for a business with server-side filtering/sorting.
+ * Returns { items, total, page, pageSize } for the UI to handle pagination.
  */
 export async function getInventoryItems(
   businessId: number,
-  options?: { category?: string; lowStockOnly?: boolean }
+  options?: {
+    category?: string;
+    lowStockOnly?: boolean;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    sortDir?: string;
+  }
 ) {
-  let query = db
-    .select()
-    .from(inventoryItems)
-    .where(eq(inventoryItems.businessId, businessId));
+  const page = Math.max(1, options?.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, options?.pageSize ?? 25));
+  const offset = (page - 1) * pageSize;
 
-  const items = await query;
+  // Build WHERE clauses
+  const conditions: string[] = ["business_id = $1"];
+  const params: any[] = [businessId];
+  let paramIdx = 2;
 
-  // Filter in JS for simplicity (these are small datasets for a single restaurant)
-  let filtered = items;
   if (options?.category) {
-    filtered = filtered.filter((i) => i.category === options.category);
-  }
-  if (options?.lowStockOnly) {
-    filtered = filtered.filter(
-      (i) =>
-        i.trackStock &&
-        (i.quantity ?? 0) < (i.lowStockThreshold ?? 10)
-    );
+    conditions.push(`category = $${paramIdx}`);
+    params.push(options.category);
+    paramIdx++;
   }
 
-  return filtered;
+  if (options?.lowStockOnly) {
+    conditions.push("track_stock = true AND quantity < low_stock_threshold");
+  }
+
+  if (options?.search) {
+    conditions.push(`(name ILIKE $${paramIdx} OR sku ILIKE $${paramIdx} OR category ILIKE $${paramIdx})`);
+    params.push(`%${options.search}%`);
+    paramIdx++;
+  }
+
+  const whereClause = conditions.join(" AND ");
+
+  // Sort: low-stock items first by default, then by name
+  let orderClause = "ORDER BY ";
+  const sortBy = options?.sortBy || "status";
+  const sortDir = options?.sortDir === "asc" ? "ASC" : "DESC";
+
+  if (sortBy === "name") {
+    orderClause += `name ${sortDir}`;
+  } else if (sortBy === "quantity") {
+    orderClause += `quantity ${sortDir}`;
+  } else if (sortBy === "category") {
+    orderClause += `COALESCE(category, 'zzz') ${sortDir}, name ASC`;
+  } else {
+    // Default: low-stock first (out of stock → low → ok), then name
+    orderClause += `CASE
+      WHEN track_stock = true AND quantity = 0 THEN 0
+      WHEN track_stock = true AND quantity < low_stock_threshold THEN 1
+      ELSE 2
+    END ASC, name ASC`;
+  }
+
+  // Get total count
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM inventory_items WHERE ${whereClause}`,
+    params
+  );
+  const total = countResult.rows[0]?.total ?? 0;
+
+  // Get paginated items
+  const itemsResult = await pool.query(
+    `SELECT * FROM inventory_items WHERE ${whereClause} ${orderClause} LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+    [...params, pageSize, offset]
+  );
+
+  return {
+    items: itemsResult.rows,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
+  };
 }
 
 /**

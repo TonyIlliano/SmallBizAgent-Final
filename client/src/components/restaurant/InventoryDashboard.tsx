@@ -1,16 +1,16 @@
 /**
  * Inventory Dashboard — Restaurant-only component
  *
- * Shows POS inventory levels from Clover/Square, lets owners configure
- * low-stock thresholds per item, and toggle inventory alert notifications.
+ * Shows POS inventory levels from Clover/Square with server-side pagination,
+ * search, and filtering. Lets owners configure low-stock thresholds per item
+ * and toggle inventory alert notifications.
  * Only visible when business type = restaurant and POS is connected.
  */
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
 import {
   Card,
   CardContent,
@@ -49,25 +49,37 @@ import {
   Loader2,
   Search,
   Filter,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 
 interface InventoryItem {
   id: number;
-  businessId: number;
-  posItemId: string;
-  posSource: string;
+  business_id: number;
+  pos_item_id: string;
+  pos_source: string;
   name: string;
   sku: string | null;
   category: string | null;
   quantity: number;
-  lowStockThreshold: number;
-  unitCost: number | null;
+  low_stock_threshold: number;
+  unit_cost: number | null;
   price: number | null;
-  trackStock: boolean;
-  lastAlertSentAt: string | null;
-  lastSyncedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  track_stock: boolean;
+  last_alert_sent_at: string | null;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface PaginatedResponse {
+  items: InventoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 interface InventoryStats {
@@ -83,26 +95,69 @@ interface InventoryDashboardProps {
   business: any;
 }
 
+const PAGE_SIZE = 25;
+
 export default function InventoryDashboard({ businessId, business }: InventoryDashboardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [searchTerm, setSearchTerm] = useState("");
+
+  // Filter/pagination state
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+  const [page, setPage] = useState(1);
   const [editingThreshold, setEditingThreshold] = useState<number | null>(null);
   const [thresholdValue, setThresholdValue] = useState<string>("");
 
-  // Check if POS is connected
+  // Debounce search input (400ms)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+      setPage(1); // Reset to page 1 on new search
+    }, 400);
+    return () => clearTimeout(debounceTimer.current);
+  }, [searchInput]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [categoryFilter, showLowStockOnly]);
+
+  // POS detection
   const hasPOS =
     (business?.cloverMerchantId && business?.cloverAccessToken) ||
     (business?.squareAccessToken && business?.squareLocationId);
   const posName = business?.cloverMerchantId ? "Clover" : business?.squareAccessToken ? "Square" : null;
 
-  // Fetch inventory items
-  const { data: items = [], isLoading: itemsLoading, error: itemsError } = useQuery<InventoryItem[]>({
-    queryKey: ["/api/inventory/items"],
+  // Build query string for server-side pagination/filtering
+  const buildQueryString = () => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("pageSize", String(PAGE_SIZE));
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (categoryFilter !== "all") params.set("category", categoryFilter);
+    if (showLowStockOnly) params.set("lowStock", "true");
+    return params.toString();
+  };
+
+  // Fetch paginated inventory items (server-side)
+  const queryString = buildQueryString();
+  const { data: paginatedData, isLoading: itemsLoading, error: itemsError } = useQuery({
+    queryKey: ["/api/inventory/items", queryString],
+    queryFn: async (): Promise<PaginatedResponse> => {
+      const res = await fetch(`/api/inventory/items?${queryString}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
     enabled: !!hasPOS,
+    placeholderData: (prev: PaginatedResponse | undefined) => prev, // Keep previous data while loading next page
   });
+
+  const items: InventoryItem[] = paginatedData?.items ?? [];
+  const totalItems = paginatedData?.total ?? 0;
+  const totalPages = paginatedData?.totalPages ?? 1;
 
   // Fetch inventory stats
   const { data: stats } = useQuery<InventoryStats>({
@@ -177,32 +232,6 @@ export default function InventoryDashboard({ businessId, business }: InventoryDa
       }
     },
   });
-
-  // Filter items
-  const filteredItems = items
-    .filter((item) => {
-      if (searchTerm) {
-        const search = searchTerm.toLowerCase();
-        if (
-          !item.name.toLowerCase().includes(search) &&
-          !(item.sku && item.sku.toLowerCase().includes(search)) &&
-          !(item.category && item.category.toLowerCase().includes(search))
-        ) {
-          return false;
-        }
-      }
-      if (categoryFilter !== "all" && item.category !== categoryFilter) return false;
-      if (showLowStockOnly && !(item.trackStock && item.quantity < item.lowStockThreshold)) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      // Sort low-stock items first
-      const aLow = a.trackStock && a.quantity < a.lowStockThreshold;
-      const bLow = b.trackStock && b.quantity < b.lowStockThreshold;
-      if (aLow && !bLow) return -1;
-      if (!aLow && bLow) return 1;
-      return a.name.localeCompare(b.name);
-    });
 
   // No POS connected
   if (!hasPOS) {
@@ -345,6 +374,7 @@ export default function InventoryDashboard({ businessId, business }: InventoryDa
                 {stats?.lastSyncedAt
                   ? `Last synced: ${new Date(stats.lastSyncedAt).toLocaleString()}`
                   : "Not yet synced"}
+                {totalItems > 0 && ` • ${totalItems} total items`}
               </CardDescription>
             </div>
             <Button
@@ -365,9 +395,9 @@ export default function InventoryDashboard({ businessId, business }: InventoryDa
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search items..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search items by name, SKU, or category..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="pl-9"
               />
             </div>
@@ -397,7 +427,7 @@ export default function InventoryDashboard({ businessId, business }: InventoryDa
           </div>
         </CardHeader>
         <CardContent>
-          {itemsLoading ? (
+          {itemsLoading && items.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               <span className="ml-2 text-muted-foreground">Loading inventory...</span>
@@ -407,160 +437,216 @@ export default function InventoryDashboard({ businessId, business }: InventoryDa
               <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-red-500" />
               <p>Failed to load inventory. Try syncing from {posName}.</p>
             </div>
-          ) : items.length === 0 ? (
+          ) : totalItems === 0 && !debouncedSearch && categoryFilter === "all" && !showLowStockOnly ? (
             <div className="text-center py-12 text-muted-foreground">
               <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p className="text-lg font-medium">No inventory items yet</p>
-              <p className="mt-1">Click "Sync from {posName}" to pull your items.</p>
+              <p className="mt-1">Click &quot;Sync from {posName}&quot; to pull your items.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead className="hidden md:table-cell">Category</TableHead>
-                    <TableHead className="text-center">Qty</TableHead>
-                    <TableHead className="text-center">Threshold</TableHead>
-                    <TableHead className="text-center">Status</TableHead>
-                    <TableHead className="text-center">Track</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredItems.map((item) => {
-                    const isLow = item.trackStock && item.quantity < item.lowStockThreshold;
-                    const isOut = item.trackStock && item.quantity === 0;
-
-                    return (
-                      <TableRow
-                        key={item.id}
-                        className={isOut ? "bg-red-50 dark:bg-red-950/20" : isLow ? "bg-yellow-50 dark:bg-yellow-950/20" : ""}
-                      >
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{item.name}</p>
-                            {item.sku && (
-                              <p className="text-xs text-muted-foreground">SKU: {item.sku}</p>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          <span className="text-sm text-muted-foreground">
-                            {item.category || "—"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span
-                            className={`font-bold ${
-                              isOut
-                                ? "text-red-600"
-                                : isLow
-                                  ? "text-yellow-600"
-                                  : "text-green-600"
-                            }`}
-                          >
-                            {item.quantity}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {editingThreshold === item.id ? (
-                            <div className="flex items-center gap-1 justify-center">
-                              <Input
-                                type="number"
-                                value={thresholdValue}
-                                onChange={(e) => setThresholdValue(e.target.value)}
-                                className="w-16 h-8 text-center"
-                                min={0}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    updateItemMutation.mutate({
-                                      itemId: item.id,
-                                      data: { lowStockThreshold: parseInt(thresholdValue) || 0 },
-                                    });
-                                  } else if (e.key === "Escape") {
-                                    setEditingThreshold(null);
-                                  }
-                                }}
-                                autoFocus
-                              />
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 px-2"
-                                onClick={() =>
-                                  updateItemMutation.mutate({
-                                    itemId: item.id,
-                                    data: { lowStockThreshold: parseInt(thresholdValue) || 0 },
-                                  })
-                                }
-                              >
-                                ✓
-                              </Button>
-                            </div>
-                          ) : (
-                            <button
-                              className="text-sm hover:underline cursor-pointer"
-                              onClick={() => {
-                                setEditingThreshold(item.id);
-                                setThresholdValue(String(item.lowStockThreshold));
-                              }}
-                              title="Click to edit threshold"
-                            >
-                              {item.lowStockThreshold}
-                            </button>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {!item.trackStock ? (
-                            <Badge variant="secondary" className="text-xs">
-                              <BellOff className="h-3 w-3 mr-1" />
-                              Untracked
-                            </Badge>
-                          ) : isOut ? (
-                            <Badge variant="destructive" className="text-xs">
-                              <PackageX className="h-3 w-3 mr-1" />
-                              Out
-                            </Badge>
-                          ) : isLow ? (
-                            <Badge variant="default" className="text-xs bg-yellow-500 hover:bg-yellow-600">
-                              <ArrowDown className="h-3 w-3 mr-1" />
-                              Low
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
-                              OK
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Switch
-                            checked={item.trackStock}
-                            onCheckedChange={(checked) =>
-                              updateItemMutation.mutate({
-                                itemId: item.id,
-                                data: { trackStock: checked },
-                              })
-                            }
-                          />
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead className="hidden md:table-cell">Category</TableHead>
+                      <TableHead className="text-center">Qty</TableHead>
+                      <TableHead className="text-center">Threshold</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
+                      <TableHead className="text-center">Track</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          <Search className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                          <p>No items match your filters</p>
                         </TableCell>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-              {filteredItems.length === 0 && items.length > 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Search className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                  <p>No items match your filters</p>
+                    ) : (
+                      items.map((item) => {
+                        const isLow = item.track_stock && item.quantity < item.low_stock_threshold;
+                        const isOut = item.track_stock && item.quantity === 0;
+
+                        return (
+                          <TableRow
+                            key={item.id}
+                            className={isOut ? "bg-red-50 dark:bg-red-950/20" : isLow ? "bg-yellow-50 dark:bg-yellow-950/20" : ""}
+                          >
+                            <TableCell>
+                              <div>
+                                <p className="font-medium">{item.name}</p>
+                                {item.sku && (
+                                  <p className="text-xs text-muted-foreground">SKU: {item.sku}</p>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              <span className="text-sm text-muted-foreground">
+                                {item.category || "—"}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span
+                                className={`font-bold ${
+                                  isOut
+                                    ? "text-red-600"
+                                    : isLow
+                                      ? "text-yellow-600"
+                                      : "text-green-600"
+                                }`}
+                              >
+                                {item.quantity}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {editingThreshold === item.id ? (
+                                <div className="flex items-center gap-1 justify-center">
+                                  <Input
+                                    type="number"
+                                    value={thresholdValue}
+                                    onChange={(e) => setThresholdValue(e.target.value)}
+                                    className="w-16 h-8 text-center"
+                                    min={0}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        updateItemMutation.mutate({
+                                          itemId: item.id,
+                                          data: { lowStockThreshold: parseInt(thresholdValue) || 0 },
+                                        });
+                                      } else if (e.key === "Escape") {
+                                        setEditingThreshold(null);
+                                      }
+                                    }}
+                                    autoFocus
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 px-2"
+                                    onClick={() =>
+                                      updateItemMutation.mutate({
+                                        itemId: item.id,
+                                        data: { lowStockThreshold: parseInt(thresholdValue) || 0 },
+                                      })
+                                    }
+                                  >
+                                    ✓
+                                  </Button>
+                                </div>
+                              ) : (
+                                <button
+                                  className="text-sm hover:underline cursor-pointer"
+                                  onClick={() => {
+                                    setEditingThreshold(item.id);
+                                    setThresholdValue(String(item.low_stock_threshold));
+                                  }}
+                                  title="Click to edit threshold"
+                                >
+                                  {item.low_stock_threshold}
+                                </button>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {!item.track_stock ? (
+                                <Badge variant="secondary" className="text-xs">
+                                  <BellOff className="h-3 w-3 mr-1" />
+                                  Untracked
+                                </Badge>
+                              ) : isOut ? (
+                                <Badge variant="destructive" className="text-xs">
+                                  <PackageX className="h-3 w-3 mr-1" />
+                                  Out
+                                </Badge>
+                              ) : isLow ? (
+                                <Badge variant="default" className="text-xs bg-yellow-500 hover:bg-yellow-600">
+                                  <ArrowDown className="h-3 w-3 mr-1" />
+                                  Low
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                                  OK
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Switch
+                                checked={item.track_stock}
+                                onCheckedChange={(checked) =>
+                                  updateItemMutation.mutate({
+                                    itemId: item.id,
+                                    data: { trackStock: checked },
+                                  })
+                                }
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalItems)} of {totalItems} items
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(1)}
+                      disabled={page <= 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(page - 1)}
+                      disabled={page <= 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm px-3 font-medium">
+                      Page {page} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(page + 1)}
+                      disabled={page >= totalPages}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(totalPages)}
+                      disabled={page >= totalPages}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
-            </div>
-          )}
-          {filteredItems.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-4">
-              Showing {filteredItems.length} of {items.length} items •
-              Click a threshold value to edit • Toggle tracking per item
-            </p>
+
+              {items.length > 0 && totalPages <= 1 && (
+                <p className="text-xs text-muted-foreground mt-4">
+                  Showing {totalItems} item{totalItems !== 1 ? "s" : ""} •
+                  Click a threshold value to edit • Toggle tracking per item
+                </p>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
