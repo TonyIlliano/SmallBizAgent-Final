@@ -12,6 +12,7 @@ import { CalendarIntegration } from "@/components/calendar/CalendarIntegration";
 import QuickBooksIntegration from "@/components/quickbooks/QuickBooksIntegration";
 import { StripeConnectIntegration } from "@/components/stripe/StripeConnectIntegration";
 import RestaurantSettings from "@/components/restaurant/RestaurantSettings";
+import InventoryDashboard from "@/components/restaurant/InventoryDashboard";
 import ReviewSettings from "@/components/reviews/ReviewSettings";
 import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
 import { OverageBillingHistory } from "@/components/subscription/OverageBillingHistory";
@@ -251,6 +252,11 @@ export default function Settings() {
 
   // Check if this is a restaurant business for conditional tab rendering
   const isRestaurant = business?.industry?.toLowerCase() === 'restaurant';
+  // Check if restaurant has POS connected (for inventory tab)
+  const hasPOS = isRestaurant && (
+    (business?.cloverMerchantId && business?.cloverAccessToken) ||
+    (business?.squareAccessToken && business?.squareLocationId)
+  );
 
   // Fetch business hours
   const { data: businessHours = [], isLoading: isLoadingHours } = useQuery<any[]>({
@@ -718,7 +724,7 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`flex w-full overflow-x-auto md:grid md:w-full ${isRestaurant ? 'md:grid-cols-11' : 'md:grid-cols-10'} mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]`}>
+          <TabsList className={`flex w-full overflow-x-auto md:grid md:w-full ${hasPOS ? 'md:grid-cols-12' : isRestaurant ? 'md:grid-cols-11' : 'md:grid-cols-10'} mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]`}>
             <TabsTrigger value="profile" className="whitespace-nowrap flex-shrink-0">Profile</TabsTrigger>
             <TabsTrigger value="team" className="whitespace-nowrap flex-shrink-0">Team</TabsTrigger>
             <TabsTrigger value="hours" className="whitespace-nowrap flex-shrink-0">Hours</TabsTrigger>
@@ -727,6 +733,7 @@ export default function Settings() {
             <TabsTrigger value="notifications" className="whitespace-nowrap flex-shrink-0">Notifications</TabsTrigger>
             <TabsTrigger value="reviews" className="whitespace-nowrap flex-shrink-0">Reviews</TabsTrigger>
             {isRestaurant && <TabsTrigger value="restaurant" className="whitespace-nowrap flex-shrink-0">Restaurant</TabsTrigger>}
+            {hasPOS && <TabsTrigger value="inventory" className="whitespace-nowrap flex-shrink-0">Inventory</TabsTrigger>}
             <TabsTrigger value="integrations" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
             <TabsTrigger value="subscription" className="whitespace-nowrap flex-shrink-0">Subscription</TabsTrigger>
             <TabsTrigger value="pwa" className="whitespace-nowrap flex-shrink-0">App</TabsTrigger>
@@ -1785,6 +1792,14 @@ export default function Settings() {
           {isRestaurant && (
             <TabsContent value="restaurant" className="space-y-4">
               {businessId && <RestaurantSettings businessId={businessId} />}
+            </TabsContent>
+          )}
+
+          {hasPOS && (
+            <TabsContent value="inventory" className="space-y-4">
+              {businessId && business && (
+                <InventoryDashboard businessId={businessId} business={business} />
+              )}
             </TabsContent>
           )}
 

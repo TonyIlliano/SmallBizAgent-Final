@@ -73,6 +73,11 @@ async function fixExistingTables() {
   // Review settings - configurable cooldown per business (restaurants need longer cooldown)
   await addColumnIfNotExists('review_settings', 'review_cooldown_days', 'INTEGER DEFAULT 90');
 
+  // Inventory alert settings for restaurants
+  await addColumnIfNotExists('businesses', 'inventory_alerts_enabled', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('businesses', 'inventory_alert_channel', "TEXT DEFAULT 'both'");
+  await addColumnIfNotExists('businesses', 'inventory_default_threshold', 'INTEGER DEFAULT 10');
+
   // Fix services table
   await addColumnIfNotExists('services', 'active', 'BOOLEAN DEFAULT true');
 
@@ -496,6 +501,29 @@ async function fixExistingTables() {
       order_type TEXT,
       error_message TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create inventory_items table (POS stock tracking for restaurants)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS inventory_items (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      pos_item_id TEXT NOT NULL,
+      pos_source TEXT NOT NULL,
+      name TEXT NOT NULL,
+      sku TEXT,
+      category TEXT,
+      quantity REAL DEFAULT 0,
+      low_stock_threshold INTEGER DEFAULT 10,
+      unit_cost INTEGER,
+      price INTEGER,
+      track_stock BOOLEAN DEFAULT true,
+      last_alert_sent_at TIMESTAMP,
+      last_synced_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(business_id, pos_item_id, pos_source)
     );
   `);
 
@@ -1271,6 +1299,29 @@ async function createBaseTables() {
     );
   `);
 
+  // Create inventory_items table (POS stock tracking for restaurants)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS inventory_items (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      pos_item_id TEXT NOT NULL,
+      pos_source TEXT NOT NULL,
+      name TEXT NOT NULL,
+      sku TEXT,
+      category TEXT,
+      quantity REAL DEFAULT 0,
+      low_stock_threshold INTEGER DEFAULT 10,
+      unit_cost INTEGER,
+      price INTEGER,
+      track_stock BOOLEAN DEFAULT true,
+      last_alert_sent_at TIMESTAMP,
+      last_synced_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(business_id, pos_item_id, pos_source)
+    );
+  `);
+
   // Create clover_menu_cache table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clover_menu_cache (
@@ -1449,6 +1500,8 @@ async function createPerformanceIndexes() {
     'CREATE INDEX IF NOT EXISTS idx_staff_hours_staff_id ON staff_hours (staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_staff_services_staff_id ON staff_services (staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_review_requests_business_id ON review_requests (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_inventory_items_business_id ON inventory_items (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_inventory_items_biz_source ON inventory_items (business_id, pos_source)',
 
     // ── Phase 4: Date indexes for range queries ──
     'CREATE INDEX IF NOT EXISTS idx_appointments_start_date ON appointments (start_date)',

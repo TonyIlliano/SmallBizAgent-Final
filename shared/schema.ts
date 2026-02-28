@@ -97,6 +97,10 @@ export const businesses = pgTable("businesses", {
   birthdayDiscountPercent: integer("birthday_discount_percent").default(15),
   birthdayCouponValidDays: integer("birthday_coupon_valid_days").default(7),
   birthdayCampaignChannel: text("birthday_campaign_channel").default("both"), // sms, email, both
+  // Inventory alert settings (restaurant POS integration)
+  inventoryAlertsEnabled: boolean("inventory_alerts_enabled").default(false),
+  inventoryAlertChannel: text("inventory_alert_channel").default("both"), // sms, email, both
+  inventoryDefaultThreshold: integer("inventory_default_threshold").default(10), // Default low-stock threshold
   birthdayCampaignMessage: text("birthday_campaign_message"), // Custom template, null = use default
   // Multi-location tracking
   numberOfLocations: integer("number_of_locations").default(1),
@@ -570,6 +574,26 @@ export const restaurantReservations = pgTable("restaurant_reservations", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Inventory Items (POS stock tracking for restaurants — Clover/Square)
+export const inventoryItems = pgTable("inventory_items", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  posItemId: text("pos_item_id").notNull(),       // Clover/Square item ID
+  posSource: text("pos_source").notNull(),          // 'clover' or 'square'
+  name: text("name").notNull(),
+  sku: text("sku"),
+  category: text("category"),
+  quantity: real("quantity").default(0),            // Current stock level (supports decimals)
+  lowStockThreshold: integer("low_stock_threshold").default(10), // Alert when below this
+  unitCost: integer("unit_cost"),                   // Cost in cents
+  price: integer("price"),                          // Sell price in cents
+  trackStock: boolean("track_stock").default(true), // Whether to track this item
+  lastAlertSentAt: timestamp("last_alert_sent_at"), // Prevent alert spam
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Password Reset Tokens
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: serial("id").primaryKey(),
@@ -787,6 +811,7 @@ export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true,
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
 export const insertMarketingCampaignSchema = createInsertSchema(marketingCampaigns).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true });
+export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -911,3 +936,6 @@ export type InsertMarketingCampaign = z.infer<typeof insertMarketingCampaignSche
 
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
+
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;

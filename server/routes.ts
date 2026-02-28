@@ -147,6 +147,7 @@ import { registerWebhookRoutes } from './routes/webhookRoutes';
 import { registerMarketingRoutes } from './routes/marketingRoutes';
 // Import Zapier/API key routes
 import { registerZapierRoutes } from './routes/zapierRoutes';
+import { registerInventoryRoutes } from './routes/inventoryRoutes';
 import { fireEvent } from './services/webhookService';
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -208,6 +209,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register Zapier/API key routes
   registerZapierRoutes(app);
+
+  // Register inventory routes (restaurant POS stock tracking)
+  registerInventoryRoutes(app);
 
   // Register admin dashboard routes
   app.use(adminRoutes);
