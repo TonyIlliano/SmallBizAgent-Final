@@ -633,6 +633,16 @@ RESTAURANT ORDERING (POS):
 - createOrder: Place an order in the restaurant's POS system. Use after confirming the complete order with the caller.`;
   }
 
+  // Add reservation functions for restaurants with reservations enabled
+  if (businessType.includes('restaurant') && business.reservationEnabled) {
+    functionDocs += `
+
+RESTAURANT RESERVATIONS:
+- checkReservationAvailability: Check available reservation time slots for a specific date and party size. Call this FIRST when a customer wants to make a reservation.
+- makeReservation: Book a table reservation after confirming all details (date, time, party size, customer name). Always confirm the full details with the caller before calling this function.
+- cancelReservation: Cancel an existing reservation by customer name and optionally date. Ask the customer for their name to look up the reservation.`;
+  }
+
   functionDocs += `
 
 CUSTOMER & BUSINESS INFO:
