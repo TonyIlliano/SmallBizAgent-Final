@@ -137,22 +137,29 @@ export class SubscriptionService {
       
       // Create price in Stripe
       let stripePrice;
+      const stripeInterval = planRecord.interval === 'monthly' ? 'month' : 'year';
+      const unitAmount = Math.round(planRecord.price * 100); // Convert to cents
       try {
+        // Look for an existing price that matches this exact amount and interval
         const prices = await stripe.prices.list({
           product: stripeProduct.id,
           active: true,
         });
-        
-        if (prices.data.length > 0) {
-          stripePrice = prices.data[0];
+
+        const matchingPrice = prices.data.find(
+          (p) => p.unit_amount === unitAmount && p.recurring?.interval === stripeInterval
+        );
+
+        if (matchingPrice) {
+          stripePrice = matchingPrice;
         } else {
-          // Create new price
+          // Create new price for this amount and interval
           stripePrice = await stripe.prices.create({
             product: stripeProduct.id,
-            unit_amount: planRecord.price * 100, // Convert to cents
+            unit_amount: unitAmount,
             currency: 'usd',
             recurring: {
-              interval: planRecord.interval === 'monthly' ? 'month' : 'year',
+              interval: stripeInterval,
             },
           });
         }
