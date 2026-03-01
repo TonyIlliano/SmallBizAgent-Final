@@ -2507,6 +2507,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =================== TEST CALL ===================
+  // Let business owner test their AI receptionist by receiving an outbound call
+  app.post("/api/receptionist/test-call", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      if (businessId === 0) {
+        return res.status(400).json({ error: 'No business associated with your account' });
+      }
+
+      const business = await storage.getBusiness(businessId);
+      if (!business) {
+        return res.status(404).json({ error: 'Business not found' });
+      }
+
+      // Validate prerequisites: Vapi assistant and phone number must be provisioned
+      if (!business.vapiAssistantId) {
+        return res.status(400).json({
+          error: 'AI receptionist not set up yet. Please provision your receptionist first.'
+        });
+      }
+      if (!business.vapiPhoneNumberId) {
+        return res.status(400).json({
+          error: 'No phone number configured for your AI receptionist. Please set up a phone number first.'
+        });
+      }
+
+      // Get the phone number to call — use request body or fall back to business phone
+      let phoneNumber = req.body.phoneNumber || business.phone;
+      if (!phoneNumber) {
+        return res.status(400).json({
+          error: 'No phone number provided. Please enter a phone number to call.'
+        });
+      }
+
+      // Normalize to E.164 format
+      phoneNumber = phoneNumber.replace(/[\s\-\(\)\.]/g, '');
+      if (!phoneNumber.startsWith('+')) {
+        if (phoneNumber.startsWith('1') && phoneNumber.length === 11) {
+          phoneNumber = '+' + phoneNumber;
+        } else {
+          phoneNumber = '+1' + phoneNumber;
+        }
+      }
+
+      // Validate E.164 format
+      if (!/^\+[1-9]\d{6,14}$/.test(phoneNumber)) {
+        return res.status(400).json({
+          error: 'Invalid phone number format. Please enter a valid phone number.'
+        });
+      }
+
+      // Call Vapi outbound API
+      const result = await vapiService.createOutboundCall(
+        business.vapiAssistantId,
+        business.vapiPhoneNumberId,
+        phoneNumber
+      );
+
+      if (result.error) {
+        console.error(`[TestCall] Failed for business ${businessId}:`, result.error);
+        return res.status(500).json({
+          error: 'Failed to initiate test call. Please try again in a moment.'
+        });
+      }
+
+      console.log(`[TestCall] Initiated for business ${businessId}: callId=${result.callId}, to=${phoneNumber}`);
+      res.json({
+        success: true,
+        callId: result.callId,
+        message: 'Test call initiated! Answer your phone to speak with your AI receptionist.'
+      });
+    } catch (error) {
+      console.error('[TestCall] Error:', error);
+      res.status(500).json({ error: 'Failed to initiate test call' });
+    }
+  });
+
   // =================== VIRTUAL RECEPTIONIST API ===================
   app.get("/api/receptionist-config/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {

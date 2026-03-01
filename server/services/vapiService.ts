@@ -1537,11 +1537,57 @@ export async function listAssistants(): Promise<VapiAssistant[]> {
   }
 }
 
+/**
+ * Create an outbound call using Vapi's API.
+ * Calls the specified phone number and connects them to the given Vapi assistant.
+ * Used for "Test Call" feature so business owners can hear their AI receptionist.
+ */
+export async function createOutboundCall(
+  assistantId: string,
+  phoneNumberId: string,
+  customerNumber: string
+): Promise<{ callId?: string; error?: string }> {
+  if (!VAPI_API_KEY) {
+    return { error: 'Vapi API key not configured' };
+  }
+
+  try {
+    const response = await fetch(`${VAPI_BASE_URL}/call/phone`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${VAPI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        assistantId,
+        phoneNumberId,
+        customer: {
+          number: customerNumber
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[TestCall] Vapi outbound call failed:', response.status, errorText);
+      return { error: `Failed to create outbound call: ${response.status}` };
+    }
+
+    const result = await response.json();
+    console.log(`[TestCall] Outbound call created: ${result.id} to ${customerNumber}`);
+    return { callId: result.id };
+  } catch (error) {
+    console.error('[TestCall] Error creating Vapi outbound call:', error);
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export default {
   createAssistantForBusiness,
   updateAssistant,
   deleteAssistant,
   importPhoneNumber,
   getAssistant,
-  listAssistants
+  listAssistants,
+  createOutboundCall
 };

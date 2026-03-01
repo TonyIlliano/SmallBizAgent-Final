@@ -35,6 +35,7 @@ import {
   CheckCircle2,
   HelpCircle,
   Send,
+  Phone,
 } from "lucide-react";
 
 interface KnowledgeBaseProps {
@@ -111,6 +112,11 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   const [answeringId, setAnsweringId] = useState<number | null>(null);
   const [answerText, setAnswerText] = useState("");
 
+  // State for test call
+  const [testCallPhone, setTestCallPhone] = useState("");
+  const [testCallCooldown, setTestCallCooldown] = useState(false);
+  const [testCallSuccess, setTestCallSuccess] = useState(false);
+
   // Fetch knowledge entries
   const { data: knowledge = [], isLoading: loadingKnowledge } = useQuery<KnowledgeEntry[]>({
     queryKey: ["/api/knowledge"],
@@ -149,10 +155,43 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
     prevScrapeStatusRef.current = currentStatus;
   }, [scrapeStatus?.status, queryClient]);
 
-  // Fetch business profile to get the website URL
-  const { data: business } = useQuery<{ website?: string; name?: string }>({
+  // Fetch business profile to get the website URL and phone for test call
+  const { data: business } = useQuery<{ website?: string; name?: string; phone?: string; vapiAssistantId?: string; vapiPhoneNumberId?: string }>({
     queryKey: ["/api/business"],
     enabled: !!businessId,
+  });
+
+  // Pre-fill test call phone number from business profile
+  useEffect(() => {
+    if (business?.phone && !testCallPhone) {
+      setTestCallPhone(business.phone);
+    }
+  }, [business?.phone]);
+
+  // Test call mutation
+  const testCallMutation = useMutation({
+    mutationFn: async (phoneNumber: string) => {
+      return await apiRequest("POST", "/api/receptionist/test-call", { phoneNumber });
+    },
+    onSuccess: () => {
+      setTestCallSuccess(true);
+      // Start 30-second cooldown
+      setTestCallCooldown(true);
+      setTimeout(() => setTestCallCooldown(false), 30000);
+      // Clear success message after 10 seconds
+      setTimeout(() => setTestCallSuccess(false), 10000);
+      toast({
+        title: "Calling you now!",
+        description: "Answer your phone to test your AI receptionist.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Test call failed",
+        description: error.message || "Could not initiate test call. Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   // Trigger website scrape
@@ -261,6 +300,81 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
 
   return (
     <div className="space-y-6">
+      {/* Section 0: Test Your AI Receptionist */}
+      <Card className="border-green-200">
+        <CardHeader className="bg-green-50 dark:bg-green-950/30 border-b border-green-200">
+          <div className="flex items-center gap-2">
+            <Phone className="h-5 w-5 text-green-600" />
+            <div>
+              <CardTitle className="text-lg text-green-800 dark:text-green-200">Test Your AI Receptionist</CardTitle>
+              <CardDescription className="text-green-600 dark:text-green-400">
+                Call yourself to hear exactly what your customers experience
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          {business?.vapiAssistantId && business?.vapiPhoneNumberId ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Enter your phone number and we'll call you, connecting you to your AI receptionist.
+                You'll hear the same greeting, voice, and responses your customers do.
+              </p>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="tel"
+                  placeholder="(555) 123-4567"
+                  value={testCallPhone}
+                  onChange={(e) => setTestCallPhone(e.target.value)}
+                  className="max-w-xs"
+                />
+                <Button
+                  onClick={() => testCallMutation.mutate(testCallPhone)}
+                  disabled={
+                    !testCallPhone.trim() ||
+                    testCallMutation.isPending ||
+                    testCallCooldown
+                  }
+                  className="gap-2 bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {testCallMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Phone className="h-4 w-4" />
+                  )}
+                  {testCallMutation.isPending
+                    ? "Calling..."
+                    : testCallCooldown
+                    ? "Please wait..."
+                    : "Call Me Now"}
+                </Button>
+              </div>
+              {testCallSuccess && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    Calling you now! Answer your phone to speak with your AI receptionist.
+                  </p>
+                </div>
+              )}
+              {testCallCooldown && !testCallSuccess && (
+                <p className="text-xs text-muted-foreground">
+                  You can place another test call in a few seconds.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200">
+              <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+              <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                Your AI receptionist needs to be set up before you can test it.
+                Go to <span className="font-medium">Configuration</span> to provision your receptionist.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Section 1: Website Scanner */}
       <Card>
         <CardHeader>
