@@ -51,6 +51,10 @@ import PhoneManagement from "@/pages/admin/phone-management";
 import StaffDashboard from "@/pages/staff/dashboard";
 import StaffJoin from "@/pages/staff/join";
 import LandingPage from "@/pages/landing";
+import PrivacyPolicy from "@/pages/privacy";
+import TermsOfService from "@/pages/terms";
+import SupportPage from "@/pages/support";
+import ContactPage from "@/pages/contact";
 import { SidebarProvider } from "./context/SidebarContext";
 import { AuthProvider, useAuth } from "./hooks/use-auth";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
@@ -140,6 +144,10 @@ function Router() {
       <Route path="/book/:slug/manage-reservation/:token" component={ManageReservation} />
       <Route path="/book/:slug/manage/:token" component={ManageAppointment} />
       <Route path="/book/:slug" component={PublicBooking} />
+      <Route path="/privacy" component={PrivacyPolicy} />
+      <Route path="/terms" component={TermsOfService} />
+      <Route path="/support" component={SupportPage} />
+      <Route path="/contact" component={ContactPage} />
       <Route component={NotFound} />
     </Switch>
   );

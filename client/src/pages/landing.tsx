@@ -374,7 +374,10 @@ function LandingAuthForm() {
       </CardContent>
       <CardFooter className="border-t border-neutral-800 pt-4">
         <p className="text-xs text-neutral-500 text-center w-full">
-          By continuing, you agree to the terms of service and privacy policy.
+          By continuing, you agree to our{" "}
+          <Link href="/terms"><span className="text-neutral-400 hover:text-white underline cursor-pointer">Terms of Service</span></Link>
+          {" "}and{" "}
+          <Link href="/privacy"><span className="text-neutral-400 hover:text-white underline cursor-pointer">Privacy Policy</span></Link>.
         </p>
       </CardFooter>
     </Card>
@@ -745,10 +748,10 @@ export default function LandingPage() {
               <span className="font-bold">SMALLBIZ AGENT</span>
             </div>
             <div className="flex items-center gap-8 text-sm text-neutral-400">
-              <a href="#" className="hover:text-white transition-colors">Privacy</a>
-              <a href="#" className="hover:text-white transition-colors">Terms</a>
-              <a href="#" className="hover:text-white transition-colors">Support</a>
-              <a href="#" className="hover:text-white transition-colors">Contact</a>
+              <Link href="/privacy"><span className="hover:text-white transition-colors cursor-pointer">Privacy</span></Link>
+              <Link href="/terms"><span className="hover:text-white transition-colors cursor-pointer">Terms</span></Link>
+              <Link href="/support"><span className="hover:text-white transition-colors cursor-pointer">Support</span></Link>
+              <Link href="/contact"><span className="hover:text-white transition-colors cursor-pointer">Contact</span></Link>
             </div>
             <div className="text-sm text-neutral-500">
               &copy; {new Date().getFullYear()} SmallBizAgent. All rights reserved.
