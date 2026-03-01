@@ -1619,6 +1619,14 @@ async function runMigrations() {
       console.error('Error running tiered subscription plans migration:', error);
     }
 
+    // Run updated subscription plan pricing migration
+    try {
+      const { migrate: migrateUpdatedPricing } = await import('./update_subscription_plan_pricing.js');
+      await migrateUpdatedPricing();
+    } catch (error) {
+      console.error('Error running updated subscription plan pricing migration:', error);
+    }
+
     // Create performance indexes
     await createPerformanceIndexes();
 

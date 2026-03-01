@@ -14,7 +14,6 @@ import {
   FileText,
   Bot,
   Clock,
-  Star,
   CheckCircle2,
   ArrowRight,
   Sparkles,
@@ -88,73 +87,84 @@ const features = [
   }
 ];
 
-const testimonials = [
+const whyReasons = [
   {
-    quote: "SmallBizAgent's AI receptionist has been a game-changer. I no longer miss calls while I'm with clients.",
-    author: "Sarah M.",
-    business: "Salon Owner",
-    rating: 5
+    icon: Phone,
+    title: "Never Miss Another Call",
+    description: "Your AI receptionist picks up every call, 24/7 — even nights, weekends, and holidays. Callers get a real conversation, not a voicemail."
   },
   {
-    quote: "The automated reminders alone have cut our no-shows in half. Worth every penny.",
-    author: "Mike T.",
-    business: "HVAC Contractor",
-    rating: 5
+    icon: Clock,
+    title: "Get Your Time Back",
+    description: "Stop juggling phone calls while you're with clients. Your AI handles bookings, answers FAQs, and routes urgent calls to you."
   },
   {
-    quote: "Finally, software that doesn't require a PhD to use. Set it up in 15 minutes.",
-    author: "Jennifer L.",
-    business: "Cleaning Service",
-    rating: 5
+    icon: Shield,
+    title: "Built for Small Business",
+    description: "No complex setup or IT team required. Connect your phone number, train your AI on your services, and you're live."
   }
 ];
 
 const pricingPlans = [
   {
     name: "Starter",
-    price: "$29",
-    period: "/month",
+    monthlyPrice: "$79",
+    annualPrice: "$63",
+    annualTotal: "$759/yr",
     description: "Perfect for solo operators",
+    minutes: "75 AI receptionist min/mo",
+    overage: "$0.99/min overage",
     features: [
+      "75 AI receptionist minutes/mo",
       "Unlimited customers",
       "Appointment scheduling",
       "Invoicing & payments",
       "Email reminders",
-      "Basic reports"
+      "Public booking page",
+      "Basic analytics"
     ],
     cta: "Start Free Trial",
     popular: false
   },
   {
     name: "Professional",
-    price: "$79",
-    period: "/month",
+    monthlyPrice: "$149",
+    annualPrice: "$119",
+    annualTotal: "$1,429/yr",
     description: "Most popular for growing businesses",
+    minutes: "200 AI receptionist min/mo",
+    overage: "$0.89/min overage",
     features: [
-      "Everything in Starter",
-      "AI Receptionist",
-      "SMS reminders",
-      "Staff scheduling",
-      "Custom branding",
-      "Priority support"
+      "200 AI receptionist minutes/mo",
+      "Everything in Starter, plus:",
+      "SMS notifications",
+      "Calendar sync (Google, Apple, Microsoft)",
+      "QuickBooks integration",
+      "Staff scheduling (up to 5)",
+      "Review request automation",
+      "Advanced analytics"
     ],
     cta: "Start Free Trial",
     popular: true
   },
   {
     name: "Business",
-    price: "$149",
-    period: "/month",
-    description: "For established businesses",
+    monthlyPrice: "$249",
+    annualPrice: "$199",
+    annualTotal: "$2,389/yr",
+    description: "For multi-location businesses",
+    minutes: "500 AI receptionist min/mo",
+    overage: "$0.79/min overage",
     features: [
-      "Everything in Professional",
+      "500 AI receptionist minutes/mo",
+      "Everything in Professional, plus:",
       "Multiple locations",
-      "Advanced analytics",
-      "API access",
-      "Dedicated support",
-      "Custom integrations"
+      "API access & webhooks",
+      "Custom integrations",
+      "Dedicated onboarding",
+      "Priority support"
     ],
-    cta: "Contact Sales",
+    cta: "Start Free Trial",
     popular: false
   }
 ];
@@ -384,6 +394,96 @@ function LandingAuthForm() {
   );
 }
 
+function PricingSection() {
+  const [annual, setAnnual] = useState(false);
+
+  return (
+    <section id="pricing" className="py-20 px-4 sm:px-6 lg:px-8 bg-neutral-950">
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center mb-16">
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            Simple, transparent pricing
+          </h2>
+          <p className="text-neutral-400 text-lg mb-8">
+            Start free, upgrade when you're ready. No credit card required.
+          </p>
+          <div className="inline-flex items-center gap-3 bg-neutral-900 border border-neutral-800 rounded-full p-1">
+            <button
+              onClick={() => setAnnual(false)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                !annual ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setAnnual(true)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                annual ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Annual <span className="text-green-500 ml-1">Save 20%</span>
+            </button>
+          </div>
+        </div>
+        <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          {pricingPlans.map((plan, i) => (
+            <Card
+              key={i}
+              className={`relative bg-neutral-900 border-neutral-800 ${
+                plan.popular ? 'border-white ring-1 ring-white' : ''
+              }`}
+            >
+              {plan.popular && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <span className="bg-white text-black text-xs font-semibold px-3 py-1 rounded-full">
+                    Most Popular
+                  </span>
+                </div>
+              )}
+              <CardContent className="p-6">
+                <div className="text-lg font-semibold text-white mb-2">{plan.name}</div>
+                <div className="flex items-baseline gap-1 mb-1">
+                  <span className="text-4xl font-bold text-white">
+                    {annual ? plan.annualPrice : plan.monthlyPrice}
+                  </span>
+                  <span className="text-neutral-500">/month</span>
+                </div>
+                {annual && (
+                  <div className="text-xs text-green-500 mb-2">
+                    Billed annually at {plan.annualTotal}
+                  </div>
+                )}
+                <p className="text-sm text-neutral-400 mb-2">{plan.description}</p>
+                <p className="text-xs text-neutral-500 mb-6">{plan.overage}</p>
+                <a href="#get-started">
+                  <Button
+                    className={`w-full ${
+                      plan.popular
+                        ? 'bg-white text-black hover:bg-neutral-200'
+                        : 'bg-neutral-800 text-white hover:bg-neutral-700'
+                    }`}
+                  >
+                    {plan.cta}
+                  </Button>
+                </a>
+                <ul className="mt-6 space-y-3">
+                  {plan.features.map((feature, j) => (
+                    <li key={j} className="flex items-center gap-2 text-sm text-neutral-300">
+                      <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-black text-white">
@@ -398,7 +498,7 @@ export default function LandingPage() {
             <div className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm text-neutral-400 hover:text-white transition-colors">Features</a>
               <a href="#pricing" className="text-sm text-neutral-400 hover:text-white transition-colors">Pricing</a>
-              <a href="#testimonials" className="text-sm text-neutral-400 hover:text-white transition-colors">Reviews</a>
+              <a href="#why" className="text-sm text-neutral-400 hover:text-white transition-colors">Why Us</a>
             </div>
             <div className="flex items-center gap-4">
               <a href="#get-started">
@@ -454,13 +554,13 @@ export default function LandingPage() {
             </p>
           </div>
 
-          {/* Stats */}
+          {/* Value Props */}
           <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
             {[
-              { value: "10K+", label: "Businesses" },
-              { value: "500K+", label: "Calls Handled" },
-              { value: "98%", label: "Satisfaction" },
-              { value: "24/7", label: "AI Availability" }
+              { value: "24/7", label: "AI Availability" },
+              { value: "0", label: "Missed Calls" },
+              { value: "50%", label: "Fewer No-Shows" },
+              { value: "<15 min", label: "Setup Time" }
             ].map((stat, i) => (
               <div key={i} className="text-center">
                 <div className="text-3xl md:text-4xl font-bold text-white">{stat.value}</div>
@@ -615,31 +715,26 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials */}
-      <section id="testimonials" className="py-20 px-4 sm:px-6 lg:px-8">
+      {/* Why SmallBizAgent */}
+      <section id="why" className="py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
-              Loved by small businesses
+              Why SmallBizAgent?
             </h2>
             <p className="text-neutral-400 text-lg">
-              See what business owners like you are saying.
+              Built from the ground up for service-based small businesses.
             </p>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
-            {testimonials.map((testimonial, i) => (
+            {whyReasons.map((reason, i) => (
               <Card key={i} className="bg-neutral-900 border-neutral-800">
                 <CardContent className="p-6">
-                  <div className="flex gap-1 mb-4">
-                    {[...Array(testimonial.rating)].map((_, i) => (
-                      <Star key={i} className="h-4 w-4 fill-yellow-500 text-yellow-500" />
-                    ))}
+                  <div className="h-12 w-12 rounded-xl bg-white/10 flex items-center justify-center mb-4">
+                    <reason.icon className="h-6 w-6 text-white" />
                   </div>
-                  <p className="text-neutral-300 mb-4">"{testimonial.quote}"</p>
-                  <div>
-                    <div className="font-semibold text-white">{testimonial.author}</div>
-                    <div className="text-sm text-neutral-500">{testimonial.business}</div>
-                  </div>
+                  <h3 className="text-lg font-semibold text-white mb-2">{reason.title}</h3>
+                  <p className="text-neutral-400">{reason.description}</p>
                 </CardContent>
               </Card>
             ))}
@@ -648,63 +743,7 @@ export default function LandingPage() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="py-20 px-4 sm:px-6 lg:px-8 bg-neutral-950">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">
-              Simple, transparent pricing
-            </h2>
-            <p className="text-neutral-400 text-lg">
-              Start free, upgrade when you're ready.
-            </p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {pricingPlans.map((plan, i) => (
-              <Card
-                key={i}
-                className={`relative bg-neutral-900 border-neutral-800 ${
-                  plan.popular ? 'border-white ring-1 ring-white' : ''
-                }`}
-              >
-                {plan.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <span className="bg-white text-black text-xs font-semibold px-3 py-1 rounded-full">
-                      Most Popular
-                    </span>
-                  </div>
-                )}
-                <CardContent className="p-6">
-                  <div className="text-lg font-semibold text-white mb-2">{plan.name}</div>
-                  <div className="flex items-baseline gap-1 mb-2">
-                    <span className="text-4xl font-bold text-white">{plan.price}</span>
-                    <span className="text-neutral-500">{plan.period}</span>
-                  </div>
-                  <p className="text-sm text-neutral-400 mb-6">{plan.description}</p>
-                  <a href="#get-started">
-                    <Button
-                      className={`w-full ${
-                        plan.popular
-                          ? 'bg-white text-black hover:bg-neutral-200'
-                          : 'bg-neutral-800 text-white hover:bg-neutral-700'
-                      }`}
-                    >
-                      {plan.cta}
-                    </Button>
-                  </a>
-                  <ul className="mt-6 space-y-3">
-                    {plan.features.map((feature, j) => (
-                      <li key={j} className="flex items-center gap-2 text-sm text-neutral-300">
-                        <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
+      <PricingSection />
 
       {/* Sign Up / Login Section */}
       <section id="get-started" className="py-20 px-4 sm:px-6 lg:px-8">
@@ -715,15 +754,16 @@ export default function LandingPage() {
                 Ready to put your business on autopilot?
               </h2>
               <p className="text-neutral-400 text-lg mb-8">
-                Join thousands of small businesses using SmallBizAgent to save time,
-                never miss calls, and grow their revenue.
+                Stop missing calls and losing customers. SmallBizAgent handles your
+                phone, books your appointments, and manages your business — so you
+                can focus on the work.
               </p>
               <div className="space-y-4">
                 {[
                   "14-day free trial, no credit card required",
                   "Set up in under 15 minutes",
                   "Cancel anytime, no questions asked",
-                  "AI receptionist included in all plans"
+                  "AI receptionist minutes included in every plan"
                 ].map((item, i) => (
                   <div key={i} className="flex items-center gap-3 text-neutral-300">
                     <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />

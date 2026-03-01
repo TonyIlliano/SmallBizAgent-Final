@@ -13,9 +13,13 @@ interface Plan {
   id: number;
   name: string;
   description: string;
+  planTier: string;
   price: number;
   interval: string;
   features: string[];
+  maxCallMinutes: number;
+  overageRatePerMinute: number;
+  maxStaff: number | null;
   active: boolean;
   sortOrder: number;
 }
@@ -25,6 +29,7 @@ export default function OnboardingSubscription() {
   const [, navigate] = useLocation();
   const [selectedPlan, setSelectedPlan] = useState<number | null>(null);
   const [isCreatingSubscription, setIsCreatingSubscription] = useState(false);
+  const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly');
 
   // Redirect to dashboard if user is not authenticated
   useEffect(() => {
@@ -80,31 +85,57 @@ export default function OnboardingSubscription() {
           <p className="mt-3 text-neutral-400 max-w-2xl mx-auto">
             Select the subscription plan that works best for your business. All plans include a 14-day free trial.
           </p>
+
+          {/* Billing interval toggle */}
+          <div className="inline-flex items-center gap-3 bg-neutral-900 border border-neutral-800 rounded-full p-1 mt-6">
+            <button
+              onClick={() => { setBillingInterval('monthly'); setSelectedPlan(null); }}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                billingInterval === 'monthly' ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => { setBillingInterval('yearly'); setSelectedPlan(null); }}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                billingInterval === 'yearly' ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Annual <span className="text-green-500 ml-1">Save 20%</span>
+            </button>
+          </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8 mb-8">
-          {plans?.map((plan: Plan) => (
+        <div className="grid md:grid-cols-3 gap-8 mb-8">
+          {plans?.filter((p: Plan) => p.interval === billingInterval).map((plan: Plan) => (
             <Card
               key={plan.id}
-              className={`flex flex-col h-full bg-neutral-900 border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer ${selectedPlan === plan.id ? 'ring-2 ring-white border-white' : ''}`}
+              className={`flex flex-col h-full bg-neutral-900 border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer ${selectedPlan === plan.id ? 'ring-2 ring-white border-white' : ''} ${plan.planTier === 'professional' ? 'border-white' : ''}`}
               onClick={() => handleSelectPlan(plan.id)}
             >
+              {plan.planTier === 'professional' && (
+                <div className="text-center py-1 bg-white text-black text-xs font-semibold rounded-t-lg">
+                  Most Popular
+                </div>
+              )}
               <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle className="text-2xl font-bold text-white">{plan.name}</CardTitle>
-                    <CardDescription className="mt-2 text-neutral-400">{plan.description}</CardDescription>
-                  </div>
-                  <Badge variant={plan.interval === 'monthly' ? 'default' : 'secondary'} className="bg-neutral-800 text-neutral-300 border-neutral-700">
-                    {plan.interval === 'monthly' ? 'Monthly' : 'Annual'}
-                  </Badge>
-                </div>
+                <CardTitle className="text-2xl font-bold text-white">{plan.name}</CardTitle>
+                <CardDescription className="mt-2 text-neutral-400">{plan.description}</CardDescription>
                 <div className="mt-4">
-                  <span className="text-4xl font-bold text-white">${plan.price}</span>
-                  <span className="text-neutral-500 ml-1">
-                    /{plan.interval === 'monthly' ? 'month' : 'year'}
+                  <span className="text-4xl font-bold text-white">
+                    ${billingInterval === 'yearly' ? Math.round(plan.price / 12) : plan.price}
                   </span>
+                  <span className="text-neutral-500 ml-1">/month</span>
                 </div>
+                {billingInterval === 'yearly' && (
+                  <p className="text-xs text-green-500 mt-1">
+                    Billed annually at ${plan.price}/yr
+                  </p>
+                )}
+                <p className="text-xs text-neutral-500 mt-2">
+                  ${plan.overageRatePerMinute?.toFixed(2)}/min overage
+                </p>
               </CardHeader>
               <CardContent className="flex-grow">
                 <Separator className="my-4 bg-neutral-800" />

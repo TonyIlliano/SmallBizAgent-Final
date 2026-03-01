@@ -15,9 +15,13 @@ interface Plan {
   id: number;
   name: string;
   description: string;
+  planTier: string;
   price: number;
   interval: string;
   features: string[];
+  maxCallMinutes: number;
+  overageRatePerMinute: number;
+  maxStaff: number | null;
   active: boolean;
   sortOrder: number;
 }
@@ -27,6 +31,7 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [selectedPlan, setSelectedPlan] = useState<number | null>(null);
+  const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly');
 
   // Fetch all available plans
   const { data: plans = [], isLoading: isLoadingPlans } = useQuery<Plan[]>({
@@ -157,12 +162,39 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
     );
   }
 
+  // Filter plans by selected billing interval
+  const filteredPlans = plans?.filter((p: Plan) => p.interval === billingInterval) || [];
+
   return (
     <div className="container mx-auto py-8">
       <h2 className="text-3xl font-bold mb-2">Subscription Plans</h2>
-      <p className="text-muted-foreground mb-8">
+      <p className="text-muted-foreground mb-4">
         Choose the plan that's right for your business
       </p>
+
+      {/* Billing interval toggle */}
+      <div className="flex items-center gap-3 mb-8">
+        <button
+          onClick={() => setBillingInterval('monthly')}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
+            billingInterval === 'monthly'
+              ? 'bg-primary text-primary-foreground border-primary'
+              : 'bg-muted text-muted-foreground border-border hover:bg-accent'
+          }`}
+        >
+          Monthly
+        </button>
+        <button
+          onClick={() => setBillingInterval('yearly')}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
+            billingInterval === 'yearly'
+              ? 'bg-primary text-primary-foreground border-primary'
+              : 'bg-muted text-muted-foreground border-border hover:bg-accent'
+          }`}
+        >
+          Annual <span className="text-green-500 ml-1">Save 20%</span>
+        </button>
+      </div>
 
       {isSubscribed && !isCanceling && (
         <div className="mb-8 p-4 bg-muted rounded-lg">
@@ -171,9 +203,9 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
           <p className="text-sm text-muted-foreground mt-2">
             Your next billing date is {new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}.
           </p>
-          <Button 
-            variant="outline" 
-            className="mt-4" 
+          <Button
+            variant="outline"
+            className="mt-4"
             onClick={handleCancel}
             disabled={isPendingAction}
           >
@@ -190,9 +222,9 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
           <p className="text-sm text-muted-foreground mt-2">
             Access ends on {new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}.
           </p>
-          <Button 
-            variant="outline" 
-            className="mt-4" 
+          <Button
+            variant="outline"
+            className="mt-4"
             onClick={handleResume}
             disabled={isPendingAction}
           >
@@ -202,28 +234,34 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
         </div>
       )}
 
-      <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-2">
-        {plans?.map((plan: Plan) => (
-          <Card 
-            key={plan.id} 
-            className={`flex flex-col h-full ${selectedPlan === plan.id ? 'border-primary' : ''}`}
+      <div className="grid gap-8 md:grid-cols-3">
+        {filteredPlans.map((plan: Plan) => (
+          <Card
+            key={plan.id}
+            className={`flex flex-col h-full ${selectedPlan === plan.id ? 'border-primary ring-2 ring-primary' : ''} ${plan.planTier === 'professional' ? 'border-primary' : ''}`}
           >
+            {plan.planTier === 'professional' && (
+              <div className="text-center py-1 bg-primary text-primary-foreground text-xs font-semibold rounded-t-lg">
+                Most Popular
+              </div>
+            )}
             <CardHeader>
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle className="text-2xl font-bold">{plan.name}</CardTitle>
-                  <CardDescription className="mt-2">{plan.description}</CardDescription>
-                </div>
-                <Badge variant={plan.interval === 'monthly' ? 'default' : 'secondary'}>
-                  {plan.interval === 'monthly' ? 'Monthly' : 'Annual'}
-                </Badge>
-              </div>
+              <CardTitle className="text-2xl font-bold">{plan.name}</CardTitle>
+              <CardDescription className="mt-2">{plan.description}</CardDescription>
               <div className="mt-4">
-                <span className="text-3xl font-bold">${plan.price}</span>
-                <span className="text-muted-foreground ml-1">
-                  /{plan.interval === 'monthly' ? 'month' : 'year'}
+                <span className="text-3xl font-bold">
+                  ${billingInterval === 'yearly' ? Math.round(plan.price / 12) : plan.price}
                 </span>
+                <span className="text-muted-foreground ml-1">/month</span>
               </div>
+              {billingInterval === 'yearly' && (
+                <p className="text-xs text-green-600 mt-1">
+                  Billed annually at ${plan.price}/yr
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground mt-2">
+                ${plan.overageRatePerMinute?.toFixed(2)}/min overage
+              </p>
             </CardHeader>
             <CardContent className="flex-grow">
               <Separator className="my-4" />
@@ -239,8 +277,8 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
             </CardContent>
             <CardFooter>
               {!isSubscribed ? (
-                <Button 
-                  className="w-full" 
+                <Button
+                  className="w-full"
                   onClick={() => handleSelectPlan(plan.id)}
                   variant={selectedPlan === plan.id ? "default" : "outline"}
                   disabled={isPendingAction}
@@ -248,9 +286,9 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
                   {selectedPlan === plan.id ? 'Selected' : 'Select Plan'}
                 </Button>
               ) : (
-                <Button 
-                  className="w-full" 
-                  variant="outline" 
+                <Button
+                  className="w-full"
+                  variant="outline"
                   disabled
                 >
                   {subscriptionStatus?.plan?.id === plan.id ? 'Current Plan' : 'Change Plan'}
@@ -263,8 +301,8 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
 
       {!isSubscribed && selectedPlan && (
         <div className="mt-8 flex justify-center">
-          <Button 
-            size="lg" 
+          <Button
+            size="lg"
             onClick={handleSubscribe}
             disabled={isPendingAction}
           >
