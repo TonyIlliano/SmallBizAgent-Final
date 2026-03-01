@@ -797,6 +797,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =================== CUSTOMERS API ===================
+  // Register customerRoutes FIRST so /customers/enriched is matched before /customers/:id
+  app.use('/api', customerRoutes);
+
   app.get("/api/customers", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
@@ -4943,8 +4946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register quote routes
   app.use('/api', quoteRoutes);
   
-  // Register customer routes
-  app.use('/api', customerRoutes);
+  // customerRoutes registered earlier (before /customers/:id) so /customers/enriched matches first
 
   // Register recurring schedules routes
   app.use('/api/recurring-schedules', recurringRoutes);
