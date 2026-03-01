@@ -10,6 +10,7 @@ import Customers from "@/pages/customers/index";
 import CustomerDetail from "@/pages/customers/[id]";
 import Appointments from "@/pages/appointments/index";
 import AppointmentDetail from "@/pages/appointments/[id]";
+import FullscreenSchedule from "@/pages/appointments/fullscreen";
 import Jobs from "@/pages/jobs/index";
 import JobDetail from "@/pages/jobs/[id]";
 import Invoices from "@/pages/invoices/index";
@@ -99,6 +100,7 @@ function Router() {
       <ProtectedRoute path="/customers" component={Customers} />
       <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
       <ProtectedRoute path="/appointments" component={Appointments} />
+      <ProtectedRoute path="/appointments/fullscreen" component={FullscreenSchedule} />
       <ProtectedRoute path="/appointments/:id" component={AppointmentDetail} />
       <ProtectedRoute path="/jobs" component={Jobs} />
       <ProtectedRoute path="/jobs/:id" component={JobDetail} />

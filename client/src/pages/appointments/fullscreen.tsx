@@ -1,0 +1,470 @@
+import { useState, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Minimize2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  User,
+  Scissors,
+  Calendar as CalendarIcon,
+} from "lucide-react";
+
+// ─── Types ───────────────────────────────────────────────────────────
+interface StaffData {
+  id: number;
+  firstName: string;
+  lastName: string;
+  role?: string;
+  specialty?: string;
+}
+
+interface AppointmentData {
+  id: number;
+  startDate: string;
+  endDate: string;
+  status: string;
+  notes?: string;
+  customer?: {
+    id: number;
+    firstName: string;
+    lastName: string;
+    phone?: string;
+    email?: string;
+  };
+  staff?: {
+    id: number;
+    firstName: string;
+    lastName: string;
+  };
+  service?: {
+    id: number;
+    name: string;
+    price?: string;
+    duration?: number;
+  };
+}
+
+// ─── Date Helpers ────────────────────────────────────────────────────
+function getStartOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getEndOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function isToday(date: Date): boolean {
+  const today = new Date();
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  );
+}
+
+function formatFullDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+// ─── Constants ───────────────────────────────────────────────────────
+const HOUR_START = 8;
+const HOUR_END = 18;
+const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
+const HOUR_HEIGHT = 90; // Larger for fullscreen readability
+
+const STAFF_COLORS = [
+  "#3B82F6", "#10B981", "#F59E0B", "#EF4444",
+  "#8B5CF6", "#EC4899", "#06B6D4", "#F97316",
+];
+
+const STATUS_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  scheduled: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500", dot: "bg-blue-500" },
+  confirmed: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500", dot: "bg-green-500" },
+  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500", dot: "bg-purple-500" },
+  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
+};
+
+function formatHour(hour: number): string {
+  if (hour === 0) return "12 AM";
+  if (hour < 12) return `${hour} AM`;
+  if (hour === 12) return "12 PM";
+  return `${hour - 12} PM`;
+}
+
+// ─── Fullscreen Schedule Page ────────────────────────────────────────
+export default function FullscreenSchedule() {
+  const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const businessId = user?.businessId;
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Update current time every 30 seconds for the time indicator
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-advance to today at midnight
+  useEffect(() => {
+    const now = new Date();
+    const msUntilMidnight =
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() -
+      now.getTime();
+
+    const timeout = setTimeout(() => {
+      setSelectedDate(new Date());
+    }, msUntilMidnight);
+
+    return () => clearTimeout(timeout);
+  }, [selectedDate]);
+
+  // Date query range
+  const queryStartDate = getStartOfDay(selectedDate);
+  const queryEndDate = getEndOfDay(selectedDate);
+
+  // Fetch appointments — auto-refetch every 10 seconds for live updates
+  const { data: appointments = [] } = useQuery<AppointmentData[]>({
+    queryKey: ["/api/appointments", { businessId, startDate: queryStartDate.toISOString(), endDate: queryEndDate.toISOString() }],
+    refetchInterval: 10000,
+    staleTime: 5000,
+    enabled: !!businessId,
+  });
+
+  // Fetch staff members
+  const { data: staffMembers = [] } = useQuery<StaffData[]>({
+    queryKey: ["/api/staff", { businessId }],
+    enabled: !!businessId,
+  });
+
+  // Navigation
+  const navigateDay = useCallback((offset: number) => {
+    setSelectedDate((prev) => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + offset);
+      return d;
+    });
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        navigate("/appointments");
+      } else if (e.key === "ArrowLeft") {
+        navigateDay(-1);
+      } else if (e.key === "ArrowRight") {
+        navigateDay(1);
+      } else if (e.key === "t" || e.key === "T") {
+        setSelectedDate(new Date());
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [navigate, navigateDay]);
+
+  // Build staff columns
+  const columns: { id: number | null; name: string; color: string }[] = staffMembers.map(
+    (s, i) => ({
+      id: s.id,
+      name: `${s.firstName} ${s.lastName?.charAt(0) || ""}`.trim(),
+      color: STAFF_COLORS[i % STAFF_COLORS.length],
+    })
+  );
+  columns.push({ id: null, name: "Unassigned", color: "#9CA3AF" });
+
+  // Group appointments by staff column
+  const appointmentsByColumn = new Map<number | null, AppointmentData[]>();
+  columns.forEach((col) => appointmentsByColumn.set(col.id, []));
+
+  appointments.forEach((appt) => {
+    const staffId = appt.staff?.id ?? null;
+    const bucket = appointmentsByColumn.get(staffId);
+    if (bucket) {
+      bucket.push(appt);
+    } else {
+      appointmentsByColumn.get(null)!.push(appt);
+    }
+  });
+
+  // Time indicator
+  const showTimeLine = isToday(selectedDate);
+  const timeLineTop =
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    HOUR_HEIGHT;
+
+  // Summary counts
+  const totalToday = appointments.length;
+  const confirmed = appointments.filter((a) => a.status === "confirmed").length;
+  const scheduled = appointments.filter((a) => a.status === "scheduled").length;
+  const completed = appointments.filter((a) => a.status === "completed").length;
+
+  // Clock display
+  const clockStr = currentTime.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+
+  const colCount = columns.length;
+  const gridCols = `72px repeat(${colCount}, minmax(200px, 1fr))`;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col overflow-hidden">
+      {/* ── Top Bar ────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-6 py-3 bg-black text-white border-b border-neutral-800 flex-shrink-0">
+        {/* Left: date nav */}
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-neutral-400 hover:text-white hover:bg-neutral-800"
+            onClick={() => navigateDay(-1)}
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`text-sm font-medium ${isToday(selectedDate) ? "bg-white text-black hover:bg-neutral-200" : "text-neutral-300 hover:text-white hover:bg-neutral-800"}`}
+            onClick={() => setSelectedDate(new Date())}
+          >
+            Today
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-neutral-400 hover:text-white hover:bg-neutral-800"
+            onClick={() => navigateDay(1)}
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Button>
+          <div className="ml-2">
+            <h1 className="text-lg font-bold">{formatFullDate(selectedDate)}</h1>
+          </div>
+        </div>
+
+        {/* Center: summary stats */}
+        <div className="hidden md:flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <CalendarIcon className="h-4 w-4 text-neutral-400" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{totalToday}</span>
+              <span className="text-neutral-400 ml-1">total</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-500" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{confirmed}</span>
+              <span className="text-neutral-400 ml-1">confirmed</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-blue-500" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{scheduled}</span>
+              <span className="text-neutral-400 ml-1">scheduled</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-purple-500" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{completed}</span>
+              <span className="text-neutral-400 ml-1">completed</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Right: clock + exit */}
+        <div className="flex items-center gap-4">
+          <div className="text-right hidden sm:block">
+            <div className="text-lg font-mono font-bold tabular-nums">{clockStr}</div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-neutral-400 hover:text-white hover:bg-neutral-800"
+            onClick={() => navigate("/appointments")}
+          >
+            <Minimize2 className="h-4 w-4 mr-2" />
+            Exit
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Schedule Grid ──────────────────────────────────────────── */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {/* Staff header row */}
+        <div
+          className="grid border-b sticky top-0 z-30 bg-white flex-shrink-0"
+          style={{ gridTemplateColumns: gridCols }}
+        >
+          <div className="p-3 border-r bg-gray-50 flex items-center justify-center">
+            <Clock className="h-4 w-4 text-gray-400" />
+          </div>
+          {columns.map((col) => {
+            const count = appointmentsByColumn.get(col.id)?.length || 0;
+            return (
+              <div
+                key={col.id ?? "unassigned"}
+                className={`flex items-center gap-3 px-4 py-3 border-r last:border-r-0 ${
+                  col.id === null ? "bg-gray-50" : ""
+                }`}
+              >
+                <div
+                  className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: col.color }}
+                />
+                <span className="text-sm font-bold text-gray-800 truncate">
+                  {col.name}
+                </span>
+                <Badge variant="secondary" className="ml-auto text-xs">
+                  {count}
+                </Badge>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Scrollable time grid */}
+        <div className="flex-1 overflow-auto">
+          <div
+            className="grid relative"
+            style={{
+              gridTemplateColumns: gridCols,
+              minHeight: HOURS.length * HOUR_HEIGHT,
+            }}
+          >
+            {/* Current time indicator */}
+            {showTimeLine && timeLineTop >= 0 && timeLineTop <= HOURS.length * HOUR_HEIGHT && (
+              <div
+                className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
+                style={{ top: timeLineTop }}
+              >
+                <div className="w-3 h-3 rounded-full bg-red-500 -ml-1 shadow-lg" />
+                <div className="flex-1 h-0.5 bg-red-500 shadow-sm" />
+              </div>
+            )}
+
+            {/* Hour rows */}
+            {HOURS.map((hour) => (
+              <div key={`row-${hour}`} className="contents">
+                {/* Time label */}
+                <div
+                  className="text-sm text-gray-400 text-right pr-3 pt-2 border-b border-r bg-gray-50/50 font-medium"
+                  style={{ height: HOUR_HEIGHT }}
+                >
+                  {formatHour(hour)}
+                </div>
+
+                {/* Staff column cells */}
+                {columns.map((col) => {
+                  const colAppts = (appointmentsByColumn.get(col.id) || []).filter(
+                    (a) => new Date(a.startDate).getHours() === hour
+                  );
+
+                  return (
+                    <div
+                      key={`cell-${hour}-${col.id ?? "u"}`}
+                      className={`relative border-b border-r last:border-r-0 transition-colors ${
+                        col.id === null ? "bg-gray-50/30" : "hover:bg-gray-50/50"
+                      }`}
+                      style={{ height: HOUR_HEIGHT }}
+                    >
+                      {colAppts.map((appt) => {
+                        const start = new Date(appt.startDate);
+                        const minuteOffset = start.getMinutes();
+                        const topPx = (minuteOffset / 60) * HOUR_HEIGHT;
+                        const end = new Date(appt.endDate);
+                        const durationMinutes = (end.getTime() - start.getTime()) / 60000;
+                        const heightPx = Math.max(
+                          (durationMinutes / 60) * HOUR_HEIGHT - 2,
+                          40
+                        );
+                        const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                        const customerName = appt.customer
+                          ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
+                          : "Walk-in";
+
+                        return (
+                          <div
+                            key={appt.id}
+                            className={`absolute left-1 right-1 rounded-lg px-3 py-2 border-l-4 text-left overflow-hidden transition-all hover:shadow-lg z-10 ${colors.bg} ${colors.border}`}
+                            style={{ top: topPx, height: heightPx }}
+                          >
+                            {/* Customer name */}
+                            <div className={`text-sm font-bold truncate ${colors.text}`}>
+                              {customerName}
+                            </div>
+                            {/* Service + time */}
+                            <div className="text-xs text-gray-500 truncate mt-0.5">
+                              {appt.service?.name || "Appointment"} &middot; {formatTime(start)} - {formatTime(end)}
+                            </div>
+                            {/* Phone number if space allows */}
+                            {heightPx > 60 && appt.customer?.phone && (
+                              <div className="text-xs text-gray-400 truncate mt-0.5">
+                                {appt.customer.phone}
+                              </div>
+                            )}
+                            {/* Status dot */}
+                            <div className="absolute top-2 right-2">
+                              <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Bottom status bar ──────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-6 py-2 bg-gray-50 border-t text-xs text-gray-500 flex-shrink-0">
+        <div className="flex items-center gap-4">
+          <span>Press <kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">Esc</kbd> to exit</span>
+          <span><kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">&larr;</kbd> <kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">&rarr;</kbd> navigate days</span>
+          <span><kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">T</kbd> go to today</span>
+        </div>
+        <div className="flex items-center gap-4">
+          {Object.entries(STATUS_COLORS).map(([status, colors]) => (
+            <div key={status} className="flex items-center gap-1.5">
+              <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
+              <span className="capitalize">{status}</span>
+            </div>
+          ))}
+        </div>
+        <div>
+          Auto-refreshes every 10s
+        </div>
+      </div>
+    </div>
+  );
+}

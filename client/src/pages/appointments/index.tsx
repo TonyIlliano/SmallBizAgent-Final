@@ -18,6 +18,7 @@ import {
   User,
   MoreVertical,
   Scissors,
+  Maximize2,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AppointmentForm } from "@/components/appointments/AppointmentForm";
@@ -283,10 +284,21 @@ export default function Appointments() {
           <h2 className="text-2xl font-bold">Appointments</h2>
           <p className="text-gray-500 text-sm">Manage your schedule</p>
         </div>
-        <Button onClick={() => setSheetOpen(true)} className="flex items-center">
-          <PlusCircle className="mr-2 h-4 w-4" />
-          New Appointment
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => navigate("/appointments/fullscreen")}
+            className="flex items-center"
+            title="Open fullscreen schedule view"
+          >
+            <Maximize2 className="mr-2 h-4 w-4" />
+            Enlarge
+          </Button>
+          <Button onClick={() => setSheetOpen(true)} className="flex items-center">
+            <PlusCircle className="mr-2 h-4 w-4" />
+            New Appointment
+          </Button>
+        </div>
       </div>
 
       {/* ── Navigation Bar ─────────────────────────────────────── */}
