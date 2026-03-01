@@ -152,15 +152,15 @@ const pricingPlans = [
     monthlyPrice: "$249",
     annualPrice: "$199",
     annualTotal: "$2,389/yr",
-    description: "For multi-location businesses",
+    description: "For established businesses",
     minutes: "500 AI receptionist min/mo",
     overage: "$0.79/min overage",
     features: [
       "500 AI receptionist minutes/mo",
       "Everything in Professional, plus:",
-      "Multiple locations",
+      "Up to 15 staff members",
       "API access & webhooks",
-      "Custom integrations",
+      "Custom AI receptionist training",
       "Dedicated onboarding",
       "Priority support"
     ],
@@ -543,7 +543,7 @@ export default function LandingPage() {
                 </Button>
               </a>
               <a href="#features">
-                <Button size="lg" variant="outline" className="border-neutral-700 text-white hover:bg-neutral-900 px-8 py-6 text-lg">
+                <Button size="lg" variant="outline" className="bg-transparent border-neutral-700 text-white hover:bg-neutral-900 hover:text-white px-8 py-6 text-lg">
                   <Phone className="mr-2 h-5 w-5" />
                   See Features
                 </Button>
