@@ -9,6 +9,7 @@ const DEFAULT_REVIEW_COOLDOWN_DAYS = 90;
 // Twilio setup
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
 const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+const twilioMsgServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
 const isTwilioConfigured = twilioAccountSid && twilioAuthToken && twilioAccountSid.startsWith('AC');
 
 let twilioClient: ReturnType<typeof twilio> | null = null;
@@ -178,11 +179,16 @@ export async function sendReviewRequestSms(
       console.log('[Review Service] Twilio not configured, would send:', message);
       // Still record the request in dev mode
     } else {
-      await twilioClient.messages.create({
+      const smsParams: any = {
         body: message,
-        from: business.twilioPhoneNumber,
         to: customer.phone
-      });
+      };
+      if (twilioMsgServiceSid) {
+        smsParams.messagingServiceSid = twilioMsgServiceSid;
+      } else {
+        smsParams.from = business.twilioPhoneNumber;
+      }
+      await twilioClient.messages.create(smsParams);
     }
 
     // Record the review request

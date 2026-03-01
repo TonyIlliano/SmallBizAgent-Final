@@ -15,6 +15,7 @@ const { VoiceResponse } = twilio.twiml;
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const configuredPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '';
+const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
 
 // Check if Twilio is properly configured
 const isTwilioConfigured = accountSid && authToken && accountSid.startsWith('AC');
@@ -78,10 +79,22 @@ export async function sendSms(to: string, body: string, from?: string) {
     return { sid: 'mock-sid', status: 'mock' };
   }
   try {
-    // Resolve the from number: explicit param > env var > auto-discover from account
+    // Prefer Messaging Service SID (A2P 10DLC compliant) over individual from numbers
+    if (messagingServiceSid) {
+      console.log(`Sending SMS via Messaging Service: to=${to} body="${body.substring(0, 60)}..."`);
+      const message = await client.messages.create({
+        body,
+        messagingServiceSid,
+        to
+      });
+      console.log(`SMS sent successfully: sid=${message.sid} status=${message.status}`);
+      return message;
+    }
+
+    // Fallback: resolve the from number: explicit param > env var > auto-discover from account
     const fromNumber = from || await getSmsFromNumber();
     if (!fromNumber) {
-      console.error('No SMS-capable from number available. Set TWILIO_PHONE_NUMBER or ensure account has SMS-capable numbers.');
+      console.error('No SMS-capable from number available. Set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER.');
       throw new Error('No SMS from number configured');
     }
 
