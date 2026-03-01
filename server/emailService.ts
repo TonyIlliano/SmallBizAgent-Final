@@ -609,3 +609,135 @@ export async function sendJobCompletedEmail(
 
   return sendEmail({ to: customerEmail, subject, text, html, senderName: businessName });
 }
+
+/**
+ * Send urgent call forwarding deactivation email when a Twilio number is deprovisioned.
+ * Warns the business owner to dial *73 to restore direct calls to their phone.
+ */
+export async function sendCallForwardingDeactivationEmail(
+  ownerEmail: string,
+  businessName: string,
+  twilioPhoneNumber: string,
+  reason: 'trial_expired' | 'subscription_canceled' | 'payment_failed'
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const subject = `ACTION REQUIRED: Restore phone service for ${businessName}`;
+
+  const reasonText = reason === 'trial_expired'
+    ? 'Your SmallBizAgent trial has expired'
+    : reason === 'subscription_canceled'
+    ? 'Your SmallBizAgent subscription has been canceled'
+    : 'Your SmallBizAgent payment could not be processed';
+
+  const text = `URGENT - ${reasonText}.\n\n` +
+    `Your AI receptionist number (${twilioPhoneNumber}) has been deactivated. ` +
+    `If you set up call forwarding (*72) from your business phone, your callers ` +
+    `are now hearing "the number you have dialed is not in service."\n\n` +
+    `TO RESTORE YOUR PHONE SERVICE:\n` +
+    `1. Pick up your business phone\n` +
+    `2. Dial *73\n` +
+    `3. Wait for the confirmation tone\n\n` +
+    `This will remove the forwarding and restore direct calls to your business number.\n\n` +
+    `Want to keep your AI receptionist? Visit https://www.smallbizagent.ai to subscribe.\n\n` +
+    `- SmallBizAgent Team`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+        <h2 style="color: #dc2626; margin: 0 0 8px 0;">&#9888; ACTION REQUIRED: Restore Your Phone Service</h2>
+        <p style="color: #991b1b; margin: 0;">${reasonText}</p>
+      </div>
+
+      <p>Your AI receptionist number <strong>(${twilioPhoneNumber})</strong> has been deactivated.</p>
+
+      <p>If you set up call forwarding (<code>*72</code>) from your business phone, <strong>your callers are now hearing
+      "the number you have dialed is not in service."</strong></p>
+
+      <div style="background: #f0fdf4; border: 2px solid #22c55e; border-radius: 8px; padding: 20px; margin: 24px 0;">
+        <h3 style="color: #166534; margin: 0 0 12px 0;">To Restore Your Phone Service:</h3>
+        <ol style="color: #166534; margin: 0; padding-left: 20px;">
+          <li style="margin-bottom: 8px;"><strong>Pick up your business phone</strong></li>
+          <li style="margin-bottom: 8px;"><strong>Dial *73</strong></li>
+          <li><strong>Wait for the confirmation tone</strong></li>
+        </ol>
+      </div>
+
+      <p>This will remove the forwarding and restore direct calls to your business number.</p>
+
+      <div style="margin: 24px 0; text-align: center;">
+        <a href="https://www.smallbizagent.ai" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+          Subscribe to Keep Your AI Receptionist
+        </a>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+    </div>
+  `;
+
+  return sendEmail({ to: ownerEmail, subject, text, html });
+}
+
+/**
+ * Send trial expiration warning email (sent 3 days and 1 day before trial expires).
+ * Includes extra call forwarding warning if the business has it enabled.
+ */
+export async function sendTrialExpirationWarningEmail(
+  ownerEmail: string,
+  businessName: string,
+  daysRemaining: number,
+  hasCallForwarding: boolean
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const subject = `Your SmallBizAgent trial expires in ${daysRemaining} day${daysRemaining > 1 ? 's' : ''}`;
+
+  const callForwardingWarning = hasCallForwarding
+    ? `\n\nIMPORTANT: You have call forwarding set up. If your trial expires without subscribing, ` +
+      `callers to your business phone will hear "number not in service." Dial *73 from your ` +
+      `business phone to remove forwarding, or subscribe to keep your AI receptionist.\n`
+    : '';
+
+  const text = `Hi,\n\n` +
+    `Your SmallBizAgent trial for ${businessName} expires in ${daysRemaining} day${daysRemaining > 1 ? 's' : ''}.` +
+    callForwardingWarning +
+    `\n\nSubscribe now to keep your AI receptionist and all your business data: https://www.smallbizagent.ai\n\n` +
+    `- SmallBizAgent Team`;
+
+  const callForwardingHtml = hasCallForwarding
+    ? `<div style="background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 16px; margin: 20px 0;">
+        <p style="color: #dc2626; font-weight: bold; margin: 0 0 8px 0;">&#9888; Call Forwarding Warning</p>
+        <p style="color: #991b1b; margin: 0;">You have call forwarding set up. If your trial expires, callers to your
+        business phone will hear "number not in service." Dial <strong>*73</strong> from your business phone to remove
+        forwarding, or subscribe to keep your AI receptionist.</p>
+      </div>`
+    : '';
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background: #fffbeb; border: 2px solid #f59e0b; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+        <h2 style="color: #92400e; margin: 0;">Your trial expires in ${daysRemaining} day${daysRemaining > 1 ? 's' : ''}</h2>
+      </div>
+
+      <p>Hi,</p>
+      <p>Your SmallBizAgent trial for <strong>${businessName}</strong> is ending soon.</p>
+
+      ${callForwardingHtml}
+
+      <p>When your trial expires:</p>
+      <ul style="color: #374151;">
+        <li>Your AI receptionist will be deactivated</li>
+        <li>Your provisioned phone number will be released</li>
+        <li>Your business data (customers, invoices, etc.) will be preserved</li>
+      </ul>
+
+      <div style="margin: 24px 0; text-align: center;">
+        <a href="https://www.smallbizagent.ai" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+          Subscribe Now
+        </a>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+    </div>
+  `;
+
+  return sendEmail({ to: ownerEmail, subject, text, html });
+}

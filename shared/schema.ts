@@ -56,6 +56,8 @@ export const businesses = pgTable("businesses", {
   twilioPhoneNumberSid: text("twilio_phone_number_sid"),
   twilioPhoneNumberStatus: text("twilio_phone_number_status"),
   twilioDateProvisioned: timestamp("twilio_date_provisioned"),
+  // Call forwarding tracking (whether owner set up *72 forwarding to the Twilio number)
+  callForwardingEnabled: boolean("call_forwarding_enabled").default(false),
   // Vapi.ai AI receptionist
   vapiAssistantId: text("vapi_assistant_id"),
   vapiPhoneNumberId: text("vapi_phone_number_id"),

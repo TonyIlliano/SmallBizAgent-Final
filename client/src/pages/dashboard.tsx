@@ -8,6 +8,7 @@ import { JobsTable } from "@/components/dashboard/JobsTable";
 import { CallsCard } from "@/components/dashboard/CallsCard";
 import { InvoicesCard } from "@/components/dashboard/InvoicesCard";
 import { SetupChecklist } from "@/components/dashboard/setup-checklist";
+import { TrialExpirationBanner } from "@/components/dashboard/trial-expiration-banner";
 import { SkeletonStats } from "@/components/ui/skeleton-loader";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
@@ -289,6 +290,9 @@ export default function Dashboard() {
         {showSetupChecklist && (
           <SetupChecklist />
         )}
+
+        {/* Trial Expiration Warning (shows when call forwarding is active and trial is expiring) */}
+        <TrialExpirationBanner />
 
         {/* Quick Actions */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

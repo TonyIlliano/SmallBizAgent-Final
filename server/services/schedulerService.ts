@@ -1,9 +1,13 @@
 import { storage } from "../storage";
+import { Business } from "@shared/schema";
 import reminderService from "./reminderService";
 import { processDueRecurringSchedules } from "../routes/recurring";
 import { updateVapiAssistant } from "./vapiProvisioningService";
 import { sendQuoteFollowUpNotification } from "./notificationService";
 import { sendBirthdayCampaigns } from "./marketingService";
+import { deprovisionBusiness } from "./businessProvisioningService";
+import twilioService from "./twilioService";
+import { sendTrialExpirationWarningEmail } from "../emailService";
 
 // Track scheduled jobs to prevent duplicates
 const scheduledJobs: Map<string, NodeJS.Timeout> = new Map();
@@ -423,6 +427,153 @@ async function runBirthdayCampaignCheck(): Promise<void> {
 }
 
 /**
+ * Start the trial expiration scheduler.
+ * Runs once per day. Handles two things:
+ * 1. Deprovisions businesses whose trial has expired (no subscription, still have Twilio number)
+ *    — this triggers call forwarding deactivation notifications via deprovisionBusiness()
+ * 2. Sends pre-expiration warning emails/SMS at 3 days and 1 day before trial expiry
+ */
+export function startTrialExpirationScheduler(): void {
+  const jobKey = 'trial-expiration';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Trial expiration scheduler already running');
+    return;
+  }
+
+  console.log('Starting trial expiration scheduler');
+
+  // Run immediately on start
+  runTrialExpirationCheck();
+
+  // Then run every 24 hours
+  const intervalId = setInterval(() => {
+    runTrialExpirationCheck();
+  }, 24 * 60 * 60 * 1000);
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+async function runTrialExpirationCheck(): Promise<void> {
+  try {
+    console.log(`[TrialExpiration] Running trial expiration check at ${new Date().toISOString()}`);
+    const allBusinesses = await storage.getAllBusinesses();
+    const now = new Date();
+    let deprovisioned = 0;
+    let warned = 0;
+
+    for (const business of allBusinesses) {
+      // Skip businesses with active paid subscriptions
+      const status = (business as any).subscriptionStatus;
+      if (status === 'active' || status === 'trialing') {
+        continue;
+      }
+
+      if (!business.trialEndsAt) continue;
+
+      const trialEnd = new Date(business.trialEndsAt);
+      const daysUntilExpiry = Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+      // EXPIRED: Deprovision if trial has expired and still has Twilio number
+      if (trialEnd < now && (business as any).twilioPhoneNumberSid) {
+        try {
+          console.log(`[TrialExpiration] Deprovisioning business ${business.id} (trial expired ${trialEnd.toISOString()})`);
+          await deprovisionBusiness(business.id);
+          deprovisioned++;
+        } catch (err) {
+          console.error(`[TrialExpiration] Failed to deprovision business ${business.id}:`, err);
+        }
+        // Delay between deprovisions to avoid rate limits
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+
+      // PRE-EXPIRATION WARNINGS: 3 days and 1 day before expiry
+      if (daysUntilExpiry === 3 || daysUntilExpiry === 1) {
+        // Check notification log to avoid duplicate warnings on the same day
+        try {
+          const logs = await storage.getNotificationLogs(business.id, 50);
+          const alreadySent = logs.some(
+            (l: any) => l.type === 'trial_expiration_warning' &&
+                 l.referenceId === daysUntilExpiry &&
+                 l.sentAt && (now.getTime() - new Date(l.sentAt).getTime()) < 24 * 60 * 60 * 1000
+          );
+
+          if (!alreadySent) {
+            await sendTrialExpirationWarnings(business as any, daysUntilExpiry);
+            warned++;
+          }
+        } catch (err) {
+          console.error(`[TrialExpiration] Error checking/sending warnings for business ${business.id}:`, err);
+        }
+      }
+
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    console.log(`[TrialExpiration] Done — ${deprovisioned} deprovisioned, ${warned} warned`);
+  } catch (error) {
+    console.error('[TrialExpiration] Error:', error);
+  }
+}
+
+/**
+ * Send trial expiration warning email and SMS to a business owner.
+ * SMS is only sent if call forwarding is enabled (most urgent case).
+ */
+async function sendTrialExpirationWarnings(business: any, daysRemaining: number): Promise<void> {
+  const hasCallForwarding = business.callForwardingEnabled === true;
+
+  // Send email warning
+  if (business.email) {
+    try {
+      await sendTrialExpirationWarningEmail(
+        business.email,
+        business.name,
+        daysRemaining,
+        hasCallForwarding
+      );
+      await storage.createNotificationLog({
+        businessId: business.id,
+        type: 'trial_expiration_warning',
+        channel: 'email',
+        recipient: business.email,
+        subject: `Your SmallBizAgent trial expires in ${daysRemaining} day(s)`,
+        status: 'sent',
+        referenceType: 'business',
+        referenceId: daysRemaining, // Track which warning (3-day vs 1-day)
+      });
+      console.log(`[TrialExpiration] Warning email sent to business ${business.id} (${daysRemaining} days)`);
+    } catch (err) {
+      console.error(`[TrialExpiration] Failed to send warning email for business ${business.id}:`, err);
+    }
+  }
+
+  // Send SMS warning — especially important if they have call forwarding
+  if (business.phone && hasCallForwarding) {
+    try {
+      const smsBody = `SmallBizAgent: Your trial expires in ${daysRemaining} day${daysRemaining > 1 ? 's' : ''}. ` +
+        `You have call forwarding set up — if your trial expires, callers won't be able to reach you. ` +
+        `Subscribe to keep your AI receptionist or dial *73 to remove forwarding.`;
+      await twilioService.sendSms(business.phone, smsBody);
+      await storage.createNotificationLog({
+        businessId: business.id,
+        type: 'trial_expiration_warning',
+        channel: 'sms',
+        recipient: business.phone,
+        message: smsBody,
+        status: 'sent',
+        referenceType: 'business',
+        referenceId: daysRemaining,
+      });
+      console.log(`[TrialExpiration] Warning SMS sent to business ${business.id} (${daysRemaining} days)`);
+    } catch (err) {
+      console.error(`[TrialExpiration] Failed to send warning SMS for business ${business.id}:`, err);
+    }
+  }
+}
+
+/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -456,6 +607,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start birthday campaign scheduler (sends birthday discounts to opted-in customers)
     startBirthdayCampaignScheduler();
 
+    // Start trial expiration scheduler (deprovisions expired trials, sends pre-expiration warnings)
+    startTrialExpirationScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -482,6 +636,7 @@ export default {
   startQuoteFollowUpScheduler,
   startOverageBillingScheduler,
   startBirthdayCampaignScheduler,
+  startTrialExpirationScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

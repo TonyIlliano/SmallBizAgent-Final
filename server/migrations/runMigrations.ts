@@ -43,6 +43,7 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'business_hours', 'TEXT');
   await addColumnIfNotExists('businesses', 'twilio_phone_number_status', 'TEXT');
   await addColumnIfNotExists('businesses', 'twilio_date_provisioned', 'TIMESTAMP');
+  await addColumnIfNotExists('businesses', 'call_forwarding_enabled', 'BOOLEAN DEFAULT false');
   await addColumnIfNotExists('businesses', 'quickbooks_realm_id', 'TEXT');
   await addColumnIfNotExists('businesses', 'quickbooks_access_token', 'TEXT');
   await addColumnIfNotExists('businesses', 'quickbooks_refresh_token', 'TEXT');

@@ -410,12 +410,12 @@ export class SubscriptionService {
         .from(businesses)
         .where(eq(businesses.stripeSubscriptionId, subscription.id))
         .limit(1);
-      
+
       if (!business || business.length === 0) {
         console.warn('No business found with subscription ID:', subscription.id);
         return;
       }
-      
+
       // Update subscription details
       await db.update(businesses)
         .set({
@@ -423,8 +423,20 @@ export class SubscriptionService {
           updatedAt: new Date()
         })
         .where(eq(businesses.id, business[0].id));
-      
+
       console.log(`Marked subscription as canceled for business ${business[0].id}`);
+
+      // Deprovision resources (Twilio number, Vapi assistant)
+      // This also triggers call forwarding deactivation notifications if applicable
+      if (business[0].twilioPhoneNumberSid) {
+        try {
+          const { deprovisionBusiness } = await import('./businessProvisioningService.js');
+          await deprovisionBusiness(business[0].id);
+          console.log(`Deprovisioned resources for canceled subscription business ${business[0].id}`);
+        } catch (deprovErr) {
+          console.error(`Failed to deprovision business ${business[0].id} after subscription cancellation:`, deprovErr);
+        }
+      }
     } catch (error) {
       console.error('Error handling subscription canceled:', error);
       throw error;

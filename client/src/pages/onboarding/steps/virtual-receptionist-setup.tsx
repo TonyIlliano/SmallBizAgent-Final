@@ -78,11 +78,19 @@ export default function VirtualReceptionistSetup({ onComplete, onSkip }: Virtual
         businessId,
       };
 
+      let result;
       if (config?.id) {
-        return apiRequest('PUT', `/api/receptionist-config/${config.id}`, payload);
+        result = await apiRequest('PUT', `/api/receptionist-config/${config.id}`, payload);
       } else {
-        return apiRequest('POST', '/api/receptionist-config', payload);
+        result = await apiRequest('POST', '/api/receptionist-config', payload);
       }
+
+      // Persist call forwarding state to business record so we can warn on deprovisioning
+      await apiRequest('PUT', `/api/business/${businessId}`, {
+        callForwardingEnabled: data.callForwarding,
+      });
+
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/receptionist-config'] });

@@ -9,6 +9,8 @@ import { Business } from '@shared/schema';
 import { storage } from '../storage';
 import twilioProvisioningService from './twilioProvisioningService';
 import vapiProvisioningService from './vapiProvisioningService';
+import twilioService from './twilioService';
+import { sendCallForwardingDeactivationEmail } from '../emailService';
 
 /**
  * Provision resources for a new business
@@ -255,6 +257,82 @@ export async function deprovisionBusiness(businessId: number) {
       results.vapiError = error instanceof Error ? error.message : String(error);
     }
 
+    // Call forwarding safety net: notify business owner BEFORE releasing the number
+    if (business.callForwardingEnabled && business.twilioPhoneNumber) {
+      const reason = determineDeprovisioningReason(business);
+
+      // Send SMS warning to business owner's phone
+      if (business.phone) {
+        try {
+          const smsBody = `URGENT from SmallBizAgent: Your AI receptionist number ` +
+            `(${business.twilioPhoneNumber}) is being deactivated. ` +
+            `If you set up call forwarding, dial *73 NOW from your business phone ` +
+            `to restore direct calls. Without this, callers will hear "number not in service."`;
+          await twilioService.sendSms(business.phone, smsBody);
+          await storage.createNotificationLog({
+            businessId,
+            type: 'call_forwarding_deactivation',
+            channel: 'sms',
+            recipient: business.phone,
+            message: smsBody,
+            status: 'sent',
+            referenceType: 'business',
+            referenceId: businessId,
+          });
+          results.callForwardingSmsNotified = true;
+          console.log(`[Deprovision] Call forwarding SMS sent to business ${businessId}`);
+        } catch (err) {
+          console.error(`[Deprovision] Failed to send call forwarding SMS for business ${businessId}:`, err);
+          await storage.createNotificationLog({
+            businessId,
+            type: 'call_forwarding_deactivation',
+            channel: 'sms',
+            recipient: business.phone || '',
+            status: 'failed',
+            referenceType: 'business',
+            referenceId: businessId,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+
+      // Send email warning to business owner
+      if (business.email) {
+        try {
+          await sendCallForwardingDeactivationEmail(
+            business.email,
+            business.name,
+            business.twilioPhoneNumber,
+            reason
+          );
+          await storage.createNotificationLog({
+            businessId,
+            type: 'call_forwarding_deactivation',
+            channel: 'email',
+            recipient: business.email,
+            subject: `ACTION REQUIRED: Restore phone service for ${business.name}`,
+            status: 'sent',
+            referenceType: 'business',
+            referenceId: businessId,
+          });
+          results.callForwardingEmailNotified = true;
+          console.log(`[Deprovision] Call forwarding email sent to business ${businessId}`);
+        } catch (err) {
+          console.error(`[Deprovision] Failed to send call forwarding email for business ${businessId}:`, err);
+          await storage.createNotificationLog({
+            businessId,
+            type: 'call_forwarding_deactivation',
+            channel: 'email',
+            recipient: business.email || '',
+            status: 'failed',
+            referenceType: 'business',
+            referenceId: businessId,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+    }
+
     // Release Twilio phone number if one exists
     if (business.twilioPhoneNumberSid) {
       try {
@@ -291,6 +369,19 @@ export async function deprovisionBusiness(businessId: number) {
     console.error(`Error deprovisioning business ID ${businessId}:`, error);
     throw error;
   }
+}
+
+/**
+ * Determine why a business is being deprovisioned
+ */
+function determineDeprovisioningReason(business: Business): 'trial_expired' | 'subscription_canceled' | 'payment_failed' {
+  if (business.trialEndsAt && new Date(business.trialEndsAt) <= new Date()) {
+    return 'trial_expired';
+  }
+  if (business.subscriptionStatus === 'canceled') {
+    return 'subscription_canceled';
+  }
+  return 'payment_failed';
 }
 
 export default {
