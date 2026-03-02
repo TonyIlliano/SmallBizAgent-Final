@@ -10,8 +10,11 @@ import {
   ChevronRight,
   Clock,
   User,
+  Users,
   Scissors,
   Calendar as CalendarIcon,
+  Armchair,
+  MessageSquare,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -46,6 +49,25 @@ interface AppointmentData {
     name: string;
     price?: string;
     duration?: number;
+  };
+}
+
+interface ReservationData {
+  id: number;
+  partySize: number;
+  reservationDate: string;
+  reservationTime: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  specialRequests?: string;
+  source?: string;
+  customer?: {
+    id: number;
+    firstName: string;
+    lastName: string;
+    phone?: string;
+    email?: string;
   };
 }
 
@@ -90,7 +112,7 @@ function formatTime(date: Date): string {
 
 // ─── Constants ───────────────────────────────────────────────────────
 const HOUR_START = 8;
-const HOUR_END = 18;
+const HOUR_END = 22; // Restaurants often go later
 const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
 const HOUR_HEIGHT = 90; // Larger for fullscreen readability
 
@@ -106,6 +128,14 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string; 
   cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
 };
 
+const RESERVATION_STATUS_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  confirmed: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500", dot: "bg-blue-500" },
+  seated: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500", dot: "bg-green-500" },
+  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500", dot: "bg-purple-500" },
+  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
+  no_show: { bg: "bg-amber-50", text: "text-amber-700", border: "border-l-amber-500", dot: "bg-amber-500" },
+};
+
 function formatHour(hour: number): string {
   if (hour === 0) return "12 AM";
   if (hour < 12) return `${hour} AM`;
@@ -113,13 +143,37 @@ function formatHour(hour: number): string {
   return `${hour - 12} PM`;
 }
 
-// ─── Fullscreen Schedule Page ────────────────────────────────────────
+// ─── Main Export: detects restaurant vs appointments ─────────────────
 export default function FullscreenSchedule() {
+  const { user } = useAuth();
+  const businessId = user?.businessId;
+
+  const { data: business } = useQuery<any>({
+    queryKey: ["/api/business"],
+    enabled: !!businessId,
+  });
+
+  const isRestaurant = business?.industry?.toLowerCase().includes("restaurant");
+
+  if (isRestaurant) {
+    return <FullscreenReservations />;
+  }
+
+  return <FullscreenAppointments />;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FULLSCREEN APPOINTMENTS (original)
+// ═══════════════════════════════════════════════════════════════════════
+function FullscreenAppointments() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const businessId = user?.businessId;
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Appointments-specific hours (8 AM - 6 PM)
+  const APPT_HOURS = Array.from({ length: 11 }, (_, i) => 8 + i);
 
   // Update current time every 30 seconds for the time indicator
   useEffect(() => {
@@ -212,7 +266,7 @@ export default function FullscreenSchedule() {
   // Time indicator
   const showTimeLine = isToday(selectedDate);
   const timeLineTop =
-    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - 8 * 60) / 60) *
     HOUR_HEIGHT;
 
   // Summary counts
@@ -356,11 +410,11 @@ export default function FullscreenSchedule() {
             className="grid relative"
             style={{
               gridTemplateColumns: gridCols,
-              minHeight: HOURS.length * HOUR_HEIGHT,
+              minHeight: APPT_HOURS.length * HOUR_HEIGHT,
             }}
           >
             {/* Current time indicator */}
-            {showTimeLine && timeLineTop >= 0 && timeLineTop <= HOURS.length * HOUR_HEIGHT && (
+            {showTimeLine && timeLineTop >= 0 && timeLineTop <= APPT_HOURS.length * HOUR_HEIGHT && (
               <div
                 className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
                 style={{ top: timeLineTop }}
@@ -371,7 +425,7 @@ export default function FullscreenSchedule() {
             )}
 
             {/* Hour rows */}
-            {HOURS.map((hour) => (
+            {APPT_HOURS.map((hour) => (
               <div key={`row-${hour}`} className="contents">
                 {/* Time label */}
                 <div
@@ -458,6 +512,302 @@ export default function FullscreenSchedule() {
             <div key={status} className="flex items-center gap-1.5">
               <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
               <span className="capitalize">{status}</span>
+            </div>
+          ))}
+        </div>
+        <div>
+          Auto-refreshes every 10s
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FULLSCREEN RESERVATIONS (restaurant)
+// ═══════════════════════════════════════════════════════════════════════
+function FullscreenReservations() {
+  const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const businessId = user?.businessId;
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Update current time every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-advance at midnight
+  useEffect(() => {
+    const now = new Date();
+    const msUntilMidnight =
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() -
+      now.getTime();
+    const timeout = setTimeout(() => setSelectedDate(new Date()), msUntilMidnight);
+    return () => clearTimeout(timeout);
+  }, [selectedDate]);
+
+  // Date query
+  const dateStr = selectedDate.toISOString().split("T")[0];
+
+  // Fetch reservations — auto-refetch every 10 seconds
+  const { data: reservations = [] } = useQuery<ReservationData[]>({
+    queryKey: ["/api/restaurant-reservations", { startDate: getStartOfDay(selectedDate).toISOString(), endDate: getEndOfDay(selectedDate).toISOString() }],
+    refetchInterval: 10000,
+    staleTime: 5000,
+    enabled: !!businessId,
+  });
+
+  // Navigation
+  const navigateDay = useCallback((offset: number) => {
+    setSelectedDate((prev) => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + offset);
+      return d;
+    });
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") navigate("/appointments");
+      else if (e.key === "ArrowLeft") navigateDay(-1);
+      else if (e.key === "ArrowRight") navigateDay(1);
+      else if (e.key === "t" || e.key === "T") setSelectedDate(new Date());
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [navigate, navigateDay]);
+
+  // Sort reservations by time
+  const sorted = [...reservations].sort((a, b) =>
+    a.reservationTime.localeCompare(b.reservationTime)
+  );
+
+  // Summary stats
+  const active = sorted.filter((r) => r.status !== "cancelled" && r.status !== "no_show");
+  const totalCovers = active.reduce((sum, r) => sum + r.partySize, 0);
+  const confirmedCount = sorted.filter((r) => r.status === "confirmed").length;
+  const seatedCount = sorted.filter((r) => r.status === "seated").length;
+  const completedCount = sorted.filter((r) => r.status === "completed").length;
+
+  // Clock
+  const clockStr = currentTime.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+
+  // Time indicator
+  const showTimeLine = isToday(selectedDate);
+  const timeLineTop =
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    HOUR_HEIGHT;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col overflow-hidden">
+      {/* ── Top Bar ────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-6 py-3 bg-neutral-900 text-white border-b border-neutral-800 flex-shrink-0">
+        {/* Left: date nav */}
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-neutral-400 hover:text-white hover:bg-neutral-800"
+            onClick={() => navigateDay(-1)}
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`text-sm font-medium ${isToday(selectedDate) ? "bg-white text-black hover:bg-neutral-200" : "text-neutral-300 hover:text-white hover:bg-neutral-800"}`}
+            onClick={() => setSelectedDate(new Date())}
+          >
+            Today
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-neutral-400 hover:text-white hover:bg-neutral-800"
+            onClick={() => navigateDay(1)}
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Button>
+          <div className="ml-2">
+            <h1 className="text-lg font-bold flex items-center gap-2">
+              <Armchair className="h-5 w-5 text-neutral-400" />
+              {formatFullDate(selectedDate)}
+            </h1>
+          </div>
+        </div>
+
+        {/* Center: summary stats */}
+        <div className="hidden md:flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <CalendarIcon className="h-4 w-4 text-neutral-400" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{active.length}</span>
+              <span className="text-neutral-400 ml-1">reservations</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-neutral-400" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{totalCovers}</span>
+              <span className="text-neutral-400 ml-1">covers</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-blue-500" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{confirmedCount}</span>
+              <span className="text-neutral-400 ml-1">confirmed</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-500" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{seatedCount}</span>
+              <span className="text-neutral-400 ml-1">seated</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-purple-500" />
+            <span className="text-sm">
+              <span className="font-bold text-white">{completedCount}</span>
+              <span className="text-neutral-400 ml-1">completed</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Right: clock + exit */}
+        <div className="flex items-center gap-4">
+          <div className="text-right hidden sm:block">
+            <div className="text-lg font-mono font-bold tabular-nums">{clockStr}</div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-neutral-400 hover:text-white hover:bg-neutral-800"
+            onClick={() => navigate("/appointments")}
+          >
+            <Minimize2 className="h-4 w-4 mr-2" />
+            Exit
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Reservation Time Grid ─────────────────────────────────── */}
+      <div className="flex-1 overflow-auto">
+        <div className="relative" style={{ minHeight: HOURS.length * HOUR_HEIGHT }}>
+          {/* Current time indicator */}
+          {showTimeLine && timeLineTop >= 0 && timeLineTop <= HOURS.length * HOUR_HEIGHT && (
+            <div
+              className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
+              style={{ top: timeLineTop }}
+            >
+              <div className="w-3 h-3 rounded-full bg-red-500 -ml-1 shadow-lg" />
+              <div className="flex-1 h-0.5 bg-red-500 shadow-sm" />
+            </div>
+          )}
+
+          {/* Hour rows with reservation cards */}
+          {HOURS.map((hour) => {
+            const hourReservations = sorted.filter((r) => {
+              const [rh] = r.reservationTime.split(":").map(Number);
+              return rh === hour;
+            });
+
+            return (
+              <div
+                key={hour}
+                className="flex border-b border-gray-100"
+                style={{ height: HOUR_HEIGHT }}
+              >
+                {/* Time label */}
+                <div className="w-20 flex-shrink-0 border-r bg-gray-50/50 text-right pr-3 pt-2">
+                  <span className="text-sm text-gray-400 font-medium">{formatHour(hour)}</span>
+                </div>
+
+                {/* Reservation cards for this hour */}
+                <div className="flex-1 flex items-start gap-3 px-4 py-2 overflow-x-auto">
+                  {hourReservations.map((res) => {
+                    const colors = RESERVATION_STATUS_COLORS[res.status] || RESERVATION_STATUS_COLORS.confirmed;
+                    const isCancelled = res.status === "cancelled" || res.status === "no_show";
+
+                    return (
+                      <div
+                        key={res.id}
+                        className={`flex-shrink-0 w-72 rounded-lg px-4 py-3 border-l-4 transition-all hover:shadow-lg ${colors.bg} ${colors.border} ${
+                          isCancelled ? "opacity-50" : ""
+                        }`}
+                      >
+                        {/* Customer name + party size */}
+                        <div className="flex items-center justify-between">
+                          <div className={`text-sm font-bold truncate ${colors.text} ${isCancelled ? "line-through" : ""}`}>
+                            {res.customer
+                              ? `${res.customer.firstName} ${res.customer.lastName}`.trim()
+                              : "Guest"}
+                          </div>
+                          <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                            <Users className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm font-bold text-gray-700">{res.partySize}</span>
+                          </div>
+                        </div>
+
+                        {/* Time + status */}
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-xs text-gray-500">{res.reservationTime}</span>
+                          <div className="flex items-center gap-1.5">
+                            <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
+                            <span className={`text-xs font-medium capitalize ${colors.text}`}>
+                              {res.status.replace("_", " ")}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Phone */}
+                        {res.customer?.phone && (
+                          <div className="text-xs text-gray-400 mt-1">{res.customer.phone}</div>
+                        )}
+
+                        {/* Special requests */}
+                        {res.specialRequests && (
+                          <div className="flex items-start gap-1 mt-1.5 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
+                            <MessageSquare className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                            <span className="truncate">{res.specialRequests}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {hourReservations.length === 0 && (
+                    <div className="text-xs text-gray-300 italic pt-1">No reservations</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Bottom status bar ──────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-6 py-2 bg-gray-50 border-t text-xs text-gray-500 flex-shrink-0">
+        <div className="flex items-center gap-4">
+          <span>Press <kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">Esc</kbd> to exit</span>
+          <span><kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">&larr;</kbd> <kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">&rarr;</kbd> navigate days</span>
+          <span><kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">T</kbd> go to today</span>
+        </div>
+        <div className="flex items-center gap-4">
+          {Object.entries(RESERVATION_STATUS_COLORS).map(([status, colors]) => (
+            <div key={status} className="flex items-center gap-1.5">
+              <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
+              <span className="capitalize">{status.replace("_", " ")}</span>
             </div>
           ))}
         </div>

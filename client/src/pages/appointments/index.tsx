@@ -1671,6 +1671,7 @@ function MobileStaffDayView({
 // RESERVATIONS VIEW — Restaurant-specific reservation management
 // ═══════════════════════════════════════════════════════════════════════
 function ReservationsView({ businessId }: { businessId?: number }) {
+  const [, navigate] = useLocation();
   const isMobile = useIsMobile();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("week");
@@ -1763,6 +1764,15 @@ function ReservationsView({ businessId }: { businessId?: number }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("/appointments/fullscreen")}
+            title="Open fullscreen reservation view"
+          >
+            <Maximize2 className="mr-2 h-4 w-4" />
+            Enlarge
+          </Button>
           <div className="inline-flex rounded-lg border bg-muted p-0.5">
             {(["week", "day", "month"] as ViewMode[]).map((mode) => (
               <button
