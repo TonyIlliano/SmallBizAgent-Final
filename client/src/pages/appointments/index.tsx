@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { formatTime } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -19,6 +20,14 @@ import {
   MoreVertical,
   Scissors,
   Maximize2,
+  Phone,
+  Mail,
+  Globe,
+  Bot,
+  ExternalLink,
+  CheckCircle2,
+  XCircle,
+  MapPin,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AppointmentForm } from "@/components/appointments/AppointmentForm";
@@ -35,9 +44,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ─── Types ───────────────────────────────────────────────────────────
-type ViewMode = "week" | "day";
+type ViewMode = "week" | "day" | "month";
 
 interface StaffData {
   id: number;
@@ -104,6 +120,14 @@ function getEndOfWeek(date: Date): Date {
   return end;
 }
 
+function getStartOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function getEndOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
 function getWeekDays(date: Date): Date[] {
   const start = getStartOfWeek(date);
   return Array.from({ length: 7 }, (_, i) => {
@@ -147,19 +171,21 @@ function formatWeekRange(date: Date): string {
   const year = end.getFullYear();
 
   if (sameMonth) {
-    // "February 16 – 22, 2026"
     return `${startMonth} ${start.getDate()} – ${end.getDate()}, ${year}`;
   }
-  // "January 27 – February 2, 2026"
   return `${startMonth} ${start.getDate()} – ${endMonth} ${end.getDate()}, ${year}`;
 }
 
+function formatMonthYear(date: Date): string {
+  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
 // ─── Status Helpers ──────────────────────────────────────────────────
-const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  scheduled: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500" },
-  confirmed: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500" },
-  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500" },
-  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500" },
+const STATUS_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  scheduled: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500", dot: "bg-blue-500" },
+  confirmed: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500", dot: "bg-green-500" },
+  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500", dot: "bg-purple-500" },
+  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
 };
 
 function getStatusBadge(status: string) {
@@ -175,6 +201,14 @@ function getStatusBadge(status: string) {
     default:
       return <Badge>{status}</Badge>;
   }
+}
+
+// ─── Source detection from notes field ────────────────────────────────
+function getAppointmentSource(notes?: string): { label: string; icon: React.ReactNode; color: string } {
+  if (!notes) return { label: "Manual", icon: <User className="h-3 w-3" />, color: "text-gray-500" };
+  if (notes.includes("Online booking")) return { label: "Online Booking", icon: <Globe className="h-3 w-3" />, color: "text-blue-600" };
+  if (notes.includes("AI receptionist")) return { label: "AI Receptionist", icon: <Bot className="h-3 w-3" />, color: "text-violet-600" };
+  return { label: "Manual", icon: <User className="h-3 w-3" />, color: "text-gray-500" };
 }
 
 // ─── Time grid constants ─────────────────────────────────────────────
@@ -203,25 +237,40 @@ function formatHour(hour: number): string {
   return `${hour - 12} PM`;
 }
 
+// Get staff color for an appointment
+function getStaffColor(staffId: number | undefined, staffMembers: StaffData[]): string {
+  if (!staffId) return '#9CA3AF';
+  const index = staffMembers.findIndex(s => s.id === staffId);
+  if (index === -1) return '#9CA3AF';
+  return STAFF_COLORS[index % STAFF_COLORS.length];
+}
+
 // ─── Main Component ──────────────────────────────────────────────────
 export default function Appointments() {
   const [, navigate] = useLocation();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentData | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const businessId = user?.businessId;
+  const queryClient = useQueryClient();
 
   // ─── Date range for current view ────────────────────────────────
   const queryStartDate =
-    viewMode === "week"
-      ? getStartOfWeek(selectedDate)
-      : getStartOfDay(selectedDate);
+    viewMode === "month"
+      ? getStartOfMonth(selectedDate)
+      : viewMode === "week"
+        ? getStartOfWeek(selectedDate)
+        : getStartOfDay(selectedDate);
   const queryEndDate =
-    viewMode === "week"
-      ? getEndOfWeek(selectedDate)
-      : getEndOfDay(selectedDate);
+    viewMode === "month"
+      ? getEndOfMonth(selectedDate)
+      : viewMode === "week"
+        ? getEndOfWeek(selectedDate)
+        : getEndOfDay(selectedDate);
 
   const queryParams = {
     businessId,
@@ -236,10 +285,10 @@ export default function Appointments() {
     staleTime: 5000,
   });
 
-  // ─── Fetch staff for day view ─────────────────────────────────
+  // ─── Fetch staff (always, for color legend) ─────────────────────
   const { data: staffMembers = [] } = useQuery<StaffData[]>({
     queryKey: ["/api/staff", { businessId }],
-    enabled: viewMode === "day" && !!businessId,
+    enabled: !!businessId,
   });
 
   // ─── Send reminder mutation ─────────────────────────────────────
@@ -258,22 +307,73 @@ export default function Appointments() {
     },
   });
 
+  // ─── Status update mutation ─────────────────────────────────────
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ appointmentId, status }: { appointmentId: number; status: string }) =>
+      apiRequest("PUT", `/api/appointments/${appointmentId}`, { status }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/appointments/${variables.appointmentId}`] });
+      toast({
+        title: "Status Updated",
+        description: `Appointment marked as ${variables.status}`,
+      });
+      // Update the selected appointment in the panel
+      if (selectedAppointment && selectedAppointment.id === variables.appointmentId) {
+        setSelectedAppointment({ ...selectedAppointment, status: variables.status });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error?.message || "Could not update status",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // ─── Click appointment → open side panel ─────────────────────
+  const handleClickAppointment = useCallback((id: number) => {
+    const appt = appointments.find(a => a.id === id);
+    if (appt) {
+      setSelectedAppointment(appt);
+      setDetailSheetOpen(true);
+    }
+  }, [appointments]);
+
   // ─── Navigation handlers ────────────────────────────────────────
   function navigatePrev() {
     const d = new Date(selectedDate);
-    d.setDate(d.getDate() - (viewMode === "week" ? 7 : 1));
+    if (viewMode === "month") {
+      d.setMonth(d.getMonth() - 1);
+    } else {
+      d.setDate(d.getDate() - (viewMode === "week" ? 7 : 1));
+    }
     setSelectedDate(d);
   }
 
   function navigateNext() {
     const d = new Date(selectedDate);
-    d.setDate(d.getDate() + (viewMode === "week" ? 7 : 1));
+    if (viewMode === "month") {
+      d.setMonth(d.getMonth() + 1);
+    } else {
+      d.setDate(d.getDate() + (viewMode === "week" ? 7 : 1));
+    }
     setSelectedDate(d);
   }
 
   function goToday() {
     setSelectedDate(new Date());
   }
+
+  // Week view quick-create: click empty slot → open new appointment pre-filled
+  const [prefillDate, setPrefillDate] = useState<Date | null>(null);
+  const handleQuickCreate = useCallback((date: Date, hour: number) => {
+    const d = new Date(date);
+    d.setHours(hour, 0, 0, 0);
+    setPrefillDate(d);
+    setSheetOpen(true);
+  }, []);
 
   // ─── Render ─────────────────────────────────────────────────────
   return (
@@ -294,7 +394,7 @@ export default function Appointments() {
             <Maximize2 className="mr-2 h-4 w-4" />
             Enlarge
           </Button>
-          <Button onClick={() => setSheetOpen(true)} className="flex items-center">
+          <Button onClick={() => { setPrefillDate(null); setSheetOpen(true); }} className="flex items-center">
             <PlusCircle className="mr-2 h-4 w-4" />
             New Appointment
           </Button>
@@ -315,61 +415,85 @@ export default function Appointments() {
             <ChevronRight className="h-4 w-4" />
           </Button>
           <span className="ml-2 text-sm font-medium text-gray-700 truncate max-w-[160px] sm:max-w-none">
-            {viewMode === "week"
-              ? formatWeekRange(selectedDate)
-              : formatFullDate(selectedDate)}
+            {viewMode === "month"
+              ? formatMonthYear(selectedDate)
+              : viewMode === "week"
+                ? formatWeekRange(selectedDate)
+                : formatFullDate(selectedDate)}
           </span>
         </div>
 
         {/* Right: view toggle */}
         <div className="flex rounded-lg border overflow-hidden">
-          <button
-            onClick={() => setViewMode("week")}
-            className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-              viewMode === "week"
-                ? "bg-primary text-primary-foreground"
-                : "bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            Week
-          </button>
-          <button
-            onClick={() => setViewMode("day")}
-            className={`px-4 py-1.5 text-sm font-medium transition-colors border-l ${
-              viewMode === "day"
-                ? "bg-primary text-primary-foreground"
-                : "bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            Day
-          </button>
+          {(["week", "day", "month"] as ViewMode[]).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                mode !== "week" ? "border-l" : ""
+              } ${
+                viewMode === mode
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {mode.charAt(0).toUpperCase() + mode.slice(1)}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* ── Staff Color Legend ──────────────────────────────────── */}
+      {staffMembers.length > 1 && viewMode === "week" && (
+        <div className="flex items-center gap-3 mb-3 px-3 py-2 bg-white rounded-lg border text-sm overflow-x-auto">
+          <span className="text-gray-500 font-medium flex-shrink-0">Staff:</span>
+          {staffMembers.map((s, i) => (
+            <div key={s.id} className="flex items-center gap-1.5 flex-shrink-0">
+              <div
+                className="w-2.5 h-2.5 rounded-full"
+                style={{ backgroundColor: STAFF_COLORS[i % STAFF_COLORS.length] }}
+              />
+              <span className="text-gray-700">{s.firstName} {s.lastName?.charAt(0) || ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Content ────────────────────────────────────────────── */}
       {isLoading ? (
         <div className="flex justify-center items-center h-64 bg-white rounded-lg border">
           <div className="animate-spin w-10 h-10 border-4 border-primary rounded-full border-t-transparent" />
         </div>
-      ) : viewMode === "week" ? (
-        <WeekView
+      ) : viewMode === "month" ? (
+        <MonthView
           appointments={appointments}
           selectedDate={selectedDate}
           onSelectDate={(d) => {
             setSelectedDate(d);
             setViewMode("day");
           }}
-          onClickAppointment={(id) => navigate(`/appointments/${id}`)}
+        />
+      ) : viewMode === "week" ? (
+        <WeekView
+          appointments={appointments}
+          selectedDate={selectedDate}
+          staffMembers={staffMembers}
+          onSelectDate={(d) => {
+            setSelectedDate(d);
+            setViewMode("day");
+          }}
+          onClickAppointment={handleClickAppointment}
+          onQuickCreate={handleQuickCreate}
         />
       ) : (
         <StaffDayView
           appointments={appointments}
           staffMembers={staffMembers}
           selectedDate={selectedDate}
-          onClickAppointment={(id) => navigate(`/appointments/${id}`)}
+          onClickAppointment={handleClickAppointment}
           onSendReminder={(id) => sendReminderMutation.mutate(id)}
           reminderPending={sendReminderMutation.isPending}
-          onNewAppointment={() => setSheetOpen(true)}
+          onNewAppointment={() => { setPrefillDate(null); setSheetOpen(true); }}
         />
       )}
 
@@ -387,7 +511,355 @@ export default function Appointments() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* ── Appointment Detail Side Panel ──────────────────────── */}
+      <Sheet open={detailSheetOpen} onOpenChange={setDetailSheetOpen}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          {selectedAppointment && (
+            <AppointmentDetailPanel
+              appointment={selectedAppointment}
+              staffMembers={staffMembers}
+              onStatusChange={(status) => {
+                updateStatusMutation.mutate({
+                  appointmentId: selectedAppointment.id,
+                  status,
+                });
+              }}
+              onSendReminder={() => sendReminderMutation.mutate(selectedAppointment.id)}
+              reminderPending={sendReminderMutation.isPending}
+              statusPending={updateStatusMutation.isPending}
+              onViewFull={() => {
+                setDetailSheetOpen(false);
+                navigate(`/appointments/${selectedAppointment.id}`);
+              }}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </PageLayout>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// APPOINTMENT DETAIL SIDE PANEL
+// ═══════════════════════════════════════════════════════════════════════
+function AppointmentDetailPanel({
+  appointment,
+  staffMembers,
+  onStatusChange,
+  onSendReminder,
+  reminderPending,
+  statusPending,
+  onViewFull,
+}: {
+  appointment: AppointmentData;
+  staffMembers: StaffData[];
+  onStatusChange: (status: string) => void;
+  onSendReminder: () => void;
+  reminderPending: boolean;
+  statusPending: boolean;
+  onViewFull: () => void;
+}) {
+  const start = new Date(appointment.startDate);
+  const end = new Date(appointment.endDate);
+  const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
+  const customerName = appointment.customer
+    ? `${appointment.customer.firstName} ${appointment.customer.lastName}`.trim()
+    : "Walk-in";
+  const source = getAppointmentSource(appointment.notes);
+  const staffColor = getStaffColor(appointment.staff?.id, staffMembers);
+  const colors = STATUS_COLORS[appointment.status] || STATUS_COLORS.scheduled;
+
+  return (
+    <div className="space-y-5">
+      <SheetHeader>
+        <SheetTitle className="text-xl">{customerName}</SheetTitle>
+        <SheetDescription>
+          {formatFullDate(start)}
+        </SheetDescription>
+      </SheetHeader>
+
+      {/* Status badge and source */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {getStatusBadge(appointment.status)}
+        <div className={`flex items-center gap-1 text-xs ${source.color}`}>
+          {source.icon}
+          <span>{source.label}</span>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Time & Service */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <Clock className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          <div>
+            <div className="text-sm font-medium">
+              {formatTime(start)} – {formatTime(end)}
+            </div>
+            <div className="text-xs text-gray-500">{durationMin} minutes</div>
+          </div>
+        </div>
+
+        {appointment.service && (
+          <div className="flex items-center gap-3">
+            <Scissors className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            <div>
+              <div className="text-sm font-medium">{appointment.service.name}</div>
+              {appointment.service.price && (
+                <div className="text-xs text-gray-500">${appointment.service.price}</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {appointment.staff && (
+          <div className="flex items-center gap-3">
+            <div
+              className="w-4 h-4 rounded-full flex-shrink-0"
+              style={{ backgroundColor: staffColor }}
+            />
+            <div className="text-sm font-medium">
+              {appointment.staff.firstName} {appointment.staff.lastName}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <Separator />
+
+      {/* Customer Contact */}
+      {appointment.customer && (
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Contact</div>
+          {appointment.customer.phone && (
+            <div className="flex items-center gap-3">
+              <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              <a href={`tel:${appointment.customer.phone}`} className="text-sm text-blue-600 hover:underline">
+                {appointment.customer.phone}
+              </a>
+            </div>
+          )}
+          {appointment.customer.email && (
+            <div className="flex items-center gap-3">
+              <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              <a href={`mailto:${appointment.customer.email}`} className="text-sm text-blue-600 hover:underline truncate">
+                {appointment.customer.email}
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Notes */}
+      {appointment.notes && (
+        <>
+          <Separator />
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Notes</div>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">{appointment.notes}</p>
+          </div>
+        </>
+      )}
+
+      <Separator />
+
+      {/* Quick Actions */}
+      <div className="space-y-3">
+        <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Quick Actions</div>
+
+        {/* Status change */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-600 w-16">Status:</span>
+          <Select
+            value={appointment.status}
+            onValueChange={onStatusChange}
+            disabled={statusPending}
+          >
+            <SelectTrigger className="h-8 text-sm flex-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="scheduled">Scheduled</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2">
+          {appointment.status !== "confirmed" && appointment.status !== "cancelled" && appointment.status !== "completed" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onStatusChange("confirmed")}
+              disabled={statusPending}
+              className="text-green-700 border-green-200 hover:bg-green-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              Confirm
+            </Button>
+          )}
+          {appointment.status !== "completed" && appointment.status !== "cancelled" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onStatusChange("completed")}
+              disabled={statusPending}
+              className="text-purple-700 border-purple-200 hover:bg-purple-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              Complete
+            </Button>
+          )}
+          {appointment.status !== "cancelled" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onStatusChange("cancelled")}
+              disabled={statusPending}
+              className="text-red-700 border-red-200 hover:bg-red-50"
+            >
+              <XCircle className="h-3.5 w-3.5 mr-1" />
+              Cancel
+            </Button>
+          )}
+          {appointment.customer?.phone && appointment.status !== "cancelled" && appointment.status !== "completed" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onSendReminder}
+              disabled={reminderPending}
+            >
+              <MessageSquare className="h-3.5 w-3.5 mr-1" />
+              {reminderPending ? "Sending..." : "Send Reminder"}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* View full details */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onViewFull}
+        className="w-full text-gray-500"
+      >
+        <ExternalLink className="h-3.5 w-3.5 mr-1" />
+        View Full Details / Edit
+      </Button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MONTH VIEW
+// ═══════════════════════════════════════════════════════════════════════
+function MonthView({
+  appointments,
+  selectedDate,
+  onSelectDate,
+}: {
+  appointments: AppointmentData[];
+  selectedDate: Date;
+  onSelectDate: (date: Date) => void;
+}) {
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+
+  // Build calendar grid: start from the Monday before (or on) the 1st
+  const startDow = firstDay.getDay(); // 0=Sun
+  const startOffset = startDow === 0 ? -6 : 1 - startDow;
+  const calendarStart = new Date(year, month, 1 + startOffset);
+
+  const weeks: Date[][] = [];
+  let current = new Date(calendarStart);
+  while (weeks.length < 6) {
+    const week: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      week.push(new Date(current));
+      current.setDate(current.getDate() + 1);
+    }
+    weeks.push(week);
+    // Stop if we've covered all days of the month
+    if (current.getMonth() !== month && current.getDate() > 7) break;
+  }
+
+  // Count appointments per day
+  const countsByDate = new Map<string, number>();
+  appointments.forEach(a => {
+    const d = new Date(a.startDate);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    countsByDate.set(key, (countsByDate.get(key) || 0) + 1);
+  });
+
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  return (
+    <div className="bg-white rounded-lg border overflow-hidden">
+      {/* Day headers */}
+      <div className="grid grid-cols-7 border-b">
+        {dayNames.map(d => (
+          <div key={d} className="p-2 text-center text-xs font-medium text-gray-500 uppercase">
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      {weeks.map((week, wi) => (
+        <div key={wi} className="grid grid-cols-7 border-b last:border-b-0">
+          {week.map((day, di) => {
+            const inMonth = day.getMonth() === month;
+            const today = isToday(day);
+            const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+            const count = countsByDate.get(key) || 0;
+
+            return (
+              <button
+                key={di}
+                onClick={() => onSelectDate(day)}
+                className={`relative p-2 min-h-[72px] sm:min-h-[88px] text-left border-r last:border-r-0 transition-colors hover:bg-gray-50 ${
+                  !inMonth ? "bg-gray-50/50" : ""
+                } ${today ? "bg-blue-50/60" : ""}`}
+              >
+                <div
+                  className={`text-sm font-medium inline-flex items-center justify-center w-7 h-7 rounded-full ${
+                    today
+                      ? "bg-blue-600 text-white"
+                      : inMonth
+                        ? "text-gray-900"
+                        : "text-gray-400"
+                  }`}
+                >
+                  {day.getDate()}
+                </div>
+                {count > 0 && (
+                  <div className="mt-1 flex items-center gap-1">
+                    <div className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                      count >= 5
+                        ? "bg-red-100 text-red-700"
+                        : count >= 3
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-blue-100 text-blue-700"
+                    }`}>
+                      {count} appt{count !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -397,16 +869,27 @@ export default function Appointments() {
 function WeekView({
   appointments,
   selectedDate,
+  staffMembers,
   onSelectDate,
   onClickAppointment,
+  onQuickCreate,
 }: {
   appointments: AppointmentData[];
   selectedDate: Date;
+  staffMembers: StaffData[];
   onSelectDate: (date: Date) => void;
   onClickAppointment: (id: number) => void;
+  onQuickCreate: (date: Date, hour: number) => void;
 }) {
   const isMobile = useIsMobile();
   const weekDays = getWeekDays(selectedDate);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Update current time every minute for the time indicator
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // On mobile, show a day-selector strip + single-day time grid
   if (isMobile) {
@@ -414,12 +897,21 @@ function WeekView({
       <MobileWeekView
         appointments={appointments}
         selectedDate={selectedDate}
+        staffMembers={staffMembers}
         weekDays={weekDays}
         onSelectDate={onSelectDate}
         onClickAppointment={onClickAppointment}
       />
     );
   }
+
+  // Check if today is in the current week
+  const todayInWeek = weekDays.find(d => isToday(d));
+  const showTimeLine = !!todayInWeek;
+  const todayColumnIndex = todayInWeek ? weekDays.findIndex(d => isToday(d)) : -1;
+  const timeLineTop =
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    HOUR_HEIGHT;
 
   return (
     <div className="bg-white rounded-lg border overflow-hidden">
@@ -452,75 +944,106 @@ function WeekView({
       </div>
 
       {/* Time grid */}
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] overflow-x-auto" style={{ minHeight: HOURS.length * HOUR_HEIGHT }}>
-        {/* Time labels + grid rows */}
-        {HOURS.map((hour) => (
-          <div key={`label-${hour}`} className="contents">
-            {/* Time label */}
-            <div
-              className="text-xs text-gray-400 text-right pr-2 pt-1 border-b"
-              style={{ height: HOUR_HEIGHT }}
-            >
-              {formatHour(hour)}
-            </div>
-            {/* Day cells */}
-            {weekDays.map((day, dayIdx) => {
-              const cellAppts = appointments.filter((a) => {
-                const aDate = new Date(a.startDate);
-                return isSameDay(aDate, day) && aDate.getHours() === hour;
-              });
-
-              return (
-                <div
-                  key={`cell-${hour}-${dayIdx}`}
-                  className={`relative border-l border-b transition-colors hover:bg-gray-50/50 ${
-                    isToday(day) ? "bg-blue-50/50" : ""
-                  }`}
-                  style={{ height: HOUR_HEIGHT }}
-                  onClick={() => onSelectDate(day)}
-                >
-                  {cellAppts.map((appt) => {
-                    const start = new Date(appt.startDate);
-                    const minuteOffset = start.getMinutes();
-                    const topPx = (minuteOffset / 60) * HOUR_HEIGHT;
-                    const end = new Date(appt.endDate);
-                    const durationMinutes = (end.getTime() - start.getTime()) / 60000;
-                    const heightPx = Math.max((durationMinutes / 60) * HOUR_HEIGHT - 2, 20);
-                    const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
-
-                    const customerName = appt.customer
-                      ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
-                      : "Walk-in";
-                    const tooltipParts = [customerName];
-                    if (appt.customer?.phone) tooltipParts.push(appt.customer.phone);
-                    if (appt.service?.name) tooltipParts.push(appt.service.name);
-                    if (appt.staff) tooltipParts.push(`w/ ${appt.staff.firstName}`);
-
-                    return (
-                      <button
-                        key={appt.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onClickAppointment(appt.id);
-                        }}
-                        className={`absolute left-0.5 right-0.5 rounded px-1.5 py-0.5 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow hover:shadow-md z-10 ${colors.bg} ${colors.border}`}
-                        style={{ top: topPx, height: heightPx }}
-                        title={tooltipParts.join(" — ")}
-                      >
-                        <div className={`text-[10px] font-semibold whitespace-nowrap truncate ${colors.text}`}>
-                          {customerName}
-                        </div>
-                        <div className="text-[9px] text-gray-500 whitespace-nowrap truncate">
-                          {appt.service?.name || "Appointment"} · {formatTime(start)}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })}
+      <div className="relative overflow-x-auto" style={{ minHeight: HOURS.length * HOUR_HEIGHT }}>
+        {/* Current time indicator line */}
+        {showTimeLine && timeLineTop >= 0 && timeLineTop <= HOURS.length * HOUR_HEIGHT && (
+          <div
+            className="absolute z-20 pointer-events-none flex items-center"
+            style={{
+              top: timeLineTop,
+              left: `calc(60px + (100% - 60px) / 7 * ${todayColumnIndex})`,
+              width: `calc((100% - 60px) / 7)`,
+            }}
+          >
+            <div className="w-2.5 h-2.5 rounded-full bg-red-500 -ml-1.5 flex-shrink-0" />
+            <div className="flex-1 h-0.5 bg-red-500" />
           </div>
-        ))}
+        )}
+
+        <div className="grid grid-cols-[60px_repeat(7,1fr)]">
+          {/* Time labels + grid rows */}
+          {HOURS.map((hour) => (
+            <div key={`label-${hour}`} className="contents">
+              {/* Time label */}
+              <div
+                className="text-xs text-gray-400 text-right pr-2 pt-1 border-b"
+                style={{ height: HOUR_HEIGHT }}
+              >
+                {formatHour(hour)}
+              </div>
+              {/* Day cells */}
+              {weekDays.map((day, dayIdx) => {
+                const cellAppts = appointments.filter((a) => {
+                  const aDate = new Date(a.startDate);
+                  return isSameDay(aDate, day) && aDate.getHours() === hour;
+                });
+                const today = isToday(day);
+
+                return (
+                  <div
+                    key={`cell-${hour}-${dayIdx}`}
+                    className={`relative border-l border-b transition-colors hover:bg-gray-50/50 cursor-pointer ${
+                      today ? "bg-blue-50/30" : ""
+                    }`}
+                    style={{ height: HOUR_HEIGHT }}
+                    onClick={() => onQuickCreate(day, hour)}
+                  >
+                    {cellAppts.map((appt) => {
+                      const start = new Date(appt.startDate);
+                      const minuteOffset = start.getMinutes();
+                      const topPx = (minuteOffset / 60) * HOUR_HEIGHT;
+                      const end = new Date(appt.endDate);
+                      const durationMinutes = (end.getTime() - start.getTime()) / 60000;
+                      const heightPx = Math.max((durationMinutes / 60) * HOUR_HEIGHT - 2, 24);
+                      const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                      const isCancelled = appt.status === "cancelled";
+                      const staffColor = getStaffColor(appt.staff?.id, staffMembers);
+
+                      const customerName = appt.customer
+                        ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
+                        : "Walk-in";
+                      const tooltipParts = [customerName];
+                      if (appt.customer?.phone) tooltipParts.push(appt.customer.phone);
+                      if (appt.service?.name) tooltipParts.push(appt.service.name);
+                      if (appt.staff) tooltipParts.push(`w/ ${appt.staff.firstName}`);
+
+                      return (
+                        <button
+                          key={appt.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onClickAppointment(appt.id);
+                          }}
+                          className={`absolute left-0.5 right-0.5 rounded-md px-1.5 py-0.5 border-l-3 text-left overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] z-10 ${colors.bg} ${colors.border} ${
+                            isCancelled ? "opacity-50" : ""
+                          }`}
+                          style={{ top: topPx, height: heightPx }}
+                          title={tooltipParts.join(" — ")}
+                        >
+                          <div className={`flex items-center gap-1 ${colors.text}`}>
+                            {/* Staff color dot */}
+                            <div
+                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: staffColor }}
+                            />
+                            <span className={`text-[10px] font-semibold whitespace-nowrap truncate ${isCancelled ? "line-through" : ""}`}>
+                              {customerName}
+                            </span>
+                          </div>
+                          {heightPx >= 30 && (
+                            <div className="text-[9px] text-gray-500 whitespace-nowrap truncate pl-3">
+                              {appt.service?.name || "Appointment"} · {formatTime(start)}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -532,12 +1055,14 @@ function WeekView({
 function MobileWeekView({
   appointments,
   selectedDate,
+  staffMembers,
   weekDays,
   onSelectDate,
   onClickAppointment,
 }: {
   appointments: AppointmentData[];
   selectedDate: Date;
+  staffMembers: StaffData[];
   weekDays: Date[];
   onSelectDate: (date: Date) => void;
   onClickAppointment: (id: number) => void;
@@ -626,6 +1151,8 @@ function MobileWeekView({
                     const durationMinutes = (end.getTime() - start.getTime()) / 60000;
                     const heightPx = Math.max((durationMinutes / 60) * MOBILE_HOUR_HEIGHT - 2, 24);
                     const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                    const isCancelled = appt.status === "cancelled";
+                    const staffColor = getStaffColor(appt.staff?.id, staffMembers);
 
                     const customerName = appt.customer
                       ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
@@ -635,13 +1162,21 @@ function MobileWeekView({
                       <button
                         key={appt.id}
                         onClick={() => onClickAppointment(appt.id)}
-                        className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border}`}
+                        className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border} ${
+                          isCancelled ? "opacity-50" : ""
+                        }`}
                         style={{ top: topPx, height: heightPx }}
                       >
-                        <div className={`text-xs font-semibold whitespace-nowrap truncate ${colors.text}`}>
-                          {customerName}
+                        <div className={`flex items-center gap-1 ${colors.text}`}>
+                          <div
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: staffColor }}
+                          />
+                          <span className={`text-xs font-semibold whitespace-nowrap truncate ${isCancelled ? "line-through" : ""}`}>
+                            {customerName}
+                          </span>
                         </div>
-                        <div className="text-[11px] text-gray-500 whitespace-nowrap truncate">
+                        <div className="text-[11px] text-gray-500 whitespace-nowrap truncate pl-3">
                           {appt.service?.name || "Appointment"} · {formatTime(start)}
                         </div>
                       </button>
@@ -842,6 +1377,7 @@ function StaffDayView({
                       );
                       const colors =
                         STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                      const isCancelled = appt.status === "cancelled";
 
                       const customerName = appt.customer
                         ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
@@ -854,12 +1390,14 @@ function StaffDayView({
                             e.stopPropagation();
                             onClickAppointment(appt.id);
                           }}
-                          className={`absolute left-1 right-1 rounded-md px-2.5 py-1.5 border-l-4 text-left overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] z-10 ${colors.bg} ${colors.border}`}
+                          className={`absolute left-1 right-1 rounded-md px-2.5 py-1.5 border-l-4 text-left overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] z-10 ${colors.bg} ${colors.border} ${
+                            isCancelled ? "opacity-50" : ""
+                          }`}
                           style={{ top: topPx, height: heightPx }}
                           title={`${formatTime(start)} — ${customerName}${appt.service ? ` — ${appt.service.name}` : ""}`}
                         >
                           <div
-                            className={`text-xs font-bold whitespace-nowrap truncate ${colors.text}`}
+                            className={`text-xs font-bold whitespace-nowrap truncate ${colors.text} ${isCancelled ? "line-through" : ""}`}
                           >
                             {customerName}
                           </div>
@@ -1009,6 +1547,7 @@ function MobileStaffDayView({
                     );
                     const colors =
                       STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                    const isCancelled = appt.status === "cancelled";
 
                     const customerName = appt.customer
                       ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
@@ -1021,11 +1560,13 @@ function MobileStaffDayView({
                           e.stopPropagation();
                           onClickAppointment(appt.id);
                         }}
-                        className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border}`}
+                        className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border} ${
+                          isCancelled ? "opacity-50" : ""
+                        }`}
                         style={{ top: topPx, height: heightPx }}
                       >
                         <div
-                          className={`text-xs font-semibold whitespace-nowrap truncate ${colors.text}`}
+                          className={`text-xs font-semibold whitespace-nowrap truncate ${colors.text} ${isCancelled ? "line-through" : ""}`}
                         >
                           {customerName}
                         </div>
