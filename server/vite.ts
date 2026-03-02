@@ -5,6 +5,7 @@ import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
+import { injectBookingSeo } from "./seoMiddleware";
 
 const viteLogger = createLogger();
 
@@ -58,7 +59,12 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
-      const page = await vite.transformIndexHtml(url, template);
+      let page = await vite.transformIndexHtml(url, template);
+
+      // Inject dynamic SEO tags for booking pages
+      const seoPage = await injectBookingSeo(url, page);
+      if (seoPage) page = seoPage;
+
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
@@ -79,7 +85,17 @@ export function serveStatic(app: Express) {
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+  app.use("*", async (_req, res) => {
+    const url = _req.originalUrl || _req.url;
+    const indexPath = path.resolve(distPath, "index.html");
+    let html = await fs.promises.readFile(indexPath, "utf-8");
+
+    // Inject dynamic SEO tags for booking pages
+    const seoHtml = await injectBookingSeo(url, html);
+    if (seoHtml) {
+      res.status(200).set({ "Content-Type": "text/html" }).end(seoHtml);
+    } else {
+      res.sendFile(indexPath);
+    }
   });
 }
