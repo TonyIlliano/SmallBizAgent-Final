@@ -281,6 +281,8 @@ export interface IStorage {
   // Restaurant Reservations
   getRestaurantReservations(businessId: number, params?: {
     date?: string;
+    startDate?: string;
+    endDate?: string;
     status?: string;
     customerId?: number;
   }): Promise<RestaurantReservation[]>;
@@ -1632,6 +1634,8 @@ export class DatabaseStorage implements IStorage {
 
   async getRestaurantReservations(businessId: number, params?: {
     date?: string;
+    startDate?: string;
+    endDate?: string;
     status?: string;
     customerId?: number;
   }): Promise<RestaurantReservation[]> {
@@ -1639,6 +1643,12 @@ export class DatabaseStorage implements IStorage {
 
     if (params?.date) {
       conditions.push(eq(restaurantReservations.reservationDate, params.date));
+    }
+    if (params?.startDate) {
+      conditions.push(gte(restaurantReservations.reservationDate, params.startDate));
+    }
+    if (params?.endDate) {
+      conditions.push(lte(restaurantReservations.reservationDate, params.endDate));
     }
     if (params?.status) {
       conditions.push(eq(restaurantReservations.status, params.status));

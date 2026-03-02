@@ -27,7 +27,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 const allNavItems = [
   { path: "/", label: "Dashboard", icon: Home },
   { path: "/customers", label: "Customers", icon: Users },
-  { path: "/appointments", label: "Appointments", icon: Calendar },
+  { path: "/appointments", label: "Appointments", icon: Calendar, labelForIndustry: { restaurant: "Reservations" } as Record<string, string> },
   { path: "/jobs", label: "Jobs", icon: Briefcase, hideForIndustries: ['restaurant'] },
   { path: "/recurring", label: "Recurring", icon: RefreshCw, hideForIndustries: ['restaurant'] },
   { path: "/quotes", label: "Quotes", icon: Receipt },
@@ -170,7 +170,9 @@ export function Sidebar() {
                 )}>
                   <item.icon className="h-4 w-4" />
                 </div>
-                <span className="md:hidden lg:inline flex-1">{item.label}</span>
+                <span className="md:hidden lg:inline flex-1">
+                  {(item as any).labelForIndustry?.[businessIndustry] || item.label}
+                </span>
                 {isActive && (
                   <ChevronRight className="h-4 w-4 md:hidden lg:block text-black" />
                 )}
