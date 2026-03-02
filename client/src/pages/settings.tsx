@@ -22,6 +22,7 @@ import BookingSettings from "@/components/settings/BookingSettings";
 import NotificationSettingsPanel from "@/components/settings/NotificationSettings";
 import { WebhookSettings } from "@/components/settings/WebhookSettings";
 import { ApiKeySettings } from "@/components/settings/ApiKeySettings";
+import { GoogleBusinessProfile } from "@/components/settings/GoogleBusinessProfile";
 import {
   Dialog,
   DialogContent,
@@ -1850,6 +1851,7 @@ export default function Settings() {
                     <TabsTrigger value="calendar" className="whitespace-nowrap flex-shrink-0">Calendar</TabsTrigger>
                     <TabsTrigger value="quickbooks" className="whitespace-nowrap flex-shrink-0">QuickBooks</TabsTrigger>
                     <TabsTrigger value="webhooks" className="whitespace-nowrap flex-shrink-0">Webhooks</TabsTrigger>
+                    <TabsTrigger value="google-business" className="whitespace-nowrap flex-shrink-0">Google Business</TabsTrigger>
                     <TabsTrigger value="api-keys" className="whitespace-nowrap flex-shrink-0">API Keys</TabsTrigger>
                   </TabsList>
 
@@ -1870,6 +1872,22 @@ export default function Settings() {
                         Sync appointments with your preferred calendar service
                       </p>
                       {businessId && <CalendarIntegration businessId={businessId} />}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="google-business">
+                    <div className="mb-6">
+                      <h3 className="text-lg font-medium mb-2">Google Business Profile</h3>
+                      <p className="text-muted-foreground mb-4">
+                        Add a booking link to your Google Search and Maps listing so customers can book directly from Google
+                      </p>
+                      {businessId && (
+                        <GoogleBusinessProfile
+                          businessId={businessId}
+                          bookingEnabled={business?.bookingEnabled}
+                          bookingSlug={business?.bookingSlug}
+                        />
+                      )}
                     </div>
                   </TabsContent>
 

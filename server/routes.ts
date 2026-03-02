@@ -138,6 +138,7 @@ import embedRoutes from "./routes/embedRoutes";
 import cloverRoutes from "./routes/cloverRoutes";
 import squareRoutes from "./routes/squareRoutes";
 import adminRoutes from "./routes/adminRoutes";
+import gbpRoutes from "./routes/gbpRoutes";
 
 // Import analytics routes
 import { registerAnalyticsRoutes } from './routes/analyticsRoutes';
@@ -5013,6 +5014,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register calendar routes
   app.use('/api/calendar', calendarRoutes);
+
+  // Register Google Business Profile routes
+  app.use('/api/gbp', gbpRoutes);
 
   // Register QuickBooks integration routes
   app.use('/api/quickbooks', quickbooksRoutes);
