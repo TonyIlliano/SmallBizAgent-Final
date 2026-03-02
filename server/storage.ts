@@ -23,6 +23,8 @@ import {
   CloverOrderLog, InsertCloverOrderLog, cloverOrderLog,
   SquareMenuCache, InsertSquareMenuCache, squareMenuCache,
   SquareOrderLog, InsertSquareOrderLog, squareOrderLog,
+  HeartlandMenuCache, InsertHeartlandMenuCache, heartlandMenuCache,
+  HeartlandOrderLog, InsertHeartlandOrderLog, heartlandOrderLog,
   StaffInvite, InsertStaffInvite, staffInvites,
   BusinessKnowledge, InsertBusinessKnowledge, businessKnowledge,
   UnansweredQuestion, InsertUnansweredQuestion, unansweredQuestions,
@@ -251,6 +253,17 @@ export interface IStorage {
     squareEnvironment?: string;
   }): Promise<Business>;
   clearBusinessSquareConnection(businessId: number): Promise<Business>;
+
+  // Heartland Menu Cache
+  getHeartlandMenuCache(businessId: number): Promise<HeartlandMenuCache | undefined>;
+  upsertHeartlandMenuCache(businessId: number, menuData: any): Promise<HeartlandMenuCache>;
+
+  // Heartland Order Log
+  createHeartlandOrderLog(entry: InsertHeartlandOrderLog): Promise<HeartlandOrderLog>;
+  getHeartlandOrderLogs(businessId: number, limit?: number): Promise<HeartlandOrderLog[]>;
+
+  // Heartland Connection
+  clearBusinessHeartlandConnection(businessId: number): Promise<Business>;
 
   // Password Reset Tokens
   createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken>;
@@ -1475,6 +1488,55 @@ export class DatabaseStorage implements IStorage {
         squareTokenExpiry: null,
         squareLocationId: null,
         squareEnvironment: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(businesses.id, businessId))
+      .returning();
+    return updated;
+  }
+
+  // Heartland Menu Cache methods
+  async getHeartlandMenuCache(businessId: number): Promise<HeartlandMenuCache | undefined> {
+    const [cache] = await db.select().from(heartlandMenuCache)
+      .where(eq(heartlandMenuCache.businessId, businessId));
+    return cache;
+  }
+
+  async upsertHeartlandMenuCache(businessId: number, menuData: any): Promise<HeartlandMenuCache> {
+    const existing = await this.getHeartlandMenuCache(businessId);
+    if (existing) {
+      const [updated] = await db.update(heartlandMenuCache)
+        .set({ menuData, lastSyncedAt: new Date() })
+        .where(eq(heartlandMenuCache.businessId, businessId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(heartlandMenuCache)
+      .values({ businessId, menuData, lastSyncedAt: new Date() })
+      .returning();
+    return created;
+  }
+
+  // Heartland Order Log methods
+  async createHeartlandOrderLog(entry: InsertHeartlandOrderLog): Promise<HeartlandOrderLog> {
+    const [log] = await db.insert(heartlandOrderLog).values(entry).returning();
+    return log;
+  }
+
+  async getHeartlandOrderLogs(businessId: number, limit: number = 50): Promise<HeartlandOrderLog[]> {
+    return db.select().from(heartlandOrderLog)
+      .where(eq(heartlandOrderLog.businessId, businessId))
+      .orderBy(desc(heartlandOrderLog.createdAt))
+      .limit(limit);
+  }
+
+  // Heartland Connection methods
+  async clearBusinessHeartlandConnection(businessId: number): Promise<Business> {
+    const [updated] = await db.update(businesses)
+      .set({
+        heartlandApiKey: null,
+        heartlandLocationName: null,
+        heartlandEnvironment: null,
         updatedAt: new Date(),
       })
       .where(eq(businesses.id, businessId))

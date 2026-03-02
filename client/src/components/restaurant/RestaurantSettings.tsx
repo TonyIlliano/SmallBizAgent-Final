@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import CloverIntegration from "@/components/clover/CloverIntegration";
 import SquareIntegration from "@/components/square/SquareIntegration";
+import HeartlandIntegration from "@/components/heartland/HeartlandIntegration";
 import OrderHistory from "./OrderHistory";
 import { PosIntegrationCard } from "./PosIntegrationCard";
 import { ReservationPlatformCard } from "./ReservationPlatformCard";
@@ -224,20 +225,23 @@ export default function RestaurantSettings({ businessId }: RestaurantSettingsPro
             </CardContent>
           </Card>
 
-          {/* Toast - Coming Soon */}
-          <PosIntegrationCard
-            name="Toast POS"
-            description="Sync your Toast menu and route phone orders to your kitchen"
-            icon={<UtensilsCrossed className="w-5 h-5 text-orange-600" />}
-            accentColor="orange"
-            comingSoon
-            features={[
-              "Menu sync from Toast",
-              "Phone order routing to kitchen",
-              "Real-time order status",
-              "Menu item availability sync",
-            ]}
-          />
+          {/* Heartland/Genius - Real Integration */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                  <CreditCard className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Heartland POS</CardTitle>
+                  <CardDescription className="text-xs">AI-powered phone ordering</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <HeartlandIntegration businessId={businessId} />
+            </CardContent>
+          </Card>
 
           {/* Square for Restaurants - Real Integration */}
           <Card>

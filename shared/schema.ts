@@ -84,6 +84,10 @@ export const businesses = pgTable("businesses", {
   squareTokenExpiry: timestamp("square_token_expiry"),
   squareLocationId: text("square_location_id"),
   squareEnvironment: text("square_environment"), // 'sandbox' or 'production'
+  // Heartland/Genius POS integration
+  heartlandApiKey: text("heartland_api_key"), // Restaurant's location-specific API key
+  heartlandLocationName: text("heartland_location_name"), // Human-readable location name
+  heartlandEnvironment: text("heartland_environment"), // 'production'
   // Restaurant order type settings
   restaurantPickupEnabled: boolean("restaurant_pickup_enabled").default(true),
   restaurantDeliveryEnabled: boolean("restaurant_delivery_enabled").default(false),
@@ -557,6 +561,31 @@ export const squareOrderLog = pgTable("square_order_log", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Heartland Menu Cache (synced from Heartland/Genius POS — one row per business)
+export const heartlandMenuCache = pgTable("heartland_menu_cache", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  menuData: jsonb("menu_data"), // Full menu JSON: categories, items, modifiers, prices
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Heartland Order Log (records of orders placed via AI → Heartland API)
+export const heartlandOrderLog = pgTable("heartland_order_log", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  heartlandOrderId: text("heartland_order_id"), // Order ID returned by Heartland
+  callerPhone: text("caller_phone"),
+  callerName: text("caller_name"),
+  items: jsonb("items"), // Snapshot of what was ordered
+  totalAmount: integer("total_amount"), // In cents
+  status: text("status").default("created"), // created, failed
+  vapiCallId: text("vapi_call_id"), // Link to the VAPI call that triggered this
+  orderType: text("order_type"), // pickup, delivery, dine_in
+  errorMessage: text("error_message"), // If Heartland API failed
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Restaurant Reservations (capacity-based reservation system for restaurants)
 export const restaurantReservations = pgTable("restaurant_reservations", {
   id: serial("id").primaryKey(),
@@ -805,6 +834,8 @@ export const insertCloverMenuCacheSchema = createInsertSchema(cloverMenuCache).o
 export const insertCloverOrderLogSchema = createInsertSchema(cloverOrderLog).omit({ id: true, createdAt: true });
 export const insertSquareMenuCacheSchema = createInsertSchema(squareMenuCache).omit({ id: true, createdAt: true });
 export const insertSquareOrderLogSchema = createInsertSchema(squareOrderLog).omit({ id: true, createdAt: true });
+export const insertHeartlandMenuCacheSchema = createInsertSchema(heartlandMenuCache).omit({ id: true, createdAt: true });
+export const insertHeartlandOrderLogSchema = createInsertSchema(heartlandOrderLog).omit({ id: true, createdAt: true });
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
 export const insertBusinessKnowledgeSchema = createInsertSchema(businessKnowledge).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertUnansweredQuestionSchema = createInsertSchema(unansweredQuestions).omit({ id: true, createdAt: true });
@@ -914,6 +945,12 @@ export type InsertSquareMenuCache = z.infer<typeof insertSquareMenuCacheSchema>;
 
 export type SquareOrderLog = typeof squareOrderLog.$inferSelect;
 export type InsertSquareOrderLog = z.infer<typeof insertSquareOrderLogSchema>;
+
+export type HeartlandMenuCache = typeof heartlandMenuCache.$inferSelect;
+export type InsertHeartlandMenuCache = z.infer<typeof insertHeartlandMenuCacheSchema>;
+
+export type HeartlandOrderLog = typeof heartlandOrderLog.$inferSelect;
+export type InsertHeartlandOrderLog = z.infer<typeof insertHeartlandOrderLogSchema>;
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;

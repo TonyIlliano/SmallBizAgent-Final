@@ -8,6 +8,7 @@
 import { Business, Service, ReceptionistConfig } from '@shared/schema';
 import { getCachedMenu as getCloverCachedMenu, formatMenuForPrompt, type CachedMenu } from './cloverService';
 import { getCachedMenu as getSquareCachedMenu } from './squareService';
+import { getCachedMenu as getHeartlandCachedMenu } from './heartlandService';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
@@ -1149,6 +1150,8 @@ export async function createAssistantForBusiness(
         menuData = await getSquareCachedMenu(business.id);
       } else if (business.cloverMerchantId) {
         menuData = await getCloverCachedMenu(business.id);
+      } else if (business.heartlandApiKey) {
+        menuData = await getHeartlandCachedMenu(business.id);
       }
     } catch (e) {
       console.warn(`Could not load POS menu for business ${business.id}:`, e);
@@ -1304,6 +1307,8 @@ export async function updateAssistant(
         menuData = await getSquareCachedMenu(business.id);
       } else if (business.cloverMerchantId) {
         menuData = await getCloverCachedMenu(business.id);
+      } else if (business.heartlandApiKey) {
+        menuData = await getHeartlandCachedMenu(business.id);
       }
     } catch (e) {
       console.warn(`Could not load POS menu for business ${business.id} during assistant update:`, e);

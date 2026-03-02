@@ -9,6 +9,7 @@ import { storage } from '../storage';
 import twilioService from './twilioService';
 import { getCachedMenu as getCloverCachedMenu, createOrder as createCloverOrder, formatMenuForPrompt, type CachedMenu } from './cloverService';
 import { getCachedMenu as getSquareCachedMenu, createOrder as createSquareOrder } from './squareService';
+import { getCachedMenu as getHeartlandCachedMenu, createOrder as createHeartlandOrder } from './heartlandService';
 import { canBusinessAcceptCalls } from './usageService';
 import { fireEvent } from './webhookService';
 import { getTimezoneAbbreviation } from '../utils/timezone';
@@ -3723,17 +3724,21 @@ async function getPOSCachedMenu(businessId: number): Promise<CachedMenu | null> 
   if (business.cloverAccessToken) {
     return getCloverCachedMenu(businessId);
   }
+  if (business.heartlandApiKey) {
+    return getHeartlandCachedMenu(businessId);
+  }
   return null;
 }
 
 /**
  * Detect which POS system a business uses: 'square', 'clover', or null
  */
-async function detectPOSType(businessId: number): Promise<'square' | 'clover' | null> {
+async function detectPOSType(businessId: number): Promise<'square' | 'clover' | 'heartland' | null> {
   const business = await storage.getBusiness(businessId);
   if (!business) return null;
   if (business.squareAccessToken) return 'square';
   if (business.cloverAccessToken) return 'clover';
+  if (business.heartlandApiKey) return 'heartland';
   return null;
 }
 
@@ -4000,6 +4005,19 @@ async function handleCreateOrder(
         callerPhone: phone,
         callerName: parameters.callerName,
         orderType: orderType as 'pickup' | 'delivery' | 'dine_in',
+        orderNotes: parameters.orderNotes,
+      });
+    } else if (posType === 'heartland') {
+      result = await createHeartlandOrder(businessId, {
+        items: resolvedItems.map(item => ({
+          itemId: item.itemId || item.cloverItemId || '',
+          quantity: item.quantity,
+          modifiers: item.modifiers?.map((m: any) => ({ modifierId: m.modifierId || m.cloverId || '' })),
+          notes: item.notes,
+        })),
+        callerPhone: phone,
+        callerName: parameters.callerName,
+        orderType: orderType as any,
         orderNotes: parameters.orderNotes,
       });
     } else {

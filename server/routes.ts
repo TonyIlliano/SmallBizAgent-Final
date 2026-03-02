@@ -137,6 +137,7 @@ import bookingRoutes from "./routes/bookingRoutes";
 import embedRoutes from "./routes/embedRoutes";
 import cloverRoutes from "./routes/cloverRoutes";
 import squareRoutes from "./routes/squareRoutes";
+import heartlandRoutes from "./routes/heartlandRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import gbpRoutes from "./routes/gbpRoutes";
 
@@ -3976,7 +3977,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   /**
    * GET /api/orders
-   * Fetch AI order history (Clover + Square) for a business
+   * Fetch AI order history (Clover + Square + Heartland) for a business
    * Query params: businessId (required), limit (optional, default 50)
    */
   app.get("/api/orders", isAuthenticated, async (req: Request, res: Response) => {
@@ -3992,10 +3993,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      // Fetch from both POS order logs
-      const [cloverOrders, squareOrders] = await Promise.all([
+      // Fetch from all POS order logs
+      const [cloverOrders, squareOrders, heartlandOrders] = await Promise.all([
         storage.getCloverOrderLogs(businessId, limit),
         storage.getSquareOrderLogs(businessId, limit),
+        storage.getHeartlandOrderLogs(businessId, limit),
       ]);
 
       // Normalize into a unified format
@@ -4017,6 +4019,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: o.id,
           posType: 'square' as const,
           posOrderId: o.squareOrderId,
+          callerPhone: o.callerPhone,
+          callerName: o.callerName,
+          items: o.items,
+          totalAmount: o.totalAmount,
+          status: o.status,
+          orderType: o.orderType,
+          errorMessage: o.errorMessage,
+          createdAt: o.createdAt,
+        })),
+        ...heartlandOrders.map(o => ({
+          id: o.id,
+          posType: 'heartland' as const,
+          posOrderId: o.heartlandOrderId,
           callerPhone: o.callerPhone,
           callerName: o.callerName,
           items: o.items,
@@ -5117,6 +5132,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register Square POS integration routes
   app.use('/api/square', squareRoutes);
+
+  // Register Heartland POS integration routes
+  app.use('/api/heartland', heartlandRoutes);
 
   // Register public booking routes (no auth required for customer-facing pages)
   app.use('/api', bookingRoutes);

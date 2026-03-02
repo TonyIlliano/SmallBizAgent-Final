@@ -26,7 +26,7 @@ interface OrderItem {
 
 interface Order {
   id: number;
-  posType: "clover" | "square";
+  posType: "clover" | "square" | "heartland";
   posOrderId: string | null;
   callerPhone: string | null;
   callerName: string | null;
