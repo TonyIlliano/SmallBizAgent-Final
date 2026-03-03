@@ -21,9 +21,11 @@ import {
   invoices,
   quotes,
   appointments,
-  services
+  services,
+  auditLogs
 } from "@shared/schema";
 import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
+import { sanitizeBusiness } from './utils/sanitize';
 
 // Setup authentication
 import {
@@ -273,7 +275,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!business) {
         return res.status(404).json({ message: "Business not found" });
       }
-      res.json(business);
+      res.json(sanitizeBusiness(business));
     } catch (error) {
       res.status(500).json({ message: "Error fetching business" });
     }
@@ -347,7 +349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         res.status(201).json({
-          ...business,
+          ...sanitizeBusiness(business),
           provisioning: "started",
           message: "Business created. Resources are being provisioned in the background."
         });
@@ -355,7 +357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Even if provisioning fails, still return created business
         console.error("Failed to start business provisioning:", provisionError);
         res.status(201).json({
-          ...business,
+          ...sanitizeBusiness(business),
           provisioning: "failed",
           message: "Business created but resource provisioning failed to start."
         });
@@ -409,7 +411,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         vapiProvisioningService.debouncedUpdateVapiAssistant(id);
       }
 
-      res.json(business);
+      res.json(sanitizeBusiness(business));
     } catch (error) {
       if (error instanceof z.ZodError) {
         console.error('Business update validation error:', JSON.stringify(error.format()));
@@ -449,6 +451,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching provisioning status:", error);
       res.status(500).json({ message: "Error fetching provisioning status" });
+    }
+  });
+
+  // Audit log endpoint
+  app.get("/api/business/:id/audit-log", isAuthenticated, belongsToBusiness, async (req: Request, res: Response) => {
+    try {
+      const businessId = parseInt(req.params.id);
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const offset = (page - 1) * limit;
+      const actionFilter = req.query.action as string;
+
+      let query = db.select().from(auditLogs)
+        .where(eq(auditLogs.businessId, businessId))
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      const logs = await query;
+
+      // Get total count for pagination
+      const [{ count }] = await db.select({ count: sql<number>`count(*)` })
+        .from(auditLogs)
+        .where(eq(auditLogs.businessId, businessId));
+
+      res.json({ logs, total: Number(count), page, limit });
+    } catch (error) {
+      console.error('Error fetching audit log:', error);
+      res.status(500).json({ error: 'Error fetching audit log' });
     }
   });
 

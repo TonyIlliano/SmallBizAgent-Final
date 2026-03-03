@@ -15,6 +15,10 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").default(false),
   emailVerificationCode: text("email_verification_code"),
   emailVerificationExpiry: timestamp("email_verification_expiry"),
+  // Two-Factor Authentication
+  twoFactorSecret: text("two_factor_secret"), // Encrypted TOTP secret
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  twoFactorBackupCodes: text("two_factor_backup_codes"), // JSON array of hashed backup codes
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -113,6 +117,9 @@ export const businesses = pgTable("businesses", {
   businessGroupId: integer("business_group_id"), // FK -> business_groups.id (null for standalone single-location)
   locationLabel: text("location_label"), // "Downtown", "North Side", etc.
   isActive: boolean("is_active").default(true), // Soft-disable a location
+  // Data retention settings
+  dataRetentionDays: integer("data_retention_days").default(365), // How long to keep transcripts (days)
+  callRecordingRetentionDays: integer("call_recording_retention_days").default(90), // How long to keep call recordings
   // Subscription information
   subscriptionStatus: text("subscription_status").default("inactive"),
   subscriptionPlanId: text("subscription_plan_id"),
@@ -828,8 +835,22 @@ export const userBusinessAccess = pgTable("user_business_access", {
   userBusinessUnique: unique("user_business_unique").on(table.userId, table.businessId),
 }));
 
+// Audit Logs (security event tracking)
+export const auditLogs = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id"), // null for system actions
+  businessId: integer("business_id"), // null for non-business actions
+  action: text("action").notNull(), // login, login_failed, 2fa_enabled, 2fa_disabled, password_change, data_export, data_delete, settings_change, api_key_created, etc.
+  resource: text("resource"), // "user", "business", "call_log", etc.
+  resourceId: integer("resource_id"), // ID of the affected resource
+  details: jsonb("details"), // Additional context
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true, emailVerified: true, emailVerificationCode: true, emailVerificationExpiry: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true, emailVerified: true, emailVerificationCode: true, emailVerificationExpiry: true, twoFactorSecret: true, twoFactorEnabled: true, twoFactorBackupCodes: true });
 export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBusinessHoursSchema = createInsertSchema(businessHours).omit({ id: true });
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
@@ -895,6 +916,7 @@ export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit
 export const insertBusinessGroupSchema = createInsertSchema(businessGroups).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBusinessPhoneNumberSchema = createInsertSchema(businessPhoneNumbers).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertUserBusinessAccessSchema = createInsertSchema(userBusinessAccess).omit({ id: true, createdAt: true });
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -1037,3 +1059,6 @@ export type InsertBusinessPhoneNumber = z.infer<typeof insertBusinessPhoneNumber
 
 export type UserBusinessAccess = typeof userBusinessAccess.$inferSelect;
 export type InsertUserBusinessAccess = z.infer<typeof insertUserBusinessAccessSchema>;
+
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;

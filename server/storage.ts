@@ -38,6 +38,18 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { eq, and, or, desc, ilike, sql, gte, lte, inArray } from "drizzle-orm";
 import { db, pool } from "./db";
+import { encryptField, decryptField } from "./utils/encryption";
+
+// Fields in the businesses table that require encryption at rest
+const BUSINESS_ENCRYPTED_FIELDS = [
+  'quickbooksAccessToken',
+  'quickbooksRefreshToken',
+  'cloverAccessToken',
+  'cloverRefreshToken',
+  'squareAccessToken',
+  'squareRefreshToken',
+  'heartlandApiKey',
+] as const;
 
 /**
  * Normalize a phone number to digits-only for comparison.
@@ -346,21 +358,59 @@ export class DatabaseStorage implements IStorage {
       createTableIfMissing: true
     });
   }
-  
+
+  // --- Encryption helpers for sensitive fields ---
+
+  /**
+   * Decrypt all sensitive token fields on a Business object after reading from DB.
+   */
+  private decryptBusinessFields(business: Business): Business {
+    const decrypted = { ...business };
+    for (const field of BUSINESS_ENCRYPTED_FIELDS) {
+      if (decrypted[field]) {
+        (decrypted as any)[field] = decryptField(decrypted[field]);
+      }
+    }
+    return decrypted;
+  }
+
+  /**
+   * Encrypt sensitive token fields in a partial Business object before writing to DB.
+   */
+  private encryptBusinessFields<T extends Partial<Business>>(data: T): T {
+    const encrypted = { ...data };
+    for (const field of BUSINESS_ENCRYPTED_FIELDS) {
+      if (field in encrypted && (encrypted as any)[field] !== null && (encrypted as any)[field] !== undefined) {
+        (encrypted as any)[field] = encryptField((encrypted as any)[field]);
+      }
+    }
+    return encrypted;
+  }
+
+  /**
+   * Decrypt the twoFactorSecret field on a User object after reading from DB.
+   */
+  private decryptUserFields(user: User): User {
+    if (user.twoFactorSecret) {
+      return { ...user, twoFactorSecret: decryptField(user.twoFactorSecret) };
+    }
+    return user;
+  }
+
   // User methods
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    return user ? this.decryptUserFields(user) : undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(sql`lower(${users.username}) = ${username.toLowerCase()}`);
-    return user;
+    return user ? this.decryptUserFields(user) : undefined;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(ilike(users.email, email));
-    return user;
+    return user ? this.decryptUserFields(user) : undefined;
   }
 
   async createUser(user: InsertUser): Promise<User> {
@@ -373,14 +423,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUser(id: number, user: Partial<User>): Promise<User> {
+    const data = { ...user };
+    // Encrypt 2FA secret before writing to DB
+    if ('twoFactorSecret' in data && data.twoFactorSecret !== null && data.twoFactorSecret !== undefined) {
+      data.twoFactorSecret = encryptField(data.twoFactorSecret);
+    }
     const [updatedUser] = await db.update(users)
       .set({
-        ...user,
+        ...data,
         updatedAt: new Date()
       })
       .where(eq(users.id, id))
       .returning();
-    return updatedUser;
+    return this.decryptUserFields(updatedUser);
   }
 
   async updateUserLastLogin(id: number): Promise<User> {
@@ -396,32 +451,35 @@ export class DatabaseStorage implements IStorage {
 
   // Business methods
   async getAllBusinesses(): Promise<Business[]> {
-    return db.select().from(businesses);
+    const results = await db.select().from(businesses);
+    return results.map(b => this.decryptBusinessFields(b));
   }
-  
+
   async getBusiness(id: number): Promise<Business | undefined> {
     const [business] = await db.select().from(businesses).where(eq(businesses.id, id));
-    return business;
+    return business ? this.decryptBusinessFields(business) : undefined;
   }
 
   async createBusiness(business: InsertBusiness): Promise<Business> {
+    const encrypted = this.encryptBusinessFields(business);
     const [newBusiness] = await db.insert(businesses).values({
-      ...business,
+      ...encrypted,
       createdAt: new Date(),
       updatedAt: new Date()
     }).returning();
-    return newBusiness;
+    return this.decryptBusinessFields(newBusiness);
   }
 
   async updateBusiness(id: number, business: Partial<Business>): Promise<Business> {
+    const encrypted = this.encryptBusinessFields(business);
     const [updatedBusiness] = await db.update(businesses)
       .set({
-        ...business,
+        ...encrypted,
         updatedAt: new Date()
       })
       .where(eq(businesses.id, id))
       .returning();
-    return updatedBusiness;
+    return this.decryptBusinessFields(updatedBusiness);
   }
 
   async getBusinessByTwilioPhoneNumber(phoneNumber: string): Promise<Business | undefined> {
@@ -442,7 +500,7 @@ export class DatabaseStorage implements IStorage {
           ...phoneVariants.map(p => eq(businesses.twilioPhoneNumber, p))
         )
       );
-    if (business) return business;
+    if (business) return this.decryptBusinessFields(business);
 
     // Fallback: search the business_phone_numbers table for additional numbers
     const [phoneRecord] = await db.select().from(businessPhoneNumbers)
@@ -464,7 +522,7 @@ export class DatabaseStorage implements IStorage {
   async getBusinessByBookingSlug(slug: string): Promise<Business | undefined> {
     const [business] = await db.select().from(businesses)
       .where(eq(businesses.bookingSlug, slug.toLowerCase()));
-    return business;
+    return business ? this.decryptBusinessFields(business) : undefined;
   }
 
   // Business Hours
@@ -1439,11 +1497,18 @@ export class DatabaseStorage implements IStorage {
     cloverTokenExpiry?: Date;
     cloverEnvironment?: string;
   }): Promise<Business> {
+    const encryptedTokens = { ...tokens };
+    if (encryptedTokens.cloverAccessToken) {
+      encryptedTokens.cloverAccessToken = encryptField(encryptedTokens.cloverAccessToken)!;
+    }
+    if (encryptedTokens.cloverRefreshToken) {
+      encryptedTokens.cloverRefreshToken = encryptField(encryptedTokens.cloverRefreshToken)!;
+    }
     const [updated] = await db.update(businesses)
-      .set({ ...tokens, updatedAt: new Date() })
+      .set({ ...encryptedTokens, updatedAt: new Date() })
       .where(eq(businesses.id, businessId))
       .returning();
-    return updated;
+    return this.decryptBusinessFields(updated);
   }
 
   async clearBusinessCloverConnection(businessId: number): Promise<Business> {
@@ -1511,11 +1576,18 @@ export class DatabaseStorage implements IStorage {
     squareLocationId?: string;
     squareEnvironment?: string;
   }): Promise<Business> {
+    const encryptedTokens = { ...tokens };
+    if (encryptedTokens.squareAccessToken) {
+      encryptedTokens.squareAccessToken = encryptField(encryptedTokens.squareAccessToken)!;
+    }
+    if (encryptedTokens.squareRefreshToken) {
+      encryptedTokens.squareRefreshToken = encryptField(encryptedTokens.squareRefreshToken)!;
+    }
     const [updated] = await db.update(businesses)
-      .set({ ...tokens, updatedAt: new Date() })
+      .set({ ...encryptedTokens, updatedAt: new Date() })
       .where(eq(businesses.id, businessId))
       .returning();
-    return updated;
+    return this.decryptBusinessFields(updated);
   }
 
   async clearBusinessSquareConnection(businessId: number): Promise<Business> {

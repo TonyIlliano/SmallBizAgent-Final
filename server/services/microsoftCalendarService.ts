@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import type { Appointment } from '@shared/schema';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { storage } from '../storage';
+import { encryptField, decryptField } from '../utils/encryption';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
@@ -88,9 +89,12 @@ export class MicrosoftCalendarService {
         )
         .limit(1);
 
+      const existingRefresh = existingIntegration[0]?.refreshToken
+        ? decryptField(existingIntegration[0].refreshToken)
+        : null;
       const tokenData = {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token || (existingIntegration[0]?.refreshToken ?? null),
+        accessToken: encryptField(tokens.access_token)!,
+        refreshToken: encryptField(tokens.refresh_token || existingRefresh),
         expiresAt,
         updatedAt: new Date(),
       };
@@ -134,8 +138,8 @@ export class MicrosoftCalendarService {
       return null;
     }
 
-    // Check if token is expired and refresh if needed
-    let accessToken = integration[0].accessToken;
+    // Check if token is expired and refresh if needed — decrypt for use
+    let accessToken = decryptField(integration[0].accessToken)!;
     if (integration[0].expiresAt && new Date(integration[0].expiresAt) <= new Date()) {
       const refreshedToken = await this.refreshAccessToken(integration[0]);
       if (!refreshedToken) {
@@ -167,6 +171,9 @@ export class MicrosoftCalendarService {
       return null;
     }
 
+    // Decrypt the refresh token for API use
+    const decryptedRefreshToken = decryptField(integration.refreshToken)!;
+
     try {
       const tokenResponse = await fetch(TOKEN_URL, {
         method: 'POST',
@@ -174,7 +181,7 @@ export class MicrosoftCalendarService {
         body: new URLSearchParams({
           client_id: MICROSOFT_CLIENT_ID,
           client_secret: MICROSOFT_CLIENT_SECRET,
-          refresh_token: integration.refreshToken,
+          refresh_token: decryptedRefreshToken,
           grant_type: 'refresh_token',
           scope: SCOPES.join(' '),
         }),
@@ -189,14 +196,14 @@ export class MicrosoftCalendarService {
       const tokens = await tokenResponse.json();
       const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000);
 
-      // Update tokens in database
+      // Update tokens in database (encrypt before storing)
       const updates: any = {
-        accessToken: tokens.access_token,
+        accessToken: encryptField(tokens.access_token),
         expiresAt,
         updatedAt: new Date(),
       };
       if (tokens.refresh_token) {
-        updates.refreshToken = tokens.refresh_token;
+        updates.refreshToken = encryptField(tokens.refresh_token);
       }
 
       await db.update(calendarIntegrations)

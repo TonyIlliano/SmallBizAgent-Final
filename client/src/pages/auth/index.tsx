@@ -4,13 +4,16 @@ import { Link, Redirect, useLocation } from "wouter";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
+import { useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle, Shield } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -59,6 +62,11 @@ export default function AuthPage() {
   const [forgotPasswordSent, setForgotPasswordSent] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
+  const [showTwoFactor, setShowTwoFactor] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [useBackupCode, setUseBackupCode] = useState(false);
+  const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const { user, loginMutation, registerMutation } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -93,18 +101,93 @@ export default function AuthPage() {
     return <Redirect to="/" />;
   }
 
-  const onLoginSubmit = (values: LoginFormValues) => {
+  // 2FA validation mutation
+  const twoFactorMutation = useMutation({
+    mutationFn: async (token: string) => {
+      const res = await fetch("/api/2fa/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        let errorMessage = "Verification failed";
+        try {
+          const errorData = await res.json();
+          if (errorData.error) errorMessage = errorData.error;
+        } catch { /* use default */ }
+        throw new Error(errorMessage);
+      }
+      return await res.json();
+    },
+    onSuccess: (userData) => {
+      queryClient.setQueryData(["/api/user"], userData);
+      toast({
+        title: "Login successful",
+        description: `Welcome back, ${userData.username}!`,
+      });
+    },
+    onError: (error: Error) => {
+      setTwoFactorError(error.message);
+    },
+  });
+
+  const onLoginSubmit = async (values: LoginFormValues) => {
     setLoginError(null);
-    loginMutation.mutate(values, {
-      onError: (error: Error) => {
-        // Show user-friendly error message
-        if (error.message.includes("Invalid") || error.message.includes("401")) {
+    setIsLoggingIn(true);
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        let errorMessage = "Login failed";
+        try {
+          const errorData = await res.json();
+          if (errorData.error) errorMessage = errorData.error;
+        } catch { /* use default */ }
+        if (errorMessage.includes("Invalid") || res.status === 401) {
           setLoginError("Invalid username or password. Please try again.");
         } else {
-          setLoginError(error.message);
+          setLoginError(errorMessage);
         }
-      },
-    });
+        return;
+      }
+
+      const data = await res.json();
+
+      // Check if 2FA is required
+      if (data.requiresTwoFactor) {
+        setShowTwoFactor(true);
+        setTwoFactorCode("");
+        setTwoFactorError(null);
+        setUseBackupCode(false);
+        return;
+      }
+
+      // Normal login success (no 2FA)
+      queryClient.setQueryData(["/api/user"], data);
+      toast({
+        title: "Login successful",
+        description: `Welcome back, ${data.username}!`,
+      });
+    } catch (error: any) {
+      setLoginError(error.message || "An error occurred during login.");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const onTwoFactorSubmit = () => {
+    setTwoFactorError(null);
+    if (!twoFactorCode.trim()) {
+      setTwoFactorError("Please enter a verification code.");
+      return;
+    }
+    twoFactorMutation.mutate(twoFactorCode.trim());
   };
 
   const onRegisterSubmit = (values: RegisterFormValues) => {
@@ -254,83 +337,170 @@ export default function AuthPage() {
               </TabsList>
 
               <TabsContent value="login" className="mt-4">
-                <Form {...loginForm}>
-                  <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
-                    {loginError && (
+                {showTwoFactor ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Shield className="h-5 w-5 text-blue-500" />
+                      <p className="text-sm font-medium">Two-Factor Authentication</p>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Enter the 6-digit code from your authenticator app to complete sign in.
+                    </p>
+                    {twoFactorError && (
                       <Alert variant="destructive">
                         <AlertCircle className="h-4 w-4" />
-                        <AlertDescription>{loginError}</AlertDescription>
+                        <AlertDescription>{twoFactorError}</AlertDescription>
                       </Alert>
                     )}
-                    <FormField
-                      control={loginForm.control}
-                      name="username"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Username</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="yourname"
-                              {...field}
-                              onChange={(e) => {
-                                setLoginError(null);
-                                field.onChange(e);
-                              }}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={loginForm.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <div className="flex items-center justify-between">
-                            <FormLabel>Password</FormLabel>
-                            <Button
-                              type="button"
-                              variant="link"
-                              className="p-0 h-auto text-xs text-muted-foreground"
-                              onClick={() => setForgotPasswordOpen(true)}
-                            >
-                              Forgot password?
-                            </Button>
-                          </div>
-                          <FormControl>
-                            <Input
-                              type="password"
-                              placeholder="••••••••"
-                              {...field}
-                              onChange={(e) => {
-                                setLoginError(null);
-                                field.onChange(e);
-                              }}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
-                      {loginMutation.isPending ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="two-factor-code">
+                        {useBackupCode ? "Backup Code" : "Verification Code"}
+                      </Label>
+                      <Input
+                        id="two-factor-code"
+                        placeholder={useBackupCode ? "Enter backup code" : "Enter 6-digit code"}
+                        value={twoFactorCode}
+                        onChange={(e) => {
+                          setTwoFactorError(null);
+                          if (useBackupCode) {
+                            setTwoFactorCode(e.target.value);
+                          } else {
+                            setTwoFactorCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                          }
+                        }}
+                        maxLength={useBackupCode ? 20 : 6}
+                        className={useBackupCode ? "font-mono" : "font-mono text-center text-lg tracking-widest"}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            onTwoFactorSubmit();
+                          }
+                        }}
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={onTwoFactorSubmit}
+                      disabled={twoFactorMutation.isPending}
+                    >
+                      {twoFactorMutation.isPending ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Logging in...
+                          Verifying...
                         </>
                       ) : (
-                        "Login"
+                        "Verify"
                       )}
                     </Button>
-                  </form>
-                </Form>
-                <div className="mt-4 text-center text-sm">
-                  <span className="text-muted-foreground">Don't have an account? </span>
-                  <Button variant="link" className="p-0" onClick={() => setActiveTab("register")}>
-                    Register
-                  </Button>
-                </div>
+                    <div className="flex items-center justify-between">
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="p-0 h-auto text-xs text-muted-foreground"
+                        onClick={() => {
+                          setUseBackupCode(!useBackupCode);
+                          setTwoFactorCode("");
+                          setTwoFactorError(null);
+                        }}
+                      >
+                        {useBackupCode ? "Use authenticator code" : "Use a backup code"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="p-0 h-auto text-xs text-muted-foreground"
+                        onClick={() => {
+                          setShowTwoFactor(false);
+                          setTwoFactorCode("");
+                          setTwoFactorError(null);
+                          setUseBackupCode(false);
+                        }}
+                      >
+                        Back to login
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Form {...loginForm}>
+                      <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
+                        {loginError && (
+                          <Alert variant="destructive">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription>{loginError}</AlertDescription>
+                          </Alert>
+                        )}
+                        <FormField
+                          control={loginForm.control}
+                          name="username"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Username</FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder="yourname"
+                                  {...field}
+                                  onChange={(e) => {
+                                    setLoginError(null);
+                                    field.onChange(e);
+                                  }}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={loginForm.control}
+                          name="password"
+                          render={({ field }) => (
+                            <FormItem>
+                              <div className="flex items-center justify-between">
+                                <FormLabel>Password</FormLabel>
+                                <Button
+                                  type="button"
+                                  variant="link"
+                                  className="p-0 h-auto text-xs text-muted-foreground"
+                                  onClick={() => setForgotPasswordOpen(true)}
+                                >
+                                  Forgot password?
+                                </Button>
+                              </div>
+                              <FormControl>
+                                <Input
+                                  type="password"
+                                  placeholder="••••••••"
+                                  {...field}
+                                  onChange={(e) => {
+                                    setLoginError(null);
+                                    field.onChange(e);
+                                  }}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <Button type="submit" className="w-full" disabled={isLoggingIn}>
+                          {isLoggingIn ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Logging in...
+                            </>
+                          ) : (
+                            "Login"
+                          )}
+                        </Button>
+                      </form>
+                    </Form>
+                    <div className="mt-4 text-center text-sm">
+                      <span className="text-muted-foreground">Don't have an account? </span>
+                      <Button variant="link" className="p-0" onClick={() => setActiveTab("register")}>
+                        Register
+                      </Button>
+                    </div>
+                  </>
+                )}
               </TabsContent>
 
               <TabsContent value="register" className="mt-4">

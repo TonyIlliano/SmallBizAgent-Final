@@ -8,6 +8,7 @@
 
 import crypto from 'crypto';
 import { pool } from '../db';
+import { encryptField, decryptField } from '../utils/encryption';
 
 /** All supported webhook event types */
 export const WEBHOOK_EVENTS = [
@@ -71,8 +72,10 @@ export async function fireEvent(businessId: number, event: string, payload: obje
       const subscribedEvents: string[] = Array.isArray(webhook.events) ? webhook.events : [];
       if (!subscribedEvents.includes(event)) continue;
 
+      // Decrypt the webhook secret for HMAC signing
+      const decryptedSecret = decryptField(webhook.secret) || webhook.secret;
       // Deliver in background (don't await — fire and forget)
-      deliverWebhook(webhook.id, businessId, event, payload, webhook.url, webhook.secret)
+      deliverWebhook(webhook.id, businessId, event, payload, webhook.url, decryptedSecret)
         .catch(err => console.error(`[Webhook] Background delivery error for webhook ${webhook.id}:`, err));
     }
   } catch (error) {
@@ -220,13 +223,17 @@ export async function getWebhooks(businessId: number) {
  */
 export async function createWebhook(businessId: number, url: string, events: string[], description?: string, source: string = 'manual') {
   const secret = generateWebhookSecret();
+  const encryptedSecret = encryptField(secret)!;
   const result = await pool.query(
     `INSERT INTO webhooks (business_id, url, events, secret, description, source)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [businessId, url, JSON.stringify(events), secret, description || null, source]
+    [businessId, url, JSON.stringify(events), encryptedSecret, description || null, source]
   );
-  return result.rows[0];
+  // Return the plaintext secret to the user (one-time display)
+  const webhook = result.rows[0];
+  webhook.secret = secret;
+  return webhook;
 }
 
 /**

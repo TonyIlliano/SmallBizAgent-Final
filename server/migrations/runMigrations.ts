@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool } from '../db';
+import { encryptField } from '../utils/encryption';
 
 // Get the directory name for ES modules (replacement for __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -1715,6 +1716,12 @@ async function runMigrations() {
       console.error('Error running updated subscription plan pricing migration:', error);
     }
 
+    // Security hardening: 2FA, audit logs, data retention
+    await addSecurityTables();
+
+    // Encrypt existing plaintext sensitive data (idempotent)
+    await encryptExistingPlaintextData();
+
     // Create performance indexes
     await createPerformanceIndexes();
 
@@ -1722,6 +1729,183 @@ async function runMigrations() {
   } catch (error) {
     console.error('Error running migrations:', error);
     throw error;
+  }
+}
+
+/**
+ * Security hardening: 2FA fields, audit logs table, data retention fields
+ */
+async function addSecurityTables() {
+  console.log('Adding security hardening tables and columns...');
+
+  const addColumnIfNotExists = async (table: string, column: string, type: string) => {
+    try {
+      await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+    } catch (e: any) {
+      if (!e.message.includes('already exists')) {
+        console.log(`Note: Could not add ${column} to ${table}: ${e.message}`);
+      }
+    }
+  };
+
+  // 2FA fields on users table
+  await addColumnIfNotExists('users', 'two_factor_secret', 'TEXT');
+  await addColumnIfNotExists('users', 'two_factor_enabled', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('users', 'two_factor_backup_codes', 'TEXT');
+
+  // Data retention fields on businesses table
+  await addColumnIfNotExists('businesses', 'data_retention_days', 'INTEGER DEFAULT 365');
+  await addColumnIfNotExists('businesses', 'call_recording_retention_days', 'INTEGER DEFAULT 90');
+
+  // Audit logs table
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        business_id INTEGER,
+        action TEXT NOT NULL,
+        resource TEXT,
+        resource_id INTEGER,
+        details JSONB,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    // Performance indexes for audit log queries
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_business_id ON audit_logs(business_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)`);
+    console.log('Security tables and columns added successfully');
+  } catch (error) {
+    console.error('Error creating audit_logs table:', error);
+  }
+}
+
+/**
+ * Encrypt existing plaintext sensitive data in the database.
+ * This migration is idempotent — it checks if values are already encrypted
+ * (by looking for the 'enc:' prefix) and skips them if so.
+ * Safe to re-run on every deployment.
+ */
+async function encryptExistingPlaintextData() {
+  console.log('Checking for plaintext sensitive data to encrypt...');
+
+  let totalEncrypted = 0;
+
+  try {
+    // 1. Encrypt business OAuth tokens and API keys
+    const businessFields = [
+      'quickbooks_access_token', 'quickbooks_refresh_token',
+      'clover_access_token', 'clover_refresh_token',
+      'square_access_token', 'square_refresh_token',
+      'heartland_api_key'
+    ];
+
+    const { rows: allBusinesses } = await pool.query(
+      'SELECT id, ' + businessFields.join(', ') + ' FROM businesses'
+    );
+
+    for (const biz of allBusinesses) {
+      const updates: string[] = [];
+      const values: any[] = [];
+      let paramIdx = 1;
+
+      for (const field of businessFields) {
+        const value = biz[field];
+        if (value && typeof value === 'string' && !value.startsWith('enc:')) {
+          updates.push(`${field} = $${paramIdx}`);
+          values.push(encryptField(value));
+          paramIdx++;
+        }
+      }
+
+      if (updates.length > 0) {
+        values.push(biz.id);
+        await pool.query(
+          `UPDATE businesses SET ${updates.join(', ')} WHERE id = $${paramIdx}`,
+          values
+        );
+        totalEncrypted += updates.length;
+      }
+    }
+
+    // 2. Encrypt calendar integration tokens
+    const { rows: calIntegrations } = await pool.query(
+      'SELECT id, access_token, refresh_token FROM calendar_integrations'
+    );
+
+    for (const cal of calIntegrations) {
+      const updates: string[] = [];
+      const values: any[] = [];
+      let paramIdx = 1;
+
+      if (cal.access_token && typeof cal.access_token === 'string' && !cal.access_token.startsWith('enc:')) {
+        updates.push(`access_token = $${paramIdx}`);
+        values.push(encryptField(cal.access_token));
+        paramIdx++;
+      }
+      if (cal.refresh_token && typeof cal.refresh_token === 'string' && !cal.refresh_token.startsWith('enc:')) {
+        updates.push(`refresh_token = $${paramIdx}`);
+        values.push(encryptField(cal.refresh_token));
+        paramIdx++;
+      }
+
+      if (updates.length > 0) {
+        values.push(cal.id);
+        await pool.query(
+          `UPDATE calendar_integrations SET ${updates.join(', ')} WHERE id = $${paramIdx}`,
+          values
+        );
+        totalEncrypted += updates.length;
+      }
+    }
+
+    // 3. Encrypt webhook secrets
+    try {
+      const { rows: allWebhooks } = await pool.query('SELECT id, secret FROM webhooks');
+      for (const wh of allWebhooks) {
+        if (wh.secret && typeof wh.secret === 'string' && !wh.secret.startsWith('enc:')) {
+          await pool.query(
+            'UPDATE webhooks SET secret = $1 WHERE id = $2',
+            [encryptField(wh.secret), wh.id]
+          );
+          totalEncrypted++;
+        }
+      }
+    } catch (e: any) {
+      // webhooks table may not exist yet
+      if (!e.message.includes('does not exist')) {
+        console.error('Error encrypting webhook secrets:', e.message);
+      }
+    }
+
+    // 4. Encrypt 2FA secrets
+    const { rows: usersWithTwoFa } = await pool.query(
+      'SELECT id, two_factor_secret FROM users WHERE two_factor_secret IS NOT NULL'
+    );
+
+    for (const u of usersWithTwoFa) {
+      if (u.two_factor_secret && typeof u.two_factor_secret === 'string' && !u.two_factor_secret.startsWith('enc:')) {
+        await pool.query(
+          'UPDATE users SET two_factor_secret = $1 WHERE id = $2',
+          [encryptField(u.two_factor_secret), u.id]
+        );
+        totalEncrypted++;
+      }
+    }
+
+    if (totalEncrypted > 0) {
+      console.log(`Encrypted ${totalEncrypted} plaintext sensitive field(s) in the database`);
+    } else {
+      console.log('No plaintext sensitive data found — all fields are already encrypted or empty');
+    }
+  } catch (error) {
+    console.error('Error during plaintext data encryption migration:', error);
+    // Non-fatal — don't throw. The application can still function with plaintext data
+    // since the decrypt function is backward-compatible.
   }
 }
 

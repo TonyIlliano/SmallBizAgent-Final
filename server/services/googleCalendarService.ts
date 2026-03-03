@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import type { Appointment } from '@shared/schema';
 import { google } from 'googleapis';
 import { storage } from '../storage';
+import { encryptField, decryptField } from '../utils/encryption';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -65,9 +66,12 @@ export class GoogleCalendarService {
         )
         .limit(1);
 
+      const existingRefresh = existingIntegration[0]?.refreshToken
+        ? decryptField(existingIntegration[0].refreshToken)
+        : null;
       const tokenData = {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token || (existingIntegration[0]?.refreshToken ?? null),
+        accessToken: encryptField(tokens.access_token)!,
+        refreshToken: encryptField(tokens.refresh_token || existingRefresh),
         expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : new Date(Date.now() + 3600 * 1000),
         updatedAt: new Date(),
       };
@@ -111,10 +115,14 @@ export class GoogleCalendarService {
       return null;
     }
 
+    // Decrypt tokens for use
+    const decryptedAccessToken = decryptField(integration[0].accessToken);
+    const decryptedRefreshToken = decryptField(integration[0].refreshToken);
+
     const oauth2Client = createOAuth2Client();
     oauth2Client.setCredentials({
-      access_token: integration[0].accessToken,
-      refresh_token: integration[0].refreshToken,
+      access_token: decryptedAccessToken,
+      refresh_token: decryptedRefreshToken,
       expiry_date: integration[0].expiresAt ? integration[0].expiresAt.getTime() : undefined,
     });
 
@@ -122,8 +130,8 @@ export class GoogleCalendarService {
     oauth2Client.on('tokens', async (tokens) => {
       try {
         const updates: any = { updatedAt: new Date() };
-        if (tokens.access_token) updates.accessToken = tokens.access_token;
-        if (tokens.refresh_token) updates.refreshToken = tokens.refresh_token;
+        if (tokens.access_token) updates.accessToken = encryptField(tokens.access_token);
+        if (tokens.refresh_token) updates.refreshToken = encryptField(tokens.refresh_token);
         if (tokens.expiry_date) updates.expiresAt = new Date(tokens.expiry_date);
 
         await db.update(calendarIntegrations)

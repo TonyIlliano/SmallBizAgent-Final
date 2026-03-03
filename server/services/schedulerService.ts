@@ -8,6 +8,7 @@ import { sendBirthdayCampaigns } from "./marketingService";
 import { deprovisionBusiness } from "./businessProvisioningService";
 import twilioService from "./twilioService";
 import { sendTrialExpirationWarningEmail } from "../emailService";
+import { runDataRetention } from './dataRetentionService';
 
 // Track scheduled jobs to prevent duplicates
 const scheduledJobs: Map<string, NodeJS.Timeout> = new Map();
@@ -574,6 +575,32 @@ async function sendTrialExpirationWarnings(business: any, daysRemaining: number)
 }
 
 /**
+ * Start the daily data retention scheduler.
+ * Runs once per day (every 24 hours) to purge expired call recordings
+ * and transcripts based on each business's retention settings.
+ */
+export function startDataRetentionScheduler(): void {
+  const jobKey = 'data-retention';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Data retention scheduler already running');
+    return;
+  }
+
+  console.log('Starting data retention scheduler');
+
+  // Run immediately on start
+  runDataRetention();
+
+  // Then run every 24 hours
+  const intervalId = setInterval(() => {
+    runDataRetention();
+  }, 24 * 60 * 60 * 1000); // Every 24 hours
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -610,6 +637,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start trial expiration scheduler (deprovisions expired trials, sends pre-expiration warnings)
     startTrialExpirationScheduler();
 
+    // Start data retention scheduler (purges expired call recordings and transcripts daily)
+    startDataRetentionScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -637,6 +667,7 @@ export default {
   startOverageBillingScheduler,
   startBirthdayCampaignScheduler,
   startTrialExpirationScheduler,
+  startDataRetentionScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

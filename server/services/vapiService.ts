@@ -798,7 +798,9 @@ ${knowledgeSection}
 CUSTOM BUSINESS INSTRUCTIONS (follow these closely — the business owner wrote them):
 ${options.customInstructions}
 ` : ''}
-Remember: You're not just booking appointments - you're providing excellent customer service that reflects well on ${business.name}. Make every caller feel valued and heard. Personalization is key - use their name when you know it!`;
+Remember: You're not just booking appointments - you're providing excellent customer service that reflects well on ${business.name}. Make every caller feel valued and heard. Personalization is key - use their name when you know it!
+
+IMPORTANT COMPLIANCE NOTE: If a caller asks whether the call is being recorded, confirm that calls may be recorded for quality assurance and training purposes. Do not deny or evade this question.`;
 }
 
 /**

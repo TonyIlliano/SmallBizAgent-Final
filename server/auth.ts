@@ -7,6 +7,15 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User, InsertUser } from "@shared/schema";
 import { sendPasswordResetEmail, sendVerificationCodeEmail } from "./emailService";
+import * as OTPAuth from 'otpauth';
+import QRCode from 'qrcode';
+import { pool } from './db';
+
+declare module 'express-session' {
+  interface SessionData {
+    pending2FA?: { userId: number; timestamp: number };
+  }
+}
 
 // Extend Express Request type to include user property
 declare global {
@@ -22,6 +31,9 @@ declare global {
       emailVerified: boolean | null;
       emailVerificationCode: string | null;
       emailVerificationExpiry: Date | null;
+      twoFactorSecret: string | null;
+      twoFactorEnabled: boolean | null;
+      twoFactorBackupCodes: string | null;
       lastLogin: Date | null;
       createdAt: Date | null;
       updatedAt: Date | null;
@@ -349,9 +361,20 @@ export function setupAuth(app: Express) {
       if (!user) {
         return res.status(401).json({ error: "Invalid username or password" });
       }
+
+      // If user has 2FA enabled, don't complete login yet
+      if (user.twoFactorEnabled === true) {
+        req.session.pending2FA = { userId: user.id, timestamp: Date.now() };
+        req.session.save((err) => {
+          if (err) return next(err);
+          return res.status(200).json({ requiresTwoFactor: true });
+        });
+        return;
+      }
+
       req.login(user, (err: Error | null) => {
         if (err) return next(err);
-        
+
         // Don't send the password back to the client
         const { password, ...userWithoutPassword } = user;
         return res.json(userWithoutPassword);
@@ -366,6 +389,267 @@ export function setupAuth(app: Express) {
       }
       return res.status(200).json({ message: "Logout successful" });
     });
+  });
+
+  // ============================================
+  // Two-Factor Authentication (2FA) Endpoints
+  // ============================================
+
+  // POST /api/2fa/setup - Generate TOTP secret and QR code
+  app.post("/api/2fa/setup", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = req.user!;
+
+      const totp = new OTPAuth.TOTP({
+        issuer: "SmallBizAgent",
+        label: user.email,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: new OTPAuth.Secret(),
+      });
+
+      // Store the secret but don't enable 2FA yet
+      await storage.updateUser(user.id, {
+        twoFactorSecret: totp.secret.base32,
+      });
+
+      // Generate QR code data URI
+      const qrCode = await QRCode.toDataURL(totp.toString());
+
+      return res.json({
+        qrCode,
+        secret: totp.secret.base32,
+        otpauthUrl: totp.toString(),
+      });
+    } catch (error) {
+      console.error("Error setting up 2FA:", error);
+      return res.status(500).json({ error: "Failed to set up 2FA" });
+    }
+  });
+
+  // POST /api/2fa/verify-setup - Verify TOTP token and enable 2FA
+  app.post("/api/2fa/verify-setup", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = req.user!;
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ error: "Token is required" });
+      }
+
+      // Fetch fresh user data to get the stored secret
+      const freshUser = await storage.getUser(user.id);
+      if (!freshUser || !freshUser.twoFactorSecret) {
+        return res.status(400).json({ error: "2FA setup not initiated. Please start setup first." });
+      }
+
+      const totp = new OTPAuth.TOTP({
+        issuer: "SmallBizAgent",
+        label: freshUser.email,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(freshUser.twoFactorSecret),
+      });
+
+      const delta = totp.validate({ token, window: 1 });
+
+      if (delta === null) {
+        return res.status(400).json({ error: "Invalid verification code" });
+      }
+
+      // Generate 10 backup codes (random 8-char hex strings)
+      const backupCodes: string[] = [];
+      const hashedBackupCodes: string[] = [];
+      for (let i = 0; i < 10; i++) {
+        const code = randomBytes(4).toString("hex"); // 4 bytes = 8 hex chars
+        backupCodes.push(code);
+        hashedBackupCodes.push(createHash("sha256").update(code).digest("hex"));
+      }
+
+      // Enable 2FA and store hashed backup codes
+      await storage.updateUser(user.id, {
+        twoFactorEnabled: true,
+        twoFactorBackupCodes: JSON.stringify(hashedBackupCodes),
+      });
+
+      return res.json({
+        success: true,
+        backupCodes,
+      });
+    } catch (error) {
+      console.error("Error verifying 2FA setup:", error);
+      return res.status(500).json({ error: "Failed to verify 2FA setup" });
+    }
+  });
+
+  // POST /api/2fa/disable - Disable 2FA
+  app.post("/api/2fa/disable", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = req.user!;
+      const { password, token } = req.body;
+
+      if (!password || !token) {
+        return res.status(400).json({ error: "Password and token are required" });
+      }
+
+      // Verify password
+      const freshUser = await storage.getUser(user.id);
+      if (!freshUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const passwordValid = await comparePasswords(password, freshUser.password);
+      if (!passwordValid) {
+        return res.status(401).json({ error: "Invalid password" });
+      }
+
+      // Verify TOTP token
+      if (!freshUser.twoFactorSecret) {
+        return res.status(400).json({ error: "2FA is not enabled" });
+      }
+
+      const totp = new OTPAuth.TOTP({
+        issuer: "SmallBizAgent",
+        label: freshUser.email,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(freshUser.twoFactorSecret),
+      });
+
+      const delta = totp.validate({ token, window: 1 });
+      if (delta === null) {
+        return res.status(400).json({ error: "Invalid verification code" });
+      }
+
+      // Disable 2FA
+      await storage.updateUser(user.id, {
+        twoFactorSecret: null,
+        twoFactorEnabled: false,
+        twoFactorBackupCodes: null,
+      });
+
+      return res.json({ success: true, message: "Two-factor authentication disabled" });
+    } catch (error) {
+      console.error("Error disabling 2FA:", error);
+      return res.status(500).json({ error: "Failed to disable 2FA" });
+    }
+  });
+
+  // POST /api/2fa/validate - Validate TOTP during login (unauthenticated)
+  app.post("/api/2fa/validate", async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ error: "Token is required" });
+      }
+
+      // Check pending 2FA session
+      const pending = req.session.pending2FA;
+      if (!pending || !pending.userId || !pending.timestamp) {
+        return res.status(401).json({ error: "No pending two-factor authentication" });
+      }
+
+      // Check timestamp is less than 5 minutes old
+      const fiveMinutes = 5 * 60 * 1000;
+      if (Date.now() - pending.timestamp > fiveMinutes) {
+        delete req.session.pending2FA;
+        return res.status(401).json({ error: "Two-factor authentication session expired. Please log in again." });
+      }
+
+      // Fetch user from database
+      const user = await storage.getUser(pending.userId);
+      if (!user || !user.twoFactorSecret) {
+        return res.status(401).json({ error: "Invalid two-factor authentication session" });
+      }
+
+      const totp = new OTPAuth.TOTP({
+        issuer: "SmallBizAgent",
+        label: user.email,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(user.twoFactorSecret),
+      });
+
+      let isValid = false;
+
+      // Try TOTP token first
+      const delta = totp.validate({ token, window: 1 });
+      if (delta !== null) {
+        isValid = true;
+      }
+
+      // If TOTP failed, try backup codes
+      if (!isValid && user.twoFactorBackupCodes) {
+        const hashedToken = createHash("sha256").update(token).digest("hex");
+        const backupCodes: string[] = JSON.parse(user.twoFactorBackupCodes);
+        const codeIndex = backupCodes.indexOf(hashedToken);
+
+        if (codeIndex !== -1) {
+          isValid = true;
+          // Remove the used backup code (one-time use)
+          backupCodes.splice(codeIndex, 1);
+          await storage.updateUser(user.id, {
+            twoFactorBackupCodes: JSON.stringify(backupCodes),
+          });
+        }
+      }
+
+      if (!isValid) {
+        return res.status(401).json({ error: "Invalid verification code" });
+      }
+
+      // Complete login
+      req.login(user, (err: Error | null) => {
+        if (err) return next(err);
+
+        // Clear pending 2FA
+        delete req.session.pending2FA;
+
+        // Don't send the password back to the client
+        const { password, ...userWithoutPassword } = user;
+        return res.json(userWithoutPassword);
+      });
+    } catch (error) {
+      console.error("Error validating 2FA:", error);
+      return res.status(500).json({ error: "Failed to validate two-factor authentication" });
+    }
+  });
+
+  // ============================================
+  // Session Management Endpoints
+  // ============================================
+
+  // POST /api/logout-all-devices - Invalidate all sessions for this user
+  app.post("/api/logout-all-devices", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      await pool.query(
+        "DELETE FROM session WHERE sess::jsonb -> 'passport' ->> 'user' = $1",
+        [req.user!.id.toString()]
+      );
+      return res.json({ success: true, message: "Logged out from all devices" });
+    } catch (error) {
+      console.error("Error logging out all devices:", error);
+      return res.status(500).json({ error: "Failed to log out from all devices" });
+    }
+  });
+
+  // GET /api/sessions - Count active sessions for this user
+  app.get("/api/sessions", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        "SELECT COUNT(*) FROM session WHERE sess::jsonb -> 'passport' ->> 'user' = $1 AND expire > NOW()",
+        [req.user!.id.toString()]
+      );
+      return res.json({ activeSessions: parseInt(result.rows[0].count, 10) });
+    } catch (error) {
+      console.error("Error fetching sessions:", error);
+      return res.status(500).json({ error: "Failed to fetch sessions" });
+    }
   });
 
   app.get("/api/user", async (req, res) => {
@@ -534,6 +818,194 @@ export function setupAuth(app: Express) {
       return next();
     }
     res.status(401).json({ error: "Not authenticated" });
+  });
+
+  // === Account Data Export (GDPR / Privacy compliance) ===
+  app.post("/api/account/export", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const businessId = req.user!.businessId;
+
+      // Compile all user data
+      const userData = await storage.getUser(userId);
+      const { password: _, twoFactorSecret: __, twoFactorBackupCodes: ___, ...safeUserData } = userData as any;
+
+      let businessData: any = null;
+      let customers: any = null;
+      let appointments: any = null;
+      let callLogData: any = null;
+      let invoiceData: any = null;
+
+      if (businessId) {
+        businessData = await storage.getBusiness(businessId);
+        // Remove sensitive credentials from export
+        if (businessData) {
+          const { quickbooksAccessToken, quickbooksRefreshToken, cloverAccessToken, cloverRefreshToken, squareAccessToken, squareRefreshToken, heartlandApiKey, ...safeBiz } = businessData as any;
+          businessData = safeBiz;
+        }
+        customers = await storage.getCustomers(businessId);
+        appointments = await storage.getAppointmentsByBusinessId(businessId);
+        callLogData = await storage.getCallLogs(businessId);
+        invoiceData = await storage.getInvoices(businessId);
+      }
+
+      // Log the export
+      const { logAudit, getRequestContext } = await import('./services/auditService');
+      const ctx = getRequestContext(req);
+      await logAudit({
+        userId,
+        businessId: businessId || undefined,
+        action: 'data_export',
+        resource: 'account',
+        ...ctx,
+      });
+
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        user: safeUserData,
+        business: businessData,
+        customers,
+        appointments,
+        callLogs: callLogData,
+        invoices: invoiceData,
+      };
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="smallbizagent-export-${userId}-${Date.now()}.json"`);
+      res.json(exportData);
+    } catch (error) {
+      console.error('Error exporting account data:', error);
+      res.status(500).json({ error: 'Error exporting account data' });
+    }
+  });
+
+  // === Account Deletion (GDPR / Privacy compliance) ===
+  app.post("/api/account/delete", isAuthenticated, async (req, res) => {
+    try {
+      const { password } = req.body;
+      if (!password) {
+        return res.status(400).json({ error: 'Password confirmation required' });
+      }
+
+      const userId = req.user!.id;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Verify password
+      const passwordMatch = await comparePasswords(password, user.password);
+      if (!passwordMatch) {
+        return res.status(401).json({ error: 'Invalid password' });
+      }
+
+      const businessId = user.businessId;
+
+      // Log deletion before we delete everything
+      const { logAudit, getRequestContext } = await import('./services/auditService');
+      const ctx = getRequestContext(req);
+      await logAudit({
+        userId,
+        businessId: businessId || undefined,
+        action: 'account_deleted',
+        resource: 'account',
+        details: { username: user.username, email: user.email },
+        ...ctx,
+      });
+
+      // Delete business data if exists
+      if (businessId) {
+        try {
+          // Try to release provisioned resources
+          const business = await storage.getBusiness(businessId);
+          if (business?.twilioPhoneNumber) {
+            try {
+              const { deprovisionBusiness } = await import('./services/businessProvisioningService');
+              await deprovisionBusiness(businessId);
+            } catch (e) {
+              console.error('Error deprovisioning during account deletion:', e);
+            }
+          }
+
+          // Cancel subscription if active
+          if (business?.stripeSubscriptionId) {
+            try {
+              const { subscriptionService } = await import('./services/subscriptionService');
+              await subscriptionService.cancelSubscription(businessId);
+            } catch (e) {
+              console.error('Error cancelling subscription during account deletion:', e);
+            }
+          }
+        } catch (e) {
+          console.error('Error during business cleanup:', e);
+        }
+
+        // Delete all business-related data
+        const { db: database } = await import('./db');
+        const schema = await import('@shared/schema');
+        const { eq: eqOp } = await import('drizzle-orm');
+
+        // Delete in order (child tables first)
+        const tablesToClean = [
+          schema.callLogs, schema.appointments, schema.customers,
+          schema.invoiceItems, schema.invoices, schema.jobLineItems, schema.jobs,
+          schema.quoteItems, schema.quotes, schema.services, schema.businessHours,
+          schema.staff, schema.staffHours, schema.staffServices, schema.staffInvites,
+          schema.receptionistConfig, schema.calendarIntegrations,
+          schema.notificationSettings, schema.notificationLog,
+          schema.reviewSettings, schema.reviewRequests,
+          schema.recurringSchedules, schema.recurringScheduleItems, schema.recurringJobHistory,
+          schema.businessKnowledge, schema.unansweredQuestions, schema.websiteScrapeCache,
+          schema.webhooks, schema.webhookDeliveries, schema.apiKeys,
+          schema.marketingCampaigns, schema.businessPhoneNumbers,
+          schema.overageCharges,
+        ];
+
+        for (const table of tablesToClean) {
+          try {
+            await database.delete(table).where(eqOp((table as any).businessId, businessId));
+          } catch (e) {
+            // Some tables might not have businessId column, skip those
+          }
+        }
+
+        // Delete the business itself
+        try {
+          await database.delete(schema.businesses).where(eqOp(schema.businesses.id, businessId));
+        } catch (e) {
+          console.error('Error deleting business record:', e);
+        }
+      }
+
+      // Delete user_business_access entries
+      try {
+        const { db: database } = await import('./db');
+        const schema = await import('@shared/schema');
+        const { eq: eqOp } = await import('drizzle-orm');
+        await database.delete(schema.userBusinessAccess).where(eqOp(schema.userBusinessAccess.userId, userId));
+      } catch (e) {
+        console.error('Error deleting user business access:', e);
+      }
+
+      // Destroy all sessions for this user
+      const { pool: dbPool } = await import('./db');
+      await dbPool.query("DELETE FROM session WHERE sess::jsonb -> 'passport' ->> 'user' = $1", [userId.toString()]);
+
+      // Delete the user
+      try {
+        const { db: database } = await import('./db');
+        const schema = await import('@shared/schema');
+        const { eq: eqOp } = await import('drizzle-orm');
+        await database.delete(schema.users).where(eqOp(schema.users.id, userId));
+      } catch (e) {
+        console.error('Error deleting user record:', e);
+      }
+
+      res.json({ success: true, message: 'Account and all associated data have been permanently deleted' });
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      res.status(500).json({ error: 'Error deleting account' });
+    }
   });
 }
 

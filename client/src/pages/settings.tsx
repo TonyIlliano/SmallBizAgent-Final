@@ -25,6 +25,8 @@ import { ApiKeySettings } from "@/components/settings/ApiKeySettings";
 import { GoogleBusinessProfile } from "@/components/settings/GoogleBusinessProfile";
 import PhoneNumbersManager from "@/components/settings/PhoneNumbersManager";
 import LocationsManager from "@/components/settings/LocationsManager";
+import TwoFactorSetup from "@/components/settings/TwoFactorSetup";
+import AuditLog from "@/components/settings/AuditLog";
 import {
   Dialog,
   DialogContent,
@@ -77,7 +79,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw, Search, ChevronDown, ChevronUp, MapPin, ArrowRight, Info, Upload, X, ImageIcon } from "lucide-react";
+import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw, Search, ChevronDown, ChevronUp, MapPin, ArrowRight, Info, Upload, X, ImageIcon, Shield, FileText, Trash2, Download } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -270,10 +272,10 @@ export default function Settings() {
   );
 
   // Compute visible tab count for grid layout
-  // Universal tabs: Profile, Team, Hours, Phone Numbers, Notifications, Reviews, Integrations, Subscription, Locations, App = 10
-  // Service businesses add: Services, Booking = +2 = 12
-  // Restaurants add: Restaurant + Reservations = +2 = 12, + Inventory if POS = 13
-  const tabCount = 10
+  // Universal tabs: Profile, Team, Hours, Phone Numbers, Notifications, Reviews, Integrations, Subscription, Locations, App, Security, Privacy = 12
+  // Service businesses add: Services, Booking = +2 = 14
+  // Restaurants add: Restaurant + Reservations = +2 = 14, + Inventory if POS = 15
+  const tabCount = 12
     + (isRestaurant ? 0 : 2) // Services + Booking for non-restaurants
     + (isRestaurant ? 2 : 0) // Restaurant + Reservations tabs
     + (hasPOS ? 1 : 0);      // Inventory tab
@@ -762,6 +764,8 @@ export default function Settings() {
             <TabsTrigger value="subscription" className="whitespace-nowrap flex-shrink-0">Subscription</TabsTrigger>
             <TabsTrigger value="locations" className="whitespace-nowrap flex-shrink-0">Locations</TabsTrigger>
             <TabsTrigger value="pwa" className="whitespace-nowrap flex-shrink-0">App</TabsTrigger>
+            <TabsTrigger value="security" className="whitespace-nowrap flex-shrink-0">Security</TabsTrigger>
+            <TabsTrigger value="privacy" className="whitespace-nowrap flex-shrink-0">Privacy</TabsTrigger>
           </TabsList>
           
           <TabsContent value="profile" className="space-y-4">
@@ -2051,6 +2055,261 @@ export default function Settings() {
                     View Installation Instructions
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="security" className="space-y-4">
+            <TwoFactorSetup />
+
+            {(user?.role === 'admin' || user?.role === 'owner') && businessId && (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Audit Log
+                    </CardTitle>
+                    <CardDescription>
+                      Track security events and changes made to your account and business
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <AuditLog businessId={businessId} />
+                  </CardContent>
+                </Card>
+              </>
+            )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5" />
+                  Session Management
+                </CardTitle>
+                <CardDescription>
+                  Manage your active sessions across all devices
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Button
+                  variant="destructive"
+                  onClick={async () => {
+                    try {
+                      await apiRequest("POST", "/api/logout-all-devices");
+                      toast({
+                        title: "All sessions terminated",
+                        description: "You have been logged out from all other devices. Please log in again.",
+                      });
+                      window.location.href = "/auth";
+                    } catch (error: any) {
+                      toast({
+                        title: "Error",
+                        description: error.message || "Failed to logout all devices",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                >
+                  Logout All Devices
+                </Button>
+                <p className="text-sm text-muted-foreground">
+                  This will terminate all active sessions including this one. You will need to log in again.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="privacy" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Data Retention</CardTitle>
+                <CardDescription>
+                  Configure how long call recordings and transcripts are kept
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Call Recording Retention</label>
+                  <Select
+                    value={String(business?.callRecordingRetentionDays || 90)}
+                    onValueChange={async (value) => {
+                      try {
+                        await apiRequest("PUT", `/api/business/${businessId}`, {
+                          callRecordingRetentionDays: parseInt(value),
+                        });
+                        queryClient.invalidateQueries({ queryKey: ['/api/business'] });
+                        toast({ title: "Recording retention updated" });
+                      } catch (error: any) {
+                        toast({
+                          title: "Error",
+                          description: error.message || "Failed to update retention",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="30">30 days</SelectItem>
+                      <SelectItem value="90">90 days</SelectItem>
+                      <SelectItem value="180">180 days</SelectItem>
+                      <SelectItem value="365">1 year</SelectItem>
+                      <SelectItem value="730">2 years</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Call recordings older than this will be automatically deleted
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Transcript & Data Retention</label>
+                  <Select
+                    value={String(business?.dataRetentionDays || 365)}
+                    onValueChange={async (value) => {
+                      try {
+                        await apiRequest("PUT", `/api/business/${businessId}`, {
+                          dataRetentionDays: parseInt(value),
+                        });
+                        queryClient.invalidateQueries({ queryKey: ['/api/business'] });
+                        toast({ title: "Data retention updated" });
+                      } catch (error: any) {
+                        toast({
+                          title: "Error",
+                          description: error.message || "Failed to update retention",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="90">90 days</SelectItem>
+                      <SelectItem value="180">180 days</SelectItem>
+                      <SelectItem value="365">1 year</SelectItem>
+                      <SelectItem value="730">2 years</SelectItem>
+                      <SelectItem value="0">Indefinite</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Call transcripts and other data older than this will be automatically purged
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Data Export</CardTitle>
+                <CardDescription>
+                  Download a copy of all your data (CCPA compliance)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="outline"
+                  className="flex items-center gap-2"
+                  onClick={async () => {
+                    try {
+                      const response = await apiRequest("POST", "/api/account/export");
+                      const data = await response.json();
+                      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `data-export-${new Date().toISOString().split('T')[0]}.json`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(url);
+                      toast({ title: "Data exported successfully" });
+                    } catch (error: any) {
+                      toast({
+                        title: "Export failed",
+                        description: error.message || "Failed to export data",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                >
+                  <Download className="h-4 w-4" />
+                  Export My Data
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="border-destructive">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-destructive">
+                  <Trash2 className="h-5 w-5" />
+                  Danger Zone
+                </CardTitle>
+                <CardDescription>
+                  Permanently delete your account and all associated data. This action cannot be undone.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive">
+                      Delete My Account
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete your account, all business data, customers, appointments,
+                        call logs, invoices, and release all provisioned phone numbers. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="my-4">
+                      <Input
+                        type="password"
+                        placeholder="Enter your password to confirm"
+                        id="delete-account-password"
+                      />
+                    </div>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={async () => {
+                          const password = (document.getElementById('delete-account-password') as HTMLInputElement)?.value;
+                          if (!password) {
+                            toast({
+                              title: "Password required",
+                              description: "Please enter your password to confirm account deletion",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          try {
+                            await apiRequest("POST", "/api/account/delete", { password });
+                            toast({ title: "Account deleted" });
+                            window.location.href = "/auth";
+                          } catch (error: any) {
+                            toast({
+                              title: "Deletion failed",
+                              description: error.message || "Failed to delete account",
+                              variant: "destructive",
+                            });
+                          }
+                        }}
+                      >
+                        Delete Account
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <p className="text-sm text-muted-foreground">
+                  Before deleting, consider exporting your data first using the button above.
+                </p>
               </CardContent>
             </Card>
           </TabsContent>

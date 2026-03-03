@@ -29,10 +29,10 @@ export function registerWebhookRoutes(app: any) {
       const webhooks = await webhookService.getWebhooks(businessId);
       // Filter out Zapier-managed webhooks from manual UI list
       const manualWebhooks = webhooks.filter((w: any) => w.source !== 'zapier');
-      // Don't expose full secret — show last 6 chars only
+      // Don't expose secret — just indicate it exists
       const sanitized = manualWebhooks.map((w: any) => ({
         ...w,
-        secret: '••••••' + w.secret.slice(-6),
+        secret: w.secret ? '••••••••••' : null,
       }));
       res.json(sanitized);
     } catch (error: any) {
