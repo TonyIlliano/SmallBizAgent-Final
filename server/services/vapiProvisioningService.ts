@@ -7,7 +7,9 @@
 
 import { storage } from '../storage';
 import vapiService from './vapiService';
-import { Business } from '@shared/schema';
+import { Business, businessPhoneNumbers } from '@shared/schema';
+import { db } from '../db';
+import { eq, and } from 'drizzle-orm';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -119,11 +121,40 @@ export async function provisionVapiForBusiness(businessId: number): Promise<{
 
     console.log(`Created Vapi assistant for business ${businessId}: ${result.assistantId}`);
 
-    // If business has a phone number, connect it
+    // Connect ALL active phone numbers from business_phone_numbers
     let phoneConnected = false;
-    if (business.twilioPhoneNumber && TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
-      const phoneResult = await connectPhoneToVapi(businessId, result.assistantId);
-      phoneConnected = phoneResult.success;
+    if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
+      const activePhoneNumbers = await db.select().from(businessPhoneNumbers)
+        .where(and(
+          eq(businessPhoneNumbers.businessId, businessId),
+          eq(businessPhoneNumbers.status, 'active')
+        ));
+
+      if (activePhoneNumbers.length > 0) {
+        for (const phoneRecord of activePhoneNumbers) {
+          try {
+            const phoneResult = await vapiService.importPhoneNumber(
+              phoneRecord.twilioPhoneNumber,
+              TWILIO_ACCOUNT_SID,
+              TWILIO_AUTH_TOKEN,
+              result.assistantId!
+            );
+            if (phoneResult.phoneNumberId) {
+              await db.update(businessPhoneNumbers)
+                .set({ vapiPhoneNumberId: phoneResult.phoneNumberId, updatedAt: new Date() })
+                .where(eq(businessPhoneNumbers.id, phoneRecord.id));
+              phoneConnected = true;
+              console.log(`Connected phone ${phoneRecord.twilioPhoneNumber} (record ${phoneRecord.id}) to Vapi`);
+            }
+          } catch (phoneErr) {
+            console.error(`Failed to connect phone ${phoneRecord.twilioPhoneNumber} to Vapi:`, phoneErr);
+          }
+        }
+      } else if (business.twilioPhoneNumber) {
+        // Fallback: connect the legacy single number if no multi-line records exist yet
+        const phoneResult = await connectPhoneToVapi(businessId, result.assistantId);
+        phoneConnected = phoneResult.success;
+      }
     }
 
     return {
@@ -309,9 +340,69 @@ export async function getVapiStatus(businessId: number): Promise<{
   };
 }
 
+/**
+ * Connect a specific phone number (by business_phone_numbers ID) to Vapi
+ */
+export async function connectSpecificPhoneToVapi(
+  businessId: number,
+  phoneNumberId: number
+): Promise<{ success: boolean; vapiPhoneNumberId?: string; error?: string }> {
+  if (!VAPI_API_KEY || !TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+    return { success: false, error: 'Vapi or Twilio not configured' };
+  }
+
+  try {
+    // Read the phone number record from business_phone_numbers
+    const [phoneRecord] = await db.select().from(businessPhoneNumbers)
+      .where(and(
+        eq(businessPhoneNumbers.id, phoneNumberId),
+        eq(businessPhoneNumbers.businessId, businessId)
+      ));
+
+    if (!phoneRecord) {
+      return { success: false, error: `Phone number record ${phoneNumberId} not found for business ${businessId}` };
+    }
+
+    // Get the business's Vapi assistant ID
+    const business = await storage.getBusiness(businessId);
+    if (!business) {
+      return { success: false, error: 'Business not found' };
+    }
+
+    if (!business.vapiAssistantId) {
+      return { success: false, error: 'No Vapi assistant for this business' };
+    }
+
+    // Import the phone number to Vapi
+    const result = await vapiService.importPhoneNumber(
+      phoneRecord.twilioPhoneNumber,
+      TWILIO_ACCOUNT_SID,
+      TWILIO_AUTH_TOKEN,
+      business.vapiAssistantId
+    );
+
+    if (result.error) {
+      return { success: false, error: result.error };
+    }
+
+    // Update vapiPhoneNumberId on the business_phone_numbers row
+    await db.update(businessPhoneNumbers)
+      .set({ vapiPhoneNumberId: result.phoneNumberId, updatedAt: new Date() })
+      .where(eq(businessPhoneNumbers.id, phoneNumberId));
+
+    console.log(`Connected phone ${phoneRecord.twilioPhoneNumber} (record ${phoneNumberId}) to Vapi for business ${businessId}`);
+
+    return { success: true, vapiPhoneNumberId: result.phoneNumberId };
+  } catch (error) {
+    console.error('Error connecting specific phone to Vapi:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
 export default {
   provisionVapiForBusiness,
   connectPhoneToVapi,
+  connectSpecificPhoneToVapi,
   updateVapiAssistant,
   debouncedUpdateVapiAssistant,
   removeVapiAssistant,

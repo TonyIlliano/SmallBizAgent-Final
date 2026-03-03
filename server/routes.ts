@@ -151,6 +151,9 @@ import { registerMarketingRoutes } from './routes/marketingRoutes';
 import { registerZapierRoutes } from './routes/zapierRoutes';
 import { registerInventoryRoutes } from './routes/inventoryRoutes';
 import { fireEvent } from './services/webhookService';
+// Multi-line phone + multi-location routes
+import phoneRoutes from './routes/phoneRoutes';
+import locationRoutes from './routes/locationRoutes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication first
@@ -3339,25 +3342,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Twilio webhook for incoming calls
   app.post("/api/twilio/incoming-call", validateTwilioWebhook, async (req: Request, res: Response) => {
     try {
-      const { From, CallSid } = req.body;
+      const { From, Called, CallSid } = req.body;
       // Extract businessId from query params (set by Twilio webhook URL)
       const businessId = parseInt(req.query.businessId as string);
       if (!businessId) {
         console.error('Twilio webhook called without businessId');
         return res.status(400).json({ message: "Business ID required" });
       }
-      
+
       // Fetch business and receptionist config
       const business = await storage.getBusiness(businessId);
       const config = await storage.getReceptionistConfig(businessId);
-      
+
       if (!business || !config) {
         return res.status(404).json({ message: "Business or receptionist configuration not found" });
       }
-      
+
       // Check if caller is an existing customer
       const customer = await storage.getCustomerByPhone(From, businessId);
-      
+
+      // Resolve which phone number was called for multi-line tracking
+      let phoneNumberId: number | null = null;
+      const phoneNumberUsed = Called || null;
+      if (phoneNumberUsed) {
+        try {
+          const phoneRecord = await storage.getPhoneNumberByTwilioNumber(phoneNumberUsed);
+          if (phoneRecord) {
+            phoneNumberId = phoneRecord.id;
+          }
+        } catch (pnErr) {
+          console.error('Error resolving phoneNumberId:', pnErr);
+        }
+      }
+
       // Create a call log entry
       await storage.createCallLog({
         businessId,
@@ -3369,7 +3386,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         callDuration: 0,
         recordingUrl: null,
         status: 'answered',
-        callTime: new Date()
+        callTime: new Date(),
+        phoneNumberId,
+        phoneNumberUsed,
       });
       
       // Build the greeting TwiML
@@ -5135,6 +5154,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register Heartland POS integration routes
   app.use('/api/heartland', heartlandRoutes);
+
+  // Register phone number management routes (multi-line)
+  app.use('/api', phoneRoutes);
+
+  // Register multi-location routes (switch location, business groups)
+  app.use('/api', locationRoutes);
 
   // Register public booking routes (no auth required for customer-facing pages)
   app.use('/api', bookingRoutes);

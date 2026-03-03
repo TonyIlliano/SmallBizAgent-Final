@@ -5,8 +5,10 @@
  * including Twilio phone numbers and virtual receptionist setup.
  */
 
-import { Business } from '@shared/schema';
+import { Business, businessPhoneNumbers } from '@shared/schema';
 import { storage } from '../storage';
+import { db } from '../db';
+import { eq } from 'drizzle-orm';
 import twilioProvisioningService from './twilioProvisioningService';
 import vapiProvisioningService from './vapiProvisioningService';
 import twilioService from './twilioService';
@@ -93,6 +95,17 @@ export async function provisionBusiness(
             twilioPhoneNumberSid: phoneNumber.phoneNumberSid,
             twilioPhoneNumberStatus: 'active',
             twilioDateProvisioned: new Date(),
+          });
+
+          // Also insert into business_phone_numbers for multi-line support
+          await db.insert(businessPhoneNumbers).values({
+            businessId,
+            twilioPhoneNumber: phoneNumber.phoneNumber,
+            twilioPhoneNumberSid: phoneNumber.phoneNumberSid,
+            label: 'Main Line',
+            isPrimary: true,
+            status: 'active',
+            dateProvisioned: new Date(),
           });
 
           results.twilioProvisioned = true;
@@ -333,7 +346,26 @@ export async function deprovisionBusiness(businessId: number) {
       }
     }
 
-    // Release Twilio phone number if one exists
+    // Release ALL phone numbers from business_phone_numbers for this business
+    try {
+      const allPhoneNumbers = await db.select().from(businessPhoneNumbers)
+        .where(eq(businessPhoneNumbers.businessId, businessId));
+
+      for (const phoneRecord of allPhoneNumbers) {
+        try {
+          await twilioProvisioningService.releaseSpecificPhoneNumber(phoneRecord.id);
+          console.log(`[Deprovision] Released additional phone ${phoneRecord.twilioPhoneNumber} (record ${phoneRecord.id})`);
+        } catch (phoneErr) {
+          console.error(`[Deprovision] Failed to release phone record ${phoneRecord.id}:`, phoneErr);
+        }
+      }
+      results.additionalPhonesReleased = allPhoneNumbers.length;
+    } catch (error) {
+      console.error(`[Deprovision] Error releasing additional phone numbers for business ${businessId}:`, error);
+      results.additionalPhonesError = error instanceof Error ? error.message : String(error);
+    }
+
+    // Release Twilio phone number if one exists (legacy single-number path)
     if (business.twilioPhoneNumberSid) {
       try {
         const releaseResult = await twilioProvisioningService.releasePhoneNumber(

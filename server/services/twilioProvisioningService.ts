@@ -6,7 +6,9 @@
  */
 
 import twilio from 'twilio';
-import { Business } from '@shared/schema';
+import { Business, businessPhoneNumbers } from '@shared/schema';
+import { db } from '../db';
+import { eq, and } from 'drizzle-orm';
 
 // Initialize Twilio client with master account credentials
 const accountSid = process.env.TWILIO_ACCOUNT_SID || '';
@@ -96,6 +98,21 @@ export async function provisionPhoneNumber(business: Business, areaCode?: string
       .update({
         friendlyName: `${business.name} - ID: ${business.id} - SmallBizAgent`
       });
+
+    // Dual-write: also insert into business_phone_numbers for multi-line support
+    const existingNumbers = await db.select().from(businessPhoneNumbers)
+      .where(eq(businessPhoneNumbers.businessId, business.id));
+    const isPrimary = existingNumbers.length === 0;
+
+    await db.insert(businessPhoneNumbers).values({
+      businessId: business.id,
+      twilioPhoneNumber: phoneNumber.phoneNumber,
+      twilioPhoneNumberSid: phoneNumber.sid,
+      label: isPrimary ? 'Main Line' : undefined,
+      isPrimary,
+      status: 'active',
+      dateProvisioned: new Date(),
+    });
 
     // Return the details
     return {
@@ -348,11 +365,163 @@ export async function provisionSpecificPhoneNumber(businessId: number, phoneNumb
   }
 }
 
+/**
+ * Provision an additional phone number for a business (multi-line support)
+ *
+ * @param businessId The ID of the business
+ * @param options Optional: areaCode, specificNumber, label
+ * @returns The phone number record from business_phone_numbers
+ */
+export async function provisionAdditionalPhoneNumber(
+  businessId: number,
+  options?: { areaCode?: string; specificNumber?: string; label?: string }
+) {
+  try {
+    // Validate Twilio credentials and client
+    if (!client || !isTwilioConfigured) {
+      throw new Error('Twilio credentials not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.');
+    }
+
+    if (!baseWebhookUrl) {
+      throw new Error('BASE_URL environment variable is not configured. Twilio webhooks require a publicly accessible URL.');
+    }
+
+    validateWebhookUrl();
+
+    // Get business details
+    const { businesses } = await import('@shared/schema');
+    const [business] = await db.select().from(businesses).where(eq(businesses.id, businessId));
+    if (!business) {
+      throw new Error(`Business ID ${businessId} not found`);
+    }
+
+    let purchasedNumber;
+
+    if (options?.specificNumber) {
+      // Purchase a specific phone number
+      purchasedNumber = await client.incomingPhoneNumbers
+        .create({
+          phoneNumber: options.specificNumber,
+          friendlyName: `${business.name} - SmallBizAgent`,
+          voiceUrl: `${baseWebhookUrl}/api/twilio/incoming-call?businessId=${businessId}`,
+          smsUrl: `${baseWebhookUrl}/api/twilio/sms?businessId=${businessId}`,
+        });
+    } else {
+      // Search for available phone numbers
+      let availableNumbers;
+      if (options?.areaCode) {
+        try {
+          const numericAreaCode = parseInt(options.areaCode);
+          availableNumbers = await client.availablePhoneNumbers('US')
+            .local
+            .list({ areaCode: numericAreaCode, limit: 1 });
+        } catch (error) {
+          console.warn(`No numbers available in area code ${options.areaCode}, falling back to general search`);
+        }
+      }
+
+      if (!availableNumbers || availableNumbers.length === 0) {
+        availableNumbers = await client.availablePhoneNumbers('US')
+          .local
+          .list({ limit: 1 });
+      }
+
+      if (availableNumbers.length === 0) {
+        throw new Error('No available phone numbers found');
+      }
+
+      // Purchase the phone number
+      purchasedNumber = await client.incomingPhoneNumbers
+        .create({
+          phoneNumber: availableNumbers[0].phoneNumber,
+          friendlyName: `${business.name} - SmallBizAgent`,
+          voiceUrl: `${baseWebhookUrl}/api/twilio/incoming-call?businessId=${businessId}`,
+          smsUrl: `${baseWebhookUrl}/api/twilio/sms?businessId=${businessId}`,
+        });
+    }
+
+    // Update friendly name with business details
+    await client.incomingPhoneNumbers(purchasedNumber.sid)
+      .update({
+        friendlyName: `${business.name} - ID: ${businessId} - SmallBizAgent`
+      });
+
+    // Check if this is the first number for the business
+    const existingNumbers = await db.select().from(businessPhoneNumbers)
+      .where(eq(businessPhoneNumbers.businessId, businessId));
+    const isPrimary = existingNumbers.length === 0;
+
+    // Insert into business_phone_numbers
+    const [phoneNumberRecord] = await db.insert(businessPhoneNumbers).values({
+      businessId,
+      twilioPhoneNumber: purchasedNumber.phoneNumber,
+      twilioPhoneNumberSid: purchasedNumber.sid,
+      label: options?.label || (isPrimary ? 'Main Line' : undefined),
+      isPrimary,
+      status: 'active',
+      dateProvisioned: new Date(),
+    }).returning();
+
+    console.log(`Provisioned additional phone number ${purchasedNumber.phoneNumber} for business ${businessId}`);
+
+    return phoneNumberRecord;
+  } catch (error) {
+    console.error('Error provisioning additional phone number:', error);
+    throw error;
+  }
+}
+
+/**
+ * Release a specific phone number by its business_phone_numbers ID
+ *
+ * @param phoneNumberId The ID from business_phone_numbers table
+ * @returns Success status
+ */
+export async function releaseSpecificPhoneNumber(phoneNumberId: number) {
+  try {
+    // Validate Twilio client
+    if (!client || !isTwilioConfigured) {
+      throw new Error('Twilio credentials not configured');
+    }
+
+    // Look up the phone number record
+    const [phoneRecord] = await db.select().from(businessPhoneNumbers)
+      .where(eq(businessPhoneNumbers.id, phoneNumberId));
+
+    if (!phoneRecord) {
+      throw new Error(`Phone number record ID ${phoneNumberId} not found`);
+    }
+
+    // Release from Twilio via SID
+    await client.incomingPhoneNumbers(phoneRecord.twilioPhoneNumberSid).remove();
+
+    // Delete from business_phone_numbers table
+    await db.delete(businessPhoneNumbers)
+      .where(eq(businessPhoneNumbers.id, phoneNumberId));
+
+    console.log(`Released phone number ${phoneRecord.twilioPhoneNumber} (record ID ${phoneNumberId})`);
+
+    return {
+      success: true,
+      message: 'Phone number released successfully',
+      phoneNumberId,
+      phoneNumber: phoneRecord.twilioPhoneNumber,
+      businessId: phoneRecord.businessId,
+      dateReleased: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Error releasing specific phone number:', error);
+    throw error;
+  }
+}
+
 export default {
   provisionPhoneNumber,
   releasePhoneNumber,
   updatePhoneNumberWebhooks,
   listPhoneNumbers,
   searchAvailablePhoneNumbers,
-  provisionSpecificPhoneNumber
+  provisionSpecificPhoneNumber,
+  provisionAdditionalPhoneNumber,
+  releaseSpecificPhoneNumber
 };

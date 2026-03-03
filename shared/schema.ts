@@ -110,6 +110,9 @@ export const businesses = pgTable("businesses", {
   birthdayCampaignMessage: text("birthday_campaign_message"), // Custom template, null = use default
   // Multi-location tracking
   numberOfLocations: integer("number_of_locations").default(1),
+  businessGroupId: integer("business_group_id"), // FK -> business_groups.id (null for standalone single-location)
+  locationLabel: text("location_label"), // "Downtown", "North Side", etc.
+  isActive: boolean("is_active").default(true), // Soft-disable a location
   // Subscription information
   subscriptionStatus: text("subscription_status").default("inactive"),
   subscriptionPlanId: text("subscription_plan_id"),
@@ -334,6 +337,8 @@ export const callLogs = pgTable("call_logs", {
   callDuration: integer("call_duration"), // in seconds
   recordingUrl: text("recording_url"),
   status: text("status"), // answered, missed, voicemail
+  phoneNumberId: integer("phone_number_id"), // FK -> business_phone_numbers.id (which line received the call)
+  phoneNumberUsed: text("phone_number_used"), // Denormalized: the actual phone number string
   callTime: timestamp("call_time").defaultNow(),
 });
 
@@ -781,6 +786,48 @@ export const apiKeys = pgTable("api_keys", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Business Groups (organizations that own multiple locations)
+export const businessGroups = pgTable("business_groups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(), // e.g., "Joe's Pizza LLC"
+  ownerUserId: integer("owner_user_id").notNull(), // FK -> users.id
+  // Consolidated billing
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  subscriptionStatus: text("subscription_status").default("inactive"),
+  billingEmail: text("billing_email"),
+  // Multi-location discount
+  multiLocationDiscountPercent: integer("multi_location_discount_percent").default(20),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Business Phone Numbers (multiple Twilio numbers per business)
+export const businessPhoneNumbers = pgTable("business_phone_numbers", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(), // FK -> businesses.id
+  twilioPhoneNumber: text("twilio_phone_number").notNull(), // E.164 format
+  twilioPhoneNumberSid: text("twilio_phone_number_sid").notNull(),
+  vapiPhoneNumberId: text("vapi_phone_number_id"), // Vapi phone number ID when connected
+  label: text("label"), // "Main Line", "After Hours", "Emergency", etc.
+  status: text("status").default("active"), // active, released, pending
+  isPrimary: boolean("is_primary").default(false), // One primary per business
+  dateProvisioned: timestamp("date_provisioned"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// User-Business Access (many-to-many for multi-location support)
+export const userBusinessAccess = pgTable("user_business_access", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(), // FK -> users.id
+  businessId: integer("business_id").notNull(), // FK -> businesses.id
+  role: text("role").default("owner"), // owner, manager, staff
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userBusinessUnique: unique("user_business_unique").on(table.userId, table.businessId),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true, createdAt: true, updatedAt: true, emailVerified: true, emailVerificationCode: true, emailVerificationExpiry: true });
 export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true, updatedAt: true });
@@ -845,6 +892,9 @@ export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries)
 export const insertMarketingCampaignSchema = createInsertSchema(marketingCampaigns).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true });
 export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBusinessGroupSchema = createInsertSchema(businessGroups).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBusinessPhoneNumberSchema = createInsertSchema(businessPhoneNumbers).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertUserBusinessAccessSchema = createInsertSchema(userBusinessAccess).omit({ id: true, createdAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -978,3 +1028,12 @@ export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
 
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
+
+export type BusinessGroup = typeof businessGroups.$inferSelect;
+export type InsertBusinessGroup = z.infer<typeof insertBusinessGroupSchema>;
+
+export type BusinessPhoneNumber = typeof businessPhoneNumbers.$inferSelect;
+export type InsertBusinessPhoneNumber = z.infer<typeof insertBusinessPhoneNumberSchema>;
+
+export type UserBusinessAccess = typeof userBusinessAccess.$inferSelect;
+export type InsertUserBusinessAccess = z.infer<typeof insertUserBusinessAccessSchema>;

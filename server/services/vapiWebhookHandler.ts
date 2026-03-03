@@ -3612,6 +3612,20 @@ async function handleEndOfCall(
         callStatus = 'voicemail';
       }
 
+      // Resolve which phone number was called for multi-line tracking
+      const calledNumber = message?.call?.phoneNumber?.number || null;
+      let phoneNumberId: number | null = null;
+      if (calledNumber) {
+        try {
+          const phoneRecord = await storage.getPhoneNumberByTwilioNumber(calledNumber);
+          if (phoneRecord) {
+            phoneNumberId = phoneRecord.id;
+          }
+        } catch (pnErr) {
+          console.error('Error resolving phoneNumberId:', pnErr);
+        }
+      }
+
       const callLog = await storage.createCallLog({
         businessId,
         callerId: callerPhone || 'Unknown',
@@ -3622,7 +3636,9 @@ async function handleEndOfCall(
         callDuration: callDurationSeconds,
         recordingUrl: message.call.recordingUrl || null,
         status: callStatus,
-        callTime: new Date()
+        callTime: new Date(),
+        phoneNumberId,
+        phoneNumberUsed: calledNumber,
       });
       callLogId = callLog?.id || null;
 

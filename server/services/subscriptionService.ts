@@ -1,4 +1,4 @@
-import { subscriptionPlans, businesses, overageCharges } from '@shared/schema';
+import { subscriptionPlans, businesses, overageCharges, businessGroups } from '@shared/schema';
 import { db } from '../db';
 import { eq } from 'drizzle-orm';
 import Stripe from 'stripe';
@@ -525,6 +525,231 @@ export class SubscriptionService {
       console.log(`[OverageBilling] Payment FAILED for overage invoice ${invoiceId} (business ${invoice.metadata?.businessId})`);
     } catch (error) {
       console.error('[OverageBilling] Error updating overage charge status:', error);
+    }
+  }
+  // ===================== Multi-Location Billing =====================
+
+  /**
+   * Create a group subscription for a business group
+   * @param groupId The business group ID
+   * @param planId The plan ID to subscribe to
+   */
+  async createGroupSubscription(groupId: number, planId: number) {
+    try {
+      const [group] = await db.select().from(businessGroups).where(eq(businessGroups.id, groupId)).limit(1);
+      if (!group) throw new Error('Business group not found');
+
+      // Get all active locations in the group
+      const locations = await db.select().from(businesses)
+        .where(eq(businesses.businessGroupId, groupId));
+      const activeLocations = locations.filter(l => l.isActive !== false);
+
+      // Get plan details
+      const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, planId)).limit(1);
+      if (!plan) throw new Error('Plan not found');
+
+      // Create or get Stripe customer for the group
+      let customerId = group.stripeCustomerId;
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          email: group.billingEmail || undefined,
+          name: group.name,
+          metadata: { businessGroupId: group.id.toString() },
+        });
+        customerId = customer.id;
+        await db.update(businessGroups)
+          .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+          .where(eq(businessGroups.id, groupId));
+      }
+
+      // Create product/price in Stripe
+      const unitAmount = Math.round(plan.price * 100);
+      const stripeInterval = plan.interval === 'monthly' ? 'month' as const : 'year' as const;
+
+      let stripeProduct;
+      try {
+        const products = await stripe.products.list({ ids: [plan.id.toString()] });
+        stripeProduct = products.data.length > 0
+          ? products.data[0]
+          : await stripe.products.create({ id: plan.id.toString(), name: plan.name });
+      } catch {
+        stripeProduct = await stripe.products.create({ name: plan.name });
+      }
+
+      // Find or create price
+      const prices = await stripe.prices.list({ product: stripeProduct.id, active: true });
+      let stripePrice = prices.data.find(p => p.unit_amount === unitAmount && p.recurring?.interval === stripeInterval);
+      if (!stripePrice) {
+        stripePrice = await stripe.prices.create({
+          product: stripeProduct.id,
+          unit_amount: unitAmount,
+          currency: 'usd',
+          recurring: { interval: stripeInterval },
+        });
+      }
+
+      // Apply multi-location discount (20% for 2+ locations)
+      const locationCount = activeLocations.length;
+      let coupon;
+      if (locationCount >= 2) {
+        const discountPercent = group.multiLocationDiscountPercent || 20;
+        try {
+          coupon = await stripe.coupons.retrieve(`multi_loc_${discountPercent}`);
+        } catch {
+          coupon = await stripe.coupons.create({
+            id: `multi_loc_${discountPercent}`,
+            percent_off: discountPercent,
+            duration: 'forever',
+            name: `Multi-Location ${discountPercent}% Discount`,
+          });
+        }
+      }
+
+      // Create subscription with quantity = number of locations
+      const subscriptionParams: Stripe.SubscriptionCreateParams = {
+        customer: customerId,
+        items: [{ price: stripePrice.id, quantity: locationCount }],
+        payment_behavior: 'default_incomplete',
+        expand: ['latest_invoice.payment_intent'],
+      };
+
+      if (coupon) {
+        subscriptionParams.discounts = [{ coupon: coupon.id }];
+      }
+
+      const subscription = await stripe.subscriptions.create(subscriptionParams);
+
+      // Update group with subscription info
+      await db.update(businessGroups)
+        .set({
+          stripeSubscriptionId: subscription.id,
+          subscriptionStatus: subscription.status,
+          updatedAt: new Date(),
+        })
+        .where(eq(businessGroups.id, groupId));
+
+      return {
+        subscriptionId: subscription.id,
+        status: subscription.status,
+        clientSecret: (subscription.latest_invoice as any)?.payment_intent?.client_secret,
+        locationCount,
+        discountApplied: locationCount >= 2,
+      };
+    } catch (error) {
+      console.error('Error creating group subscription:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update the location count on a group subscription (e.g. when adding/removing locations)
+   * @param groupId The business group ID
+   */
+  async updateLocationCount(groupId: number) {
+    try {
+      const [group] = await db.select().from(businessGroups).where(eq(businessGroups.id, groupId)).limit(1);
+      if (!group || !group.stripeSubscriptionId) {
+        throw new Error('No group subscription found');
+      }
+
+      // Count active locations
+      const locations = await db.select().from(businesses)
+        .where(eq(businesses.businessGroupId, groupId));
+      const activeCount = locations.filter(l => l.isActive !== false).length;
+
+      // Get the subscription
+      const subscription = await stripe.subscriptions.retrieve(group.stripeSubscriptionId);
+      const itemId = subscription.items.data[0]?.id;
+
+      if (!itemId) throw new Error('No subscription item found');
+
+      // Update quantity
+      await stripe.subscriptions.update(group.stripeSubscriptionId, {
+        items: [{ id: itemId, quantity: activeCount }],
+      });
+
+      // Apply or remove discount based on location count
+      const discountPercent = group.multiLocationDiscountPercent || 20;
+      const hasDiscount = (subscription as any).discounts?.length > 0 || (subscription as any).discount;
+      if (activeCount >= 2 && !hasDiscount) {
+        let coupon;
+        try {
+          coupon = await stripe.coupons.retrieve(`multi_loc_${discountPercent}`);
+        } catch {
+          coupon = await stripe.coupons.create({
+            id: `multi_loc_${discountPercent}`,
+            percent_off: discountPercent,
+            duration: 'forever',
+            name: `Multi-Location ${discountPercent}% Discount`,
+          });
+        }
+        await stripe.subscriptions.update(group.stripeSubscriptionId, {
+          discounts: [{ coupon: coupon.id }],
+        });
+      }
+
+      console.log(`Updated group ${groupId} subscription to ${activeCount} locations`);
+      return { locationCount: activeCount };
+    } catch (error) {
+      console.error('Error updating location count:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get consolidated billing info for a business group
+   * @param groupId The business group ID
+   */
+  async getGroupBilling(groupId: number) {
+    try {
+      const [group] = await db.select().from(businessGroups).where(eq(businessGroups.id, groupId)).limit(1);
+      if (!group) throw new Error('Business group not found');
+
+      const locations = await db.select().from(businesses)
+        .where(eq(businesses.businessGroupId, groupId));
+      const activeLocations = locations.filter(l => l.isActive !== false);
+
+      let subscriptionDetails = null;
+      if (group.stripeSubscriptionId) {
+        try {
+          const subscription = await stripe.subscriptions.retrieve(group.stripeSubscriptionId);
+          subscriptionDetails = {
+            id: subscription.id,
+            status: subscription.status,
+            currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+            cancelAtPeriodEnd: subscription.cancel_at_period_end,
+            quantity: subscription.items.data[0]?.quantity || 0,
+            discount: (() => {
+              const disc = (subscription as any).discount || (subscription as any).discounts?.[0];
+              if (!disc?.coupon) return null;
+              return { percentOff: disc.coupon.percent_off, name: disc.coupon.name };
+            })(),
+          };
+        } catch (err) {
+          console.error('Error retrieving group subscription:', err);
+        }
+      }
+
+      return {
+        group: {
+          id: group.id,
+          name: group.name,
+          billingEmail: group.billingEmail,
+          multiLocationDiscountPercent: group.multiLocationDiscountPercent,
+        },
+        totalLocations: locations.length,
+        activeLocations: activeLocations.length,
+        subscription: subscriptionDetails,
+        locations: locations.map(l => ({
+          id: l.id,
+          name: l.name,
+          locationLabel: l.locationLabel,
+          isActive: l.isActive,
+        })),
+      };
+    } catch (error) {
+      console.error('Error getting group billing:', error);
+      throw error;
     }
   }
 }

@@ -23,6 +23,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { LocationSwitcher } from "@/components/layout/LocationSwitcher";
 
 const allNavItems = [
   { path: "/", label: "Dashboard", icon: Home },
@@ -145,6 +146,9 @@ export function Sidebar() {
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Location Switcher - only visible for multi-location users */}
+        <LocationSwitcher />
 
         {/* Navigation Links */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">

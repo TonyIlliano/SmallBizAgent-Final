@@ -23,6 +23,8 @@ import NotificationSettingsPanel from "@/components/settings/NotificationSetting
 import { WebhookSettings } from "@/components/settings/WebhookSettings";
 import { ApiKeySettings } from "@/components/settings/ApiKeySettings";
 import { GoogleBusinessProfile } from "@/components/settings/GoogleBusinessProfile";
+import PhoneNumbersManager from "@/components/settings/PhoneNumbersManager";
+import LocationsManager from "@/components/settings/LocationsManager";
 import {
   Dialog,
   DialogContent,
@@ -268,10 +270,10 @@ export default function Settings() {
   );
 
   // Compute visible tab count for grid layout
-  // Universal tabs: Profile, Team, Hours, Notifications, Reviews, Integrations, Subscription, App = 8
-  // Service businesses add: Services, Booking = +2 = 10
-  // Restaurants add: Restaurant + Reservations = +2 = 10, + Inventory if POS = 11
-  const tabCount = 8
+  // Universal tabs: Profile, Team, Hours, Phone Numbers, Notifications, Reviews, Integrations, Subscription, Locations, App = 10
+  // Service businesses add: Services, Booking = +2 = 12
+  // Restaurants add: Restaurant + Reservations = +2 = 12, + Inventory if POS = 13
+  const tabCount = 10
     + (isRestaurant ? 0 : 2) // Services + Booking for non-restaurants
     + (isRestaurant ? 2 : 0) // Restaurant + Reservations tabs
     + (hasPOS ? 1 : 0);      // Inventory tab
@@ -746,6 +748,7 @@ export default function Settings() {
             <TabsTrigger value="profile" className="whitespace-nowrap flex-shrink-0">Profile</TabsTrigger>
             <TabsTrigger value="team" className="whitespace-nowrap flex-shrink-0">Team</TabsTrigger>
             <TabsTrigger value="hours" className="whitespace-nowrap flex-shrink-0">Hours</TabsTrigger>
+            <TabsTrigger value="phone-numbers" className="whitespace-nowrap flex-shrink-0">Phone Numbers</TabsTrigger>
             {/* Services & Booking — service businesses only (salons, plumbers, etc.) */}
             {!isRestaurant && <TabsTrigger value="services" className="whitespace-nowrap flex-shrink-0">Services</TabsTrigger>}
             {!isRestaurant && <TabsTrigger value="booking" className="whitespace-nowrap flex-shrink-0">Booking</TabsTrigger>}
@@ -757,6 +760,7 @@ export default function Settings() {
             {hasPOS && <TabsTrigger value="inventory" className="whitespace-nowrap flex-shrink-0">Inventory</TabsTrigger>}
             <TabsTrigger value="integrations" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
             <TabsTrigger value="subscription" className="whitespace-nowrap flex-shrink-0">Subscription</TabsTrigger>
+            <TabsTrigger value="locations" className="whitespace-nowrap flex-shrink-0">Locations</TabsTrigger>
             <TabsTrigger value="pwa" className="whitespace-nowrap flex-shrink-0">App</TabsTrigger>
           </TabsList>
           
@@ -1921,6 +1925,14 @@ export default function Settings() {
             </Card>
           </TabsContent>
           
+          <TabsContent value="phone-numbers" className="space-y-4">
+            {business && <PhoneNumbersManager businessId={business.id} />}
+          </TabsContent>
+
+          <TabsContent value="locations" className="space-y-4">
+            {business && <LocationsManager business={business} />}
+          </TabsContent>
+
           <TabsContent value="subscription" className="space-y-4">
             <Card>
               <CardHeader>

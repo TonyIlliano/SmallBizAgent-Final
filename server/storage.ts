@@ -29,7 +29,10 @@ import {
   BusinessKnowledge, InsertBusinessKnowledge, businessKnowledge,
   UnansweredQuestion, InsertUnansweredQuestion, unansweredQuestions,
   WebsiteScrapeCache, InsertWebsiteScrapeCache, websiteScrapeCache,
-  RestaurantReservation, InsertRestaurantReservation, restaurantReservations
+  RestaurantReservation, InsertRestaurantReservation, restaurantReservations,
+  BusinessPhoneNumber, InsertBusinessPhoneNumber, businessPhoneNumbers,
+  BusinessGroup, InsertBusinessGroup, businessGroups,
+  UserBusinessAccess, InsertUserBusinessAccess, userBusinessAccess
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -308,6 +311,26 @@ export interface IStorage {
     bookedSeats: number;
     remainingSeats: number;
   }>;
+
+  // Business Phone Numbers
+  getPhoneNumbersByBusiness(businessId: number): Promise<BusinessPhoneNumber[]>;
+  getPhoneNumber(id: number): Promise<BusinessPhoneNumber | undefined>;
+  createPhoneNumber(data: InsertBusinessPhoneNumber): Promise<BusinessPhoneNumber>;
+  updatePhoneNumber(id: number, data: Partial<BusinessPhoneNumber>): Promise<BusinessPhoneNumber>;
+  deletePhoneNumber(id: number): Promise<void>;
+  getPhoneNumberByTwilioNumber(phoneNumber: string): Promise<BusinessPhoneNumber | undefined>;
+
+  // Business Groups
+  getBusinessGroup(id: number): Promise<BusinessGroup | undefined>;
+  createBusinessGroup(data: InsertBusinessGroup): Promise<BusinessGroup>;
+  updateBusinessGroup(id: number, data: Partial<BusinessGroup>): Promise<BusinessGroup>;
+  getBusinessesByGroup(groupId: number): Promise<Business[]>;
+
+  // User Business Access
+  getUserBusinesses(userId: number): Promise<UserBusinessAccess[]>;
+  addUserBusinessAccess(data: InsertUserBusinessAccess): Promise<UserBusinessAccess>;
+  removeUserBusinessAccess(userId: number, businessId: number): Promise<void>;
+  hasBusinessAccess(userId: number, businessId: number): Promise<boolean>;
 }
 
 // Database storage implementation
@@ -412,14 +435,30 @@ export class DatabaseStorage implements IStorage {
       normalizedPhone.slice(-10) // Last 10 digits
     ];
 
-    // Search for business with any of the phone variants
+    // Search for business with any of the phone variants on the businesses table
     const [business] = await db.select().from(businesses)
       .where(
         or(
           ...phoneVariants.map(p => eq(businesses.twilioPhoneNumber, p))
         )
       );
-    return business;
+    if (business) return business;
+
+    // Fallback: search the business_phone_numbers table for additional numbers
+    const [phoneRecord] = await db.select().from(businessPhoneNumbers)
+      .where(
+        and(
+          or(
+            ...phoneVariants.map(p => eq(businessPhoneNumbers.twilioPhoneNumber, p))
+          ),
+          eq(businessPhoneNumbers.status, 'active')
+        )
+      );
+    if (phoneRecord) {
+      return this.getBusiness(phoneRecord.businessId);
+    }
+
+    return undefined;
   }
 
   async getBusinessByBookingSlug(slug: string): Promise<Business | undefined> {
@@ -1792,6 +1831,122 @@ export class DatabaseStorage implements IStorage {
       bookedSeats,
       remainingSeats: Math.max(0, totalCapacity - bookedSeats),
     };
+  }
+
+  // =================== Business Phone Numbers ===================
+
+  async getPhoneNumbersByBusiness(businessId: number): Promise<BusinessPhoneNumber[]> {
+    return db.select().from(businessPhoneNumbers)
+      .where(eq(businessPhoneNumbers.businessId, businessId))
+      .orderBy(desc(businessPhoneNumbers.createdAt));
+  }
+
+  async getPhoneNumber(id: number): Promise<BusinessPhoneNumber | undefined> {
+    const [phoneNumber] = await db.select().from(businessPhoneNumbers)
+      .where(eq(businessPhoneNumbers.id, id));
+    return phoneNumber;
+  }
+
+  async createPhoneNumber(data: InsertBusinessPhoneNumber): Promise<BusinessPhoneNumber> {
+    const [created] = await db.insert(businessPhoneNumbers).values({
+      ...data,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updatePhoneNumber(id: number, data: Partial<BusinessPhoneNumber>): Promise<BusinessPhoneNumber> {
+    const [updated] = await db.update(businessPhoneNumbers)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(businessPhoneNumbers.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePhoneNumber(id: number): Promise<void> {
+    await db.delete(businessPhoneNumbers).where(eq(businessPhoneNumbers.id, id));
+  }
+
+  async getPhoneNumberByTwilioNumber(phoneNumber: string): Promise<BusinessPhoneNumber | undefined> {
+    const normalizedPhone = phoneNumber.replace(/\D/g, '');
+    const phoneVariants = [
+      phoneNumber,
+      normalizedPhone,
+      `+${normalizedPhone}`,
+      `+1${normalizedPhone}`,
+      normalizedPhone.slice(-10)
+    ];
+
+    const [record] = await db.select().from(businessPhoneNumbers)
+      .where(
+        or(
+          ...phoneVariants.map(p => eq(businessPhoneNumbers.twilioPhoneNumber, p))
+        )
+      );
+    return record;
+  }
+
+  // =================== Business Groups ===================
+
+  async getBusinessGroup(id: number): Promise<BusinessGroup | undefined> {
+    const [group] = await db.select().from(businessGroups)
+      .where(eq(businessGroups.id, id));
+    return group;
+  }
+
+  async createBusinessGroup(data: InsertBusinessGroup): Promise<BusinessGroup> {
+    const [created] = await db.insert(businessGroups).values({
+      ...data,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updateBusinessGroup(id: number, data: Partial<BusinessGroup>): Promise<BusinessGroup> {
+    const [updated] = await db.update(businessGroups)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(businessGroups.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getBusinessesByGroup(groupId: number): Promise<Business[]> {
+    return db.select().from(businesses)
+      .where(eq(businesses.businessGroupId, groupId));
+  }
+
+  // =================== User Business Access ===================
+
+  async getUserBusinesses(userId: number): Promise<UserBusinessAccess[]> {
+    return db.select().from(userBusinessAccess)
+      .where(eq(userBusinessAccess.userId, userId));
+  }
+
+  async addUserBusinessAccess(data: InsertUserBusinessAccess): Promise<UserBusinessAccess> {
+    const [created] = await db.insert(userBusinessAccess).values({
+      ...data,
+      createdAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async removeUserBusinessAccess(userId: number, businessId: number): Promise<void> {
+    await db.delete(userBusinessAccess)
+      .where(and(
+        eq(userBusinessAccess.userId, userId),
+        eq(userBusinessAccess.businessId, businessId)
+      ));
+  }
+
+  async hasBusinessAccess(userId: number, businessId: number): Promise<boolean> {
+    const [record] = await db.select().from(userBusinessAccess)
+      .where(and(
+        eq(userBusinessAccess.userId, userId),
+        eq(userBusinessAccess.businessId, businessId)
+      ));
+    return !!record;
   }
 }
 

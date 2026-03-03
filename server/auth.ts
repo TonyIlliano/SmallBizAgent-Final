@@ -559,17 +559,34 @@ export function isAdmin(req: Request, res: Response, next: NextFunction) {
 }
 
 // Utility function to check if user belongs to a business
+// Supports multi-location: checks user_business_access table as fallback
 export function checkBelongsToBusiness(req: Request, businessId: number): boolean {
-  return req.isAuthenticated() && 
-         req.user && 
-         (req.user.businessId === businessId || req.user.role === "admin");
+  if (!req.isAuthenticated() || !req.user) return false;
+  if (req.user.role === "admin") return true;
+  if (req.user.businessId === businessId) return true;
+  // Multi-location access is checked asynchronously via checkBelongsToBusinessAsync
+  return false;
 }
 
-// Middleware to check if user belongs to a business
-export function belongsToBusiness(req: Request, res: Response, next: NextFunction) {
-  const businessId = parseInt(req.params.businessId || req.query.businessId as string || "0");
+// Async version that checks user_business_access table for multi-location support
+export async function checkBelongsToBusinessAsync(req: Request, businessId: number): Promise<boolean> {
+  if (!req.isAuthenticated() || !req.user) return false;
+  if (req.user.role === "admin") return true;
+  if (req.user.businessId === businessId) return true;
+  // Check user_business_access table for multi-location access
+  try {
+    const { storage } = await import('./storage');
+    return await storage.hasBusinessAccess(req.user.id, businessId);
+  } catch {
+    return false;
+  }
+}
 
-  if (checkBelongsToBusiness(req, businessId)) {
+// Middleware to check if user belongs to a business (supports multi-location)
+export async function belongsToBusiness(req: Request, res: Response, next: NextFunction) {
+  const businessId = parseInt(req.params.businessId || req.params.id || req.query.businessId as string || "0");
+
+  if (await checkBelongsToBusinessAsync(req, businessId)) {
     return next();
   }
   res.status(403).json({ error: "Not authorized for this business" });

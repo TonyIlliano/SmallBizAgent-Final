@@ -762,6 +762,84 @@ async function fixExistingTables() {
     );
   `);
 
+  // === Multi-Line Phone Support & Multi-Location ===
+
+  // Add new columns to businesses table for multi-location
+  await addColumnIfNotExists('businesses', 'business_group_id', 'INTEGER');
+  await addColumnIfNotExists('businesses', 'location_label', 'TEXT');
+  await addColumnIfNotExists('businesses', 'is_active', 'BOOLEAN DEFAULT true');
+
+  // Add phone tracking columns to call_logs
+  await addColumnIfNotExists('call_logs', 'phone_number_id', 'INTEGER');
+  await addColumnIfNotExists('call_logs', 'phone_number_used', 'TEXT');
+
+  // Create business_groups table (organizations that own multiple locations)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS business_groups (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      owner_user_id INTEGER NOT NULL,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      subscription_status TEXT DEFAULT 'inactive',
+      billing_email TEXT,
+      multi_location_discount_percent INTEGER DEFAULT 20,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create business_phone_numbers table (multiple Twilio numbers per business)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS business_phone_numbers (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      twilio_phone_number TEXT NOT NULL,
+      twilio_phone_number_sid TEXT NOT NULL,
+      vapi_phone_number_id TEXT,
+      label TEXT,
+      status TEXT DEFAULT 'active',
+      is_primary BOOLEAN DEFAULT false,
+      date_provisioned TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create user_business_access table (many-to-many for multi-location)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_business_access (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      role TEXT DEFAULT 'owner',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT user_business_unique UNIQUE (user_id, business_id)
+    );
+  `);
+
+  // Backfill user_business_access from existing users.business_id
+  await pool.query(`
+    INSERT INTO user_business_access (user_id, business_id, role)
+    SELECT id, business_id, COALESCE(role, 'user')
+    FROM users
+    WHERE business_id IS NOT NULL
+    ON CONFLICT (user_id, business_id) DO NOTHING;
+  `);
+
+  // Backfill business_phone_numbers from existing businesses.twilio_phone_number
+  await pool.query(`
+    INSERT INTO business_phone_numbers (business_id, twilio_phone_number, twilio_phone_number_sid, vapi_phone_number_id, status, is_primary, date_provisioned)
+    SELECT id, twilio_phone_number, twilio_phone_number_sid, vapi_phone_number_id,
+           COALESCE(twilio_phone_number_status, 'active'), true, twilio_date_provisioned
+    FROM businesses
+    WHERE twilio_phone_number IS NOT NULL AND twilio_phone_number_sid IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM business_phone_numbers bpn
+      WHERE bpn.business_id = businesses.id AND bpn.twilio_phone_number_sid = businesses.twilio_phone_number_sid
+    );
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 
@@ -1516,6 +1594,16 @@ async function createPerformanceIndexes() {
     'CREATE INDEX IF NOT EXISTS idx_quotes_access_token ON quotes (access_token)',
     'CREATE INDEX IF NOT EXISTS idx_reservations_manage_token ON restaurant_reservations (manage_token)',
     'CREATE INDEX IF NOT EXISTS idx_businesses_booking_slug ON businesses (booking_slug)',
+
+    // ── Phase 6: Multi-line & multi-location indexes ──
+    'CREATE INDEX IF NOT EXISTS idx_business_phone_numbers_business_id ON business_phone_numbers (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_business_phone_numbers_twilio_number ON business_phone_numbers (twilio_phone_number)',
+    'CREATE INDEX IF NOT EXISTS idx_business_phone_numbers_sid ON business_phone_numbers (twilio_phone_number_sid)',
+    'CREATE INDEX IF NOT EXISTS idx_businesses_business_group_id ON businesses (business_group_id)',
+    'CREATE INDEX IF NOT EXISTS idx_user_business_access_user_id ON user_business_access (user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_user_business_access_business_id ON user_business_access (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_business_groups_owner_user_id ON business_groups (owner_user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_call_logs_phone_number_id ON call_logs (phone_number_id)',
   ];
 
   let created = 0;

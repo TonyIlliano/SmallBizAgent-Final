@@ -22,8 +22,8 @@ export function isAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// Check if user belongs to the business in the request
-export function belongsToBusiness(req: Request, res: Response, next: NextFunction) {
+// Check if user belongs to the business in the request (supports multi-location)
+export async function belongsToBusiness(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
@@ -33,17 +33,29 @@ export function belongsToBusiness(req: Request, res: Response, next: NextFunctio
     return next();
   }
 
-  const businessId = parseInt(req.params.businessId || req.body.businessId);
-  
+  const businessId = parseInt(req.params.businessId || req.params.id || req.body.businessId);
+
   if (!businessId || isNaN(businessId)) {
     return res.status(400).json({ error: 'Invalid business ID' });
   }
 
-  if (req.user?.businessId !== businessId) {
-    return res.status(403).json({ error: 'Access denied to this business' });
+  // Check active businessId first (fast path)
+  if (req.user?.businessId === businessId) {
+    return next();
   }
 
-  next();
+  // Check user_business_access for multi-location support
+  try {
+    const { storage } = await import('../storage');
+    const hasAccess = await storage.hasBusinessAccess(req.user!.id, businessId);
+    if (hasAccess) {
+      return next();
+    }
+  } catch (err) {
+    console.error('Error checking business access:', err);
+  }
+
+  return res.status(403).json({ error: 'Access denied to this business' });
 }
 
 // Helper functions for non-middleware contexts
@@ -52,7 +64,20 @@ export function checkIsAdmin(user: any): boolean {
 }
 
 export function checkBelongsToBusiness(user: any, businessId: number): boolean {
+  // Sync check — for multi-location async check use belongsToBusiness middleware
   return user?.role === 'admin' || user?.businessId === businessId;
+}
+
+// Async version that checks user_business_access table for multi-location support
+export async function checkBelongsToBusinessAsync(user: any, businessId: number): Promise<boolean> {
+  if (user?.role === 'admin') return true;
+  if (user?.businessId === businessId) return true;
+  try {
+    const { storage } = await import('../storage');
+    return await storage.hasBusinessAccess(user.id, businessId);
+  } catch {
+    return false;
+  }
 }
 
 // Check if user has access to an appointment
