@@ -425,9 +425,10 @@ export function setupAuth(app: Express) {
         used: false,
       });
 
-      // Build the reset link
-      const baseUrl = process.env.BASE_URL || (process.env.NODE_ENV === 'production' ? '' : `http://localhost:${process.env.PORT || 5000}`);
+      // Build the reset link — use APP_URL for production, fallback to BASE_URL or localhost
+      const baseUrl = process.env.APP_URL || process.env.BASE_URL || (process.env.NODE_ENV === 'production' ? 'https://web-production-76c5e.up.railway.app' : `http://localhost:${process.env.PORT || 5000}`);
       const resetLink = `${baseUrl}/reset-password?token=${token}`;
+      console.log(`[Auth] Password reset link generated for ${user.email} (base: ${baseUrl})`);
 
       // Send the email
       try {
