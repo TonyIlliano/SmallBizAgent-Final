@@ -29,6 +29,7 @@ type RegisterData = {
   role?: string;
   businessId?: number;
   active?: boolean;
+  turnstileToken?: string | null;
 };
 
 export const AuthContext = createContext<AuthContextType | null>(null);

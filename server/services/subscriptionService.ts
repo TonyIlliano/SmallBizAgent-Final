@@ -92,7 +92,7 @@ export class SubscriptionService {
    * @param businessId The ID of the business
    * @param planId The ID of the subscription plan
    */
-  async createSubscription(businessId: number, planId: number) {
+  async createSubscription(businessId: number, planId: number, promoCode?: string) {
     try {
       // Get the business details
       const business = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
@@ -204,7 +204,8 @@ export class SubscriptionService {
             { price: stripePrice.id }
           ],
           payment_behavior: 'default_incomplete',
-          expand: ['latest_invoice.payment_intent']
+          expand: ['latest_invoice.payment_intent'],
+          ...(promoCode ? { promotion_code: promoCode } : {}),
         });
         
         // Update the business with subscription info
@@ -750,6 +751,51 @@ export class SubscriptionService {
     } catch (error) {
       console.error('Error getting group billing:', error);
       throw error;
+    }
+  }
+  /**
+   * Validate a promo code
+   */
+  async validatePromoCode(code: string): Promise<{ valid: boolean; description?: string; message?: string; trialDays?: number; percentOff?: number; error?: string }> {
+    try {
+      // Check Stripe for the coupon/promotion code
+      const promotionCodes = await stripe.promotionCodes.list({
+        code,
+        active: true,
+        limit: 1,
+      });
+
+      if (promotionCodes.data.length > 0) {
+        const promoCode = promotionCodes.data[0];
+        const coupon = promoCode.coupon;
+
+        let description = '';
+        if (coupon.percent_off) {
+          description = `${coupon.percent_off}% off`;
+        } else if (coupon.amount_off) {
+          description = `$${(coupon.amount_off / 100).toFixed(2)} off`;
+        }
+        if (coupon.duration === 'repeating' && coupon.duration_in_months) {
+          description += ` for ${coupon.duration_in_months} month${coupon.duration_in_months > 1 ? 's' : ''}`;
+        } else if (coupon.duration === 'once') {
+          description += ' (first month)';
+        } else if (coupon.duration === 'forever') {
+          description += ' forever';
+        }
+
+        return {
+          valid: true,
+          description,
+          message: `Promo code applied! ${description}`,
+          percentOff: coupon.percent_off || undefined,
+          trialDays: coupon.metadata?.trialDays ? parseInt(coupon.metadata.trialDays) : undefined,
+        };
+      }
+
+      return { valid: false, error: 'Invalid or expired promo code' };
+    } catch (error: any) {
+      console.error('Error validating promo code:', error);
+      return { valid: false, error: 'Invalid or expired promo code' };
     }
   }
 }

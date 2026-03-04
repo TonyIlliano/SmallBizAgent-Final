@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Turnstile } from "@/components/ui/turnstile";
 
 const loginFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
@@ -67,6 +68,7 @@ export default function AuthPage() {
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const { user, loginMutation, registerMutation } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -139,7 +141,7 @@ export default function AuthPage() {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, turnstileToken }),
         credentials: "include",
       });
 
@@ -193,7 +195,7 @@ export default function AuthPage() {
   const onRegisterSubmit = (values: RegisterFormValues) => {
     setRegisterError(null);
     const { confirmPassword, ...userData } = values;
-    registerMutation.mutate(userData, {
+    registerMutation.mutate({ ...userData, turnstileToken }, {
       onSuccess: () => {
         // Redirect to email verification page after successful registration
         navigate('/verify-email');
@@ -481,6 +483,7 @@ export default function AuthPage() {
                             </FormItem>
                           )}
                         />
+                        <Turnstile onVerify={setTurnstileToken} onExpire={() => setTurnstileToken(null)} />
                         <Button type="submit" className="w-full" disabled={isLoggingIn}>
                           {isLoggingIn ? (
                             <>
@@ -582,6 +585,7 @@ export default function AuthPage() {
                         </FormItem>
                       )}
                     />
+                    <Turnstile onVerify={setTurnstileToken} onExpire={() => setTurnstileToken(null)} />
                     <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
                       {registerMutation.isPending ? (
                         <>

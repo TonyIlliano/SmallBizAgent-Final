@@ -37,6 +37,7 @@ function requireStripe(req: Request, res: Response, next: Function) {
 const createSubscriptionSchema = z.object({
   businessId: z.number(),
   planId: z.number(),
+  promoCode: z.string().optional(),
 });
 
 // Middleware for checking authentication
@@ -78,12 +79,25 @@ router.post('/create-subscription', isAuthenticated, requireStripe, async (req: 
       return res.status(400).json({ error: validationResult.error });
     }
 
-    const { businessId, planId } = validationResult.data;
-    const subscription = await subscriptionService.createSubscription(businessId, planId);
+    const { businessId, planId, promoCode } = validationResult.data;
+    const subscription = await subscriptionService.createSubscription(businessId, planId, promoCode);
     res.json(subscription);
   } catch (error: any) {
     console.error('Error creating subscription:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Validate promo code
+router.post('/validate-promo', requireStripe, async (req: Request, res: Response) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ valid: false, error: 'Promo code required' });
+
+    const result = await subscriptionService.validatePromoCode(code);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ valid: false, error: 'Failed to validate promo code' });
   }
 });
 

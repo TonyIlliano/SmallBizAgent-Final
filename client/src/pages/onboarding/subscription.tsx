@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Check, ArrowRight, Loader2 } from 'lucide-react';
@@ -30,6 +31,11 @@ export default function OnboardingSubscription() {
   const [selectedPlan, setSelectedPlan] = useState<number | null>(null);
   const [isCreatingSubscription, setIsCreatingSubscription] = useState(false);
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly');
+  const [showPromoInput, setShowPromoInput] = useState(false);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
 
   // Redirect to dashboard if user is not authenticated
   useEffect(() => {
@@ -63,6 +69,27 @@ export default function OnboardingSubscription() {
       console.error('Error selecting plan:', error);
     } finally {
       setIsCreatingSubscription(false);
+    }
+  };
+
+  const handleApplyPromo = async () => {
+    if (!promoCode.trim()) return;
+    setIsApplyingPromo(true);
+    setPromoError(null);
+    setPromoSuccess(null);
+    try {
+      const res = await apiRequest('POST', '/api/subscription/validate-promo', { code: promoCode.trim() });
+      const data = await res.json();
+      if (data.valid) {
+        localStorage.setItem('promoCode', promoCode.trim());
+        setPromoSuccess(data.message || `Promo applied! ${data.description}`);
+      } else {
+        setPromoError(data.error || 'Invalid promo code');
+      }
+    } catch (error: any) {
+      setPromoError('Invalid or expired promo code');
+    } finally {
+      setIsApplyingPromo(false);
     }
   };
 
@@ -185,15 +212,38 @@ export default function OnboardingSubscription() {
             )}
           </Button>
 
-          {/* Skip subscription for debugging */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/onboarding')}
-            className="mt-6 text-neutral-600 hover:text-neutral-400"
-          >
-            Skip for now
-          </Button>
+          {/* Promo code */}
+          <div className="mt-6">
+            {!showPromoInput ? (
+              <button
+                onClick={() => setShowPromoInput(true)}
+                className="text-xs text-neutral-600 hover:text-neutral-400 underline underline-offset-4"
+              >
+                Have a promo code?
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 max-w-xs mx-auto">
+                <Input
+                  placeholder="Enter promo code"
+                  value={promoCode}
+                  onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoError(null); setPromoSuccess(null); }}
+                  className="bg-neutral-900 border-neutral-700 text-white text-sm h-9"
+                  maxLength={20}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleApplyPromo}
+                  disabled={isApplyingPromo || !promoCode.trim()}
+                  className="border-neutral-700 text-neutral-300 hover:bg-neutral-800 h-9 px-3"
+                >
+                  {isApplyingPromo ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Apply'}
+                </Button>
+              </div>
+            )}
+            {promoError && <p className="text-xs text-red-400 mt-2">{promoError}</p>}
+            {promoSuccess && <p className="text-xs text-green-400 mt-2">{promoSuccess}</p>}
+          </div>
         </div>
       </div>
     </div>

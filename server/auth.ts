@@ -203,6 +203,26 @@ export function setupAuth(app: Express) {
   // Setup API routes for authentication
   app.post("/api/register", async (req, res, next) => {
     try {
+      // Verify Turnstile token (skip if not configured)
+      const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
+      if (turnstileSecret && req.body.turnstileToken) {
+        const turnstileRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            secret: turnstileSecret,
+            response: req.body.turnstileToken,
+            remoteip: req.ip,
+          }),
+        });
+        const turnstileData = await turnstileRes.json() as { success: boolean };
+        if (!turnstileData.success) {
+          return res.status(403).json({ error: 'CAPTCHA verification failed. Please try again.' });
+        }
+      } else if (turnstileSecret && !req.body.turnstileToken) {
+        return res.status(403).json({ error: 'CAPTCHA verification required.' });
+      }
+
       // Validate password strength
       const passwordValidation = validatePassword(req.body.password);
       if (!passwordValidation.valid) {
@@ -360,7 +380,27 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", (req, res, next) => {
+  app.post("/api/login", async (req, res, next) => {
+    // Verify Turnstile token (skip if not configured)
+    const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
+    if (turnstileSecret && req.body.turnstileToken) {
+      const turnstileRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          secret: turnstileSecret,
+          response: req.body.turnstileToken,
+          remoteip: req.ip,
+        }),
+      });
+      const turnstileData = await turnstileRes.json() as { success: boolean };
+      if (!turnstileData.success) {
+        return res.status(403).json({ error: 'CAPTCHA verification failed. Please try again.' });
+      }
+    } else if (turnstileSecret && !req.body.turnstileToken) {
+      return res.status(403).json({ error: 'CAPTCHA verification required.' });
+    }
+
     passport.authenticate("local", (err: Error | null, user: Express.User | false, info: { message: string }) => {
       if (err) return next(err);
       if (!user) {
