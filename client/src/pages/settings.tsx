@@ -193,6 +193,138 @@ const serviceSchema = z.object({
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
 
+// Active Sessions component for Security tab
+function ActiveSessionsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  interface SessionInfo {
+    id: string;
+    isCurrent: boolean;
+    device: string;
+    browser: string;
+    ip: string;
+    expiresAt: string;
+    lastActive: string;
+  }
+
+  const { data: sessionsData, isLoading } = useQuery<{ sessions: SessionInfo[]; activeSessions: number }>({
+    queryKey: ["/api/sessions"],
+  });
+
+  const getDeviceIcon = (device: string) => {
+    switch (device) {
+      case 'iOS':
+      case 'Android':
+        return <Phone className="h-4 w-4" />;
+      default:
+        return <Shield className="h-4 w-4" />;
+    }
+  };
+
+  const formatLastActive = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMins / 60);
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      return `${diffDays}d ago`;
+    } catch {
+      return 'Unknown';
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Shield className="h-5 w-5" />
+          Active Sessions
+        </CardTitle>
+        <CardDescription>
+          {sessionsData?.activeSessions
+            ? `${sessionsData.activeSessions} active session${sessionsData.activeSessions > 1 ? 's' : ''}`
+            : 'Manage your active sessions across all devices'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading sessions...
+          </div>
+        ) : sessionsData?.sessions && sessionsData.sessions.length > 0 ? (
+          <div className="space-y-3">
+            {sessionsData.sessions.map((session) => (
+              <div
+                key={session.id}
+                className={`flex items-center justify-between p-3 rounded-lg border ${
+                  session.isCurrent ? 'border-primary/50 bg-primary/5' : 'border-border'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  {getDeviceIcon(session.device)}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">
+                        {session.browser} on {session.device}
+                      </span>
+                      {session.isCurrent && (
+                        <Badge variant="secondary" className="text-xs">Current</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span>IP: {session.ip}</span>
+                      <span>·</span>
+                      <span>{formatLastActive(session.lastActive)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No active sessions found.</p>
+        )}
+
+        <div className="pt-4 border-t">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={async () => {
+              try {
+                await apiRequest("POST", "/api/logout-all-devices");
+                toast({
+                  title: "All sessions terminated",
+                  description: "You have been logged out from all other devices. Please log in again.",
+                });
+                window.location.href = "/auth";
+              } catch (error: any) {
+                toast({
+                  title: "Error",
+                  description: error.message || "Failed to logout all devices",
+                  variant: "destructive",
+                });
+              }
+            }}
+          >
+            Logout All Devices
+          </Button>
+          <p className="text-xs text-muted-foreground mt-2">
+            This will terminate all active sessions including this one.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Settings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -746,7 +878,7 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="flex w-full overflow-x-auto md:grid md:w-full mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" style={{ gridTemplateColumns: `repeat(${tabCount}, minmax(0, 1fr))` }}>
+          <TabsList className="flex w-full gap-1 overflow-x-auto md:grid md:w-full mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" style={{ gridTemplateColumns: `repeat(${tabCount}, minmax(0, 1fr))` }}>
             <TabsTrigger value="profile" className="whitespace-nowrap flex-shrink-0">Profile</TabsTrigger>
             <TabsTrigger value="team" className="whitespace-nowrap flex-shrink-0">Team</TabsTrigger>
             <TabsTrigger value="hours" className="whitespace-nowrap flex-shrink-0">Hours</TabsTrigger>
@@ -2081,43 +2213,7 @@ export default function Settings() {
               </>
             )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="h-5 w-5" />
-                  Session Management
-                </CardTitle>
-                <CardDescription>
-                  Manage your active sessions across all devices
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Button
-                  variant="destructive"
-                  onClick={async () => {
-                    try {
-                      await apiRequest("POST", "/api/logout-all-devices");
-                      toast({
-                        title: "All sessions terminated",
-                        description: "You have been logged out from all other devices. Please log in again.",
-                      });
-                      window.location.href = "/auth";
-                    } catch (error: any) {
-                      toast({
-                        title: "Error",
-                        description: error.message || "Failed to logout all devices",
-                        variant: "destructive",
-                      });
-                    }
-                  }}
-                >
-                  Logout All Devices
-                </Button>
-                <p className="text-sm text-muted-foreground">
-                  This will terminate all active sessions including this one. You will need to log in again.
-                </p>
-              </CardContent>
-            </Card>
+            <ActiveSessionsCard />
           </TabsContent>
 
           <TabsContent value="privacy" className="space-y-4">

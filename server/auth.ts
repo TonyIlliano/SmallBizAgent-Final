@@ -262,6 +262,11 @@ export function setupAuth(app: Express) {
       req.login(user, (err) => {
         if (err) return next(err);
 
+        // Store session metadata for device/IP tracking
+        (req.session as any).userAgent = req.headers['user-agent'] || '';
+        (req.session as any).ip = req.ip || req.headers['x-forwarded-for'] || '';
+        (req.session as any).lastActive = new Date().toISOString();
+
         // Don't send the password back to the client
         const { password, ...userWithoutPassword } = user;
         return res.status(201).json(userWithoutPassword);
@@ -374,6 +379,11 @@ export function setupAuth(app: Express) {
 
       req.login(user, (err: Error | null) => {
         if (err) return next(err);
+
+        // Store session metadata for device/IP tracking
+        (req.session as any).userAgent = req.headers['user-agent'] || '';
+        (req.session as any).ip = req.ip || req.headers['x-forwarded-for'] || '';
+        (req.session as any).lastActive = new Date().toISOString();
 
         // Don't send the password back to the client
         const { password, ...userWithoutPassword } = user;
@@ -610,6 +620,11 @@ export function setupAuth(app: Express) {
         // Clear pending 2FA
         delete req.session.pending2FA;
 
+        // Store session metadata for device/IP tracking
+        (req.session as any).userAgent = req.headers['user-agent'] || '';
+        (req.session as any).ip = req.ip || req.headers['x-forwarded-for'] || '';
+        (req.session as any).lastActive = new Date().toISOString();
+
         // Don't send the password back to the client
         const { password, ...userWithoutPassword } = user;
         return res.json(userWithoutPassword);
@@ -638,14 +653,51 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // GET /api/sessions - Count active sessions for this user
+  // GET /api/sessions - List active sessions for this user with device/IP details
   app.get("/api/sessions", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const result = await pool.query(
-        "SELECT COUNT(*) FROM session WHERE sess::jsonb -> 'passport' ->> 'user' = $1 AND expire > NOW()",
+        `SELECT sid, sess, expire FROM session
+         WHERE sess::jsonb -> 'passport' ->> 'user' = $1 AND expire > NOW()
+         ORDER BY expire DESC`,
         [req.user!.id.toString()]
       );
-      return res.json({ activeSessions: parseInt(result.rows[0].count, 10) });
+
+      const currentSessionId = req.sessionID;
+
+      const sessions = result.rows.map((row: any) => {
+        const sess = typeof row.sess === 'string' ? JSON.parse(row.sess) : row.sess;
+        const userAgent = sess.userAgent || sess.cookie?.userAgent || '';
+        const ip = sess.ip || sess.clientIp || '';
+
+        // Parse user agent for device info
+        let device = 'Unknown';
+        let browser = 'Unknown';
+        if (userAgent) {
+          if (/iPhone|iPad/i.test(userAgent)) device = 'iOS';
+          else if (/Android/i.test(userAgent)) device = 'Android';
+          else if (/Mac/i.test(userAgent)) device = 'macOS';
+          else if (/Windows/i.test(userAgent)) device = 'Windows';
+          else if (/Linux/i.test(userAgent)) device = 'Linux';
+
+          if (/Chrome/i.test(userAgent) && !/Edg/i.test(userAgent)) browser = 'Chrome';
+          else if (/Safari/i.test(userAgent) && !/Chrome/i.test(userAgent)) browser = 'Safari';
+          else if (/Firefox/i.test(userAgent)) browser = 'Firefox';
+          else if (/Edg/i.test(userAgent)) browser = 'Edge';
+        }
+
+        return {
+          id: row.sid,
+          isCurrent: row.sid === currentSessionId,
+          device,
+          browser,
+          ip: ip || 'Unknown',
+          expiresAt: row.expire,
+          lastActive: sess.lastActive || row.expire,
+        };
+      });
+
+      return res.json({ sessions, activeSessions: sessions.length });
     } catch (error) {
       console.error("Error fetching sessions:", error);
       return res.status(500).json({ error: "Failed to fetch sessions" });
