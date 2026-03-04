@@ -2026,6 +2026,7 @@ export default function Settings() {
                           businessId={businessId}
                           bookingEnabled={business?.bookingEnabled}
                           bookingSlug={business?.bookingSlug}
+                          twilioPhoneNumber={business?.twilioPhoneNumber}
                         />
                       )}
                     </div>

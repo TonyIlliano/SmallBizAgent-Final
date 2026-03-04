@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Loader2, CheckCircle2, ExternalLink, MapPin, Building2, Link2, AlertCircle, XCircle,
+  Loader2, CheckCircle2, ExternalLink, MapPin, Building2, Link2, AlertCircle, XCircle, Phone, PhoneForwarded, Undo2,
 } from 'lucide-react';
 import { queryClient } from '@/lib/queryClient';
 
@@ -33,6 +33,15 @@ interface GBPStoredData {
   selectedAccount?: GBPAccount;
   selectedLocation?: GBPLocation;
   bookingLinkName?: string;
+  originalPhone?: string;
+  aiPhoneSet?: boolean;
+}
+
+interface GBPPhoneData {
+  primaryPhone?: string;
+  additionalPhones?: string[];
+  aiPhoneSet: boolean;
+  originalPhone: string | null;
 }
 
 interface GBPStatus {
@@ -44,9 +53,10 @@ interface GoogleBusinessProfileProps {
   businessId: number;
   bookingEnabled?: boolean;
   bookingSlug?: string;
+  twilioPhoneNumber?: string | null;
 }
 
-export function GoogleBusinessProfile({ businessId, bookingEnabled, bookingSlug }: GoogleBusinessProfileProps) {
+export function GoogleBusinessProfile({ businessId, bookingEnabled, bookingSlug, twilioPhoneNumber }: GoogleBusinessProfileProps) {
   const { toast } = useToast();
   const [selectedAccountName, setSelectedAccountName] = useState<string>('');
   const [selectedLocation, setSelectedLocation] = useState<string>('');
@@ -189,6 +199,74 @@ export function GoogleBusinessProfile({ businessId, bookingEnabled, bookingSlug 
     },
   });
 
+  // Fetch phone numbers for the connected location
+  const { data: phoneData, isLoading: phoneLoading } = useQuery<GBPPhoneData>({
+    queryKey: ['/api/gbp/phone-numbers', businessId],
+    queryFn: async () => {
+      const res = await fetch(`/api/gbp/phone-numbers/${businessId}`, { credentials: 'include' });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to fetch phone numbers');
+      }
+      return res.json();
+    },
+    enabled: !!status?.connected && !!status?.data?.selectedLocation,
+  });
+
+  // Set AI phone number mutation
+  const setAIPhoneMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/gbp/set-ai-phone/${businessId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to set AI phone number');
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gbp/phone-numbers', businessId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gbp/status', businessId] });
+      toast({
+        title: 'Phone Number Updated!',
+        description: `Your Google listing now shows ${data.aiPhoneNumber}. Original number saved.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  // Restore original phone mutation
+  const restorePhoneMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/gbp/restore-phone/${businessId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to restore phone number');
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gbp/phone-numbers', businessId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gbp/status', businessId] });
+      toast({
+        title: 'Phone Number Restored',
+        description: `Your Google listing is back to ${data.restoredPhone}`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const handleConnect = () => {
     if (authData?.url) {
       window.open(authData.url, '_blank', 'width=600,height=700');
@@ -261,7 +339,8 @@ export function GoogleBusinessProfile({ businessId, bookingEnabled, bookingSlug 
           <>
             {/* Link is active — show success state */}
             {isLinkActive ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
+                {/* Booking link status */}
                 <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200">
                   <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
                   <div className="min-w-0">
@@ -276,6 +355,90 @@ export function GoogleBusinessProfile({ businessId, bookingEnabled, bookingSlug 
                     </div>
                   </div>
                 </div>
+
+                {/* Phone Number Management */}
+                <div className="p-4 rounded-lg border bg-card">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <h4 className="font-medium text-sm">Google Listing Phone Number</h4>
+                  </div>
+
+                  {phoneLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading phone info...
+                    </div>
+                  ) : phoneData?.aiPhoneSet ? (
+                    /* AI phone is active */
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg border border-indigo-200">
+                        <PhoneForwarded className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+                        <div>
+                          <p className="font-medium text-indigo-800 dark:text-indigo-200 text-sm">
+                            AI Receptionist number is live on Google
+                          </p>
+                          <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                            Callers from Google Search & Maps reach your AI receptionist
+                          </p>
+                          {phoneData.originalPhone && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Original number ({phoneData.originalPhone}) saved as additional
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => restorePhoneMutation.mutate()}
+                        disabled={restorePhoneMutation.isPending}
+                      >
+                        {restorePhoneMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                          <Undo2 className="h-4 w-4 mr-1" />
+                        )}
+                        Restore Original Number
+                      </Button>
+                    </div>
+                  ) : (
+                    /* AI phone not set yet */
+                    <div className="space-y-3">
+                      {phoneData?.primaryPhone && (
+                        <p className="text-sm text-muted-foreground">
+                          Current Google listing number: <span className="font-medium text-foreground">{phoneData.primaryPhone}</span>
+                        </p>
+                      )}
+                      {twilioPhoneNumber ? (
+                        <>
+                          <p className="text-sm text-muted-foreground">
+                            Replace your Google listing phone number with your AI receptionist number
+                            (<span className="font-medium text-foreground">{twilioPhoneNumber}</span>).
+                            Anyone who finds your business on Google will call your AI directly.
+                            {phoneData?.primaryPhone && ' Your current number will be saved so you can restore it anytime.'}
+                          </p>
+                          <Button
+                            size="sm"
+                            onClick={() => setAIPhoneMutation.mutate()}
+                            disabled={setAIPhoneMutation.isPending}
+                          >
+                            {setAIPhoneMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <PhoneForwarded className="h-4 w-4 mr-2" />
+                            )}
+                            Set AI Receptionist as Google Number
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-sm text-amber-600 dark:text-amber-400">
+                          Provision an AI receptionist phone number first to use this feature.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex gap-2">
                   <Button
                     variant="outline"

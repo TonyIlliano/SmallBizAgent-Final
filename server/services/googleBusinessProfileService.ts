@@ -43,10 +43,17 @@ export interface PlaceActionLink {
   placeActionType: string;
 }
 
+export interface GBPPhoneNumbers {
+  primaryPhone?: string;
+  additionalPhones?: string[];
+}
+
 export interface GBPStoredData {
   selectedAccount?: GBPAccount;
   selectedLocation?: GBPLocation;
   bookingLinkName?: string;
+  originalPhone?: string; // Saved before we replace it with the AI number
+  aiPhoneSet?: boolean;   // True if we've replaced the phone with the Twilio number
 }
 
 function createOAuth2Client() {
@@ -392,6 +399,166 @@ export class GoogleBusinessProfileService {
       console.error('Error deleting booking link:', error);
       return false;
     }
+  }
+
+  /**
+   * Get the current phone numbers for a GBP location.
+   */
+  async getPhoneNumbers(businessId: number, locationName: string): Promise<GBPPhoneNumbers> {
+    try {
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) throw new Error('Not connected to Google Business Profile');
+
+      const mybusinessInfo = google.mybusinessbusinessinformation({
+        version: 'v1',
+        auth: oauth2Client,
+      });
+
+      const response = await mybusinessInfo.locations.get({
+        name: locationName,
+        readMask: 'phoneNumbers',
+      });
+
+      return {
+        primaryPhone: response.data.phoneNumbers?.primaryPhone || undefined,
+        additionalPhones: response.data.phoneNumbers?.additionalPhones || [],
+      };
+    } catch (error: any) {
+      console.error('Error getting GBP phone numbers:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update the phone number on a GBP location to the AI receptionist number.
+   * Saves the original phone number so it can be restored later.
+   */
+  async setAIPhoneNumber(
+    businessId: number,
+    locationName: string,
+    aiPhoneNumber: string
+  ): Promise<{ success: boolean; originalPhone?: string }> {
+    try {
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) throw new Error('Not connected to Google Business Profile');
+
+      // First, get the current phone numbers so we can save the original
+      const currentPhones = await this.getPhoneNumbers(businessId, locationName);
+      const originalPhone = currentPhones.primaryPhone;
+
+      // Build the new phone numbers — AI number as primary, original as additional
+      const additionalPhones = [...(currentPhones.additionalPhones || [])];
+      if (originalPhone && !additionalPhones.includes(originalPhone)) {
+        additionalPhones.push(originalPhone);
+      }
+
+      const mybusinessInfo = google.mybusinessbusinessinformation({
+        version: 'v1',
+        auth: oauth2Client,
+      });
+
+      await mybusinessInfo.locations.patch({
+        name: locationName,
+        updateMask: 'phoneNumbers',
+        requestBody: {
+          phoneNumbers: {
+            primaryPhone: aiPhoneNumber,
+            additionalPhones,
+          },
+        },
+      });
+
+      // Save the original phone in our stored data
+      const storedData = await this.getStoredData(businessId);
+      if (storedData) {
+        await this.updateStoredData(businessId, {
+          ...storedData,
+          originalPhone: originalPhone || undefined,
+          aiPhoneSet: true,
+        });
+      }
+
+      console.log(`Set AI phone number on GBP for business ${businessId}: ${aiPhoneNumber} (original: ${originalPhone})`);
+      return { success: true, originalPhone };
+    } catch (error: any) {
+      console.error('Error setting AI phone number on GBP:', error);
+      if (error.code === 403) {
+        throw new Error('Insufficient permissions to update Google Business Profile phone number.');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Restore the original phone number on a GBP location.
+   */
+  async restoreOriginalPhoneNumber(businessId: number, locationName: string): Promise<boolean> {
+    try {
+      const storedData = await this.getStoredData(businessId);
+      if (!storedData?.originalPhone) {
+        throw new Error('No original phone number saved to restore');
+      }
+
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) throw new Error('Not connected to Google Business Profile');
+
+      // Get current additional phones and remove the original from the additional list
+      const currentPhones = await this.getPhoneNumbers(businessId, locationName);
+      const additionalPhones = (currentPhones.additionalPhones || [])
+        .filter(p => p !== storedData.originalPhone);
+
+      const mybusinessInfo = google.mybusinessbusinessinformation({
+        version: 'v1',
+        auth: oauth2Client,
+      });
+
+      await mybusinessInfo.locations.patch({
+        name: locationName,
+        updateMask: 'phoneNumbers',
+        requestBody: {
+          phoneNumbers: {
+            primaryPhone: storedData.originalPhone,
+            additionalPhones,
+          },
+        },
+      });
+
+      // Update stored data
+      await this.updateStoredData(businessId, {
+        ...storedData,
+        aiPhoneSet: false,
+      });
+
+      console.log(`Restored original phone on GBP for business ${businessId}: ${storedData.originalPhone}`);
+      return true;
+    } catch (error: any) {
+      console.error('Error restoring original phone number:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update the stored GBP data (helper for phone number tracking).
+   */
+  private async updateStoredData(businessId: number, data: GBPStoredData): Promise<void> {
+    const integration = await db.select()
+      .from(calendarIntegrations)
+      .where(
+        and(
+          eq(calendarIntegrations.businessId, businessId),
+          eq(calendarIntegrations.provider, PROVIDER)
+        )
+      )
+      .limit(1);
+
+    if (!integration.length) throw new Error('GBP integration not found');
+
+    await db.update(calendarIntegrations)
+      .set({
+        data: JSON.stringify(data),
+        updatedAt: new Date(),
+      })
+      .where(eq(calendarIntegrations.id, integration[0].id));
   }
 
   async saveSelectedLocation(

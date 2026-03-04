@@ -143,6 +143,85 @@ router.post('/set-booking-link/:businessId', isAuthenticated, async (req, res) =
   }
 });
 
+// Get current phone numbers for a GBP location
+router.get('/phone-numbers/:businessId', isAuthenticated, async (req, res) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    const storedData = await gbpService.getStoredData(businessId);
+
+    if (!storedData?.selectedLocation?.name) {
+      return res.status(400).json({ error: 'No location selected. Please select a location first.' });
+    }
+
+    const phoneNumbers = await gbpService.getPhoneNumbers(businessId, storedData.selectedLocation.name);
+    res.json({
+      ...phoneNumbers,
+      aiPhoneSet: storedData.aiPhoneSet || false,
+      originalPhone: storedData.originalPhone || null,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set AI receptionist phone number on GBP listing
+router.post('/set-ai-phone/:businessId', isAuthenticated, async (req, res) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+
+    // Get the business's provisioned Twilio phone number
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: 'Business not found' });
+    if (!business.twilioPhoneNumber) {
+      return res.status(400).json({
+        error: 'No AI receptionist phone number provisioned. Please set up your AI receptionist first.'
+      });
+    }
+
+    const storedData = await gbpService.getStoredData(businessId);
+    if (!storedData?.selectedLocation?.name) {
+      return res.status(400).json({ error: 'No location selected. Please select a location first.' });
+    }
+
+    const result = await gbpService.setAIPhoneNumber(
+      businessId,
+      storedData.selectedLocation.name,
+      business.twilioPhoneNumber
+    );
+
+    res.json({
+      success: true,
+      aiPhoneNumber: business.twilioPhoneNumber,
+      originalPhone: result.originalPhone,
+      message: 'Google listing phone number updated to AI receptionist number',
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Restore original phone number on GBP listing
+router.post('/restore-phone/:businessId', isAuthenticated, async (req, res) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    const storedData = await gbpService.getStoredData(businessId);
+
+    if (!storedData?.selectedLocation?.name) {
+      return res.status(400).json({ error: 'No location selected.' });
+    }
+
+    await gbpService.restoreOriginalPhoneNumber(businessId, storedData.selectedLocation.name);
+
+    res.json({
+      success: true,
+      restoredPhone: storedData.originalPhone,
+      message: 'Original phone number restored on Google listing',
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Remove booking link from GBP location
 router.delete('/booking-link/:businessId', isAuthenticated, async (req, res) => {
   try {
