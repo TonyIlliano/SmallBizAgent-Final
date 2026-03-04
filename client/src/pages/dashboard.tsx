@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { StatCard } from "@/components/dashboard/StatCard";
@@ -98,7 +97,6 @@ const quickActions = [
 ];
 
 export default function Dashboard() {
-  const [showSetupChecklist, setShowSetupChecklist] = useState(true);
   const { user } = useAuth();
 
   // Get business ID from authenticated user
@@ -109,12 +107,6 @@ export default function Dashboard() {
     queryKey: ['/api/business'],
     enabled: !!businessId,
   });
-
-  // Check if onboarding is complete
-  useEffect(() => {
-    const isOnboardingComplete = localStorage.getItem('onboardingComplete') === 'true';
-    setShowSetupChecklist(!isOnboardingComplete);
-  }, []);
 
   // Fetch dashboard data for backward compatibility
   const { data: jobs = [] } = useQuery<any[]>({
@@ -287,9 +279,7 @@ export default function Dashboard() {
         </div>
 
         {/* Setup Checklist */}
-        {showSetupChecklist && (
-          <SetupChecklist />
-        )}
+        <SetupChecklist />
 
         {/* Trial Expiration Warning (shows when call forwarding is active and trial is expiring) */}
         <TrialExpirationBanner />

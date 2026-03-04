@@ -7,8 +7,9 @@ import { KnowledgeBase } from "@/components/receptionist/KnowledgeBase";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Settings, MessageSquare, Info, Brain } from "lucide-react";
+import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { FeatureTip } from "@/components/ui/feature-tip";
 
 export default function Receptionist() {
   const [activeTab, setActiveTab] = useState("calls");
@@ -26,6 +27,14 @@ export default function Receptionist() {
   return (
     <PageLayout title="Virtual Receptionist">
       <div className="space-y-6">
+        <FeatureTip
+          tipId="receptionist-forwarding"
+          title="Forward your business phone"
+          description="Set up call forwarding from your business line to your AI receptionist number. It will answer calls, take messages, and book appointments."
+          icon={PhoneForwarded}
+          actionLabel="View setup guide"
+          actionHref="/settings?tab=profile"
+        />
         <div>
           <h2 className="text-2xl font-bold">Virtual Receptionist Management</h2>
           <p className="text-gray-500">

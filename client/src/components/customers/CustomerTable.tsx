@@ -352,19 +352,19 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
         />
       ) : (
         <div className="rounded-lg border border-dashed p-12 text-center">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary-50">
-            <Users className="h-10 w-10 text-primary-500" />
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mb-4">
+            <Users className="h-8 w-8 text-primary" />
           </div>
-          <h3 className="mt-4 text-lg font-medium">
-            {debouncedSearch ? "No customers match your search" : "No customers found"}
+          <h3 className="text-lg font-semibold text-foreground">
+            {debouncedSearch ? "No customers match your search" : "Build your customer base"}
           </h3>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
             {debouncedSearch
-              ? "Try a different search term."
-              : "Get started by adding your first customer."}
+              ? "Try a different search term or clear filters."
+              : "Customers are added automatically when they book appointments or call in. You can also add them manually to start tracking relationships and sending invoices."}
           </p>
           {!debouncedSearch && (
-            <div className="mt-6">
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link href="/customers/new">
                 <Button>
                   <PlusCircle className="mr-2 h-4 w-4" />

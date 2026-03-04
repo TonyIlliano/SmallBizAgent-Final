@@ -9,7 +9,8 @@ import { formatDate, formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
-import { PlusCircle, FileText, Download, Edit, Printer, MessageSquare, Share2, Copy, Check, MoreVertical, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { PlusCircle, FileText, Download, Edit, Printer, MessageSquare, Share2, Copy, Check, MoreVertical, ChevronRight as ChevronRightIcon, CreditCard } from "lucide-react";
+import { FeatureTip } from "@/components/ui/feature-tip";
 import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import {
   DropdownMenu,
@@ -235,6 +236,12 @@ export default function Invoices() {
   
   return (
     <PageLayout title="Invoices">
+      <FeatureTip
+        tipId="invoices-payments"
+        title="Collect payments online"
+        description="Each invoice includes a unique payment link. Share it with customers via SMS or email so they can pay instantly with a credit card."
+        icon={CreditCard}
+      />
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-bold">Invoice Management</h2>
@@ -312,19 +319,25 @@ export default function Invoices() {
             )}
           />
         ) : (
-          <div className="flex flex-col items-center justify-center p-8 text-center h-64">
-            <FileText className="h-12 w-12 text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900">No invoices found</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              {statusFilter ? 
-                `There are no invoices with status "${statusFilter}".` : 
-                "There are no invoices in the system yet."}
+          <div className="flex flex-col items-center justify-center p-12 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mb-4">
+              <FileText className="h-8 w-8 text-primary" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">
+              {statusFilter ? "No matching invoices" : "Send your first invoice"}
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
+              {statusFilter
+                ? `No invoices with status "${statusFilter}". Try a different filter.`
+                : "Create professional invoices and get paid faster. Customers can pay online via the payment link, and you'll be notified when they do."}
             </p>
-            <Link href="/invoices/create">
-              <Button className="mt-4">
-                Create Your First Invoice
-              </Button>
-            </Link>
+            {!statusFilter && (
+              <Link href="/invoices/create">
+                <Button className="mt-6">
+                  Create Invoice
+                </Button>
+              </Link>
+            )}
           </div>
         )}
       </div>

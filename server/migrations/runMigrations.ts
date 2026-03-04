@@ -854,6 +854,12 @@ async function fixExistingTables() {
     console.log('Note: Could not backfill onboarding_complete:', e.message);
   }
 
+  // Setup checklist dismissed tracking (replaces localStorage)
+  await addColumnIfNotExists('users', 'setup_checklist_dismissed', 'BOOLEAN DEFAULT false');
+
+  // Feature discovery tips dismissed tracking
+  await addColumnIfNotExists('users', 'dismissed_tips', 'TEXT');
+
   console.log('Finished checking/fixing existing tables');
 }
 

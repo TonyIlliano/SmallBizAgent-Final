@@ -518,9 +518,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check receptionist: must have a VAPI assistant created
       const hasReceptionist = !!(business.vapiAssistantId);
 
-      // Check calendar/integrations: has business hours configured OR has a phone number
+      // Check calendar/integrations: has business hours configured
       const businessHours = await storage.getBusinessHours(businessId);
       const hasCalendar = businessHours.length > 0;
+
+      // Check staff: has at least one staff member
+      const staff = await storage.getStaff(businessId);
+      const hasStaff = staff.length > 0;
+
+      // Check customers: has at least one customer
+      const customers = await storage.getCustomers(businessId);
+      const hasCustomers = customers.length > 0;
+
+      // Check online booking: booking is enabled with a slug
+      const hasBooking = !!(business.bookingEnabled && business.bookingSlug);
+
+      // Check POS integration: Clover, Square, or Heartland connected
+      const hasPOS = !!(business.cloverMerchantId || business.squareMerchantId || business.heartlandApiKey);
+
+      // Check reservations (restaurant-specific)
+      const hasReservations = !!(business.reservationEnabled);
+
+      // Determine business category for industry-specific checklist
+      const businessType = business.type || 'general';
+      const businessIndustry = business.industry || null;
 
       const allComplete = businessProfile && hasServices && hasReceptionist && hasCalendar;
 
@@ -529,20 +550,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         services: hasServices,
         receptionist: hasReceptionist,
         calendar: hasCalendar,
+        staff: hasStaff,
+        customers: hasCustomers,
+        booking: hasBooking,
+        pos: hasPOS,
+        reservations: hasReservations,
         allComplete,
+        businessType,
+        businessIndustry,
         details: {
           businessName: business.name || null,
           businessPhone: business.phone || null,
           businessEmail: business.email || null,
           serviceCount: services.length,
+          staffCount: staff.length,
+          customerCount: customers.length,
           vapiAssistantId: business.vapiAssistantId || null,
           twilioPhoneNumber: business.twilioPhoneNumber || null,
           businessHoursDays: businessHours.length,
+          bookingSlug: business.bookingSlug || null,
+          bookingEnabled: business.bookingEnabled || false,
         }
       });
     } catch (error) {
       console.error("Error fetching setup status:", error);
       res.status(500).json({ message: "Error fetching setup status" });
+    }
+  });
+
+  // Dismiss or show the setup checklist (replaces localStorage)
+  app.post("/api/user/setup-checklist-dismiss", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any)?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const { dismissed } = req.body;
+      await storage.updateUser(userId, { setupChecklistDismissed: !!dismissed });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating checklist dismiss state:", error);
+      res.status(500).json({ message: "Error updating preference" });
+    }
+  });
+
+  // Dismiss a feature discovery tip
+  app.post("/api/user/dismiss-tip", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any)?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const { tipId } = req.body;
+      if (!tipId || typeof tipId !== 'string') return res.status(400).json({ message: "Invalid tip ID" });
+
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const dismissed: string[] = user.dismissedTips ? JSON.parse(user.dismissedTips) : [];
+      if (!dismissed.includes(tipId)) {
+        dismissed.push(tipId);
+      }
+      await storage.updateUser(userId, { dismissedTips: JSON.stringify(dismissed) });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error dismissing tip:", error);
+      res.status(500).json({ message: "Error dismissing tip" });
     }
   });
 

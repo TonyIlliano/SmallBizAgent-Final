@@ -9,6 +9,7 @@ import { formatTime } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
+import { FeatureTip } from "@/components/ui/feature-tip";
 import {
   PlusCircle,
   Calendar as CalendarIcon,
@@ -459,6 +460,14 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
   // ─── Render ─────────────────────────────────────────────────────
   return (
     <PageLayout title="Appointments">
+      <FeatureTip
+        tipId="appointments-booking"
+        title="Enable online booking"
+        description="Let customers book appointments 24/7 from your website or a shareable booking link. Go to Settings to set it up."
+        actionLabel="Set up booking"
+        actionHref="/settings?tab=booking"
+        icon={Globe}
+      />
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
@@ -1336,13 +1345,15 @@ function StaffDayView({
   // No staff and no appointments — show empty state
   if (staffMembers.length === 0 && appointments.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-center bg-white rounded-lg border">
-        <CalendarIcon className="h-12 w-12 text-gray-300 mb-4" />
-        <h3 className="text-lg font-medium text-gray-900">No appointments</h3>
-        <p className="mt-1 text-sm text-gray-500">
-          Nothing scheduled for {formatFullDate(selectedDate)}
+      <div className="flex flex-col items-center justify-center p-12 text-center bg-card rounded-lg border">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mb-4">
+          <CalendarIcon className="h-8 w-8 text-primary" />
+        </div>
+        <h3 className="text-lg font-semibold text-foreground">No appointments yet</h3>
+        <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
+          Nothing scheduled for {formatFullDate(selectedDate)}. Schedule appointments manually, or enable online booking to let customers book themselves.
         </p>
-        <Button className="mt-4" onClick={onNewAppointment}>
+        <Button className="mt-6" onClick={onNewAppointment}>
           <PlusCircle className="mr-2 h-4 w-4" />
           Schedule an Appointment
         </Button>

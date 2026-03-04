@@ -31,15 +31,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { 
-  FilePlus, 
-  Search, 
-  MoreHorizontal, 
-  FileEdit, 
-  Eye, 
-  Trash, 
-  Send
+import {
+  FilePlus,
+  Search,
+  MoreHorizontal,
+  FileEdit,
+  Eye,
+  Trash,
+  Send,
+  FileText,
 } from "lucide-react";
+import { FeatureTip } from "@/components/ui/feature-tip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -100,6 +102,12 @@ export default function Quotes() {
   return (
     <PageLayout title="Quotes">
       <div className="space-y-6">
+      <FeatureTip
+        tipId="quotes-convert"
+        title="Quotes become invoices"
+        description="When a customer accepts your quote, convert it into an invoice with one click. No need to re-enter line items."
+        icon={FileText}
+      />
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Quotes</h1>
@@ -223,16 +231,21 @@ export default function Quotes() {
               </Table>
             </div>
           ) : (
-            <div className="text-center py-10">
-              <div className="text-lg font-semibold">No quotes found</div>
-              <p className="text-muted-foreground mt-1">
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mb-4">
+                <FilePlus className="h-8 w-8 text-primary" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">
+                {searchTerm || statusFilter !== "all" ? "No matching quotes" : "Win more business with quotes"}
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
                 {searchTerm || statusFilter !== "all"
-                  ? "Try adjusting your search or filters"
-                  : "Create your first quote to get started"}
+                  ? "Try adjusting your search or filters."
+                  : "Send professional quotes to potential customers. When they accept, convert quotes into invoices with one click."}
               </p>
               {!searchTerm && statusFilter === "all" && (
                 <Button
-                  className="mt-4"
+                  className="mt-6"
                   onClick={() => navigate("/quotes/create")}
                 >
                   <FilePlus className="h-4 w-4 mr-2" />

@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatPhoneNumber } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { PlusCircle, Briefcase, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { PlusCircle, Briefcase, ChevronRight as ChevronRightIcon, FileText } from "lucide-react";
+import { FeatureTip } from "@/components/ui/feature-tip";
 import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import {
   Select,
@@ -126,6 +127,12 @@ export default function Jobs() {
   
   return (
     <PageLayout title="Jobs">
+      <FeatureTip
+        tipId="jobs-workflow"
+        title="Track jobs from start to finish"
+        description="Assign technicians, update status as work progresses, and convert completed jobs into invoices with one click."
+        icon={FileText}
+      />
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-bold">Job Management</h2>
@@ -191,19 +198,25 @@ export default function Jobs() {
             )}
           />
         ) : (
-          <div className="flex flex-col items-center justify-center p-8 text-center h-64">
-            <Briefcase className="h-12 w-12 text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900">No jobs found</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              {statusFilter ? 
-                `There are no jobs with status "${statusFilter}".` : 
-                "There are no jobs in the system yet."}
+          <div className="flex flex-col items-center justify-center p-12 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mb-4">
+              <Briefcase className="h-8 w-8 text-primary" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">
+              {statusFilter ? "No matching jobs" : "Track your work with jobs"}
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
+              {statusFilter
+                ? `No jobs with status "${statusFilter}". Try a different filter.`
+                : "Create jobs to track service requests, assign technicians, and manage your workflow from start to finish. Jobs can be converted into invoices when complete."}
             </p>
-            <Link href="/jobs/new">
-              <Button className="mt-4">
-                Create Your First Job
-              </Button>
-            </Link>
+            {!statusFilter && (
+              <Link href="/jobs/new">
+                <Button className="mt-6">
+                  Create Job
+                </Button>
+              </Link>
+            )}
           </div>
         )}
       </div>
