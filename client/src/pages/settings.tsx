@@ -878,7 +878,7 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="flex w-full gap-1 overflow-x-auto md:grid md:w-full mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" style={{ gridTemplateColumns: `repeat(${tabCount}, minmax(0, 1fr))` }}>
+          <TabsList className="inline-flex w-auto gap-1 overflow-x-auto mb-6 pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             <TabsTrigger value="profile" className="whitespace-nowrap flex-shrink-0">Profile</TabsTrigger>
             <TabsTrigger value="team" className="whitespace-nowrap flex-shrink-0">Team</TabsTrigger>
             <TabsTrigger value="hours" className="whitespace-nowrap flex-shrink-0">Hours</TabsTrigger>
