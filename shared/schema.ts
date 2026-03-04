@@ -19,6 +19,7 @@ export const users = pgTable("users", {
   twoFactorSecret: text("two_factor_secret"), // Encrypted TOTP secret
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   twoFactorBackupCodes: text("two_factor_backup_codes"), // JSON array of hashed backup codes
+  onboardingComplete: boolean("onboarding_complete").default(false),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

@@ -60,8 +60,11 @@ export default function OnboardingSubscription() {
     try {
       setIsCreatingSubscription(true);
 
-      // Store the selected plan for later (after business is created)
-      localStorage.setItem('selectedPlanId', selectedPlan.toString());
+      // Store the selected plan in server-side session (not localStorage)
+      await apiRequest('POST', '/api/onboarding/save-selection', {
+        selectedPlanId: selectedPlan,
+        promoCode: promoCode.trim() || undefined,
+      });
 
       // Navigate to the main onboarding flow to create the business first
       navigate('/onboarding');
@@ -81,7 +84,6 @@ export default function OnboardingSubscription() {
       const res = await apiRequest('POST', '/api/subscription/validate-promo', { code: promoCode.trim() });
       const data = await res.json();
       if (data.valid) {
-        localStorage.setItem('promoCode', promoCode.trim());
         setPromoSuccess(data.message || `Promo applied! ${data.description}`);
       } else {
         setPromoError(data.error || 'Invalid promo code');
@@ -106,7 +108,7 @@ export default function OnboardingSubscription() {
       <div className="container mx-auto max-w-5xl px-4">
         <div className="mb-10 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-neutral-900 border border-neutral-800 mb-6">
-            <span className="text-sm text-neutral-300">Step 1 of 2</span>
+            <span className="text-sm text-neutral-300">Select Your Subscription</span>
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white">Choose Your Plan</h1>
           <p className="mt-3 text-neutral-400 max-w-2xl mx-auto">

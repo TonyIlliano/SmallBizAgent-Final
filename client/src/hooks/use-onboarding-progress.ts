@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useAuth } from './use-auth';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 
 // Define the onboarding steps
 export type OnboardingStep =
@@ -12,7 +13,7 @@ export type OnboardingStep =
   | 'final';
 
 // Define the possible step statuses
-export type StepStatus = 
+export type StepStatus =
   | 'not_started'
   | 'in_progress'
   | 'completed'
@@ -42,122 +43,48 @@ const defaultProgress: OnboardingProgress = {
   lastUpdated: Date.now()
 };
 
-// Get user-specific storage key
-const getStorageKey = (userId: number | undefined) => {
-  return userId ? `onboardingProgress_user_${userId}` : 'onboardingProgress';
-};
-
 /**
- * Custom hook for managing onboarding progress with persistence
- * Progress is stored per-user to prevent data mixing between accounts
+ * Custom hook for managing onboarding progress.
+ *
+ * Step-by-step progress is tracked in React state (in-memory only).
+ * The overall "onboarding complete" flag is persisted in the database
+ * via the users.onboarding_complete column.
+ *
+ * No localStorage is used.
  */
 export function useOnboardingProgress() {
   const { user } = useAuth();
-  const [progress, setProgress] = useState<OnboardingProgress>(defaultProgress);
-
-  // Get the user-specific storage key
-  const storageKey = getStorageKey(user?.id);
-
-  // Load progress from storage on mount or when user changes
-  useEffect(() => {
-    if (!user?.id) {
-      // No user logged in, reset to default
-      setProgress(defaultProgress);
-      return;
+  const [progress, setProgress] = useState<OnboardingProgress>(() => {
+    // If user already completed onboarding (from database), reflect that
+    if (user?.onboardingComplete) {
+      return {
+        ...defaultProgress,
+        isComplete: true,
+        stepStatuses: {
+          welcome: 'completed',
+          business: 'completed',
+          services: 'completed',
+          clover: 'completed',
+          receptionist: 'completed',
+          calendar: 'completed',
+          final: 'completed',
+        },
+      };
     }
+    return defaultProgress;
+  });
 
-    try {
-      const savedProgress = localStorage.getItem(storageKey);
-
-      if (savedProgress) {
-        const parsedProgress = JSON.parse(savedProgress) as OnboardingProgress;
-        setProgress(parsedProgress);
-      } else {
-        // Check for legacy storage format (non-user-specific)
-        const businessComplete = localStorage.getItem('onboardingBusinessComplete') === 'true';
-        const servicesComplete = localStorage.getItem('onboardingServicesComplete') === 'true';
-        const receptionistComplete = localStorage.getItem('onboardingReceptionistComplete') === 'true';
-        const receptionistSkipped = localStorage.getItem('onboardingReceptionistComplete') === 'skipped';
-        const calendarComplete = localStorage.getItem('onboardingCalendarComplete') === 'true';
-        const calendarSkipped = localStorage.getItem('onboardingCalendarComplete') === 'skipped';
-        const onboardingComplete = localStorage.getItem('onboardingComplete') === 'true';
-        
-        // If we have legacy data, convert it to new format
-        if (businessComplete || servicesComplete || receptionistComplete || 
-            receptionistSkipped || calendarComplete || calendarSkipped || onboardingComplete) {
-          
-          const legacyProgress: OnboardingProgress = {
-            currentStep: 'business',
-            stepStatuses: {
-              // Legacy users already started, so welcome is completed
-              welcome: 'completed',
-              business: businessComplete ? 'completed' : 'not_started',
-              services: servicesComplete ? 'completed' : 'not_started',
-              clover: 'not_started', // Clover is restaurant-only, legacy users can set up later
-              receptionist: receptionistComplete ? 'completed' :
-                           receptionistSkipped ? 'skipped' : 'not_started',
-              calendar: calendarComplete ? 'completed' :
-                        calendarSkipped ? 'skipped' : 'not_started',
-              final: onboardingComplete ? 'completed' : 'not_started'
-            },
-            isComplete: onboardingComplete,
-            lastUpdated: Date.now()
-          };
-          
-          // Determine current step based on completed steps
-          if (!businessComplete) {
-            legacyProgress.currentStep = 'business';
-          } else if (!servicesComplete) {
-            legacyProgress.currentStep = 'services';
-          } else if (!receptionistComplete && !receptionistSkipped) {
-            legacyProgress.currentStep = 'receptionist';
-          } else if (!calendarComplete && !calendarSkipped) {
-            legacyProgress.currentStep = 'calendar';
-          } else if (!onboardingComplete) {
-            legacyProgress.currentStep = 'final';
-          }
-          
-          setProgress(legacyProgress);
-          // Save the converted progress to user-specific key
-          localStorage.setItem(storageKey, JSON.stringify(legacyProgress));
-          // Clear legacy keys after migration
-          localStorage.removeItem('onboardingBusinessComplete');
-          localStorage.removeItem('onboardingServicesComplete');
-          localStorage.removeItem('onboardingReceptionistComplete');
-          localStorage.removeItem('onboardingCalendarComplete');
-          localStorage.removeItem('onboardingComplete');
-        } else {
-          // No saved progress and no legacy data - start fresh
-          setProgress(defaultProgress);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading onboarding progress:', error);
-    }
-  }, [user?.id, storageKey]);
-
-  // Save progress to storage whenever it changes (only if user is logged in)
-  useEffect(() => {
-    if (!user?.id) return;
-
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(progress));
-    } catch (error) {
-      console.error('Error saving onboarding progress:', error);
-    }
-  }, [progress, user?.id, storageKey]);
-  
   // Update current step
-  const setCurrentStep = (step: OnboardingStep) => {
+  const setCurrentStep = useCallback((step: OnboardingStep) => {
     setProgress(prev => ({
       ...prev,
       currentStep: step,
       lastUpdated: Date.now()
     }));
-  };
-  
+  }, []);
+
   // Update a step's status
-  const updateStepStatus = (step: OnboardingStep, status: StepStatus) => {
+  const updateStepStatus = useCallback((step: OnboardingStep, status: StepStatus) => {
     setProgress(prev => ({
       ...prev,
       stepStatuses: {
@@ -166,37 +93,34 @@ export function useOnboardingProgress() {
       },
       lastUpdated: Date.now()
     }));
-  };
+  }, []);
 
-  // Mark the entire onboarding as complete
-  const completeOnboarding = () => {
+  // Mark the entire onboarding as complete (saves to database)
+  const completeOnboarding = useCallback(async () => {
     setProgress(prev => ({
       ...prev,
       isComplete: true,
       lastUpdated: Date.now()
     }));
-  };
 
-  // Reset onboarding progress
-  const resetProgress = () => {
-    setProgress(defaultProgress);
-    // Clear the user-specific storage key
-    if (user?.id) {
-      localStorage.removeItem(storageKey);
+    // Persist to database
+    try {
+      await apiRequest('POST', '/api/onboarding/complete');
+      // Refresh user data so onboardingComplete is true
+      await queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+    } catch (error) {
+      console.error('Error saving onboarding completion:', error);
     }
-    // Clear any legacy keys that might exist
-    localStorage.removeItem('onboardingProgress');
-    localStorage.removeItem('onboardingBusinessComplete');
-    localStorage.removeItem('onboardingServicesComplete');
-    localStorage.removeItem('onboardingReceptionistComplete');
-    localStorage.removeItem('onboardingCalendarComplete');
-    localStorage.removeItem('onboardingComplete');
-    localStorage.removeItem('selectedIndustryTemplate');
-  };
-  
+  }, []);
+
+  // Reset onboarding progress (in-memory only)
+  const resetProgress = useCallback(() => {
+    setProgress(defaultProgress);
+  }, []);
+
   // Get next incomplete step
   // Pass activeSteps to filter out steps not in the current flow (e.g., 'clover' for non-restaurants)
-  const getNextIncompleteStep = (activeSteps?: OnboardingStep[]): OnboardingStep => {
+  const getNextIncompleteStep = useCallback((activeSteps?: OnboardingStep[]): OnboardingStep => {
     const allSteps: OnboardingStep[] = ['welcome', 'business', 'services', 'clover', 'receptionist', 'calendar', 'final'];
     const stepsToCheck = activeSteps || allSteps;
 
@@ -208,8 +132,8 @@ export function useOnboardingProgress() {
     }
 
     return 'final'; // Default to final step if all are completed or skipped
-  };
-  
+  }, [progress.stepStatuses]);
+
   return {
     progress,
     setCurrentStep,

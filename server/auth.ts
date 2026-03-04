@@ -14,6 +14,10 @@ import { pool } from './db';
 declare module 'express-session' {
   interface SessionData {
     pending2FA?: { userId: number; timestamp: number };
+    onboarding?: {
+      selectedPlanId?: number;
+      promoCode?: string;
+    };
   }
 }
 
@@ -767,6 +771,56 @@ export function setupAuth(app: Express) {
       // Fallback to session user if database fetch fails
       const { password, ...userWithoutPassword } = req.user as User;
       res.json(userWithoutPassword);
+    }
+  });
+
+  // ── Onboarding Session Storage ──
+  // Store selected plan and promo code in server-side session (not localStorage)
+
+  // Save onboarding selections (plan + promo) to session
+  app.post("/api/onboarding/save-selection", isAuthenticated, (req: Request, res: Response) => {
+    const { selectedPlanId, promoCode } = req.body;
+    if (!req.session.onboarding) {
+      req.session.onboarding = {};
+    }
+    if (selectedPlanId !== undefined) {
+      req.session.onboarding.selectedPlanId = parseInt(selectedPlanId);
+    }
+    if (promoCode !== undefined) {
+      req.session.onboarding.promoCode = promoCode;
+    }
+    res.json({ success: true });
+  });
+
+  // Get onboarding selections from session
+  app.get("/api/onboarding/selection", isAuthenticated, (req: Request, res: Response) => {
+    res.json({
+      selectedPlanId: req.session.onboarding?.selectedPlanId || null,
+      promoCode: req.session.onboarding?.promoCode || null,
+    });
+  });
+
+  // Clear onboarding selections from session
+  app.post("/api/onboarding/clear-selection", isAuthenticated, (req: Request, res: Response) => {
+    if (req.session.onboarding) {
+      delete req.session.onboarding;
+    }
+    res.json({ success: true });
+  });
+
+  // Mark onboarding as complete in database
+  app.post("/api/onboarding/complete", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      await pool.query('UPDATE users SET onboarding_complete = true WHERE id = $1', [userId]);
+      // Clear onboarding session data
+      if (req.session.onboarding) {
+        delete req.session.onboarding;
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error completing onboarding:', error);
+      res.status(500).json({ error: 'Failed to complete onboarding' });
     }
   });
 

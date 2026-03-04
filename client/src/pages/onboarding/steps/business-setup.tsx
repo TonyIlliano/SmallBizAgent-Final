@@ -97,17 +97,18 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
       return response.json();
     },
     onSuccess: async (business) => {
-      // If we have a stored plan selection, create the subscription now
-      const selectedPlanId = localStorage.getItem('selectedPlanId');
-      if (selectedPlanId && business.id) {
-        const parsedPlanId = parseInt(selectedPlanId);
-        if (!isNaN(parsedPlanId) && parsedPlanId > 0) {
+      // Retrieve plan selection from server-side session and create subscription
+      try {
+        const selectionRes = await apiRequest('GET', '/api/onboarding/selection');
+        const selection = await selectionRes.json();
+
+        if (selection.selectedPlanId && business.id) {
           try {
             await apiRequest('POST', '/api/subscription/create-subscription', {
               businessId: business.id,
-              planId: parsedPlanId
+              planId: selection.selectedPlanId,
+              promoCode: selection.promoCode || undefined,
             });
-            localStorage.removeItem('selectedPlanId');
           } catch (subError) {
             console.error('Error creating subscription:', subError);
             toast({
@@ -116,9 +117,11 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
               variant: 'destructive',
             });
           }
-        } else {
-          localStorage.removeItem('selectedPlanId');
+          // Clear the onboarding session data
+          await apiRequest('POST', '/api/onboarding/clear-selection');
         }
+      } catch (selError) {
+        console.error('Error reading onboarding selection:', selError);
       }
 
       // Invalidate and WAIT for user + business queries to refresh

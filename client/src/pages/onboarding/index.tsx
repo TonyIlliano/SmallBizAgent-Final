@@ -59,21 +59,19 @@ export default function OnboardingPage() {
   const currentStepIndex = steps.findIndex(step => step.id === progress.currentStep);
   const currentStep = steps[currentStepIndex >= 0 ? currentStepIndex : 0];
   
-  // Reset onboarding if localStorage says complete but user has no business
-  // This handles cases where localStorage persists across different user accounts
+  // Reset onboarding if state shows complete but user has no business
   useEffect(() => {
     if (user && !user.businessId && progress.isComplete) {
-      console.log('Resetting onboarding - user has no business but progress shows complete');
       resetProgress();
     }
   }, [user, progress.isComplete, resetProgress]);
 
   // Navigate to dashboard if onboarding is complete AND user has a business
   useEffect(() => {
-    if (progress.isComplete && user?.businessId) {
+    if ((progress.isComplete || user?.onboardingComplete) && user?.businessId) {
       setLocation('/');
     }
-  }, [progress.isComplete, user?.businessId, setLocation]);
+  }, [progress.isComplete, user?.onboardingComplete, user?.businessId, setLocation]);
   
   // If not logged in, navigate to auth page
   useEffect(() => {
@@ -133,32 +131,7 @@ export default function OnboardingPage() {
     }
   };
   
-  const handleSkip = () => {
-    // Only allow skipping if business profile has been created (most critical step)
-    if (!user?.businessId) {
-      toast({
-        title: 'Business profile required',
-        description: 'Please complete your business profile before skipping the rest of setup. You can configure other settings later from the Settings page.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Mark required steps as completed and optional steps as skipped
-    updateStepStatus('welcome', 'completed');
-    updateStepStatus('business', 'completed');
-    updateStepStatus('services', 'skipped');
-    updateStepStatus('clover', 'skipped');
-    updateStepStatus('receptionist', 'skipped');
-    updateStepStatus('calendar', 'skipped');
-    updateStepStatus('final', 'completed');
-
-    // Mark onboarding as complete
-    completeOnboarding();
-
-    // Navigate to dashboard
-    setLocation('/');
-  };
+  // Skip Setup removed for production — users must complete onboarding
   
   // Handle loading state
   if (isLoading) {
@@ -187,13 +160,7 @@ export default function OnboardingPage() {
         <div className="container max-w-5xl mx-auto">
           <div className="flex items-center justify-between">
             <h1 className="font-semibold text-xl">SmallBizAgent Setup</h1>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={handleSkip}
-            >
-              Skip Setup
-            </Button>
+            {/* Setup is required for production */}
           </div>
           <div className="mt-6">
             <div className="flex justify-between mb-2 text-sm">

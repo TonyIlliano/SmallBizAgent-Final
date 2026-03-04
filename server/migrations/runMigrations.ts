@@ -841,6 +841,19 @@ async function fixExistingTables() {
     );
   `);
 
+  // Onboarding completion tracking
+  await addColumnIfNotExists('users', 'onboarding_complete', 'BOOLEAN DEFAULT false');
+
+  // Mark existing users with a businessId as having completed onboarding
+  try {
+    await pool.query(`
+      UPDATE users SET onboarding_complete = true
+      WHERE business_id IS NOT NULL AND onboarding_complete = false
+    `);
+  } catch (e: any) {
+    console.log('Note: Could not backfill onboarding_complete:', e.message);
+  }
+
   console.log('Finished checking/fixing existing tables');
 }
 

@@ -39,6 +39,12 @@ export function ProtectedRoute({
           return <Redirect to="/staff/dashboard" />;
         }
 
+        // Redirect users who haven't completed onboarding (skip for admin and onboarding routes)
+        const isOnboardingRoute = path.startsWith("/onboarding");
+        if (!isOnboardingRoute && user.role !== "admin" && !user.onboardingComplete && !user.businessId) {
+          return <Redirect to="/onboarding/subscription" />;
+        }
+
         return <Component {...params} />;
       }}
     </Route>

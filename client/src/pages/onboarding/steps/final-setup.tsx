@@ -29,11 +29,11 @@ export default function FinalSetup({ onComplete }: FinalSetupProps) {
 
   const allStepsComplete = businessComplete && servicesComplete && receptionistComplete && calendarComplete;
 
-  const handleCompleteOnboarding = () => {
+  const handleCompleteOnboarding = async () => {
     setIsSubmitting(true);
 
-    // Mark onboarding as complete using the hook
-    markComplete();
+    // Mark onboarding as complete in database
+    await markComplete();
 
     // Show success message
     toast({

@@ -86,6 +86,11 @@ function HomePage() {
   // Staff users go to their portal
   if (user.role === "staff") return <Redirect to="/staff/dashboard" />;
 
+  // User hasn't completed onboarding — redirect to subscription selection (skip for admin)
+  if (user.role !== "admin" && !user.onboardingComplete && !user.businessId) {
+    return <Redirect to="/onboarding/subscription" />;
+  }
+
   return <Dashboard />;
 }
 
