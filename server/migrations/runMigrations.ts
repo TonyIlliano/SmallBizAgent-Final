@@ -565,17 +565,69 @@ async function fixExistingTables() {
   await addColumnIfNotExists('subscription_plans', 'sort_order', 'INTEGER DEFAULT 0');
   await addColumnIfNotExists('subscription_plans', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
 
+  // Ensure subscription plans have required columns
+  await addColumnIfNotExists('subscription_plans', 'plan_tier', 'TEXT');
+  await addColumnIfNotExists('subscription_plans', 'max_call_minutes', 'INTEGER');
+  await addColumnIfNotExists('subscription_plans', 'overage_rate_per_minute', 'REAL');
+  await addColumnIfNotExists('subscription_plans', 'max_staff', 'INTEGER');
+
   // Seed subscription plans if empty
   const plansResult = await pool.query('SELECT COUNT(*) FROM subscription_plans');
   if (parseInt(plansResult.rows[0].count) === 0) {
     console.log('Seeding subscription plans...');
     await pool.query(`
-      INSERT INTO subscription_plans (name, description, price, interval, features, active, sort_order) VALUES
-      ('Starter', 'Perfect for small businesses just getting started', 29, 'monthly', '["Up to 100 customers", "Basic scheduling", "Email support", "1 staff member"]', true, 1),
-      ('Professional', 'For growing businesses that need more features', 79, 'monthly', '["Up to 500 customers", "Advanced scheduling", "AI receptionist", "Priority support", "5 staff members", "Online booking"]', true, 2),
-      ('Enterprise', 'Full-featured solution for established businesses', 149, 'monthly', '["Unlimited customers", "All features included", "Dedicated support", "Unlimited staff", "Custom integrations", "API access"]', true, 3)
+      INSERT INTO subscription_plans (name, description, plan_tier, price, interval, features, max_call_minutes, overage_rate_per_minute, max_staff, active, sort_order) VALUES
+      ('Starter', 'Perfect for solo operators', 'starter', 79, 'monthly', '["75 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]', 75, 0.99, 1, true, 1),
+      ('Professional', 'Most popular for growing businesses', 'professional', 149, 'monthly', '["200 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS notifications", "Calendar sync (Google, Apple, Microsoft)", "QuickBooks integration", "Staff scheduling (up to 5)", "Review request automation", "Advanced analytics"]', 200, 0.89, 5, true, 2),
+      ('Business', 'For established businesses', 'business', 249, 'monthly', '["500 AI receptionist minutes/mo", "Everything in Professional, plus:", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support"]', 500, 0.79, 15, true, 3)
     `);
     console.log('Subscription plans seeded');
+  }
+
+  // Update existing plans to match current pricing (fixes stale seed data)
+  try {
+    await pool.query(`
+      UPDATE subscription_plans SET
+        name = 'Starter',
+        description = 'Perfect for solo operators',
+        plan_tier = 'starter',
+        price = 79,
+        features = '["75 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]',
+        max_call_minutes = 75,
+        overage_rate_per_minute = 0.99,
+        max_staff = 1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE sort_order = 1
+    `);
+    await pool.query(`
+      UPDATE subscription_plans SET
+        name = 'Professional',
+        description = 'Most popular for growing businesses',
+        plan_tier = 'professional',
+        price = 149,
+        features = '["200 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS notifications", "Calendar sync (Google, Apple, Microsoft)", "QuickBooks integration", "Staff scheduling (up to 5)", "Review request automation", "Advanced analytics"]',
+        max_call_minutes = 200,
+        overage_rate_per_minute = 0.89,
+        max_staff = 5,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE sort_order = 2
+    `);
+    await pool.query(`
+      UPDATE subscription_plans SET
+        name = 'Business',
+        description = 'For established businesses',
+        plan_tier = 'business',
+        price = 249,
+        features = '["500 AI receptionist minutes/mo", "Everything in Professional, plus:", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support"]',
+        max_call_minutes = 500,
+        overage_rate_per_minute = 0.79,
+        max_staff = 15,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE sort_order = 3
+    `);
+    console.log('Subscription plans updated to current pricing');
+  } catch (e: any) {
+    console.log('Note: Could not update subscription plans:', e.message);
   }
 
   // Create notification_settings table
