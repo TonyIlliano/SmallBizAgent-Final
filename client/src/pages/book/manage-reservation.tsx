@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "next-themes";
+import { getBrandStyles } from "@/lib/brand-colors";
 import {
   Loader2,
   AlertTriangle,
@@ -49,6 +50,8 @@ interface ReservationManageData {
     timezone: string;
     timezoneAbbr: string;
     logoUrl: string | null;
+    brandColor: string | null;
+    accentColor: string | null;
     bookingSlug: string;
   };
 }
@@ -157,7 +160,7 @@ export default function ManageReservation() {
   const isCancelable = !cancelled && reservation.status !== "cancelled" && reservation.status !== "completed" && reservation.status !== "seated";
 
   return (
-    <div className="min-h-screen bg-muted/30 py-8 px-4">
+    <div className="min-h-screen bg-muted/30 py-8 px-4" style={getBrandStyles(data.business.brandColor)}>
       <div className="max-w-lg mx-auto space-y-4">
         {/* Header */}
         <Card className="overflow-hidden">

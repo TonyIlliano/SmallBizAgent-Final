@@ -79,7 +79,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw, Search, ChevronDown, ChevronUp, MapPin, ArrowRight, Info, Upload, X, ImageIcon, Shield, FileText, Trash2, Download } from "lucide-react";
+import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw, Search, ChevronDown, ChevronUp, MapPin, ArrowRight, Info, Upload, X, ImageIcon, Shield, FileText, Trash2, Download, Palette, RotateCcw, Check } from "lucide-react";
+import { hexToHSL, getContrastForeground } from "@/lib/brand-colors";
 import {
   Collapsible,
   CollapsibleContent,
@@ -321,6 +322,214 @@ function ActiveSessionsCard() {
           </p>
         </div>
       </CardContent>
+    </Card>
+  );
+}
+
+// Preset brand color swatches
+const BRAND_COLOR_PRESETS = [
+  { hex: "#2563eb", label: "Blue" },
+  { hex: "#7c3aed", label: "Purple" },
+  { hex: "#059669", label: "Green" },
+  { hex: "#dc2626", label: "Red" },
+  { hex: "#d97706", label: "Amber" },
+  { hex: "#0891b2", label: "Cyan" },
+  { hex: "#e11d48", label: "Rose" },
+  { hex: "#4f46e5", label: "Indigo" },
+];
+
+function BookingPageBranding({
+  businessId,
+  brandColor,
+  onSaved,
+}: {
+  businessId: number;
+  brandColor: string | null;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [selectedColor, setSelectedColor] = useState<string>(brandColor || "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Sync with prop when it changes (e.g. after save)
+  useEffect(() => {
+    setSelectedColor(brandColor || "");
+  }, [brandColor]);
+
+  const hasChanges = (selectedColor || null) !== (brandColor || null);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await apiRequest("PUT", `/api/business/${businessId}`, {
+        brandColor: selectedColor || null,
+      });
+      toast({ title: "Saved", description: "Booking page branding updated." });
+      onSaved();
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to save brand color",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleReset = () => {
+    setSelectedColor("");
+  };
+
+  // Compute preview gradient style
+  const previewStyle = selectedColor && /^#[0-9a-fA-F]{6}$/.test(selectedColor)
+    ? {
+        background: `linear-gradient(to bottom right, ${selectedColor}, ${selectedColor}cc)`,
+        color: getContrastForeground(selectedColor) === "0 0% 100%" ? "#ffffff" : "#171717",
+      }
+    : {
+        background: "linear-gradient(to bottom right, #171717, #171717cc)",
+        color: "#ffffff",
+      };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Palette className="h-5 w-5 text-muted-foreground" />
+          <div>
+            <CardTitle className="text-lg">Booking Page Branding</CardTitle>
+            <CardDescription>
+              Customize the color of your public booking page. This changes the header gradient, buttons, and accent colors.
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Color picker row */}
+        <div className="space-y-3">
+          <label className="text-sm font-medium">Brand Color</label>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <input
+                type="color"
+                value={selectedColor || "#171717"}
+                onChange={(e) => setSelectedColor(e.target.value)}
+                className="w-10 h-10 rounded-lg border cursor-pointer appearance-none bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-0"
+              />
+            </div>
+            <Input
+              type="text"
+              placeholder="#000000"
+              value={selectedColor}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "" || /^#[0-9a-fA-F]{0,6}$/.test(val)) {
+                  setSelectedColor(val);
+                }
+              }}
+              className="w-28 font-mono text-sm"
+            />
+            {selectedColor && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleReset}
+                className="text-muted-foreground"
+              >
+                <RotateCcw className="h-4 w-4 mr-1" />
+                Reset
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Preset swatches */}
+        <div className="space-y-2">
+          <label className="text-sm text-muted-foreground">Quick Presets</label>
+          <div className="flex flex-wrap gap-2">
+            {BRAND_COLOR_PRESETS.map((preset) => (
+              <button
+                key={preset.hex}
+                onClick={() => setSelectedColor(preset.hex)}
+                className="relative w-8 h-8 rounded-full border-2 transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                style={{
+                  backgroundColor: preset.hex,
+                  borderColor: selectedColor === preset.hex ? preset.hex : "transparent",
+                }}
+                title={preset.label}
+              >
+                {selectedColor === preset.hex && (
+                  <Check className="h-4 w-4 absolute inset-0 m-auto" style={{
+                    color: getContrastForeground(preset.hex) === "0 0% 100%" ? "#ffffff" : "#171717",
+                  }} />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Live preview */}
+        <div className="space-y-2">
+          <label className="text-sm text-muted-foreground">Preview</label>
+          <div
+            className="rounded-lg p-4 transition-all"
+            style={previewStyle}
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-lg font-bold">
+                {previewStyle.color === "#ffffff" ? "✦" : "✦"}
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Your Business Name</p>
+                <p className="text-xs opacity-80">Book your appointment today</p>
+              </div>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <div
+                className="px-3 py-1.5 rounded-md text-xs font-medium"
+                style={{
+                  backgroundColor: previewStyle.color === "#ffffff" ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)",
+                }}
+              >
+                Select Service
+              </div>
+              <div
+                className="px-3 py-1.5 rounded-md text-xs font-medium opacity-60"
+                style={{
+                  backgroundColor: previewStyle.color === "#ffffff" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
+                }}
+              >
+                Choose Time
+              </div>
+            </div>
+          </div>
+          {!selectedColor && (
+            <p className="text-xs text-muted-foreground">
+              No brand color set — your booking page uses the default dark theme.
+            </p>
+          )}
+        </div>
+      </CardContent>
+      <CardFooter className="flex justify-between border-t pt-6">
+        <p className="text-xs text-muted-foreground">
+          Changes apply to your public booking page only.
+        </p>
+        <Button
+          onClick={handleSave}
+          disabled={!hasChanges || isSaving}
+          size="sm"
+        >
+          {isSaving ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            "Save Brand Color"
+          )}
+        </Button>
+      </CardFooter>
     </Card>
   );
 }
@@ -1943,6 +2152,13 @@ export default function Settings() {
           {!isRestaurant && (
           <TabsContent value="booking" className="space-y-4">
             {business && <BookingSettings business={business} />}
+            {business && businessId && (
+              <BookingPageBranding
+                businessId={businessId}
+                brandColor={business.brandColor || null}
+                onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/business"] })}
+              />
+            )}
           </TabsContent>
           )}
 

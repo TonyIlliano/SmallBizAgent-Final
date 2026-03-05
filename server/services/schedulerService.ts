@@ -7,7 +7,7 @@ import { sendQuoteFollowUpNotification } from "./notificationService";
 import { sendBirthdayCampaigns } from "./marketingService";
 import { deprovisionBusiness } from "./businessProvisioningService";
 import twilioService from "./twilioService";
-import { sendTrialExpirationWarningEmail, sendDailySummaryEmail } from "../emailService";
+import { sendTrialExpirationWarningEmail } from "../emailService";
 import { runDataRetention } from './dataRetentionService';
 
 // Track scheduled jobs to prevent duplicates
@@ -601,109 +601,6 @@ export function startDataRetentionScheduler(): void {
 }
 
 /**
- * Daily Summary Email Scheduler
- * Sends a morning recap email to business owners with yesterday's metrics
- */
-function startDailySummaryScheduler(): void {
-  const jobKey = 'daily-summary';
-  if (scheduledJobs.has(jobKey)) return;
-
-  console.log('Starting daily summary scheduler');
-
-  const runDailySummaries = async () => {
-    try {
-      const businesses = await storage.getAllBusinesses();
-      const baseUrl = process.env.APP_URL || process.env.BASE_URL || 'https://www.smallbizagent.ai';
-
-      for (const business of businesses) {
-        try {
-          // Check if business has daily summary enabled
-          const notifSettings = await storage.getNotificationSettings(business.id);
-          if (notifSettings && notifSettings.dailySummaryEmail === false) continue;
-
-          // Get business owner
-          const owner = await storage.getBusinessOwner(business.id);
-          if (!owner?.email) continue;
-
-          const tz = business.timezone || 'America/New_York';
-          const now = new Date();
-          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          const startOfYesterday = new Date(yesterday.toLocaleDateString('en-US', { timeZone: tz }));
-          const endOfYesterday = new Date(now.toLocaleDateString('en-US', { timeZone: tz }));
-
-          // Gather yesterday's metrics
-          const yesterdayCalls = await storage.getCallLogs(business.id, {
-            startDate: startOfYesterday,
-            endDate: endOfYesterday,
-          });
-
-          const appointments = await storage.getAppointments(business.id);
-          const yesterdayBooked = appointments.filter(a => {
-            const created = new Date(a.createdAt || '');
-            return created >= startOfYesterday && created < endOfYesterday;
-          });
-          const todayAppts = appointments.filter(a => {
-            const start = new Date(a.startDate || '');
-            return start >= endOfYesterday && start < new Date(endOfYesterday.getTime() + 24 * 60 * 60 * 1000) && a.status !== 'cancelled';
-          });
-
-          const customers = await storage.getCustomers(business.id);
-          const newCustomers = customers.filter(c => {
-            const created = new Date(c.createdAt || '');
-            return created >= startOfYesterday && created < endOfYesterday;
-          });
-
-          // Skip if nothing happened yesterday (don't spam with empty summaries)
-          if (yesterdayCalls.length === 0 && yesterdayBooked.length === 0 && newCustomers.length === 0 && todayAppts.length === 0) {
-            continue;
-          }
-
-          const dateStr = yesterday.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'short', day: 'numeric' });
-
-          await sendDailySummaryEmail(
-            owner.email,
-            business.name || 'Your Business',
-            {
-              date: dateStr,
-              totalCalls: yesterdayCalls.length,
-              missedCalls: yesterdayCalls.filter(c => c.status === 'missed').length,
-              appointmentsBooked: yesterdayBooked.length,
-              appointmentsToday: todayAppts.length,
-              invoicesPaid: 0, // Would need invoice lookup
-              revenueCollected: '$0', // Would need payment lookup
-              newCustomers: newCustomers.length,
-            },
-            `${baseUrl}/dashboard`
-          );
-          console.log(`[DailySummary] Sent to ${owner.email} for business ${business.id}`);
-        } catch (err) {
-          console.error(`[DailySummary] Error for business ${business.id}:`, err);
-        }
-      }
-    } catch (err) {
-      console.error('[DailySummary] Scheduler error:', err);
-    }
-  };
-
-  // Run every 24 hours (designed to run at ~8am server time)
-  const intervalId = setInterval(() => {
-    runDailySummaries();
-  }, 24 * 60 * 60 * 1000);
-
-  scheduledJobs.set(jobKey, intervalId);
-
-  // Run first check after 1 minute (let server fully start)
-  setTimeout(() => {
-    // Only send if it's morning time (6am-10am) in US Eastern
-    const nowET = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
-    const hour = new Date(nowET).getHours();
-    if (hour >= 6 && hour <= 10) {
-      runDailySummaries();
-    }
-  }, 60 * 1000);
-}
-
-/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -743,9 +640,6 @@ export async function startAllSchedulers(): Promise<void> {
     // Start data retention scheduler (purges expired call recordings and transcripts daily)
     startDataRetentionScheduler();
 
-    // Start daily summary scheduler (sends morning recap to business owners)
-    startDailySummaryScheduler();
-
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -774,7 +668,6 @@ export default {
   startBirthdayCampaignScheduler,
   startTrialExpirationScheduler,
   startDataRetentionScheduler,
-  startDailySummaryScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

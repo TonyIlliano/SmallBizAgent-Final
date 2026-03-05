@@ -60,6 +60,8 @@ router.get("/book/:slug", async (req, res) => {
         email: business.email,
         website: business.website,
         logoUrl: business.logoUrl,
+        brandColor: business.brandColor || null,
+        accentColor: business.accentColor || null,
         timezone: business.timezone,
         timezoneAbbr: getTimezoneAbbreviation(business.timezone || 'America/New_York'),
         industry: business.industry,
@@ -580,6 +582,8 @@ router.get("/book/:slug/manage/:token", async (req, res) => {
         state: business.state,
         timezone: business.timezone || 'America/New_York',
         logoUrl: business.logoUrl,
+        brandColor: business.brandColor || null,
+        accentColor: business.accentColor || null,
         bookingSlug: business.bookingSlug,
       },
     });
@@ -1051,6 +1055,8 @@ router.get("/book/:slug/manage-reservation/:token", async (req, res) => {
         timezone: businessTimezone,
         timezoneAbbr: getTimezoneAbbreviation(businessTimezone),
         logoUrl: business.logoUrl,
+        brandColor: business.brandColor || null,
+        accentColor: business.accentColor || null,
         bookingSlug: business.bookingSlug,
       },
     });

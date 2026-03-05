@@ -26,6 +26,7 @@ import {
   Star,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { getBrandStyles } from "@/lib/brand-colors";
 import { useTheme } from "next-themes";
 
 interface BusinessInfo {
@@ -39,6 +40,8 @@ interface BusinessInfo {
   email: string | null;
   website: string | null;
   logoUrl: string | null;
+  brandColor: string | null;
+  accentColor: string | null;
   timezone: string;
   timezoneAbbr: string;
   industry: string | null;
@@ -596,7 +599,7 @@ export default function PublicBooking() {
   // ========================================
   if (step === 0 && !bookingConfirmed) {
     return (
-      <div ref={containerRef} className="min-h-screen bg-muted/30">
+      <div ref={containerRef} className="min-h-screen bg-muted/30" style={getBrandStyles(bookingData?.business.brandColor)}>
         {/* Hero Section */}
         <div className="relative overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/80">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.15),transparent_60%)]" />
@@ -848,7 +851,7 @@ export default function PublicBooking() {
   // ========================================
   if (bookingConfirmed && confirmationData) {
     return (
-      <div ref={containerRef} className={`min-h-screen ${isEmbed ? "bg-transparent py-2 px-1" : "bg-muted/30 py-8 px-4"}`}>
+      <div ref={containerRef} className={`min-h-screen ${isEmbed ? "bg-transparent py-2 px-1" : "bg-muted/30 py-8 px-4"}`} style={getBrandStyles(bookingData?.business.brandColor)}>
         <div className="max-w-lg mx-auto">
           <Card className="overflow-hidden">
             <CardHeader className="text-center pb-4 bg-gradient-to-b from-green-50 to-transparent dark:from-green-950/20">
@@ -975,7 +978,7 @@ export default function PublicBooking() {
   // BOOKING FLOW (Steps 1-3)
   // ========================================
   return (
-    <div ref={containerRef} className={`min-h-screen ${isEmbed ? "bg-transparent py-2 px-1" : "bg-muted/30 py-8 px-4"}`}>
+    <div ref={containerRef} className={`min-h-screen ${isEmbed ? "bg-transparent py-2 px-1" : "bg-muted/30 py-8 px-4"}`} style={getBrandStyles(bookingData?.business.brandColor)}>
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Hero Header with Business Branding */}
         <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-primary via-primary to-primary/80 shadow-lg">

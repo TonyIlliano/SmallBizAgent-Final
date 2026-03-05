@@ -1,4 +1,17 @@
 import "dotenv/config";
+import * as Sentry from "@sentry/node";
+
+// Initialize Sentry BEFORE importing other modules
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || "development",
+    tracesSampleRate: process.env.NODE_ENV === "production" ? 0.2 : 1.0,
+    sendDefaultPii: false,
+  });
+  console.log("✅ Sentry initialized for server error tracking");
+}
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -85,12 +98,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com", "https://maps.googleapis.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com", "https://maps.googleapis.com", "https://browser.sentry-cdn.com", "https://challenges.cloudflare.com", "https://www.googletagmanager.com", "https://www.google-analytics.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://api.stripe.com", "https://api.vapi.ai", "https://maps.googleapis.com", "wss:"],
-      frameSrc: ["'self'", "https://js.stripe.com"],
+      connectSrc: ["'self'", "https://api.stripe.com", "https://api.vapi.ai", "https://maps.googleapis.com", "wss:", "https://*.sentry.io", "https://*.ingest.sentry.io", "https://www.google-analytics.com", "https://analytics.google.com", "https://*.google-analytics.com", "https://*.analytics.google.com"],
+      frameSrc: ["'self'", "https://js.stripe.com", "https://challenges.cloudflare.com"],
     },
   },
   crossOriginEmbedderPolicy: false, // Required for some external resources
@@ -246,6 +259,8 @@ app.use((req, res, next) => {
 
       if (status >= 500) {
         console.error('Server error:', err);
+        // Report 5xx errors to Sentry
+        Sentry.captureException(err);
       }
 
       if (!res.headersSent) {
@@ -307,6 +322,7 @@ app.use((req, res, next) => {
 
   } catch (error) {
     console.error('Server startup error:', error);
+    Sentry.captureException(error);
     process.exit(1);
   }
 })();

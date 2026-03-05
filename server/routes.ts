@@ -328,6 +328,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log('Business created without authenticated user - no linking performed');
       }
 
+      // Notify admin about new signup (non-blocking)
+      try {
+        const { sendNewBusinessSignupNotification } = await import("./emailService");
+        const ownerEmail = req.user?.email || 'unknown';
+        const ownerUsername = req.user?.username || 'unknown';
+        sendNewBusinessSignupNotification(
+          business.name,
+          ownerEmail,
+          ownerUsername,
+          body.industry || null,
+          body.phone || null
+        ).catch(notifyErr => console.error('Failed to send signup notification:', notifyErr));
+      } catch (notifyErr) {
+        console.error('Failed to load email service for signup notification:', notifyErr);
+      }
+
       // Start reminder scheduler for the new business
       schedulerService.startReminderScheduler(business.id);
 

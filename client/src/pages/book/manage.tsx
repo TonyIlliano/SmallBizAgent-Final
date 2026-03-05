@@ -6,6 +6,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "next-themes";
+import { getBrandStyles } from "@/lib/brand-colors";
 import {
   Loader2,
   AlertTriangle,
@@ -41,6 +42,8 @@ interface ManageData {
     state: string | null;
     timezone: string;
     logoUrl: string | null;
+    brandColor: string | null;
+    accentColor: string | null;
     bookingSlug: string;
   };
 }
@@ -285,7 +288,7 @@ export default function ManageAppointment() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30 py-8 px-4">
+    <div className="min-h-screen bg-muted/30 py-8 px-4" style={getBrandStyles(data.business.brandColor)}>
       <div className="max-w-lg mx-auto space-y-6">
         {/* Header */}
         <div className="text-center">

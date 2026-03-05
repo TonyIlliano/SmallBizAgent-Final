@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Mail, MessageSquare, Bell, Calendar, FileText, Briefcase, PhoneOff, BarChart3 } from "lucide-react";
+import { Loader2, Mail, MessageSquare, Bell, Calendar, FileText, Briefcase } from "lucide-react";
 
 interface NotificationSettingsData {
   businessId: number;
@@ -22,8 +22,6 @@ interface NotificationSettingsData {
   invoicePaymentConfirmationEmail: boolean;
   jobCompletedEmail: boolean;
   jobCompletedSms: boolean;
-  missedCallAlertEmail: boolean;
-  dailySummaryEmail: boolean;
 }
 
 function NotificationRow({
@@ -275,34 +273,6 @@ export default function NotificationSettingsPanel({ businessId }: { businessId: 
         </CardContent>
       </Card>
 
-      {/* Business Owner Notifications */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <PhoneOff className="h-4 w-4" />
-            <CardTitle className="text-base">Business Owner Alerts</CardTitle>
-          </div>
-          <CardDescription className="text-xs">
-            Notifications sent to you (the business owner), not to customers
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <EmailOnlyRow
-            label="Missed Call Alert"
-            description="Get notified when a call is missed or disconnected early"
-            emailEnabled={settings.missedCallAlertEmail}
-            onEmailChange={(v) => handleToggle("missedCallAlertEmail", v)}
-            emailId="missed-call-email"
-          />
-          <EmailOnlyRow
-            label="Daily Summary"
-            description="A daily recap of calls, appointments, payments, and new customers"
-            emailEnabled={settings.dailySummaryEmail}
-            onEmailChange={(v) => handleToggle("dailySummaryEmail", v)}
-            emailId="daily-summary-email"
-          />
-        </CardContent>
-      </Card>
     </div>
   );
 }

@@ -72,6 +72,10 @@ async function fixExistingTables() {
   await addColumnIfNotExists('businesses', 'birthday_campaign_channel', "TEXT DEFAULT 'both'");
   await addColumnIfNotExists('businesses', 'birthday_campaign_message', 'TEXT');
 
+  // White-label branding colors for public booking pages
+  await addColumnIfNotExists('businesses', 'brand_color', 'TEXT');
+  await addColumnIfNotExists('businesses', 'accent_color', 'TEXT');
+
   // Review settings - configurable cooldown per business (restaurants need longer cooldown)
   await addColumnIfNotExists('review_settings', 'review_cooldown_days', 'INTEGER DEFAULT 90');
 
@@ -911,10 +915,6 @@ async function fixExistingTables() {
 
   // Feature discovery tips dismissed tracking
   await addColumnIfNotExists('users', 'dismissed_tips', 'TEXT');
-
-  // Notification settings: missed call alert and daily summary
-  await addColumnIfNotExists('notification_settings', 'missed_call_alert_email', 'BOOLEAN DEFAULT true');
-  await addColumnIfNotExists('notification_settings', 'daily_summary_email', 'BOOLEAN DEFAULT true');
 
   console.log('Finished checking/fixing existing tables');
 }

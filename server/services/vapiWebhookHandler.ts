@@ -13,7 +13,7 @@ import { getCachedMenu as getHeartlandCachedMenu, createOrder as createHeartland
 import { canBusinessAcceptCalls } from './usageService';
 import { fireEvent } from './webhookService';
 import { getTimezoneAbbreviation } from '../utils/timezone';
-import { sendMissedCallAlertEmail } from '../emailService';
+
 
 /**
  * ===========================================
@@ -3719,52 +3719,6 @@ async function handleEndOfCall(
             console.error(`[MissedCallTextBack] Failed to send text to ${callerPhone}:`, err);
           });
 
-        // Send missed call alert email to business owner
-        (async () => {
-          try {
-            const notifSettings = await storage.getNotificationSettings(businessId);
-            if (!notifSettings || notifSettings.missedCallAlertEmail !== false) {
-              const owner = await storage.getBusinessOwner(businessId);
-              if (owner?.email) {
-                const baseUrl = process.env.APP_URL || process.env.BASE_URL || 'https://www.smallbizagent.ai';
-                const callTime = new Date().toLocaleString('en-US', {
-                  timeZone: business.timezone || 'America/New_York',
-                  dateStyle: 'short',
-                  timeStyle: 'short',
-                });
-                const reasonMap: Record<string, string> = {
-                  'customer-did-not-answer': 'Customer did not answer',
-                  'assistant-error': 'AI assistant error',
-                  'phone-call-provider-closedwebsocket': 'Call connection lost',
-                  'silence-timed-out': 'Call timed out (silence)',
-                };
-                const friendlyReason = reasonMap[endedReason] || (callDurationSeconds < 15 ? 'Very short call (under 15 seconds)' : endedReason);
-                await sendMissedCallAlertEmail(
-                  owner.email,
-                  businessName,
-                  callerPhone,
-                  callTime,
-                  friendlyReason,
-                  `${baseUrl}/receptionist`
-                );
-                await storage.createNotificationLog({
-                  businessId,
-                  customerId: null,
-                  type: 'missed_call_alert',
-                  channel: 'email',
-                  recipient: owner.email,
-                  subject: `Missed Call Alert - ${businessName}`,
-                  status: 'sent',
-                  referenceType: 'call_log',
-                  referenceId: callLogId,
-                });
-                console.log(`[MissedCallAlert] Sent email alert to ${owner.email} for business ${businessId}`);
-              }
-            }
-          } catch (err) {
-            console.error('[MissedCallAlert] Error sending missed call alert:', err);
-          }
-        })();
       }
     }
   }
