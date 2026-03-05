@@ -1163,7 +1163,7 @@ export async function createAssistantForBusiness(
   // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  const configGreeting = receptionistConfig?.greeting || `Thank you for calling ${business.name}, this is ${configAssistantName}. How can I help you today?`;
+  const configGreeting = receptionistConfig?.greeting || `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?`;
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
@@ -1320,7 +1320,7 @@ export async function updateAssistant(
   // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  const configGreeting = receptionistConfig?.greeting || `Thank you for calling ${business.name}, this is ${configAssistantName}. How can I help you today?`;
+  const configGreeting = receptionistConfig?.greeting || `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?`;
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;

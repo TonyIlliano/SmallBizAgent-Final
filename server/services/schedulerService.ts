@@ -601,6 +601,39 @@ export function startDataRetentionScheduler(): void {
 }
 
 /**
+ * Start the weekly auto-refine scheduler.
+ * Analyzes call transcripts and suggests improvements to the AI receptionist.
+ * Runs every 7 days — does NOT run immediately on startup to avoid duplicate runs on restarts.
+ */
+export function startAutoRefineScheduler(): void {
+  const jobKey = 'auto-refine';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Auto-refine scheduler already running');
+    return;
+  }
+
+  console.log('Starting auto-refine scheduler (runs every 7 days)');
+
+  // Run every 7 days — no immediate run on startup
+  const intervalId = setInterval(() => {
+    runAutoRefine();
+  }, 7 * 24 * 60 * 60 * 1000);
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+async function runAutoRefine(): Promise<void> {
+  try {
+    console.log(`[AutoRefine] Running weekly auto-refine at ${new Date().toISOString()}`);
+    const { runWeeklyAutoRefine } = await import('./autoRefineService');
+    await runWeeklyAutoRefine();
+  } catch (error) {
+    console.error('[AutoRefine] Error:', error);
+  }
+}
+
+/**
  * Start schedulers for all active businesses
  */
 export async function startAllSchedulers(): Promise<void> {
@@ -640,6 +673,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start data retention scheduler (purges expired call recordings and transcripts daily)
     startDataRetentionScheduler();
 
+    // Start auto-refine scheduler (analyzes call transcripts weekly, suggests receptionist improvements)
+    startAutoRefineScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -668,6 +704,7 @@ export default {
   startBirthdayCampaignScheduler,
   startTrialExpirationScheduler,
   startDataRetentionScheduler,
+  startAutoRefineScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

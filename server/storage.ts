@@ -28,6 +28,7 @@ import {
   StaffInvite, InsertStaffInvite, staffInvites,
   BusinessKnowledge, InsertBusinessKnowledge, businessKnowledge,
   UnansweredQuestion, InsertUnansweredQuestion, unansweredQuestions,
+  AiSuggestion, InsertAiSuggestion, aiSuggestions,
   WebsiteScrapeCache, InsertWebsiteScrapeCache, websiteScrapeCache,
   RestaurantReservation, InsertRestaurantReservation, restaurantReservations,
   BusinessPhoneNumber, InsertBusinessPhoneNumber, businessPhoneNumbers,
@@ -301,6 +302,14 @@ export interface IStorage {
   updateUnansweredQuestion(id: number, data: Partial<UnansweredQuestion>): Promise<UnansweredQuestion>;
   deleteUnansweredQuestion(id: number): Promise<void>;
   getUnansweredQuestionCount(businessId: number): Promise<number>;
+
+  // AI Suggestions (Auto-Refine Pipeline)
+  getAiSuggestions(businessId: number, params?: { status?: string }): Promise<AiSuggestion[]>;
+  getAiSuggestion(id: number): Promise<AiSuggestion | undefined>;
+  createAiSuggestion(suggestion: InsertAiSuggestion): Promise<AiSuggestion>;
+  updateAiSuggestion(id: number, data: Partial<AiSuggestion>): Promise<AiSuggestion>;
+  getAiSuggestionCount(businessId: number): Promise<number>;
+  getAiSuggestionsAcceptedCount(businessId: number): Promise<number>;
 
   // Website Scrape Cache
   getWebsiteScrapeCache(businessId: number): Promise<WebsiteScrapeCache | undefined>;
@@ -1774,6 +1783,57 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(unansweredQuestions.businessId, businessId),
         eq(unansweredQuestions.status, 'pending')
+      ));
+    return Number(result[0]?.count ?? 0);
+  }
+
+  // =================== AI Suggestions (Auto-Refine Pipeline) ===================
+
+  async getAiSuggestions(businessId: number, params?: { status?: string }): Promise<AiSuggestion[]> {
+    const conditions: any[] = [eq(aiSuggestions.businessId, businessId)];
+    if (params?.status) {
+      conditions.push(eq(aiSuggestions.status, params.status));
+    }
+    return db.select().from(aiSuggestions)
+      .where(and(...conditions))
+      .orderBy(desc(aiSuggestions.createdAt));
+  }
+
+  async getAiSuggestion(id: number): Promise<AiSuggestion | undefined> {
+    const [suggestion] = await db.select().from(aiSuggestions)
+      .where(eq(aiSuggestions.id, id));
+    return suggestion;
+  }
+
+  async createAiSuggestion(suggestion: InsertAiSuggestion): Promise<AiSuggestion> {
+    const [created] = await db.insert(aiSuggestions).values(suggestion).returning();
+    return created;
+  }
+
+  async updateAiSuggestion(id: number, data: Partial<AiSuggestion>): Promise<AiSuggestion> {
+    const [updated] = await db.update(aiSuggestions)
+      .set(data)
+      .where(eq(aiSuggestions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getAiSuggestionCount(businessId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(aiSuggestions)
+      .where(and(
+        eq(aiSuggestions.businessId, businessId),
+        eq(aiSuggestions.status, 'pending')
+      ));
+    return Number(result[0]?.count ?? 0);
+  }
+
+  async getAiSuggestionsAcceptedCount(businessId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(aiSuggestions)
+      .where(and(
+        eq(aiSuggestions.businessId, businessId),
+        or(eq(aiSuggestions.status, 'accepted'), eq(aiSuggestions.status, 'edited'))
       ));
     return Number(result[0]?.count ?? 0);
   }

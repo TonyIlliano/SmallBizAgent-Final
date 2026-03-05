@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, X, AlertTriangle, Volume2, VolumeX, Loader2 } from "lucide-react";
+import { Plus, X, AlertTriangle, Volume2, VolumeX, Loader2, Sparkles } from "lucide-react";
 
 /** Curated ElevenLabs voices available for VAPI assistants (must match server VOICE_OPTIONS) */
 const VOICE_OPTIONS = [
@@ -52,6 +52,15 @@ const VOICE_OPTIONS = [
 ];
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+// Recording disclosure keywords (must match server-side check)
+const DISCLOSURE_KEYWORDS = ['recorded', 'recording', 'monitored', 'monitor'];
+
+function hasRecordingDisclosure(greeting: string | null | undefined): boolean {
+  if (!greeting) return false;
+  const lower = greeting.toLowerCase();
+  return DISCLOSURE_KEYWORDS.some(kw => lower.includes(kw));
+}
+
 // Zod schema for form validation
 const receptionistConfigSchema = z.object({
   businessId: z.number(),
@@ -63,6 +72,7 @@ const receptionistConfigSchema = z.object({
   voicemailEnabled: z.boolean().default(true),
   callRecordingEnabled: z.boolean().default(false),
   transcriptionEnabled: z.boolean().default(true),
+  aiInsightsEnabled: z.boolean().default(false),
   maxCallLengthMinutes: z.number().min(1, "Max call length must be at least 1 minute").max(60, "Max call length cannot exceed 60 minutes"),
   transferPhoneNumbers: z.array(z.string()).optional(),
 });
@@ -171,12 +181,13 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
         businessId: safeBusinessId,
         assistantName: "Alex",
         voiceId: "paula",
-        greeting: "Thank you for calling. How may I help you today?",
+        greeting: "Hi, thanks for calling! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?",
         afterHoursMessage: "I'm sorry, our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff. Otherwise, I'd be happy to schedule an appointment for you.",
         customInstructions: "",
         voicemailEnabled: true,
         callRecordingEnabled: false,
         transcriptionEnabled: true,
+        aiInsightsEnabled: false,
         maxCallLengthMinutes: 15,
         transferPhoneNumbers: []
       };
@@ -186,12 +197,13 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
       businessId: safeBusinessId,
       assistantName: config.assistantName || "Alex",
       voiceId: config.voiceId || "paula",
-      greeting: config.greeting || "Thank you for calling. How may I help you today?",
+      greeting: config.greeting || "Hi, thanks for calling! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?",
       afterHoursMessage: config.afterHoursMessage || "I'm sorry, our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff. Otherwise, I'd be happy to schedule an appointment for you.",
       customInstructions: config.customInstructions || "",
       voicemailEnabled: config.voicemailEnabled,
       callRecordingEnabled: config.callRecordingEnabled,
       transcriptionEnabled: config.transcriptionEnabled,
+      aiInsightsEnabled: config.aiInsightsEnabled ?? false,
       maxCallLengthMinutes: config.maxCallLengthMinutes || 15,
       transferPhoneNumbers: config.transferPhoneNumbers || []
     };
@@ -363,7 +375,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                   <FormLabel>Greeting Message</FormLabel>
                   <FormControl>
                     <Textarea 
-                      placeholder="Thank you for calling. How may I help you today?" 
+                      placeholder="Hi, thanks for calling! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?" 
                       className="min-h-[80px]" 
                       {...field} 
                     />
@@ -481,7 +493,51 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                   </FormItem>
                 )}
               />
-              
+
+              <FormField
+                control={form.control}
+                name="aiInsightsEnabled"
+                render={({ field }) => {
+                  const greetingValue = form.watch("greeting");
+                  const greetingOk = hasRecordingDisclosure(greetingValue);
+                  return (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base flex items-center gap-1.5">
+                          <Sparkles className="h-4 w-4 text-amber-500" />
+                          AI Insights
+                        </FormLabel>
+                        <FormDescription>
+                          Weekly AI analysis of calls to suggest improvements
+                        </FormDescription>
+                        {!greetingOk && (
+                          <p className="text-xs text-amber-600 flex items-center gap-1 mt-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Requires a recording disclosure in your greeting (e.g., "this call may be recorded")
+                          </p>
+                        )}
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            if (checked && !greetingOk) {
+                              toast({
+                                title: "Recording disclosure required",
+                                description: "Your greeting must mention that calls may be recorded before enabling AI Insights. This is a legal requirement.",
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                            field.onChange(checked);
+                          }}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  );
+                }}
+              />
+
               <FormField
                 control={form.control}
                 name="maxCallLengthMinutes"

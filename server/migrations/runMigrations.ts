@@ -253,6 +253,7 @@ async function fixExistingTables() {
   await addColumnIfNotExists('receptionist_config', 'voice_id', "TEXT DEFAULT 'paula'");
   await addColumnIfNotExists('receptionist_config', 'assistant_name', "TEXT DEFAULT 'Alex'");
   await addColumnIfNotExists('receptionist_config', 'custom_instructions', "TEXT");
+  await addColumnIfNotExists('receptionist_config', 'ai_insights_enabled', "BOOLEAN DEFAULT false");
 
   // Create quotes table
   await pool.query(`
@@ -720,6 +721,25 @@ async function fixExistingTables() {
       status TEXT DEFAULT 'pending',
       error_message TEXT,
       last_scraped_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create ai_suggestions table (weekly auto-refine pipeline suggestions)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_suggestions (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      week_start TIMESTAMP NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      current_value TEXT,
+      suggested_value TEXT,
+      occurrence_count INTEGER DEFAULT 1,
+      risk_level TEXT DEFAULT 'low',
+      status TEXT DEFAULT 'pending',
+      accepted_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
@@ -1657,6 +1677,8 @@ async function createPerformanceIndexes() {
     'CREATE INDEX IF NOT EXISTS idx_review_requests_business_id ON review_requests (business_id)',
     'CREATE INDEX IF NOT EXISTS idx_inventory_items_business_id ON inventory_items (business_id)',
     'CREATE INDEX IF NOT EXISTS idx_inventory_items_biz_source ON inventory_items (business_id, pos_source)',
+    'CREATE INDEX IF NOT EXISTS idx_ai_suggestions_business_id ON ai_suggestions (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ai_suggestions_biz_status ON ai_suggestions (business_id, status)',
 
     // ── Phase 4: Date indexes for range queries ──
     'CREATE INDEX IF NOT EXISTS idx_appointments_start_date ON appointments (start_date)',

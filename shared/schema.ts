@@ -335,6 +335,7 @@ export const receptionistConfig = pgTable("receptionist_config", {
   voiceId: text("voice_id").default("paula"),           // ElevenLabs voice ID
   assistantName: text("assistant_name").default("Alex"), // Name the AI introduces itself as
   customInstructions: text("custom_instructions"),       // Free-form instructions injected into the AI prompt
+  aiInsightsEnabled: boolean("ai_insights_enabled").default(false), // Auto-refine pipeline toggle
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -682,6 +683,23 @@ export const unansweredQuestions = pgTable("unanswered_questions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// AI Suggestions - weekly auto-refine pipeline suggestions for receptionist improvements
+export const aiSuggestions = pgTable("ai_suggestions", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  weekStart: timestamp("week_start").notNull(),
+  type: text("type").notNull(), // NEW_FAQ, UPDATE_GREETING, UPDATE_INSTRUCTIONS, UPDATE_AFTER_HOURS, ADD_EMERGENCY_KEYWORD, GENERAL_INSIGHT
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  currentValue: text("current_value"),
+  suggestedValue: text("suggested_value"),
+  occurrenceCount: integer("occurrence_count").default(1),
+  riskLevel: text("risk_level").default("low"), // low, high
+  status: text("status").default("pending"), // pending, accepted, dismissed, edited
+  acceptedAt: timestamp("accepted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Website Scrape Cache - cached results from business website scraping
 export const websiteScrapeCache = pgTable("website_scrape_cache", {
   id: serial("id").primaryKey(),
@@ -913,6 +931,7 @@ export const insertHeartlandOrderLogSchema = createInsertSchema(heartlandOrderLo
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
 export const insertBusinessKnowledgeSchema = createInsertSchema(businessKnowledge).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertUnansweredQuestionSchema = createInsertSchema(unansweredQuestions).omit({ id: true, createdAt: true });
+export const insertAiSuggestionSchema = createInsertSchema(aiSuggestions).omit({ id: true, createdAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
@@ -1038,6 +1057,9 @@ export type InsertBusinessKnowledge = z.infer<typeof insertBusinessKnowledgeSche
 
 export type UnansweredQuestion = typeof unansweredQuestions.$inferSelect;
 export type InsertUnansweredQuestion = z.infer<typeof insertUnansweredQuestionSchema>;
+
+export type AiSuggestion = typeof aiSuggestions.$inferSelect;
+export type InsertAiSuggestion = z.infer<typeof insertAiSuggestionSchema>;
 
 export type WebsiteScrapeCache = typeof websiteScrapeCache.$inferSelect;
 export type InsertWebsiteScrapeCache = z.infer<typeof insertWebsiteScrapeCacheSchema>;

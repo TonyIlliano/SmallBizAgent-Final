@@ -126,7 +126,7 @@ export async function provisionBusiness(
       if (!existingConfig) {
         const receptionistConfig = await storage.createReceptionistConfig({
           businessId,
-          greeting: `Thank you for calling ${business.name}. How may I help you today?`,
+          greeting: `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?`,
           afterHoursMessage: `Thank you for calling ${business.name}. Our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff. Otherwise, I'd be happy to schedule an appointment for you.`,
           emergencyKeywords: ['emergency', 'urgent', 'immediately', 'critical', 'asap'],
           voicemailEnabled: true,

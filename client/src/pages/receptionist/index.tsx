@@ -4,12 +4,22 @@ import { PageLayout } from "@/components/layout/PageLayout";
 import { ReceptionistConfig } from "@/components/receptionist/ReceptionistConfig";
 import { CallLog } from "@/components/receptionist/CallLog";
 import { KnowledgeBase } from "@/components/receptionist/KnowledgeBase";
+import { WeeklySuggestions } from "@/components/receptionist/WeeklySuggestions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded } from "lucide-react";
+import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { FeatureTip } from "@/components/ui/feature-tip";
+
+// Recording disclosure keywords (must match server-side check)
+const DISCLOSURE_KEYWORDS = ['recorded', 'recording', 'monitored', 'monitor'];
+
+function hasRecordingDisclosure(greeting: string | null | undefined): boolean {
+  if (!greeting) return false;
+  const lower = greeting.toLowerCase();
+  return DISCLOSURE_KEYWORDS.some(kw => lower.includes(kw));
+}
 
 export default function Receptionist() {
   const [activeTab, setActiveTab] = useState("calls");
@@ -23,6 +33,22 @@ export default function Receptionist() {
     refetchInterval: 60000, // Refresh every minute
   });
   const unansweredCount = questionCountData?.count || 0;
+
+  // Fetch suggestion count for AI Insights badge
+  const { data: suggestionCountData } = useQuery<{ count: number; acceptedCount: number }>({
+    queryKey: ["/api/receptionist/suggestions/count"],
+    enabled: !!businessId,
+    refetchInterval: 60000,
+  });
+  const suggestionCount = suggestionCountData?.count || 0;
+
+  // Fetch receptionist config to check aiInsightsEnabled + greeting disclosure
+  const { data: receptionistConfig } = useQuery<any>({
+    queryKey: [`/api/receptionist-config/${businessId}`],
+    enabled: !!businessId,
+  });
+  const aiInsightsEnabled = receptionistConfig?.aiInsightsEnabled === true;
+  const greetingHasDisclosure = hasRecordingDisclosure(receptionistConfig?.greeting);
 
   return (
     <PageLayout title="Virtual Receptionist">
@@ -91,7 +117,7 @@ export default function Receptionist() {
         </Card>
 
         <Tabs defaultValue="calls" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex w-full overflow-x-auto sm:grid sm:w-full sm:grid-cols-3 mb-6">
+          <TabsList className="flex w-full overflow-x-auto sm:grid sm:w-full sm:grid-cols-4 mb-6">
             <TabsTrigger value="calls">Call History</TabsTrigger>
             <TabsTrigger value="knowledge" className="relative">
               <Brain className="h-4 w-4 mr-1.5" />
@@ -99,6 +125,15 @@ export default function Receptionist() {
               {unansweredCount > 0 && (
                 <Badge variant="destructive" className="ml-1.5 h-5 min-w-[20px] rounded-full px-1.5 text-[10px]">
                   {unansweredCount}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="insights" className="relative">
+              <Sparkles className="h-4 w-4 mr-1.5" />
+              AI Insights
+              {suggestionCount > 0 && (
+                <Badge variant="destructive" className="ml-1.5 h-5 min-w-[20px] rounded-full px-1.5 text-[10px]">
+                  {suggestionCount}
                 </Badge>
               )}
             </TabsTrigger>
@@ -111,6 +146,14 @@ export default function Receptionist() {
 
           <TabsContent value="knowledge" className="space-y-4">
             <KnowledgeBase businessId={businessId ?? undefined} />
+          </TabsContent>
+
+          <TabsContent value="insights" className="space-y-4">
+            <WeeklySuggestions
+              businessId={businessId ?? undefined}
+              aiInsightsEnabled={aiInsightsEnabled}
+              hasRecordingDisclosure={greetingHasDisclosure}
+            />
           </TabsContent>
 
           <TabsContent value="settings" className="space-y-4">

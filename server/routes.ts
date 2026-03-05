@@ -3150,6 +3150,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =================== AI SUGGESTIONS (Auto-Refine Pipeline) ===================
+
+  // Get all suggestions for the current business
+  app.get("/api/receptionist/suggestions", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const params: any = {};
+      if (req.query.status) params.status = req.query.status as string;
+      const suggestions = await storage.getAiSuggestions(businessId, params);
+      res.json(suggestions);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching suggestions" });
+    }
+  });
+
+  // Get pending + accepted suggestion counts (for badge + summary)
+  app.get("/api/receptionist/suggestions/count", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const count = await storage.getAiSuggestionCount(businessId);
+      const acceptedCount = await storage.getAiSuggestionsAcceptedCount(businessId);
+      res.json({ count, acceptedCount });
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching suggestion count" });
+    }
+  });
+
+  // Accept a suggestion (applies change to config/knowledge + triggers Vapi update)
+  app.post("/api/receptionist/suggestions/:id/accept", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const suggestion = await storage.getAiSuggestion(id);
+      if (!suggestion || !verifyBusinessOwnership(suggestion, req)) {
+        return res.status(404).json({ message: "Suggestion not found" });
+      }
+      const { acceptSuggestion } = await import('./services/autoRefineService');
+      const result = await acceptSuggestion(id);
+      if (result.success) {
+        res.json({ message: "Suggestion accepted and applied" });
+      } else {
+        res.status(400).json({ message: result.error });
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Error accepting suggestion" });
+    }
+  });
+
+  // Dismiss a suggestion
+  app.post("/api/receptionist/suggestions/:id/dismiss", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const suggestion = await storage.getAiSuggestion(id);
+      if (!suggestion || !verifyBusinessOwnership(suggestion, req)) {
+        return res.status(404).json({ message: "Suggestion not found" });
+      }
+      await storage.updateAiSuggestion(id, { status: 'dismissed' });
+      res.json({ message: "Suggestion dismissed" });
+    } catch (error) {
+      res.status(500).json({ message: "Error dismissing suggestion" });
+    }
+  });
+
+  // Edit then accept a suggestion (modified value applied)
+  app.post("/api/receptionist/suggestions/:id/edit", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { editedValue } = req.body;
+      if (!editedValue) {
+        return res.status(400).json({ message: "editedValue is required" });
+      }
+      const suggestion = await storage.getAiSuggestion(id);
+      if (!suggestion || !verifyBusinessOwnership(suggestion, req)) {
+        return res.status(404).json({ message: "Suggestion not found" });
+      }
+      const { acceptSuggestion } = await import('./services/autoRefineService');
+      const result = await acceptSuggestion(id, editedValue);
+      if (result.success) {
+        res.json({ message: "Suggestion edited and applied" });
+      } else {
+        res.status(400).json({ message: result.error });
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Error editing suggestion" });
+    }
+  });
+
+  // Manual trigger for auto-refine analysis (testing / on-demand)
+  app.post("/api/receptionist/suggestions/trigger", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { analyzeBusinessWeek } = await import('./services/autoRefineService');
+      await analyzeBusinessWeek(businessId);
+      res.json({ message: "Auto-refine analysis triggered" });
+    } catch (error) {
+      res.status(500).json({ message: "Error triggering auto-refine" });
+    }
+  });
+
   // =================== REMINDERS API ===================
   // Send appointment reminder manually
   app.post("/api/appointments/:id/send-reminder", isAuthenticated, async (req: Request, res: Response) => {
