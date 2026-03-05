@@ -6,8 +6,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, Tag } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 
 // Define the plan type
@@ -32,6 +33,10 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
   const [, navigate] = useLocation();
   const [selectedPlan, setSelectedPlan] = useState<number | null>(null);
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly');
+  const [promoCode, setPromoCode] = useState('');
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
+  const [showPromoInput, setShowPromoInput] = useState(false);
 
   // Fetch all available plans
   const { data: plans = [], isLoading: isLoadingPlans } = useQuery<Plan[]>({
@@ -120,6 +125,37 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
     }
   });
 
+  // Apply promo code to existing subscription
+  const applyPromoMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const res = await apiRequest('POST', `/api/subscription/apply-promo/${businessId}`, { code });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to apply promo code');
+      return data;
+    },
+    onSuccess: (data) => {
+      setPromoSuccess(data.description || 'Promo code applied!');
+      setPromoError(null);
+      setPromoCode('');
+      toast({
+        title: 'Promo code applied',
+        description: data.description || 'The discount has been applied to your subscription.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/subscription/status', businessId] });
+    },
+    onError: (error: Error) => {
+      setPromoError(error.message);
+      setPromoSuccess(null);
+    },
+  });
+
+  const handleApplyPromo = () => {
+    if (!promoCode.trim()) return;
+    setPromoError(null);
+    setPromoSuccess(null);
+    applyPromoMutation.mutate(promoCode.trim());
+  };
+
   const isLoading = isLoadingPlans || isLoadingStatus;
   const isPendingAction = createSubscriptionMutation.isPending || 
     cancelSubscriptionMutation.isPending || 
@@ -203,15 +239,73 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
           <p className="text-sm text-muted-foreground mt-2">
             Your next billing date is {new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}.
           </p>
-          <Button
-            variant="outline"
-            className="mt-4"
-            onClick={handleCancel}
-            disabled={isPendingAction}
-          >
-            {isPendingAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Cancel Subscription
-          </Button>
+          <div className="flex items-center gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={handleCancel}
+              disabled={isPendingAction}
+            >
+              {cancelSubscriptionMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Cancel Subscription
+            </Button>
+            {!showPromoInput && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPromoInput(true)}
+              >
+                <Tag className="mr-2 h-4 w-4" />
+                Apply Promo Code
+              </Button>
+            )}
+          </div>
+          {showPromoInput && (
+            <div className="mt-4 p-3 rounded-lg border bg-background">
+              <p className="text-sm font-medium mb-2">Enter promo code</p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. LAUNCH20"
+                  value={promoCode}
+                  onChange={(e) => {
+                    setPromoCode(e.target.value.toUpperCase());
+                    setPromoError(null);
+                    setPromoSuccess(null);
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleApplyPromo()}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={handleApplyPromo}
+                  disabled={!promoCode.trim() || applyPromoMutation.isPending}
+                  size="sm"
+                >
+                  {applyPromoMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    'Apply'
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowPromoInput(false);
+                    setPromoCode('');
+                    setPromoError(null);
+                    setPromoSuccess(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+              {promoError && (
+                <p className="text-sm text-red-600 mt-2">{promoError}</p>
+              )}
+              {promoSuccess && (
+                <p className="text-sm text-green-600 mt-2">{promoSuccess}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

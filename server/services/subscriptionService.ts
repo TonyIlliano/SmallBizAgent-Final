@@ -798,6 +798,57 @@ export class SubscriptionService {
       return { valid: false, error: 'Invalid or expired promo code' };
     }
   }
+
+  /**
+   * Apply a promo code to an existing active subscription
+   */
+  async applyPromoToSubscription(businessId: number, code: string): Promise<{ success: boolean; description?: string; error?: string }> {
+    try {
+      const [business] = await db.select().from(businesses).where(eq(businesses.id, businessId));
+      if (!business?.stripeSubscriptionId) {
+        return { success: false, error: 'No active subscription found' };
+      }
+
+      // Look up the promotion code in Stripe
+      const promotionCodes = await stripe.promotionCodes.list({
+        code,
+        active: true,
+        limit: 1,
+      });
+
+      if (promotionCodes.data.length === 0) {
+        return { success: false, error: 'Invalid or expired promo code' };
+      }
+
+      const promoCode = promotionCodes.data[0];
+      const coupon = promoCode.coupon;
+
+      // Apply the coupon to the existing subscription
+      await stripe.subscriptions.update(business.stripeSubscriptionId, {
+        discounts: [{ coupon: coupon.id }],
+      });
+
+      // Build description
+      let description = '';
+      if (coupon.percent_off) {
+        description = `${coupon.percent_off}% off`;
+      } else if (coupon.amount_off) {
+        description = `$${(coupon.amount_off / 100).toFixed(2)} off`;
+      }
+      if (coupon.duration === 'repeating' && coupon.duration_in_months) {
+        description += ` for ${coupon.duration_in_months} month${coupon.duration_in_months > 1 ? 's' : ''}`;
+      } else if (coupon.duration === 'once') {
+        description += ' (next invoice)';
+      } else if (coupon.duration === 'forever') {
+        description += ' forever';
+      }
+
+      return { success: true, description: `Promo applied! ${description}` };
+    } catch (error: any) {
+      console.error('Error applying promo to subscription:', error);
+      return { success: false, error: error.message || 'Failed to apply promo code' };
+    }
+  }
 }
 
 export const subscriptionService = new SubscriptionService();

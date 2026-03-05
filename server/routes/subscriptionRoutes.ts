@@ -101,6 +101,24 @@ router.post('/validate-promo', requireStripe, async (req: Request, res: Response
   }
 });
 
+// Apply a promo code to an existing subscription
+router.post('/apply-promo/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ success: false, error: 'Promo code required' });
+
+    const result = await subscriptionService.applyPromoToSubscription(businessId, code);
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'Failed to apply promo code' });
+  }
+});
+
 // Cancel a subscription (requires Stripe)
 router.post('/cancel/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
