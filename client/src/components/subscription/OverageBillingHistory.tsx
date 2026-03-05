@@ -94,56 +94,95 @@ export function OverageBillingHistory({ businessId }: { businessId: number }) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-muted-foreground">
-            <th className="text-left py-2 font-medium">Period</th>
-            <th className="text-right py-2 font-medium">Used</th>
-            <th className="text-right py-2 font-medium">Included</th>
-            <th className="text-right py-2 font-medium">Overage</th>
-            <th className="text-right py-2 font-medium">Rate</th>
-            <th className="text-right py-2 font-medium">Amount</th>
-            <th className="text-center py-2 font-medium">Status</th>
-            <th className="text-center py-2 font-medium">Invoice</th>
-          </tr>
-        </thead>
-        <tbody>
-          {billedCharges.map(charge => (
-            <tr key={charge.id} className="border-b last:border-0">
-              <td className="py-3 text-left">
-                {formatPeriod(charge.periodStart, charge.periodEnd)}
-              </td>
-              <td className="py-3 text-right">{charge.minutesUsed} min</td>
-              <td className="py-3 text-right">{charge.minutesIncluded} min</td>
-              <td className="py-3 text-right font-medium text-orange-600">
-                {charge.overageMinutes} min
-              </td>
-              <td className="py-3 text-right">${charge.overageRate.toFixed(2)}/min</td>
-              <td className="py-3 text-right font-semibold">
-                ${charge.overageAmount.toFixed(2)}
-              </td>
-              <td className="py-3 text-center">
-                <StatusBadge status={charge.status} />
-              </td>
-              <td className="py-3 text-center">
-                {charge.stripeInvoiceUrl ? (
-                  <a
-                    href={charge.stripeInvoiceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs"
-                  >
-                    View <ExternalLink className="h-3 w-3" />
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground text-xs">—</span>
-                )}
-              </td>
+    <>
+      {/* Mobile card view */}
+      <div className="space-y-3 sm:hidden">
+        {billedCharges.map(charge => (
+          <div key={charge.id} className="border rounded-lg p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">{formatPeriod(charge.periodStart, charge.periodEnd)}</span>
+              <StatusBadge status={charge.status} />
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Used</p>
+                <p className="font-medium">{charge.minutesUsed} min</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Included</p>
+                <p className="font-medium">{charge.minutesIncluded} min</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Overage</p>
+                <p className="font-medium text-orange-600">{charge.overageMinutes} min</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t">
+              <span className="text-sm font-semibold">${charge.overageAmount.toFixed(2)}</span>
+              <span className="text-xs text-muted-foreground">${charge.overageRate.toFixed(2)}/min</span>
+              {charge.stripeInvoiceUrl && (
+                <a href={charge.stripeInvoiceUrl} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">
+                  Invoice <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table view */}
+      <div className="hidden sm:block overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-muted-foreground">
+              <th className="text-left py-2 font-medium">Period</th>
+              <th className="text-right py-2 font-medium">Used</th>
+              <th className="text-right py-2 font-medium">Included</th>
+              <th className="text-right py-2 font-medium">Overage</th>
+              <th className="text-right py-2 font-medium">Rate</th>
+              <th className="text-right py-2 font-medium">Amount</th>
+              <th className="text-center py-2 font-medium">Status</th>
+              <th className="text-center py-2 font-medium">Invoice</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {billedCharges.map(charge => (
+              <tr key={charge.id} className="border-b last:border-0">
+                <td className="py-3 text-left">
+                  {formatPeriod(charge.periodStart, charge.periodEnd)}
+                </td>
+                <td className="py-3 text-right">{charge.minutesUsed} min</td>
+                <td className="py-3 text-right">{charge.minutesIncluded} min</td>
+                <td className="py-3 text-right font-medium text-orange-600">
+                  {charge.overageMinutes} min
+                </td>
+                <td className="py-3 text-right">${charge.overageRate.toFixed(2)}/min</td>
+                <td className="py-3 text-right font-semibold">
+                  ${charge.overageAmount.toFixed(2)}
+                </td>
+                <td className="py-3 text-center">
+                  <StatusBadge status={charge.status} />
+                </td>
+                <td className="py-3 text-center">
+                  {charge.stripeInvoiceUrl ? (
+                    <a
+                      href={charge.stripeInvoiceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs"
+                    >
+                      View <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

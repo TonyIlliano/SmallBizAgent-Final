@@ -91,7 +91,7 @@ export default function Receptionist() {
         </Card>
 
         <Tabs defaultValue="calls" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex w-full overflow-x-auto sm:grid sm:w-full sm:grid-cols-3 mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <TabsList className="flex w-full overflow-x-auto sm:grid sm:w-full sm:grid-cols-3 mb-6">
             <TabsTrigger value="calls">Call History</TabsTrigger>
             <TabsTrigger value="knowledge" className="relative">
               <Brain className="h-4 w-4 mr-1.5" />

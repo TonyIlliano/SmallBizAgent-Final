@@ -505,6 +505,9 @@ export const notificationSettings = pgTable("notification_settings", {
   // Job notifications
   jobCompletedEmail: boolean("job_completed_email").default(true),
   jobCompletedSms: boolean("job_completed_sms").default(true),
+  // Call notifications (to business owner)
+  missedCallAlertEmail: boolean("missed_call_alert_email").default(true),
+  dailySummaryEmail: boolean("daily_summary_email").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

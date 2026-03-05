@@ -568,7 +568,7 @@ router.get("/book/:slug/manage/:token", async (req, res) => {
         status: appointment.status,
         notes: appointment.notes,
       },
-      service: { name: serviceName, duration: serviceDuration, price: servicePrice },
+      service: { id: appointment.serviceId, name: serviceName, duration: serviceDuration, price: servicePrice },
       staff: staffName,
       customer: customer ? { firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone } : null,
       business: {

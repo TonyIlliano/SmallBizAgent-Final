@@ -912,6 +912,10 @@ async function fixExistingTables() {
   // Feature discovery tips dismissed tracking
   await addColumnIfNotExists('users', 'dismissed_tips', 'TEXT');
 
+  // Notification settings: missed call alert and daily summary
+  await addColumnIfNotExists('notification_settings', 'missed_call_alert_email', 'BOOLEAN DEFAULT true');
+  await addColumnIfNotExists('notification_settings', 'daily_summary_email', 'BOOLEAN DEFAULT true');
+
   console.log('Finished checking/fixing existing tables');
 }
 

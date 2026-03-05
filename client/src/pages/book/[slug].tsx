@@ -157,6 +157,36 @@ export default function PublicBooking() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
   const [confirmationData, setConfirmationData] = useState<any>(null);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Phone number formatting
+  const formatPhoneNumber = (value: string) => {
+    const digits = value.replace(/\D/g, "");
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+  };
+
+  const handlePhoneChange = (value: string) => {
+    const formatted = formatPhoneNumber(value);
+    setCustomerInfo((p) => ({ ...p, phone: formatted }));
+    if (formErrors.phone) setFormErrors((e) => ({ ...e, phone: "" }));
+  };
+
+  // Email validation
+  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    if (!customerInfo.firstName.trim()) errors.firstName = "First name is required";
+    if (!customerInfo.lastName.trim()) errors.lastName = "Last name is required";
+    if (!customerInfo.email.trim()) errors.email = "Email is required";
+    else if (!isValidEmail(customerInfo.email)) errors.email = "Please enter a valid email address";
+    if (!customerInfo.phone.trim()) errors.phone = "Phone number is required";
+    else if (customerInfo.phone.replace(/\D/g, "").length < 10) errors.phone = "Please enter a valid 10-digit phone number";
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   // Embed: notify parent of height changes
   useEffect(() => {
@@ -190,6 +220,14 @@ export default function PublicBooking() {
   }, []);
 
   const isReservationMode = bookingData?.business.industry === 'restaurant' && bookingData?.reservation?.enabled;
+
+  // Set dynamic page title
+  useEffect(() => {
+    if (bookingData?.business.name) {
+      document.title = `Book with ${bookingData.business.name} | SmallBizAgent`;
+    }
+    return () => { document.title = "SmallBizAgent"; };
+  }, [bookingData?.business.name]);
 
   // Fetch business data on mount
   useEffect(() => {
@@ -274,6 +312,7 @@ export default function PublicBooking() {
 
   const handleSubmit = async () => {
     if (!selectedService || !selectedDate || !selectedTime) return;
+    if (!validateForm()) return;
     try {
       setIsSubmitting(true);
       const res = await fetch(`/api/book/${slug}`, {
@@ -302,6 +341,7 @@ export default function PublicBooking() {
 
   const handleReservationSubmit = async () => {
     if (!selectedDate || !selectedTime) return;
+    if (!validateForm()) return;
     try {
       setIsSubmitting(true);
       const res = await fetch(`/api/book/${slug}/reserve`, {
@@ -793,7 +833,7 @@ export default function PublicBooking() {
           <div className="text-center py-4">
             <Button size="lg" onClick={() => setStep(1)} className="px-10 shadow-md">
               <CalendarIcon className="mr-2 h-5 w-5" />
-              Book an Appointment
+              {isReservationMode ? "Make a Reservation" : "Book an Appointment"}
             </Button>
           </div>
 
@@ -891,7 +931,7 @@ export default function PublicBooking() {
               <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3">
                 <p className="text-sm text-blue-800 dark:text-blue-300 flex items-start gap-2">
                   <Mail className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                  A confirmation has been sent to <strong>{customerInfo.email}</strong> and <strong>{customerInfo.phone}</strong>.
+                  A confirmation has been sent to <strong>{customerInfo.email}</strong>{customerInfo.phone ? <> and <strong>{customerInfo.phone}</strong></> : ""}.
                 </p>
               </div>
 
@@ -1135,23 +1175,41 @@ export default function PublicBooking() {
                 <div>
                   <Label htmlFor="res-firstName">First Name *</Label>
                   <Input id="res-firstName" value={customerInfo.firstName}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, firstName: e.target.value })} />
+                    onChange={(e) => {
+                      setCustomerInfo({ ...customerInfo, firstName: e.target.value });
+                      if (formErrors.firstName) setFormErrors((er) => ({ ...er, firstName: "" }));
+                    }}
+                    className={formErrors.firstName ? "border-red-500" : ""} />
+                  {formErrors.firstName && <p className="text-xs text-red-600 mt-1">{formErrors.firstName}</p>}
                 </div>
                 <div>
                   <Label htmlFor="res-lastName">Last Name *</Label>
                   <Input id="res-lastName" value={customerInfo.lastName}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, lastName: e.target.value })} />
+                    onChange={(e) => {
+                      setCustomerInfo({ ...customerInfo, lastName: e.target.value });
+                      if (formErrors.lastName) setFormErrors((er) => ({ ...er, lastName: "" }));
+                    }}
+                    className={formErrors.lastName ? "border-red-500" : ""} />
+                  {formErrors.lastName && <p className="text-xs text-red-600 mt-1">{formErrors.lastName}</p>}
                 </div>
               </div>
               <div>
                 <Label htmlFor="res-email">Email *</Label>
                 <Input id="res-email" type="email" value={customerInfo.email}
-                  onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })} />
+                  onChange={(e) => {
+                    setCustomerInfo({ ...customerInfo, email: e.target.value });
+                    if (formErrors.email) setFormErrors((er) => ({ ...er, email: "" }));
+                  }}
+                  className={formErrors.email ? "border-red-500" : ""} />
+                {formErrors.email && <p className="text-xs text-red-600 mt-1">{formErrors.email}</p>}
               </div>
               <div>
                 <Label htmlFor="res-phone">Phone *</Label>
                 <Input id="res-phone" type="tel" value={customerInfo.phone}
-                  onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })} />
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  placeholder="(555) 123-4567"
+                  className={formErrors.phone ? "border-red-500" : ""} />
+                {formErrors.phone && <p className="text-xs text-red-600 mt-1">{formErrors.phone}</p>}
               </div>
               <div>
                 <Label htmlFor="res-special">Special Requests (optional)</Label>
@@ -1166,7 +1224,7 @@ export default function PublicBooking() {
                   onChange={(e) => setSmsOptIn(e.target.checked)}
                   className="mt-1 h-4 w-4 rounded border-gray-300" />
                 <label htmlFor="res-smsOptIn" className="text-sm text-muted-foreground">
-                  I agree to receive SMS reservation confirmations and updates. Msg & data rates may apply.
+                  I agree to receive SMS reminders and marketing messages. Msg & data rates may apply.
                 </label>
               </div>
 
@@ -1385,23 +1443,40 @@ export default function PublicBooking() {
                 <div>
                   <Label htmlFor="firstName">First Name *</Label>
                   <Input id="firstName" value={customerInfo.firstName}
-                    onChange={(e) => setCustomerInfo((p) => ({ ...p, firstName: e.target.value }))} placeholder="John" required />
+                    onChange={(e) => {
+                      setCustomerInfo((p) => ({ ...p, firstName: e.target.value }));
+                      if (formErrors.firstName) setFormErrors((er) => ({ ...er, firstName: "" }));
+                    }} placeholder="John" required
+                    className={formErrors.firstName ? "border-red-500" : ""} />
+                  {formErrors.firstName && <p className="text-xs text-red-600 mt-1">{formErrors.firstName}</p>}
                 </div>
                 <div>
                   <Label htmlFor="lastName">Last Name *</Label>
                   <Input id="lastName" value={customerInfo.lastName}
-                    onChange={(e) => setCustomerInfo((p) => ({ ...p, lastName: e.target.value }))} placeholder="Smith" required />
+                    onChange={(e) => {
+                      setCustomerInfo((p) => ({ ...p, lastName: e.target.value }));
+                      if (formErrors.lastName) setFormErrors((er) => ({ ...er, lastName: "" }));
+                    }} placeholder="Smith" required
+                    className={formErrors.lastName ? "border-red-500" : ""} />
+                  {formErrors.lastName && <p className="text-xs text-red-600 mt-1">{formErrors.lastName}</p>}
                 </div>
               </div>
               <div>
                 <Label htmlFor="email">Email *</Label>
                 <Input id="email" type="email" value={customerInfo.email}
-                  onChange={(e) => setCustomerInfo((p) => ({ ...p, email: e.target.value }))} placeholder="john@example.com" required />
+                  onChange={(e) => {
+                    setCustomerInfo((p) => ({ ...p, email: e.target.value }));
+                    if (formErrors.email) setFormErrors((er) => ({ ...er, email: "" }));
+                  }} placeholder="john@example.com" required
+                  className={formErrors.email ? "border-red-500" : ""} />
+                {formErrors.email && <p className="text-xs text-red-600 mt-1">{formErrors.email}</p>}
               </div>
               <div>
                 <Label htmlFor="phone">Phone Number *</Label>
                 <Input id="phone" type="tel" value={customerInfo.phone}
-                  onChange={(e) => setCustomerInfo((p) => ({ ...p, phone: e.target.value }))} placeholder="(555) 123-4567" required />
+                  onChange={(e) => handlePhoneChange(e.target.value)} placeholder="(555) 123-4567" required
+                  className={formErrors.phone ? "border-red-500" : ""} />
+                {formErrors.phone && <p className="text-xs text-red-600 mt-1">{formErrors.phone}</p>}
               </div>
               <div>
                 <Label htmlFor="notes">Notes (Optional)</Label>
@@ -1414,7 +1489,7 @@ export default function PublicBooking() {
                   onChange={(e) => setSmsOptIn(e.target.checked)}
                   className="mt-1 h-4 w-4 rounded border-gray-300" />
                 <label htmlFor="smsOptIn" className="text-sm text-muted-foreground">
-                  I agree to receive SMS appointment confirmations and reminders. Msg & data rates may apply.
+                  I agree to receive SMS reminders and marketing messages. Msg & data rates may apply.
                 </label>
               </div>
 

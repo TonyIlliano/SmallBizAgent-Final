@@ -222,6 +222,9 @@ export interface IStorage {
   createQuoteItem(item: InsertQuoteItem): Promise<QuoteItem>;
   deleteQuoteItems(quoteId: number): Promise<void>;
 
+  // Business Owner
+  getBusinessOwner(businessId: number): Promise<User | undefined>;
+
   // Notification Settings
   getNotificationSettings(businessId: number): Promise<NotificationSettings | undefined>;
   upsertNotificationSettings(settings: InsertNotificationSettings): Promise<NotificationSettings>;
@@ -1411,6 +1414,14 @@ export class DatabaseStorage implements IStorage {
     });
 
     return invoice;
+  }
+
+  // Get business owner (the primary user who owns the business)
+  async getBusinessOwner(businessId: number): Promise<User | undefined> {
+    const [owner] = await db.select().from(users)
+      .where(eq(users.businessId, businessId))
+      .limit(1);
+    return owner;
   }
 
   // Notification Settings methods

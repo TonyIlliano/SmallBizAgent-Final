@@ -29,7 +29,7 @@ interface ManageData {
     status: string;
     notes: string | null;
   };
-  service: { name: string; duration: number; price: string | null };
+  service: { id: number | null; name: string; duration: number; price: string | null };
   staff: string | null;
   customer: { firstName: string; lastName: string; email: string; phone: string } | null;
   business: {
@@ -99,7 +99,7 @@ export default function ManageAppointment() {
       setSelectedTime(null);
       try {
         const dateStr = selectedDate!.toISOString().split("T")[0];
-        const res = await fetch(`/api/book/${slug}/slots?date=${dateStr}&serviceId=${data!.appointment.id}`);
+        const res = await fetch(`/api/book/${slug}/slots?date=${dateStr}&serviceId=${data!.service.id}`);
         const json = await res.json();
         setSlots(json.slots || []);
       } catch {

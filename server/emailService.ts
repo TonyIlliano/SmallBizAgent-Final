@@ -741,3 +741,113 @@ export async function sendTrialExpirationWarningEmail(
 
   return sendEmail({ to: ownerEmail, subject, text, html });
 }
+
+/**
+ * Send a missed call alert email to the business owner
+ */
+export async function sendMissedCallAlertEmail(
+  ownerEmail: string,
+  businessName: string,
+  callerPhone: string,
+  callTime: string,
+  reason: string,
+  dashboardUrl: string
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const subject = `Missed Call Alert - ${businessName}`;
+  const text = `Missed Call Alert\n\nYou received a missed call from ${callerPhone} at ${callTime}.\nReason: ${reason}\n\nView call details: ${dashboardUrl}\n\n- SmallBizAgent`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #333;">Missed Call Alert</h2>
+      <p>Your AI receptionist detected a missed call at <strong>${businessName}</strong>.</p>
+      <div style="background: #fef2f2; border-radius: 8px; padding: 16px; margin: 20px 0; border-left: 4px solid #ef4444;">
+        <p style="margin: 4px 0;"><strong>Caller:</strong> ${callerPhone}</p>
+        <p style="margin: 4px 0;"><strong>Time:</strong> ${callTime}</p>
+        <p style="margin: 4px 0;"><strong>Reason:</strong> ${reason}</p>
+      </div>
+      <p>A text-back message has been automatically sent to the caller letting them know you'll follow up.</p>
+      <div style="margin: 24px 0; text-align: center;">
+        <a href="${dashboardUrl}" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+          View Call Log
+        </a>
+      </div>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+    </div>
+  `;
+
+  return sendEmail({ to: ownerEmail, subject, text, html });
+}
+
+/**
+ * Send a daily business summary email to the business owner
+ */
+export async function sendDailySummaryEmail(
+  ownerEmail: string,
+  businessName: string,
+  summary: {
+    date: string;
+    totalCalls: number;
+    missedCalls: number;
+    appointmentsBooked: number;
+    appointmentsToday: number;
+    invoicesPaid: number;
+    revenueCollected: string;
+    newCustomers: number;
+  },
+  dashboardUrl: string
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const subject = `Daily Summary - ${businessName} - ${summary.date}`;
+  const text = `Daily Summary for ${businessName} (${summary.date})\n\n` +
+    `Calls: ${summary.totalCalls} total, ${summary.missedCalls} missed\n` +
+    `Appointments Booked: ${summary.appointmentsBooked}\n` +
+    `Today's Appointments: ${summary.appointmentsToday}\n` +
+    `Invoices Paid: ${summary.invoicesPaid}\n` +
+    `Revenue Collected: ${summary.revenueCollected}\n` +
+    `New Customers: ${summary.newCustomers}\n\n` +
+    `View dashboard: ${dashboardUrl}\n\n- SmallBizAgent`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #333;">Daily Summary</h2>
+      <p style="color: #666;">${businessName} &middot; ${summary.date}</p>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0;">
+        <div style="background: #f0f9ff; border-radius: 8px; padding: 16px; text-align: center;">
+          <p style="margin: 0; font-size: 28px; font-weight: bold; color: #2563eb;">${summary.totalCalls}</p>
+          <p style="margin: 4px 0 0; color: #666; font-size: 13px;">Total Calls</p>
+        </div>
+        <div style="background: ${summary.missedCalls > 0 ? '#fef2f2' : '#f0fdf4'}; border-radius: 8px; padding: 16px; text-align: center;">
+          <p style="margin: 0; font-size: 28px; font-weight: bold; color: ${summary.missedCalls > 0 ? '#dc2626' : '#16a34a'};">${summary.missedCalls}</p>
+          <p style="margin: 4px 0 0; color: #666; font-size: 13px;">Missed Calls</p>
+        </div>
+        <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; text-align: center;">
+          <p style="margin: 0; font-size: 28px; font-weight: bold; color: #16a34a;">${summary.appointmentsBooked}</p>
+          <p style="margin: 4px 0 0; color: #666; font-size: 13px;">Appts Booked</p>
+        </div>
+        <div style="background: #eff6ff; border-radius: 8px; padding: 16px; text-align: center;">
+          <p style="margin: 0; font-size: 28px; font-weight: bold; color: #2563eb;">${summary.appointmentsToday}</p>
+          <p style="margin: 4px 0 0; color: #666; font-size: 13px;">Today's Appts</p>
+        </div>
+        <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; text-align: center;">
+          <p style="margin: 0; font-size: 28px; font-weight: bold; color: #16a34a;">${summary.revenueCollected}</p>
+          <p style="margin: 4px 0 0; color: #666; font-size: 13px;">Revenue</p>
+        </div>
+        <div style="background: #faf5ff; border-radius: 8px; padding: 16px; text-align: center;">
+          <p style="margin: 0; font-size: 28px; font-weight: bold; color: #7c3aed;">${summary.newCustomers}</p>
+          <p style="margin: 4px 0 0; color: #666; font-size: 13px;">New Customers</p>
+        </div>
+      </div>
+
+      <div style="margin: 24px 0; text-align: center;">
+        <a href="${dashboardUrl}" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+          View Dashboard
+        </a>
+      </div>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">SmallBizAgent &middot; <a href="${dashboardUrl}" style="color: #999;">Manage notification preferences</a></p>
+    </div>
+  `;
+
+  return sendEmail({ to: ownerEmail, subject, text, html });
+}

@@ -504,7 +504,7 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
           <Button variant="outline" size="icon" onClick={navigateNext}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <span className="ml-2 text-sm font-medium text-gray-700 truncate max-w-[160px] sm:max-w-none">
+          <span className="ml-2 text-xs sm:text-sm font-medium text-gray-700 truncate max-w-[120px] sm:max-w-none">
             {viewMode === "month"
               ? formatMonthYear(selectedDate)
               : viewMode === "week"
