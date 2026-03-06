@@ -3,18 +3,21 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { AgentCard } from "@/components/automations/AgentCard";
 import { AgentSettingsForm } from "@/components/automations/AgentSettingsForm";
 import { ActivityFeed } from "@/components/automations/ActivityFeed";
 import { ConversationList } from "@/components/automations/ConversationList";
 import { ReviewQueue } from "@/components/automations/ReviewQueue";
+import { AgentReport } from "@/components/automations/AgentReport";
 import {
   LayoutDashboard,
   Activity,
   MessageSquare,
   Settings,
   Star,
+  BarChart3,
   Loader2,
 } from "lucide-react";
 
@@ -183,6 +186,9 @@ function ConversationsTab() {
 // ── Main Page ──
 
 export default function AutomationsPage() {
+  const { user } = useAuth();
+  const isOwner = user?.role !== "staff";
+
   return (
     <PageLayout title="Automations">
       <div className="space-y-6">
@@ -194,7 +200,7 @@ export default function AutomationsPage() {
         </div>
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className={`grid w-full ${isOwner ? "grid-cols-6" : "grid-cols-5"}`}>
             <TabsTrigger value="overview" className="flex items-center gap-1.5">
               <LayoutDashboard className="h-4 w-4" />
               <span className="hidden sm:inline">Overview</span>
@@ -211,6 +217,12 @@ export default function AutomationsPage() {
               <Star className="h-4 w-4" />
               <span className="hidden sm:inline">Reviews</span>
             </TabsTrigger>
+            {isOwner && (
+              <TabsTrigger value="report" className="flex items-center gap-1.5">
+                <BarChart3 className="h-4 w-4" />
+                <span className="hidden sm:inline">Report</span>
+              </TabsTrigger>
+            )}
             <TabsTrigger value="settings" className="flex items-center gap-1.5">
               <Settings className="h-4 w-4" />
               <span className="hidden sm:inline">Settings</span>
@@ -232,6 +244,12 @@ export default function AutomationsPage() {
           <TabsContent value="reviews">
             <ReviewQueue />
           </TabsContent>
+
+          {isOwner && (
+            <TabsContent value="report">
+              <AgentReport />
+            </TabsContent>
+          )}
 
           <TabsContent value="settings">
             <SettingsTab />

@@ -7,8 +7,11 @@
 
 import { Request, Response } from 'express';
 import { isAuthenticated } from '../auth';
+import { isOwnerOrAdmin } from '../middleware/auth';
 import { storage } from '../storage';
 import { getAgentTypes } from '../services/agentSettingsService';
+import { sql } from 'drizzle-orm';
+import { db } from '../db';
 
 const getBusinessId = (req: Request): number => {
   if (req.isAuthenticated() && req.user?.businessId) {
@@ -146,6 +149,164 @@ export function registerAutomationRoutes(app: any) {
       res.json(dashboard);
     } catch (error: any) {
       console.error('[Automations] Error fetching dashboard:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── Agent Performance Report ──
+
+  /** GET /api/automations/report — Aggregated agent performance metrics (owner only) */
+  app.get('/api/automations/report', isOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const period = (req.query.period as string) || 'month';
+
+      // Compute date range
+      const now = new Date();
+      let sinceDate: Date;
+      switch (period) {
+        case 'week':
+          sinceDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'quarter':
+          sinceDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+          break;
+        case 'year':
+          sinceDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+          break;
+        case 'month':
+        default:
+          sinceDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          break;
+      }
+
+      // Per-agent action counts from activity log
+      const actionCounts = await db.execute(sql`
+        SELECT agent_type, action, COUNT(*)::int AS count
+        FROM agent_activity_log
+        WHERE business_id = ${businessId}
+          AND created_at >= ${sinceDate}
+        GROUP BY agent_type, action
+        ORDER BY agent_type, action
+      `);
+
+      // Per-agent conversation outcome counts
+      const convOutcomes = await db.execute(sql`
+        SELECT agent_type, state, COUNT(*)::int AS count
+        FROM sms_conversations
+        WHERE business_id = ${businessId}
+          AND created_at >= ${sinceDate}
+        GROUP BY agent_type, state
+        ORDER BY agent_type, state
+      `);
+
+      // Average response time (hours) per agent
+      const avgResponseTime = await db.execute(sql`
+        SELECT agent_type,
+          ROUND(AVG(EXTRACT(EPOCH FROM (last_reply_received_at - last_message_sent_at)) / 3600)::numeric, 1) AS avg_hours
+        FROM sms_conversations
+        WHERE business_id = ${businessId}
+          AND created_at >= ${sinceDate}
+          AND last_reply_received_at IS NOT NULL
+          AND last_message_sent_at IS NOT NULL
+        GROUP BY agent_type
+      `);
+
+      // Daily activity trend (for chart)
+      const dailyTrend = await db.execute(sql`
+        SELECT
+          TO_CHAR(created_at, 'YYYY-MM-DD') AS date,
+          action,
+          COUNT(*)::int AS count
+        FROM agent_activity_log
+        WHERE business_id = ${businessId}
+          AND created_at >= ${sinceDate}
+        GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD'), action
+        ORDER BY date
+      `);
+
+      // Appointments booked via conversational SMS
+      const smsBookings = await db.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM agent_activity_log
+        WHERE business_id = ${businessId}
+          AND created_at >= ${sinceDate}
+          AND action = 'booking_reply_received'
+          AND (details->>'replyMessage') ILIKE '%booked%'
+      `);
+
+      // Build per-agent report
+      const agentTypes = getAgentTypes();
+      const actionRows = actionCounts.rows as { agent_type: string; action: string; count: number }[];
+      const convRows = convOutcomes.rows as { agent_type: string; state: string; count: number }[];
+      const responseRows = avgResponseTime.rows as { agent_type: string; avg_hours: string | null }[];
+
+      const agents = agentTypes.map(type => {
+        const actions = actionRows.filter(r => r.agent_type === type);
+        const convs = convRows.filter(r => r.agent_type === type);
+        const respTime = responseRows.find(r => r.agent_type === type);
+
+        const smsSent = actions.find(a => a.action === 'sms_sent')?.count ?? 0;
+        const repliesReceived = actions.find(a => a.action === 'reply_received')?.count ?? 0;
+        const bookingReplies = actions.find(a => a.action === 'booking_reply_received')?.count ?? 0;
+        const escalated = actions.filter(a => a.action === 'escalated').reduce((s, a) => s + a.count, 0);
+        const reviewsDrafted = actions.find(a => a.action === 'review_drafted')?.count ?? 0;
+        const reviewsPosted = actions.find(a => a.action === 'review_posted')?.count ?? 0;
+
+        const totalConversations = convs.reduce((s, c) => s + c.count, 0);
+        const resolved = convs.find(c => c.state === 'resolved')?.count ?? 0;
+        const expired = convs.find(c => c.state === 'expired')?.count ?? 0;
+        const active = convs.filter(c => !['resolved', 'expired'].includes(c.state)).reduce((s, c) => s + c.count, 0);
+
+        return {
+          agentType: type,
+          smsSent,
+          repliesReceived,
+          replyRate: smsSent > 0 ? Math.round((repliesReceived / smsSent) * 100) : 0,
+          bookingReplies,
+          escalated,
+          reviewsDrafted,
+          reviewsPosted,
+          totalConversations,
+          resolved,
+          expired,
+          active,
+          resolutionRate: totalConversations > 0 ? Math.round((resolved / totalConversations) * 100) : 0,
+          avgResponseTimeHours: respTime?.avg_hours ? parseFloat(respTime.avg_hours) : null,
+        };
+      });
+
+      // Aggregate totals
+      const totals = {
+        smsSent: agents.reduce((s, a) => s + a.smsSent, 0),
+        repliesReceived: agents.reduce((s, a) => s + a.repliesReceived, 0),
+        totalConversations: agents.reduce((s, a) => s + a.totalConversations, 0),
+        resolved: agents.reduce((s, a) => s + a.resolved, 0),
+        appointmentsBooked: (smsBookings.rows as { count: number }[])[0]?.count ?? 0,
+      };
+      const totalReplyRate = totals.smsSent > 0 ? Math.round((totals.repliesReceived / totals.smsSent) * 100) : 0;
+      const totalResolutionRate = totals.totalConversations > 0 ? Math.round((totals.resolved / totals.totalConversations) * 100) : 0;
+
+      // Format daily trend
+      const trendRows = dailyTrend.rows as { date: string; action: string; count: number }[];
+      const trendMap = new Map<string, { date: string; sent: number; replies: number }>();
+      for (const row of trendRows) {
+        if (!trendMap.has(row.date)) trendMap.set(row.date, { date: row.date, sent: 0, replies: 0 });
+        const entry = trendMap.get(row.date)!;
+        if (row.action === 'sms_sent') entry.sent += row.count;
+        if (row.action === 'reply_received' || row.action === 'booking_reply_received') entry.replies += row.count;
+      }
+      const trend = Array.from(trendMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+      res.json({
+        period,
+        since: sinceDate.toISOString(),
+        totals: { ...totals, replyRate: totalReplyRate, resolutionRate: totalResolutionRate },
+        agents,
+        trend,
+      });
+    } catch (error: any) {
+      console.error('[Automations] Error fetching report:', error);
       res.status(500).json({ message: error.message });
     }
   });

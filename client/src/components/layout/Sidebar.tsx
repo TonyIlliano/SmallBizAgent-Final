@@ -35,8 +35,8 @@ const allNavItems = [
   { path: "/quotes", label: "Quotes", icon: Receipt },
   { path: "/invoices", label: "Invoices", icon: FileText },
   { path: "/receptionist", label: "AI Receptionist", icon: Bot },
-  { path: "/analytics", label: "Analytics", icon: BarChart3 },
-  { path: "/marketing", label: "Marketing", icon: Megaphone },
+  { path: "/analytics", label: "Analytics", icon: BarChart3, hideForRoles: ['staff'] as string[] },
+  { path: "/marketing", label: "Marketing", icon: Megaphone, hideForRoles: ['staff'] as string[] },
   { path: "/automations", label: "Automations", icon: Zap },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
@@ -88,11 +88,16 @@ export function Sidebar() {
     enabled: !!user?.businessId,
   });
 
-  // Filter nav items based on business industry
+  // Filter nav items based on business industry and user role
   const businessIndustry = business?.industry?.toLowerCase() || '';
   const navItems = allNavItems.filter(item => {
-    if (!item.hideForIndustries) return true;
-    return !item.hideForIndustries.some(ind => businessIndustry.includes(ind));
+    if (item.hideForIndustries && item.hideForIndustries.some(ind => businessIndustry.includes(ind))) {
+      return false;
+    }
+    if (item.hideForRoles && user?.role && item.hideForRoles.includes(user.role)) {
+      return false;
+    }
+    return true;
   });
 
   // Get user initials for avatar

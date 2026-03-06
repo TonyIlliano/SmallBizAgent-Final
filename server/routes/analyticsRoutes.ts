@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import { isAuthenticated } from "../auth";
+import { isOwnerOrAdmin } from "../middleware/auth";
 import * as analyticsService from "../services/analyticsService";
 
 // Define validation schema for analytics requests
@@ -23,7 +23,7 @@ export function registerAnalyticsRoutes(app: any) {
   /**
    * Get comprehensive business analytics
    */
-  app.get("/api/analytics", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/analytics", isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       // Get businessId from authenticated user (not query params)
       const businessId = getBusinessId(req);
@@ -54,7 +54,7 @@ export function registerAnalyticsRoutes(app: any) {
   /**
    * Get revenue analytics
    */
-  app.get("/api/analytics/revenue", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/analytics/revenue", isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       // Get businessId from authenticated user (not query params)
       const businessId = getBusinessId(req);
@@ -109,7 +109,7 @@ export function registerAnalyticsRoutes(app: any) {
   /**
    * Get job analytics
    */
-  app.get("/api/analytics/jobs", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/analytics/jobs", isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
       const businessId = getBusinessId(req);
@@ -164,7 +164,7 @@ export function registerAnalyticsRoutes(app: any) {
   /**
    * Get appointment analytics
    */
-  app.get("/api/analytics/appointments", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/analytics/appointments", isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
       const businessId = getBusinessId(req);
@@ -219,7 +219,7 @@ export function registerAnalyticsRoutes(app: any) {
   /**
    * Get call analytics
    */
-  app.get("/api/analytics/calls", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/analytics/calls", isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
       const businessId = getBusinessId(req);
@@ -274,7 +274,7 @@ export function registerAnalyticsRoutes(app: any) {
   /**
    * Get customer analytics
    */
-  app.get("/api/analytics/customers", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/analytics/customers", isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
       const businessId = getBusinessId(req);
@@ -329,7 +329,7 @@ export function registerAnalyticsRoutes(app: any) {
   /**
    * Get performance metrics
    */
-  app.get("/api/analytics/performance", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/analytics/performance", isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       // Validate and parse query parameters
       const businessId = getBusinessId(req);

@@ -6,7 +6,7 @@
  */
 
 import { Request, Response } from 'express';
-import { isAuthenticated } from '../auth';
+import { isOwnerOrAdmin } from '../middleware/auth';
 import * as marketingService from '../services/marketingService';
 import { pool } from '../db';
 
@@ -21,7 +21,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * GET /api/marketing/insights — Get marketing insights for the business
    */
-  app.get('/api/marketing/insights', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/marketing/insights', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const insights = await marketingService.getMarketingInsights(businessId);
@@ -35,7 +35,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * GET /api/marketing/inactive-customers — Get inactive customers
    */
-  app.get('/api/marketing/inactive-customers', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/marketing/inactive-customers', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const days = parseInt(req.query.days as string) || 90;
@@ -50,7 +50,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * POST /api/marketing/win-back — Send a win-back campaign to selected customers
    */
-  app.post('/api/marketing/win-back', isAuthenticated, async (req: Request, res: Response) => {
+  app.post('/api/marketing/win-back', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const { customerIds, template, channel, subject } = req.body;
@@ -65,7 +65,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * GET /api/marketing/review-stats — Get review campaign statistics
    */
-  app.get('/api/marketing/review-stats', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/marketing/review-stats', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const stats = await marketingService.getReviewCampaignStats(businessId);
@@ -79,7 +79,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * POST /api/marketing/review-blast — Send bulk review requests
    */
-  app.post('/api/marketing/review-blast', isAuthenticated, async (req: Request, res: Response) => {
+  app.post('/api/marketing/review-blast', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const { customerIds } = req.body;
@@ -94,7 +94,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * GET /api/marketing/templates — Get available campaign templates
    */
-  app.get('/api/marketing/templates', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/marketing/templates', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const templates = await marketingService.getCampaignTemplates();
       res.json(templates);
@@ -107,7 +107,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * POST /api/marketing/campaigns — Send a marketing campaign
    */
-  app.post('/api/marketing/campaigns', isAuthenticated, async (req: Request, res: Response) => {
+  app.post('/api/marketing/campaigns', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const { name, type, template, channel, customerIds, subject, segment } = req.body;
@@ -122,7 +122,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * GET /api/marketing/campaigns — Get campaign history
    */
-  app.get('/api/marketing/campaigns', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/marketing/campaigns', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const campaigns = await marketingService.getCampaignHistory(businessId);
@@ -136,7 +136,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * GET /api/marketing/birthdays — Get upcoming customer birthdays (next 7 days)
    */
-  app.get('/api/marketing/birthdays', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/marketing/birthdays', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const daysAhead = parseInt(req.query.days as string) || 7;
@@ -152,7 +152,7 @@ export function registerMarketingRoutes(app: any) {
    * POST /api/marketing/birthday-campaign — Send birthday discount messages
    * Body: { daysAhead?, discountPercent?, validDays?, customMessage?, channel? }
    */
-  app.post('/api/marketing/birthday-campaign', isAuthenticated, async (req: Request, res: Response) => {
+  app.post('/api/marketing/birthday-campaign', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const { daysAhead, discountPercent, validDays, customMessage, channel } = req.body;
@@ -173,7 +173,7 @@ export function registerMarketingRoutes(app: any) {
   /**
    * GET /api/marketing/sms-consent-stats — Get SMS opt-in statistics
    */
-  app.get('/api/marketing/sms-consent-stats', isAuthenticated, async (req: Request, res: Response) => {
+  app.get('/api/marketing/sms-consent-stats', isOwnerOrAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const result = await pool.query(

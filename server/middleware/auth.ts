@@ -22,6 +22,17 @@ export function isAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// Check if user is not a staff member (owner/admin only)
+export function isOwnerOrAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  if (req.user?.role === 'staff') {
+    return res.status(403).json({ error: 'This feature is only available to business owners.' });
+  }
+  next();
+}
+
 // Check if user belongs to the business in the request (supports multi-location)
 export async function belongsToBusiness(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) {
