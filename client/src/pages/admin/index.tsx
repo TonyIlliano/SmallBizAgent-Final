@@ -59,15 +59,28 @@ interface AdminUser {
 
 interface RevenueData {
   mrr: number;
+  arr: number;
   activeCount: number;
   inactiveCount: number;
   trialingCount: number;
   pastDueCount: number;
+  canceledCount: number;
+  churnRate: number;
+  avgRevenuePerBusiness: number;
+  lifetimeValue: number;
+  mrrTrend: Array<{
+    month: string;
+    mrr: number;
+    activeBusinesses: number;
+    newBusinesses: number;
+    churned: number;
+  }>;
   planDistribution: Array<{
     planTier: string | null;
     planName: string | null;
     price: number | null;
     businessCount: number;
+    revenue: number;
   }>;
 }
 
@@ -489,43 +502,119 @@ function RevenueTab() {
     return <p className="text-center text-muted-foreground py-8">Could not load revenue data</p>;
   }
 
-  const totalBusinesses = revenue.activeCount + revenue.inactiveCount + revenue.trialingCount + revenue.pastDueCount;
+  const totalBusinesses = revenue.activeCount + revenue.inactiveCount + revenue.trialingCount + revenue.pastDueCount + revenue.canceledCount;
+  const churnColor = revenue.churnRate > 5 ? "text-red-600" : revenue.churnRate > 2 ? "text-amber-600" : "text-emerald-600";
 
   return (
     <div className="space-y-6">
-      {/* MRR and Subscription Summary */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        <Card className="lg:col-span-1">
+      {/* Key Metrics */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
           <CardHeader className="pb-2">
             <CardDescription>Monthly Recurring Revenue</CardDescription>
             <CardTitle className="text-3xl text-emerald-600">${revenue.mrr.toFixed(2)}</CardTitle>
           </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">ARR: ${revenue.arr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Active</CardDescription>
-            <CardTitle className="text-2xl text-emerald-600">{revenue.activeCount}</CardTitle>
+            <CardDescription>Monthly Churn Rate</CardDescription>
+            <CardTitle className={`text-3xl ${churnColor}`}>{revenue.churnRate}%</CardTitle>
           </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">{revenue.canceledCount} canceled (last 30d)</p>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Trialing</CardDescription>
-            <CardTitle className="text-2xl text-blue-600">{revenue.trialingCount}</CardTitle>
+            <CardDescription>Avg Revenue per Business</CardDescription>
+            <CardTitle className="text-3xl text-blue-600">${revenue.avgRevenuePerBusiness.toFixed(2)}</CardTitle>
           </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">Per active subscriber/mo</p>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Past Due</CardDescription>
-            <CardTitle className="text-2xl text-amber-600">{revenue.pastDueCount}</CardTitle>
+            <CardDescription>Estimated LTV</CardDescription>
+            <CardTitle className="text-3xl text-purple-600">${revenue.lifetimeValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</CardTitle>
           </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Inactive</CardDescription>
-            <CardTitle className="text-2xl text-gray-500">{revenue.inactiveCount}</CardTitle>
-          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">Based on ARPU / churn</p>
+          </CardContent>
         </Card>
       </div>
+
+      {/* Subscription Status Breakdown */}
+      <div className="grid gap-4 md:grid-cols-5">
+        <MiniStatCard label="Active" value={revenue.activeCount} color="text-emerald-600" />
+        <MiniStatCard label="Trialing" value={revenue.trialingCount} color="text-blue-600" />
+        <MiniStatCard label="Past Due" value={revenue.pastDueCount} color="text-amber-600" />
+        <MiniStatCard label="Canceled" value={revenue.canceledCount} color="text-red-600" />
+        <MiniStatCard label="Inactive" value={revenue.inactiveCount} color="text-gray-500" />
+      </div>
+
+      {/* MRR Trend (last 6 months) */}
+      {revenue.mrrTrend && revenue.mrrTrend.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              MRR Trend (Last 6 Months)
+            </CardTitle>
+            <CardDescription>Monthly recurring revenue, new signups, and churn over time</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {/* Simple bar chart with table */}
+              <div className="grid grid-cols-6 gap-2">
+                {revenue.mrrTrend.map((m) => {
+                  const maxMrr = Math.max(...revenue.mrrTrend.map(t => t.mrr), 1);
+                  const barHeight = Math.max((m.mrr / maxMrr) * 100, 4);
+                  return (
+                    <div key={m.month} className="flex flex-col items-center gap-1">
+                      <div className="w-full h-24 flex items-end justify-center">
+                        <div
+                          className="w-8 bg-emerald-500 rounded-t transition-all"
+                          style={{ height: `${barHeight}%` }}
+                          title={`$${m.mrr.toFixed(2)}`}
+                        />
+                      </div>
+                      <span className="text-xs font-medium">{m.month.slice(5)}</span>
+                      <span className="text-xs text-muted-foreground">${m.mrr.toFixed(0)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Detail table */}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Month</TableHead>
+                    <TableHead className="text-right">MRR</TableHead>
+                    <TableHead className="text-right">Active</TableHead>
+                    <TableHead className="text-right">New</TableHead>
+                    <TableHead className="text-right">Churned</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {revenue.mrrTrend.map((m) => (
+                    <TableRow key={m.month}>
+                      <TableCell className="font-medium">{m.month}</TableCell>
+                      <TableCell className="text-right text-emerald-600 font-medium">${m.mrr.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">{m.activeBusinesses}</TableCell>
+                      <TableCell className="text-right text-blue-600">+{m.newBusinesses}</TableCell>
+                      <TableCell className="text-right text-red-600">{m.churned > 0 ? `-${m.churned}` : "0"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Plan Distribution */}
       <Card>
@@ -558,8 +647,8 @@ function RevenueTab() {
                       {plan.price ? `$${plan.price.toFixed(2)}/mo` : "—"}
                     </TableCell>
                     <TableCell className="text-right font-medium">{plan.businessCount}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {plan.price ? `$${(plan.price * plan.businessCount).toFixed(2)}/mo` : "—"}
+                    <TableCell className="text-right font-medium text-emerald-600">
+                      ${plan.revenue.toFixed(2)}/mo
                     </TableCell>
                   </TableRow>
                 ))}

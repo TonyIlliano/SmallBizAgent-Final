@@ -696,6 +696,38 @@ export function startRebookingAgentScheduler(): void {
   console.log(`Rebooking agent scheduler started (every 24 hours)`);
 }
 
+// ── Email Drip Campaign Scheduler (every 6 hours) ──
+
+export function startEmailDripScheduler(): void {
+  const jobKey = 'email-drip-campaigns';
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Email drip campaign scheduler already running');
+    return;
+  }
+
+  console.log('Starting email drip campaign scheduler');
+
+  // Run immediately on start
+  runEmailDripCheck();
+
+  // Then run every 6 hours
+  const intervalId = setInterval(() => {
+    runEmailDripCheck();
+  }, 6 * 60 * 60 * 1000); // Every 6 hours
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+async function runEmailDripCheck(): Promise<void> {
+  try {
+    console.log(`[EmailDrip] Running scheduled drip check at ${new Date().toISOString()}`);
+    const { processEmailDrips } = await import('./emailDripService');
+    await processEmailDrips();
+  } catch (error) {
+    console.error('[EmailDrip] Scheduler error:', error);
+  }
+}
+
 export function startReviewResponseAgentScheduler(): void {
   const jobKey = 'review-response-agent';
   if (scheduledJobs.has(jobKey)) return;
@@ -764,6 +796,9 @@ export async function startAllSchedulers(): Promise<void> {
     startRebookingAgentScheduler();
     startReviewResponseAgentScheduler();
 
+    // Start email drip campaign scheduler (onboarding, trial expiration, win-back)
+    startEmailDripScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -797,6 +832,7 @@ export default {
   startNoShowAgentScheduler,
   startRebookingAgentScheduler,
   startReviewResponseAgentScheduler,
+  startEmailDripScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

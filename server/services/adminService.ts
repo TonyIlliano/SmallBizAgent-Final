@@ -61,15 +61,28 @@ export interface AdminUser {
 
 export interface RevenueData {
   mrr: number;
+  arr: number;
   activeCount: number;
   inactiveCount: number;
   trialingCount: number;
   pastDueCount: number;
+  canceledCount: number;
+  churnRate: number; // % of businesses that canceled in last 30 days
+  avgRevenuePerBusiness: number;
+  lifetimeValue: number; // estimated LTV based on avg revenue and churn
+  mrrTrend: Array<{
+    month: string; // "2026-01", "2026-02", etc.
+    mrr: number;
+    activeBusinesses: number;
+    newBusinesses: number;
+    churned: number;
+  }>;
   planDistribution: Array<{
     planTier: string | null;
     planName: string | null;
     price: number | null;
     businessCount: number;
+    revenue: number;
   }>;
 }
 
@@ -280,43 +293,130 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
  */
 export async function getRevenueData(): Promise<RevenueData> {
   const allBusinesses = await db.select({
+    id: businesses.id,
     subscriptionStatus: businesses.subscriptionStatus,
     subscriptionPlanId: businesses.subscriptionPlanId,
     stripePlanId: businesses.stripePlanId,
+    createdAt: businesses.createdAt,
+    updatedAt: businesses.updatedAt,
   }).from(businesses);
 
   const plans = await db.select().from(subscriptionPlans);
   const planMap = new Map(plans.map(p => [p.id, p]));
-  const planByTier = new Map(plans.map(p => [p.planTier, p]));
 
   let activeCount = 0;
   let inactiveCount = 0;
   let trialingCount = 0;
   let pastDueCount = 0;
+  let canceledCount = 0;
   let mrr = 0;
 
-  // Count per plan tier
+  // Count per plan tier + revenue per tier
   const planTierCounts = new Map<string, number>();
+  const planTierRevenue = new Map<string, number>();
+
+  // Churn tracking: businesses that went to canceled/inactive in last 30 days
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  let recentlyChurned = 0;
+  let activeAtStartOfPeriod = 0;
 
   for (const b of allBusinesses) {
     const status = b.subscriptionStatus || "inactive";
     if (status === "active") {
       activeCount++;
-      // Calculate MRR from the plan
       const plan = b.stripePlanId ? planMap.get(b.stripePlanId) : null;
-      if (plan && plan.price) {
-        mrr += plan.interval === "yearly" ? plan.price / 12 : plan.price;
-      }
-      // Track plan tier
+      const monthlyRevenue = plan?.price
+        ? (plan.interval === "yearly" ? plan.price / 12 : plan.price)
+        : 0;
+      mrr += monthlyRevenue;
       const tier = plan?.planTier || "unknown";
       planTierCounts.set(tier, (planTierCounts.get(tier) || 0) + 1);
+      planTierRevenue.set(tier, (planTierRevenue.get(tier) || 0) + monthlyRevenue);
     } else if (status === "trialing") {
       trialingCount++;
     } else if (status === "past_due") {
       pastDueCount++;
+    } else if (status === "canceled" || status === "canceling") {
+      canceledCount++;
+      // Check if churned recently
+      if (b.updatedAt && new Date(b.updatedAt) >= thirtyDaysAgo) {
+        recentlyChurned++;
+      }
     } else {
       inactiveCount++;
     }
+
+    // Estimate businesses that were active 30 days ago (active now + recently churned)
+    if (b.createdAt && new Date(b.createdAt) < thirtyDaysAgo) {
+      if (status === "active" || (status === "canceled" && b.updatedAt && new Date(b.updatedAt) >= thirtyDaysAgo)) {
+        activeAtStartOfPeriod++;
+      }
+    }
+  }
+
+  // Churn rate (% of active businesses that canceled in last 30 days)
+  const churnRate = activeAtStartOfPeriod > 0
+    ? Math.round((recentlyChurned / activeAtStartOfPeriod) * 10000) / 100
+    : 0;
+
+  // Avg revenue per active business
+  const avgRevenuePerBusiness = activeCount > 0
+    ? Math.round((mrr / activeCount) * 100) / 100
+    : 0;
+
+  // Estimated LTV: avg monthly revenue / monthly churn rate
+  const monthlyChurnDecimal = churnRate / 100;
+  const lifetimeValue = monthlyChurnDecimal > 0
+    ? Math.round((avgRevenuePerBusiness / monthlyChurnDecimal) * 100) / 100
+    : avgRevenuePerBusiness * 24; // If no churn, estimate 2-year LTV
+
+  // MRR trend: last 6 months
+  const mrrTrend: RevenueData['mrrTrend'] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+    let monthMrr = 0;
+    let monthActive = 0;
+    let monthNew = 0;
+    let monthChurned = 0;
+
+    for (const b of allBusinesses) {
+      const created = b.createdAt ? new Date(b.createdAt) : null;
+      const updated = b.updatedAt ? new Date(b.updatedAt) : null;
+      const status = b.subscriptionStatus || "inactive";
+
+      // New businesses this month
+      if (created && created >= monthStart && created <= monthEnd) {
+        monthNew++;
+      }
+
+      // Churned this month (canceled, updated within this month)
+      if ((status === "canceled" || status === "canceling") && updated && updated >= monthStart && updated <= monthEnd) {
+        monthChurned++;
+      }
+
+      // Active during this month: was active then OR is currently active and was created before month end
+      if (status === "active" && created && created <= monthEnd) {
+        monthActive++;
+        const plan = b.stripePlanId ? planMap.get(b.stripePlanId) : null;
+        if (plan?.price) {
+          monthMrr += plan.interval === "yearly" ? plan.price / 12 : plan.price;
+        }
+      }
+    }
+
+    mrrTrend.push({
+      month: monthKey,
+      mrr: Math.round(monthMrr * 100) / 100,
+      activeBusinesses: monthActive,
+      newBusinesses: monthNew,
+      churned: monthChurned,
+    });
   }
 
   const planDistribution = plans.map(p => ({
@@ -324,14 +424,21 @@ export async function getRevenueData(): Promise<RevenueData> {
     planName: p.name,
     price: p.price,
     businessCount: planTierCounts.get(p.planTier || "") || 0,
+    revenue: Math.round((planTierRevenue.get(p.planTier || "") || 0) * 100) / 100,
   }));
 
   return {
     mrr: Math.round(mrr * 100) / 100,
+    arr: Math.round(mrr * 12 * 100) / 100,
     activeCount,
     inactiveCount,
     trialingCount,
     pastDueCount,
+    canceledCount,
+    churnRate,
+    avgRevenuePerBusiness,
+    lifetimeValue,
+    mrrTrend,
     planDistribution,
   };
 }
