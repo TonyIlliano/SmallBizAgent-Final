@@ -9,6 +9,9 @@ import { Router, Request, Response } from "express";
 import { isAdmin } from "../middleware/auth";
 import * as adminService from "../services/adminService";
 import { storage } from "../storage";
+import { db } from "../db";
+import { agentActivityLog } from "../../shared/schema";
+import { eq, sql, desc, and, gte } from "drizzle-orm";
 
 const router = Router();
 
@@ -142,6 +145,314 @@ router.post("/api/admin/process-overage-billing", isAdmin, async (req: Request, 
   } catch (error: any) {
     console.error("[Admin] Error processing overage billing:", error);
     res.status(500).json({ error: "Failed to process overage billing", details: error.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// Platform AI Agents endpoints
+// ══════════════════════════════════════════════════════════════════════
+
+/** All platform agent types */
+const PLATFORM_AGENTS = [
+  {
+    id: 'churn_prediction',
+    name: 'Churn Prediction',
+    description: 'Scores active businesses on churn risk based on engagement signals',
+    schedule: 'Every 24 hours',
+    category: 'retention',
+  },
+  {
+    id: 'onboarding_coach',
+    name: 'Onboarding Coach',
+    description: 'Monitors new signups and sends setup nudge emails when they stall',
+    schedule: 'Every 6 hours',
+    category: 'growth',
+  },
+  {
+    id: 'lead_scoring',
+    name: 'Lead Scoring',
+    description: 'Scores unsubscribed signups on conversion likelihood',
+    schedule: 'Every 12 hours',
+    category: 'growth',
+  },
+  {
+    id: 'health_score',
+    name: 'Health Score',
+    description: 'Assigns a composite health score (0-100) to every active business',
+    schedule: 'Every 24 hours',
+    category: 'retention',
+  },
+  {
+    id: 'support_triage',
+    name: 'Support Triage',
+    description: 'Scans for provisioning failures, call errors, and payment issues',
+    schedule: 'Every 6 hours',
+    category: 'operations',
+  },
+  {
+    id: 'revenue_optimization',
+    name: 'Revenue Optimization',
+    description: 'Identifies upgrade candidates, downgrade risks, and expansion opportunities',
+    schedule: 'Every 24 hours',
+    category: 'revenue',
+  },
+  {
+    id: 'content_seo',
+    name: 'Content & SEO',
+    description: 'Generates blog and social media content drafts targeting top industries',
+    schedule: 'Every 7 days',
+    category: 'marketing',
+  },
+  {
+    id: 'testimonial',
+    name: 'Review & Testimonial',
+    description: 'Identifies successful businesses for testimonial/case study outreach',
+    schedule: 'Every 7 days',
+    category: 'marketing',
+  },
+  {
+    id: 'competitive_intel',
+    name: 'Competitive Intelligence',
+    description: 'Analyzes cancellation patterns, feature gaps, and pricing insights',
+    schedule: 'Every 7 days',
+    category: 'strategy',
+  },
+];
+
+/**
+ * GET /api/admin/platform-agents — List all platform agents with their latest run info
+ */
+router.get("/api/admin/platform-agents", isAdmin, async (req: Request, res: Response) => {
+  try {
+    // Get latest run for each agent type
+    const agents = await Promise.all(
+      PLATFORM_AGENTS.map(async (agent) => {
+        const agentType = `platform:${agent.id}`;
+        const [latestRun] = await db
+          .select({
+            createdAt: agentActivityLog.createdAt,
+            action: agentActivityLog.action,
+            details: agentActivityLog.details,
+          })
+          .from(agentActivityLog)
+          .where(eq(agentActivityLog.agentType, agentType))
+          .orderBy(desc(agentActivityLog.createdAt))
+          .limit(1);
+
+        // Count recent actions (last 24h)
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const [countResult] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(agentActivityLog)
+          .where(
+            and(
+              eq(agentActivityLog.agentType, agentType),
+              gte(agentActivityLog.createdAt, oneDayAgo)
+            )
+          );
+
+        // Count alerts (high-priority items)
+        const [alertCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(agentActivityLog)
+          .where(
+            and(
+              eq(agentActivityLog.agentType, agentType),
+              eq(agentActivityLog.action, 'alert_generated'),
+              gte(agentActivityLog.createdAt, oneDayAgo)
+            )
+          );
+
+        return {
+          ...agent,
+          agentType,
+          lastRunAt: latestRun?.createdAt || null,
+          lastAction: latestRun?.action || null,
+          actionsLast24h: countResult?.count || 0,
+          alertsLast24h: alertCount?.count || 0,
+        };
+      })
+    );
+
+    res.json({ agents });
+  } catch (error: any) {
+    console.error("[Admin] Error fetching platform agents:", error);
+    res.status(500).json({ error: "Failed to fetch platform agents", details: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/platform-agents/:agentId/activity — Activity log for a specific agent
+ */
+router.get("/api/admin/platform-agents/:agentId/activity", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const agentType = `platform:${req.params.agentId}`;
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    const logs = await db
+      .select()
+      .from(agentActivityLog)
+      .where(eq(agentActivityLog.agentType, agentType))
+      .orderBy(desc(agentActivityLog.createdAt))
+      .limit(limit);
+
+    res.json({ logs });
+  } catch (error: any) {
+    console.error("[Admin] Error fetching agent activity:", error);
+    res.status(500).json({ error: "Failed to fetch agent activity", details: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/platform-agents/:agentId/alerts — High-priority alerts from an agent
+ */
+router.get("/api/admin/platform-agents/:agentId/alerts", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const agentType = `platform:${req.params.agentId}`;
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const alerts = await db
+      .select()
+      .from(agentActivityLog)
+      .where(
+        and(
+          eq(agentActivityLog.agentType, agentType),
+          eq(agentActivityLog.action, 'alert_generated'),
+          gte(agentActivityLog.createdAt, sevenDaysAgo)
+        )
+      )
+      .orderBy(desc(agentActivityLog.createdAt))
+      .limit(100);
+
+    res.json({ alerts });
+  } catch (error: any) {
+    console.error("[Admin] Error fetching agent alerts:", error);
+    res.status(500).json({ error: "Failed to fetch agent alerts", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/platform-agents/:agentId/run — Manually trigger an agent run
+ */
+router.post("/api/admin/platform-agents/:agentId/run", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const agentId = req.params.agentId;
+    let result: any;
+
+    switch (agentId) {
+      case 'churn_prediction': {
+        const { runChurnPrediction } = await import("../services/platformAgents/churnPredictionAgent");
+        result = await runChurnPrediction();
+        break;
+      }
+      case 'onboarding_coach': {
+        const { runOnboardingCoach } = await import("../services/platformAgents/onboardingCoachAgent");
+        result = await runOnboardingCoach();
+        break;
+      }
+      case 'lead_scoring': {
+        const { runLeadScoring } = await import("../services/platformAgents/leadScoringAgent");
+        result = await runLeadScoring();
+        break;
+      }
+      case 'health_score': {
+        const { runHealthScoring } = await import("../services/platformAgents/healthScoreAgent");
+        result = await runHealthScoring();
+        break;
+      }
+      case 'support_triage': {
+        const { runSupportTriage } = await import("../services/platformAgents/supportTriageAgent");
+        result = await runSupportTriage();
+        break;
+      }
+      case 'revenue_optimization': {
+        const { runRevenueOptimization } = await import("../services/platformAgents/revenueOptimizationAgent");
+        result = await runRevenueOptimization();
+        break;
+      }
+      case 'content_seo': {
+        const { runContentSeoAgent } = await import("../services/platformAgents/contentSeoAgent");
+        result = await runContentSeoAgent();
+        break;
+      }
+      case 'testimonial': {
+        const { runTestimonialAgent } = await import("../services/platformAgents/testimonialAgent");
+        result = await runTestimonialAgent();
+        break;
+      }
+      case 'competitive_intel': {
+        const { runCompetitiveIntelAgent } = await import("../services/platformAgents/competitiveIntelAgent");
+        result = await runCompetitiveIntelAgent();
+        break;
+      }
+      default:
+        return res.status(404).json({ error: `Unknown agent: ${agentId}` });
+    }
+
+    res.json({ success: true, agentId, result });
+  } catch (error: any) {
+    console.error(`[Admin] Error running agent ${req.params.agentId}:`, error);
+    res.status(500).json({ error: `Failed to run agent ${req.params.agentId}`, details: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/platform-agents/summary — Aggregated summary across all agents
+ */
+router.get("/api/admin/platform-agents-summary", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    // Total actions last 24h across all platform agents
+    const [totalActions] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agentActivityLog)
+      .where(
+        and(
+          sql`${agentActivityLog.agentType} LIKE 'platform:%'`,
+          gte(agentActivityLog.createdAt, oneDayAgo)
+        )
+      );
+
+    // Total alerts last 7d
+    const [totalAlerts] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agentActivityLog)
+      .where(
+        and(
+          sql`${agentActivityLog.agentType} LIKE 'platform:%'`,
+          eq(agentActivityLog.action, 'alert_generated'),
+          gte(agentActivityLog.createdAt, sevenDaysAgo)
+        )
+      );
+
+    // Actions by agent type last 24h
+    const actionsByAgent = await db
+      .select({
+        agentType: agentActivityLog.agentType,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(agentActivityLog)
+      .where(
+        and(
+          sql`${agentActivityLog.agentType} LIKE 'platform:%'`,
+          gte(agentActivityLog.createdAt, oneDayAgo)
+        )
+      )
+      .groupBy(agentActivityLog.agentType);
+
+    res.json({
+      totalActionsLast24h: totalActions?.count || 0,
+      totalAlertsLast7d: totalAlerts?.count || 0,
+      actionsByAgent: actionsByAgent.map(a => ({
+        agentType: a.agentType,
+        count: a.count,
+      })),
+    });
+  } catch (error: any) {
+    console.error("[Admin] Error fetching agents summary:", error);
+    res.status(500).json({ error: "Failed to fetch agents summary", details: error.message });
   }
 });
 

@@ -1,11 +1,13 @@
+import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Redirect } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -14,6 +16,8 @@ import {
   DollarSign, Activity, CheckCircle, XCircle, AlertCircle,
   Loader2, UserPlus, PhoneCall, Shield,
   TrendingUp, TrendingDown, PieChart,
+  Bot, Play, ChevronDown, ChevronUp, Bell,
+  Brain, Target, Heart, Wrench, Zap, FileText, Star, Search,
 } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -136,6 +140,37 @@ interface CostsData {
   warnings: string[];
 }
 
+interface PlatformAgent {
+  id: string;
+  name: string;
+  description: string;
+  schedule: string;
+  category: string;
+  agentType: string;
+  lastRunAt: string | null;
+  lastAction: string | null;
+  actionsLast24h: number;
+  alertsLast24h: number;
+}
+
+interface AgentActivityLogEntry {
+  id: number;
+  businessId: number;
+  agentType: string;
+  action: string;
+  customerId: number | null;
+  referenceType: string | null;
+  referenceId: number | null;
+  details: any;
+  createdAt: string;
+}
+
+interface PlatformAgentsSummary {
+  totalActionsLast24h: number;
+  totalAlertsLast7d: number;
+  actionsByAgent: Array<{ agentType: string; count: number }>;
+}
+
 // ── Main Component ──────────────────────────────────────────────────────
 
 const AdminDashboardPage = () => {
@@ -166,7 +201,7 @@ const AdminDashboardPage = () => {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="flex w-full overflow-x-auto md:grid md:w-full md:grid-cols-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        <TabsList className="flex w-full overflow-x-auto md:grid md:w-full md:grid-cols-7 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <TabsTrigger value="overview" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <BarChart3 className="h-4 w-4" />
             Overview
@@ -183,6 +218,10 @@ const AdminDashboardPage = () => {
             <DollarSign className="h-4 w-4" />
             Revenue
           </TabsTrigger>
+          <TabsTrigger value="agents" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+            <Bot className="h-4 w-4" />
+            AI Agents
+          </TabsTrigger>
           <TabsTrigger value="costs" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <PieChart className="h-4 w-4" />
             Costs & P/L
@@ -197,6 +236,7 @@ const AdminDashboardPage = () => {
         <TabsContent value="businesses"><BusinessesTab /></TabsContent>
         <TabsContent value="users"><UsersTab /></TabsContent>
         <TabsContent value="revenue"><RevenueTab /></TabsContent>
+        <TabsContent value="agents"><PlatformAgentsTab /></TabsContent>
         <TabsContent value="costs"><CostsTab /></TabsContent>
         <TabsContent value="system"><SystemTab /></TabsContent>
       </Tabs>
@@ -659,6 +699,268 @@ function RevenueTab() {
       </Card>
     </div>
   );
+}
+
+// ── Platform AI Agents Tab ──────────────────────────────────────────────
+
+const AGENT_ICONS: Record<string, React.ReactNode> = {
+  churn_prediction: <Brain className="h-5 w-5 text-red-500" />,
+  onboarding_coach: <Target className="h-5 w-5 text-blue-500" />,
+  lead_scoring: <TrendingUp className="h-5 w-5 text-emerald-500" />,
+  health_score: <Heart className="h-5 w-5 text-pink-500" />,
+  support_triage: <Wrench className="h-5 w-5 text-amber-500" />,
+  revenue_optimization: <Zap className="h-5 w-5 text-purple-500" />,
+  content_seo: <FileText className="h-5 w-5 text-cyan-500" />,
+  testimonial: <Star className="h-5 w-5 text-yellow-500" />,
+  competitive_intel: <Search className="h-5 w-5 text-indigo-500" />,
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  retention: "bg-red-100 text-red-800",
+  growth: "bg-blue-100 text-blue-800",
+  operations: "bg-amber-100 text-amber-800",
+  revenue: "bg-purple-100 text-purple-800",
+  marketing: "bg-cyan-100 text-cyan-800",
+  strategy: "bg-indigo-100 text-indigo-800",
+};
+
+function PlatformAgentsTab() {
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+
+  const { data: agentsData, isLoading } = useQuery<{ agents: PlatformAgent[] }>({
+    queryKey: ["/api/admin/platform-agents"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/platform-agents");
+      return res.json();
+    },
+  });
+
+  const { data: summary } = useQuery<PlatformAgentsSummary>({
+    queryKey: ["/api/admin/platform-agents-summary"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/platform-agents-summary");
+      return res.json();
+    },
+  });
+
+  const runAgentMutation = useMutation({
+    mutationFn: async (agentId: string) => {
+      const res = await apiRequest("POST", `/api/admin/platform-agents/${agentId}/run`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-agents-summary"] });
+    },
+  });
+
+  if (isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  const agents = agentsData?.agents || [];
+  const totalAlerts = agents.reduce((sum, a) => sum + a.alertsLast24h, 0);
+  const totalActions = summary?.totalActionsLast24h || 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Active Agents</CardDescription>
+            <CardTitle className="text-3xl text-emerald-600">{agents.length}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">Platform-level AI agents running</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Actions (24h)</CardDescription>
+            <CardTitle className="text-3xl text-blue-600">{totalActions}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">Total agent actions taken</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Alerts (24h)</CardDescription>
+            <CardTitle className={`text-3xl ${totalAlerts > 0 ? "text-red-600" : "text-emerald-600"}`}>{totalAlerts}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">High-priority items requiring attention</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Alerts (7d)</CardDescription>
+            <CardTitle className="text-3xl text-amber-600">{summary?.totalAlertsLast7d || 0}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">Weekly alert trend</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Agent Cards */}
+      <div className="space-y-3">
+        {agents.map((agent) => (
+          <AgentCard
+            key={agent.id}
+            agent={agent}
+            isExpanded={expandedAgent === agent.id}
+            onToggle={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
+            onRun={() => runAgentMutation.mutate(agent.id)}
+            isRunning={runAgentMutation.isPending && (runAgentMutation.variables as string) === agent.id}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AgentCard({ agent, isExpanded, onToggle, onRun, isRunning }: {
+  agent: PlatformAgent;
+  isExpanded: boolean;
+  onToggle: () => void;
+  onRun: () => void;
+  isRunning: boolean;
+}) {
+  // Fetch activity when expanded
+  const { data: activityData, isLoading: loadingActivity } = useQuery<{ logs: AgentActivityLogEntry[] }>({
+    queryKey: [`/api/admin/platform-agents/${agent.id}/activity`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/admin/platform-agents/${agent.id}/activity?limit=20`);
+      return res.json();
+    },
+    enabled: isExpanded,
+  });
+
+  const icon = AGENT_ICONS[agent.id] || <Bot className="h-5 w-5" />;
+  const categoryClass = CATEGORY_COLORS[agent.category] || "bg-gray-100 text-gray-800";
+
+  return (
+    <Card className={agent.alertsLast24h > 0 ? "border-red-200" : ""}>
+      <div
+        className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-4">
+          <div className="flex-shrink-0">{icon}</div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">{agent.name}</h3>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${categoryClass}`}>
+                {agent.category}
+              </span>
+              {agent.alertsLast24h > 0 && (
+                <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                  <Bell className="h-3 w-3" />
+                  {agent.alertsLast24h}
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">{agent.description}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right hidden md:block">
+            <p className="text-sm font-medium">{agent.actionsLast24h} actions</p>
+            <p className="text-xs text-muted-foreground">
+              {agent.lastRunAt ? `Last run: ${formatRelative(agent.lastRunAt)}` : "Never run"}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => { e.stopPropagation(); onRun(); }}
+            disabled={isRunning}
+            className="flex-shrink-0"
+          >
+            {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          </Button>
+          {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </div>
+      </div>
+
+      {isExpanded && (
+        <CardContent className="border-t pt-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold">Recent Activity</h4>
+            <span className="text-xs text-muted-foreground">Schedule: {agent.schedule}</span>
+          </div>
+          {loadingActivity ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : activityData?.logs && activityData.logs.length > 0 ? (
+            <div className="max-h-80 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Business</TableHead>
+                    <TableHead>Details</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {activityData.logs.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {log.createdAt ? formatRelative(log.createdAt) : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={log.action === 'alert_generated' ? 'destructive' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {log.action.replace(/_/g, ' ')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {log.businessId > 0 ? `#${log.businessId}` : "Platform"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
+                        {formatAgentDetails(log.details)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No activity yet. Click the play button to run this agent.
+            </p>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function formatAgentDetails(details: any): string {
+  if (!details) return "—";
+  try {
+    const d = typeof details === 'string' ? JSON.parse(details) : details;
+    if (d.score !== undefined && d.riskLevel) return `Score: ${d.score} (${d.riskLevel})`;
+    if (d.tier) return `Tier: ${d.tier}${d.score !== undefined ? ` (${d.score})` : ''}`;
+    if (d.category) return `${d.category}: ${d.description || d.severity || ''}`;
+    if (d.step) return `Step: ${d.label || d.step}`;
+    if (d.type) return `${d.type}: ${d.recommendation || d.businessName || ''}`;
+    if (d.contentType) return `${d.contentType}: ${d.title || d.industry || ''}`;
+    if (d.businessName) return d.businessName;
+    if (d.recommendation) return d.recommendation;
+    // Fallback: show first key-value
+    const keys = Object.keys(d);
+    if (keys.length > 0) return `${keys[0]}: ${JSON.stringify(d[keys[0]]).slice(0, 60)}`;
+    return "—";
+  } catch {
+    return String(details).slice(0, 80);
+  }
 }
 
 // ── System Tab ──────────────────────────────────────────────────────────

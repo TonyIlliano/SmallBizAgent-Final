@@ -747,6 +747,164 @@ export function startReviewResponseAgentScheduler(): void {
   console.log(`Review response agent scheduler started (every 6 hours)`);
 }
 
+// ── Platform-Level AI Agents Scheduler ──────────────────────────────
+
+export function startPlatformAgentsScheduler(): void {
+  // Churn Prediction — every 24 hours
+  const churnKey = 'platform-churn-prediction';
+  if (!scheduledJobs.has(churnKey)) {
+    // Run after 5 min delay on startup (let the DB warm up)
+    setTimeout(async () => {
+      try {
+        const { runChurnPrediction } = await import('./platformAgents/churnPredictionAgent');
+        await runChurnPrediction();
+      } catch (err) { console.error('[PlatformAgent:ChurnPrediction] Startup error:', err); }
+    }, 5 * 60 * 1000);
+    const id = setInterval(async () => {
+      try {
+        const { runChurnPrediction } = await import('./platformAgents/churnPredictionAgent');
+        await runChurnPrediction();
+      } catch (err) { console.error('[PlatformAgent:ChurnPrediction] Error:', err); }
+    }, 24 * 60 * 60 * 1000);
+    scheduledJobs.set(churnKey, id);
+    console.log('Platform agent started: Churn Prediction (every 24h)');
+  }
+
+  // Onboarding Coach — every 6 hours
+  const onboardKey = 'platform-onboarding-coach';
+  if (!scheduledJobs.has(onboardKey)) {
+    setTimeout(async () => {
+      try {
+        const { runOnboardingCoach } = await import('./platformAgents/onboardingCoachAgent');
+        await runOnboardingCoach();
+      } catch (err) { console.error('[PlatformAgent:OnboardingCoach] Startup error:', err); }
+    }, 6 * 60 * 1000);
+    const id = setInterval(async () => {
+      try {
+        const { runOnboardingCoach } = await import('./platformAgents/onboardingCoachAgent');
+        await runOnboardingCoach();
+      } catch (err) { console.error('[PlatformAgent:OnboardingCoach] Error:', err); }
+    }, 6 * 60 * 60 * 1000);
+    scheduledJobs.set(onboardKey, id);
+    console.log('Platform agent started: Onboarding Coach (every 6h)');
+  }
+
+  // Lead Scoring — every 12 hours
+  const leadKey = 'platform-lead-scoring';
+  if (!scheduledJobs.has(leadKey)) {
+    setTimeout(async () => {
+      try {
+        const { runLeadScoring } = await import('./platformAgents/leadScoringAgent');
+        await runLeadScoring();
+      } catch (err) { console.error('[PlatformAgent:LeadScoring] Startup error:', err); }
+    }, 7 * 60 * 1000);
+    const id = setInterval(async () => {
+      try {
+        const { runLeadScoring } = await import('./platformAgents/leadScoringAgent');
+        await runLeadScoring();
+      } catch (err) { console.error('[PlatformAgent:LeadScoring] Error:', err); }
+    }, 12 * 60 * 60 * 1000);
+    scheduledJobs.set(leadKey, id);
+    console.log('Platform agent started: Lead Scoring (every 12h)');
+  }
+
+  // Health Score — every 24 hours
+  const healthKey = 'platform-health-score';
+  if (!scheduledJobs.has(healthKey)) {
+    setTimeout(async () => {
+      try {
+        const { runHealthScoring } = await import('./platformAgents/healthScoreAgent');
+        await runHealthScoring();
+      } catch (err) { console.error('[PlatformAgent:HealthScore] Startup error:', err); }
+    }, 8 * 60 * 1000);
+    const id = setInterval(async () => {
+      try {
+        const { runHealthScoring } = await import('./platformAgents/healthScoreAgent');
+        await runHealthScoring();
+      } catch (err) { console.error('[PlatformAgent:HealthScore] Error:', err); }
+    }, 24 * 60 * 60 * 1000);
+    scheduledJobs.set(healthKey, id);
+    console.log('Platform agent started: Health Score (every 24h)');
+  }
+
+  // Support Triage — every 6 hours
+  const supportKey = 'platform-support-triage';
+  if (!scheduledJobs.has(supportKey)) {
+    setTimeout(async () => {
+      try {
+        const { runSupportTriage } = await import('./platformAgents/supportTriageAgent');
+        await runSupportTriage();
+      } catch (err) { console.error('[PlatformAgent:SupportTriage] Startup error:', err); }
+    }, 9 * 60 * 1000);
+    const id = setInterval(async () => {
+      try {
+        const { runSupportTriage } = await import('./platformAgents/supportTriageAgent');
+        await runSupportTriage();
+      } catch (err) { console.error('[PlatformAgent:SupportTriage] Error:', err); }
+    }, 6 * 60 * 60 * 1000);
+    scheduledJobs.set(supportKey, id);
+    console.log('Platform agent started: Support Triage (every 6h)');
+  }
+
+  // Revenue Optimization — every 24 hours
+  const revenueKey = 'platform-revenue-optimization';
+  if (!scheduledJobs.has(revenueKey)) {
+    setTimeout(async () => {
+      try {
+        const { runRevenueOptimization } = await import('./platformAgents/revenueOptimizationAgent');
+        await runRevenueOptimization();
+      } catch (err) { console.error('[PlatformAgent:RevenueOptimization] Startup error:', err); }
+    }, 10 * 60 * 1000);
+    const id = setInterval(async () => {
+      try {
+        const { runRevenueOptimization } = await import('./platformAgents/revenueOptimizationAgent');
+        await runRevenueOptimization();
+      } catch (err) { console.error('[PlatformAgent:RevenueOptimization] Error:', err); }
+    }, 24 * 60 * 60 * 1000);
+    scheduledJobs.set(revenueKey, id);
+    console.log('Platform agent started: Revenue Optimization (every 24h)');
+  }
+
+  // Content & SEO — every 7 days
+  const contentKey = 'platform-content-seo';
+  if (!scheduledJobs.has(contentKey)) {
+    const id = setInterval(async () => {
+      try {
+        const { runContentSeoAgent } = await import('./platformAgents/contentSeoAgent');
+        await runContentSeoAgent();
+      } catch (err) { console.error('[PlatformAgent:ContentSEO] Error:', err); }
+    }, 7 * 24 * 60 * 60 * 1000);
+    scheduledJobs.set(contentKey, id);
+    console.log('Platform agent started: Content & SEO (every 7d)');
+  }
+
+  // Testimonial — every 7 days
+  const testimonialKey = 'platform-testimonial';
+  if (!scheduledJobs.has(testimonialKey)) {
+    const id = setInterval(async () => {
+      try {
+        const { runTestimonialAgent } = await import('./platformAgents/testimonialAgent');
+        await runTestimonialAgent();
+      } catch (err) { console.error('[PlatformAgent:Testimonial] Error:', err); }
+    }, 7 * 24 * 60 * 60 * 1000);
+    scheduledJobs.set(testimonialKey, id);
+    console.log('Platform agent started: Testimonial (every 7d)');
+  }
+
+  // Competitive Intelligence — every 7 days
+  const compIntelKey = 'platform-competitive-intel';
+  if (!scheduledJobs.has(compIntelKey)) {
+    const id = setInterval(async () => {
+      try {
+        const { runCompetitiveIntelAgent } = await import('./platformAgents/competitiveIntelAgent');
+        await runCompetitiveIntelAgent();
+      } catch (err) { console.error('[PlatformAgent:CompetitiveIntel] Error:', err); }
+    }, 7 * 24 * 60 * 60 * 1000);
+    scheduledJobs.set(compIntelKey, id);
+    console.log('Platform agent started: Competitive Intelligence (every 7d)');
+  }
+}
+
 /**
  * Start schedulers for all active businesses
  */
@@ -799,6 +957,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start email drip campaign scheduler (onboarding, trial expiration, win-back)
     startEmailDripScheduler();
 
+    // Start platform-level AI agents
+    startPlatformAgentsScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -833,6 +994,7 @@ export default {
   startRebookingAgentScheduler,
   startReviewResponseAgentScheduler,
   startEmailDripScheduler,
+  startPlatformAgentsScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };
