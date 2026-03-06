@@ -1907,10 +1907,11 @@ export class DatabaseStorage implements IStorage {
   async getActiveSmsConversation(customerPhone: string, businessId: number): Promise<SmsConversation | undefined> {
     // Normalize phone for matching
     const digits = customerPhone.replace(/\D/g, '').slice(-10);
+    const activeStates = ['awaiting_reply', 'collecting_preferences', 'offering_slots', 'confirming_booking'];
     const results = await db.select().from(smsConversations)
       .where(and(
         eq(smsConversations.businessId, businessId),
-        eq(smsConversations.state, 'awaiting_reply')
+        inArray(smsConversations.state, activeStates)
       ))
       .orderBy(desc(smsConversations.createdAt));
     // Match by normalized phone
@@ -1936,9 +1937,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getExpiredConversations(): Promise<SmsConversation[]> {
+    const activeStates = ['awaiting_reply', 'collecting_preferences', 'offering_slots', 'confirming_booking'];
     return db.select().from(smsConversations)
       .where(and(
-        eq(smsConversations.state, 'awaiting_reply'),
+        inArray(smsConversations.state, activeStates),
         lte(smsConversations.expiresAt, new Date())
       ));
   }

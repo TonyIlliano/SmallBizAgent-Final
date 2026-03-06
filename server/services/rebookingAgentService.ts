@@ -158,6 +158,16 @@ export async function handleRebookingReply(
   };
 
   if (isPositive && !isNegative) {
+    // Try conversational booking flow (parse dates, check availability, book via SMS)
+    try {
+      const { canStartConversationalBooking, initializeBookingConversation } = await import('./conversationalBookingService');
+      if (await canStartConversationalBooking(businessId)) {
+        return initializeBookingConversation(conversation, customer, businessId);
+      }
+    } catch (err) {
+      console.error('[RebookingAgent] Conversational booking unavailable, falling back to link:', err);
+    }
+    // Fallback: send booking link (original behavior)
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     const reply = fillTemplate(config.bookingReplyTemplate, templateVars);
     return { replyMessage: reply };

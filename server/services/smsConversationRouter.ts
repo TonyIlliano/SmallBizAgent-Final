@@ -20,6 +20,33 @@ export async function routeConversationReply(
   customer: Customer | undefined,
   businessId: number,
 ): Promise<{ replyMessage: string } | null> {
+  // Route conversations in active booking flow to the conversational booking handler
+  const bookingStates = ['collecting_preferences', 'offering_slots', 'confirming_booking'];
+  if (bookingStates.includes(conversation.state)) {
+    try {
+      const { handleBookingConversation } = await import('./conversationalBookingService');
+      const result = await handleBookingConversation(conversation, messageBody, customer, businessId);
+      if (result) {
+        await logAgentAction({
+          businessId,
+          agentType: conversation.agentType,
+          action: 'booking_reply_received',
+          customerId: customer?.id,
+          referenceType: conversation.referenceType ?? undefined,
+          referenceId: conversation.referenceId ?? undefined,
+          details: { incomingMessage: messageBody, replyMessage: result.replyMessage, state: conversation.state },
+        });
+        await storage.updateSmsConversation(conversation.id, {
+          lastReplyReceivedAt: new Date(),
+        });
+      }
+      return result;
+    } catch (err) {
+      console.error('[SMSRouter] Error in conversational booking handler:', err);
+      return null;
+    }
+  }
+
   const loader = handlers[conversation.agentType];
   if (!loader) {
     console.log(`[SMSRouter] No handler for agent type: ${conversation.agentType}`);

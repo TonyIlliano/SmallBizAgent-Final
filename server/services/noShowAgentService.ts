@@ -138,6 +138,18 @@ export async function handleNoShowReply(
   };
 
   if (isPositive && !isNegative) {
+    // Try conversational booking flow (parse dates, check availability, book via SMS)
+    try {
+      const { canStartConversationalBooking, initializeBookingConversation } = await import('./conversationalBookingService');
+      if (await canStartConversationalBooking(businessId)) {
+        return initializeBookingConversation(conversation, customer, businessId, {
+          originalAppointmentId: conversation.referenceId ?? undefined,
+        });
+      }
+    } catch (err) {
+      console.error('[NoShowAgent] Conversational booking unavailable, falling back to link:', err);
+    }
+    // Fallback: send booking link (original behavior)
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     const reply = fillTemplate(config.rescheduleReplyTemplate, templateVars);
     return { replyMessage: reply };
