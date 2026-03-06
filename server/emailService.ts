@@ -788,3 +788,54 @@ export async function sendTrialExpirationWarningEmail(
   return sendEmail({ to: ownerEmail, subject, text, html });
 }
 
+/**
+ * Send payment failure notification to business owner
+ */
+export async function sendPaymentFailedEmail(
+  ownerEmail: string,
+  businessName: string,
+  attemptNumber: number,
+  nextRetryDate: string | null,
+  gracePeriodEndsAt: string | null
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const isLastAttempt = attemptNumber >= 3;
+  const subject = isLastAttempt
+    ? `ACTION REQUIRED: Payment failed for ${businessName}`
+    : `Payment failed for ${businessName} — retrying automatically`;
+
+  const retryInfo = nextRetryDate ? `We'll automatically retry on ${nextRetryDate}.` : '';
+  const graceInfo = gracePeriodEndsAt ? `Service remains active until ${gracePeriodEndsAt}.` : '';
+
+  const text = [
+    `Hi,`,
+    ``,
+    `We were unable to process your payment for ${businessName} (attempt ${attemptNumber} of 3).`,
+    isLastAttempt ? `This was our final retry. Please update your payment method immediately.` : `No action needed — ${retryInfo}`,
+    graceInfo,
+    ``,
+    `Update your payment: https://www.smallbizagent.ai/settings?tab=subscription`,
+    ``,
+    `- SmallBizAgent Team`,
+  ].join('\n');
+
+  const urgencyColor = isLastAttempt ? '#ef4444' : '#f59e0b';
+  const urgencyBg = isLastAttempt ? '#fef2f2' : '#fffbeb';
+
+  const html = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: ${urgencyBg}; border: 2px solid ${urgencyColor}; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+      <h2 style="color: ${urgencyColor}; margin: 0;">${isLastAttempt ? 'Final Payment Attempt Failed' : 'Payment Failed'}</h2>
+    </div>
+    <p>We were unable to process your payment for <strong>${businessName}</strong> (attempt ${attemptNumber} of 3).</p>
+    ${!isLastAttempt && nextRetryDate ? `<div style="background: #f0f9ff; border-radius: 8px; padding: 16px; margin: 20px 0;"><p style="margin: 0; color: #1e40af;"><strong>Next retry:</strong> ${nextRetryDate}</p></div>` : ''}
+    ${isLastAttempt ? `<div style="background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 16px; margin: 20px 0;"><p style="color: #dc2626; font-weight: bold; margin: 0;">Please update your payment method to prevent service interruption.</p></div>` : ''}
+    ${graceInfo ? `<p style="color: #6b7280;">${graceInfo}</p>` : ''}
+    <div style="margin: 24px 0; text-align: center;">
+      <a href="https://www.smallbizagent.ai/settings?tab=subscription" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">Update Payment Method</a>
+    </div>
+    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+    <p style="color: #999; font-size: 12px;">SmallBizAgent Payment Notification</p>
+  </div>`;
+
+  return sendEmail({ to: ownerEmail, subject, text, html });
+}
+

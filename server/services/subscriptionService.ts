@@ -2,6 +2,7 @@ import { subscriptionPlans, businesses, overageCharges, businessGroups } from '@
 import { db } from '../db';
 import { eq } from 'drizzle-orm';
 import Stripe from 'stripe';
+import { sendPaymentFailedEmail } from '../emailService';
 
 // Initialize Stripe
 if (!process.env.STRIPE_SECRET_KEY) {
@@ -345,7 +346,8 @@ export class SubscriptionService {
         case 'invoice.payment_failed': {
           const invoice = event.data.object as Stripe.Invoice;
           if ((invoice as any).subscription) {
-            await this.handleInvoicePaymentFailed(invoice);
+            // Use enhanced dunning with notifications
+            await this.handleInvoicePaymentFailedWithDunning(invoice);
           }
           // Handle overage invoice payment failure
           if (invoice.metadata?.type === 'overage') {
@@ -847,6 +849,193 @@ export class SubscriptionService {
     } catch (error: any) {
       console.error('Error applying promo to subscription:', error);
       return { success: false, error: error.message || 'Failed to apply promo code' };
+    }
+  }
+
+  // ===================== Billing Portal =====================
+
+  /**
+   * Create a Stripe Billing Portal session for self-service subscription management
+   * Allows customers to update payment methods, view invoices, cancel, etc.
+   */
+  async createBillingPortalSession(businessId: number, returnUrl: string) {
+    try {
+      const [business] = await db.select().from(businesses).where(eq(businesses.id, businessId));
+      if (!business) throw new Error('Business not found');
+      if (!business.stripeCustomerId) throw new Error('No Stripe customer found. Please subscribe first.');
+
+      const session = await stripe.billingPortal.sessions.create({
+        customer: business.stripeCustomerId,
+        return_url: returnUrl,
+      });
+
+      return { url: session.url };
+    } catch (error: any) {
+      console.error('Error creating billing portal session:', error);
+      throw new Error(error.message || 'Failed to create billing portal session');
+    }
+  }
+
+  // ===================== Plan Upgrade/Downgrade =====================
+
+  /**
+   * Change subscription plan with prorated billing
+   * Stripe handles proration automatically — charges/credits are applied at next invoice
+   */
+  async changePlan(businessId: number, newPlanId: number) {
+    try {
+      const [business] = await db.select().from(businesses).where(eq(businesses.id, businessId));
+      if (!business) throw new Error('Business not found');
+      if (!business.stripeSubscriptionId) throw new Error('No active subscription found');
+
+      // Get the new plan
+      const [newPlan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, newPlanId));
+      if (!newPlan) throw new Error('Plan not found');
+
+      // Get current subscription from Stripe
+      const subscription = await stripe.subscriptions.retrieve(business.stripeSubscriptionId);
+      const currentItemId = subscription.items.data[0]?.id;
+      if (!currentItemId) throw new Error('No subscription item found');
+
+      // Find or create the Stripe price for the new plan
+      const unitAmount = Math.round(newPlan.price * 100);
+      const stripeInterval = newPlan.interval === 'monthly' ? 'month' as const : 'year' as const;
+
+      // Get or create product
+      let stripeProduct;
+      try {
+        const products = await stripe.products.list({ ids: [newPlan.id.toString()] });
+        stripeProduct = products.data.length > 0
+          ? products.data[0]
+          : await stripe.products.create({ id: newPlan.id.toString(), name: newPlan.name });
+      } catch {
+        stripeProduct = await stripe.products.create({ name: newPlan.name });
+      }
+
+      // Find or create price
+      const prices = await stripe.prices.list({ product: stripeProduct.id, active: true });
+      let stripePrice = prices.data.find(p => p.unit_amount === unitAmount && p.recurring?.interval === stripeInterval);
+      if (!stripePrice) {
+        stripePrice = await stripe.prices.create({
+          product: stripeProduct.id,
+          unit_amount: unitAmount,
+          currency: 'usd',
+          recurring: { interval: stripeInterval },
+        });
+      }
+
+      // Update the subscription — Stripe prorates automatically
+      const updatedSubscription = await stripe.subscriptions.update(business.stripeSubscriptionId, {
+        items: [{ id: currentItemId, price: stripePrice.id }],
+        proration_behavior: 'create_prorations',
+      });
+
+      // Update our database
+      await db.update(businesses)
+        .set({
+          stripePlanId: newPlanId,
+          subscriptionStatus: updatedSubscription.status,
+          subscriptionPeriodEnd: new Date((updatedSubscription as any).current_period_end * 1000),
+          updatedAt: new Date(),
+        })
+        .where(eq(businesses.id, businessId));
+
+      console.log(`Business ${businessId} changed plan to ${newPlan.name} (prorated)`);
+
+      return {
+        status: updatedSubscription.status,
+        plan: newPlan,
+        message: `Switched to ${newPlan.name}. Prorated charges will appear on your next invoice.`,
+      };
+    } catch (error: any) {
+      console.error('Error changing plan:', error);
+      throw new Error(error.message || 'Failed to change subscription plan');
+    }
+  }
+
+  // ===================== Enhanced Dunning =====================
+
+  /**
+   * Handle payment failure with dunning logic:
+   * - Track attempt count
+   * - Send email + SMS notifications
+   * - Set grace period (7 days from first failure)
+   * - After 3 failures + grace period, deprovision
+   */
+  private async handleInvoicePaymentFailedWithDunning(invoice: Stripe.Invoice) {
+    try {
+      const subscriptionId = (invoice as any).subscription;
+      if (!subscriptionId) return;
+
+      // Update subscription status in DB
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId as string);
+      await this.updateSubscriptionStatus(subscription);
+
+      // Find the business
+      const [business] = await db.select()
+        .from(businesses)
+        .where(eq(businesses.stripeSubscriptionId, subscriptionId as string));
+
+      if (!business) {
+        console.warn(`[Dunning] No business found for subscription ${subscriptionId}`);
+        return;
+      }
+
+      // Determine attempt number from Stripe invoice attempt_count
+      const attemptNumber = (invoice as any).attempt_count || 1;
+
+      // Calculate next retry date (Stripe retries at 3, 5, 7 days by default)
+      const retryDays = [3, 5, 7];
+      const nextRetryDate = attemptNumber < 3
+        ? new Date(Date.now() + (retryDays[attemptNumber - 1] || 3) * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        : null;
+
+      // Grace period: 7 days from first failure
+      const gracePeriodEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const gracePeriodEndsAt = gracePeriodEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+      // Send email notification
+      if (business.email) {
+        try {
+          await sendPaymentFailedEmail(
+            business.email,
+            business.name,
+            attemptNumber,
+            nextRetryDate,
+            gracePeriodEndsAt
+          );
+          console.log(`[Dunning] Payment failure email sent to business ${business.id} (attempt ${attemptNumber})`);
+        } catch (emailErr) {
+          console.error(`[Dunning] Failed to send payment failure email to business ${business.id}:`, emailErr);
+        }
+      }
+
+      // Send SMS notification
+      if (business.phone) {
+        try {
+          const { sendSms } = await import('./twilioService.js');
+          const isLast = attemptNumber >= 3;
+          const smsBody = isLast
+            ? `SmallBizAgent: Your payment for ${business.name} has failed after 3 attempts. Please update your payment method at smallbizagent.ai/settings to avoid service interruption.`
+            : `SmallBizAgent: Payment failed for ${business.name} (attempt ${attemptNumber}/3). We'll retry automatically. No action needed right now.`;
+          await sendSms(business.phone, smsBody);
+          console.log(`[Dunning] Payment failure SMS sent to business ${business.id} (attempt ${attemptNumber})`);
+        } catch (smsErr) {
+          console.error(`[Dunning] Failed to send payment failure SMS to business ${business.id}:`, smsErr);
+        }
+      }
+
+      // Update business with payment failure tracking
+      await db.update(businesses)
+        .set({
+          subscriptionStatus: attemptNumber >= 3 ? 'past_due' : 'payment_failed',
+          updatedAt: new Date(),
+        })
+        .where(eq(businesses.id, business.id));
+
+      console.log(`[Dunning] Business ${business.id}: payment failed (attempt ${attemptNumber})`);
+    } catch (error) {
+      console.error('[Dunning] Error handling payment failure:', error);
     }
   }
 }

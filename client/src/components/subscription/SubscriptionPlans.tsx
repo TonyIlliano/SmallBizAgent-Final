@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Check, Loader2, Tag } from 'lucide-react';
+import { Check, Loader2, Tag, ExternalLink } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 
 // Define the plan type
@@ -149,6 +149,54 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
     },
   });
 
+  // Open Stripe Billing Portal
+  const billingPortalMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', `/api/subscription/billing-portal/${businessId}`, {
+        returnUrl: window.location.href,
+      });
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Unable to open billing portal',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Change plan (upgrade/downgrade)
+  const changePlanMutation = useMutation({
+    mutationFn: async (planId: number) => {
+      const res = await apiRequest('POST', `/api/subscription/change-plan/${businessId}`, { planId });
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: 'Plan changed',
+        description: data.message || 'Your subscription plan has been updated.',
+      });
+      setChangePlanTarget(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/subscription/status', businessId] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Failed to change plan',
+        description: error.message,
+        variant: 'destructive',
+      });
+      setChangePlanTarget(null);
+    },
+  });
+
+  const [changePlanTarget, setChangePlanTarget] = useState<Plan | null>(null);
+
   const handleApplyPromo = () => {
     if (!promoCode.trim()) return;
     setPromoError(null);
@@ -157,9 +205,10 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
   };
 
   const isLoading = isLoadingPlans || isLoadingStatus;
-  const isPendingAction = createSubscriptionMutation.isPending || 
-    cancelSubscriptionMutation.isPending || 
-    resumeSubscriptionMutation.isPending;
+  const isPendingAction = createSubscriptionMutation.isPending ||
+    cancelSubscriptionMutation.isPending ||
+    resumeSubscriptionMutation.isPending ||
+    changePlanMutation.isPending;
   
   const isSubscribed = subscriptionStatus?.status === 'active' || 
     subscriptionStatus?.status === 'trialing';
@@ -239,7 +288,15 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
           <p className="text-sm text-muted-foreground mt-2">
             Your next billing date is {new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}.
           </p>
-          <div className="flex items-center gap-3 mt-4">
+          <div className="flex items-center gap-3 mt-4 flex-wrap">
+            <Button
+              variant="default"
+              onClick={() => billingPortalMutation.mutate()}
+              disabled={billingPortalMutation.isPending}
+            >
+              {billingPortalMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
+              Manage Billing
+            </Button>
             <Button
               variant="outline"
               onClick={handleCancel}
@@ -380,13 +437,21 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
                   {selectedPlan === plan.id ? 'Selected' : 'Select Plan'}
                 </Button>
               ) : (
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  disabled
-                >
-                  {subscriptionStatus?.plan?.id === plan.id ? 'Current Plan' : 'Change Plan'}
-                </Button>
+                subscriptionStatus?.plan?.id === plan.id ? (
+                  <Button className="w-full" variant="outline" disabled>
+                    Current Plan
+                  </Button>
+                ) : (
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    disabled={isPendingAction}
+                    onClick={() => setChangePlanTarget(plan)}
+                  >
+                    {changePlanMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {plan.price > (subscriptionStatus?.plan?.price || 0) ? 'Upgrade' : 'Downgrade'} to {plan.name}
+                  </Button>
+                )
               )}
             </CardFooter>
           </Card>
@@ -403,6 +468,37 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
             {isPendingAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Subscribe Now
           </Button>
+        </div>
+      )}
+
+      {/* Plan change confirmation dialog */}
+      {changePlanTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setChangePlanTarget(null)}>
+          <div className="bg-background rounded-lg p-6 max-w-md mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-2">
+              {changePlanTarget.price > (subscriptionStatus?.plan?.price || 0) ? 'Upgrade' : 'Downgrade'} to {changePlanTarget.name}?
+            </h3>
+            <p className="text-sm text-muted-foreground mb-1">
+              {changePlanTarget.price > (subscriptionStatus?.plan?.price || 0)
+                ? 'You\'ll be charged a prorated amount for the remainder of your current billing period.'
+                : 'You\'ll receive a prorated credit on your next invoice.'}
+            </p>
+            <p className="text-sm text-muted-foreground mb-4">
+              New price: <strong>${changePlanTarget.price}/{changePlanTarget.interval === 'yearly' ? 'year' : 'month'}</strong>
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setChangePlanTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => changePlanMutation.mutate(changePlanTarget.id)}
+                disabled={changePlanMutation.isPending}
+              >
+                {changePlanMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Confirm Change
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

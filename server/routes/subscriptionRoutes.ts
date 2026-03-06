@@ -155,6 +155,33 @@ router.get('/usage/:businessId', isAuthenticated, async (req: Request, res: Resp
   }
 });
 
+// Create Stripe Billing Portal session (self-service subscription management)
+router.post('/billing-portal/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    const returnUrl = req.body.returnUrl || `${req.protocol}://${req.get('host')}/settings?tab=subscription`;
+    const result = await subscriptionService.createBillingPortalSession(businessId, returnUrl);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Error creating billing portal session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Change subscription plan (upgrade/downgrade with proration)
+router.post('/change-plan/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    const { planId } = req.body;
+    if (!planId) return res.status(400).json({ error: 'planId is required' });
+    const result = await subscriptionService.changePlan(businessId, planId);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Error changing plan:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get overage billing history for a business
 router.get('/overage-history/:businessId', isAuthenticated, async (req: Request, res: Response) => {
   try {
