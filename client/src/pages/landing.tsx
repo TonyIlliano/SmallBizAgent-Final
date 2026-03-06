@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/use-auth";
+import { Turnstile } from "@/components/ui/turnstile";
 import {
   Phone,
   Calendar,
@@ -173,6 +174,7 @@ function LandingAuthForm() {
   const [activeTab, setActiveTab] = useState<string>("register");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const { loginMutation, registerMutation } = useAuth();
 
 
@@ -198,7 +200,7 @@ function LandingAuthForm() {
       return;
     }
     loginMutation.mutate(
-      { username: loginUsername.trim(), password: loginPassword },
+      { username: loginUsername.trim(), password: loginPassword, turnstileToken },
       {
         onSuccess: () => {
               window.location.href = "/";
@@ -234,7 +236,7 @@ function LandingAuthForm() {
       return;
     }
     registerMutation.mutate(
-      { username: regUsername, email: regEmail, password: regPassword },
+      { username: regUsername, email: regEmail, password: regPassword, turnstileToken },
       {
         onSuccess: () => {
           window.location.href = "/onboarding/subscription";
@@ -321,6 +323,7 @@ function LandingAuthForm() {
                   className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
                 />
               </div>
+              <Turnstile onVerify={setTurnstileToken} onExpire={() => setTurnstileToken(null)} />
               <Button type="submit" className="w-full bg-white text-black hover:bg-neutral-200" disabled={registerMutation.isPending}>
                 {registerMutation.isPending ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...</>
@@ -364,6 +367,7 @@ function LandingAuthForm() {
                   className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
                 />
               </div>
+              <Turnstile onVerify={setTurnstileToken} onExpire={() => setTurnstileToken(null)} />
               <Button type="submit" className="w-full bg-white text-black hover:bg-neutral-200" disabled={loginMutation.isPending}>
                 {loginMutation.isPending ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in...</>
