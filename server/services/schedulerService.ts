@@ -696,6 +696,25 @@ export function startRebookingAgentScheduler(): void {
   console.log(`Rebooking agent scheduler started (every 24 hours)`);
 }
 
+export function startReviewResponseAgentScheduler(): void {
+  const jobKey = 'review-response-agent';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 6 * 60 * 60 * 1000; // 6 hours
+  const intervalId = setInterval(async () => {
+    try {
+      console.log(`[ReviewResponseAgent] Running scheduled check at ${new Date().toISOString()}`);
+      const { runReviewResponseCheck } = await import('./reviewResponseAgentService');
+      await runReviewResponseCheck();
+    } catch (error) {
+      console.error('[ReviewResponseAgent] Scheduler error:', error);
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`Review response agent scheduler started (every 6 hours)`);
+}
+
 /**
  * Start schedulers for all active businesses
  */
@@ -743,6 +762,7 @@ export async function startAllSchedulers(): Promise<void> {
     startEstimateFollowUpAgentScheduler();
     startNoShowAgentScheduler();
     startRebookingAgentScheduler();
+    startReviewResponseAgentScheduler();
 
     console.log('All schedulers started');
   } catch (error) {
@@ -776,6 +796,7 @@ export default {
   startEstimateFollowUpAgentScheduler,
   startNoShowAgentScheduler,
   startRebookingAgentScheduler,
+  startReviewResponseAgentScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

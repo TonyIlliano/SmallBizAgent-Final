@@ -37,8 +37,12 @@ const DEFAULT_CONFIGS: Record<AgentType, any> = {
     declineReplyTemplate: "No worries! We'll be here when you're ready. - {businessName}",
   },
   review_response: {
-    autoPostThreshold: 4,
-    autoPostEnabled: false,
+    tone: "professional",
+    maxResponseLength: 200,
+    includeBusinessName: true,
+    thankForPositive: true,
+    apologizeForNegative: true,
+    fetchIntervalHours: 6,
   },
 };
 

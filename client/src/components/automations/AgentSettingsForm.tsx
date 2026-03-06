@@ -7,6 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getAgentMeta } from "./AgentCard";
@@ -73,28 +80,6 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
   });
 
   const variables = TEMPLATE_VARIABLES[agentType] ?? [];
-
-  if (agentType === "review_response") {
-    return (
-      <Card className="border-border bg-card">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Icon className={`h-4 w-4 ${meta.color}`} />
-            {meta.label} Settings
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <Icon className="h-10 w-10 text-muted-foreground/40 mb-3" />
-            <h3 className="text-sm font-semibold mb-1">Coming Soon</h3>
-            <p className="text-xs text-muted-foreground max-w-sm">
-              Review response AI will be available once Google Business Profile API integration is complete.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card className="border-border bg-card">
@@ -317,6 +302,68 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 rows={2}
               />
             </div>
+          </div>
+        )}
+
+        {/* Review Response agent */}
+        {agentType === "review_response" && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm">Response Tone</Label>
+              <Select
+                value={config.tone ?? "professional"}
+                onValueChange={(v) => setConfig({ ...config, tone: v })}
+              >
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="professional">Professional</SelectItem>
+                  <SelectItem value="friendly">Friendly</SelectItem>
+                  <SelectItem value="casual">Casual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Max Response Length (words)</Label>
+              <Input
+                type="number"
+                min={50}
+                max={500}
+                value={config.maxResponseLength ?? 200}
+                onChange={(e) => setConfig({ ...config, maxResponseLength: parseInt(e.target.value) || 200 })}
+                className="w-32"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">Include Business Name</Label>
+              <Switch
+                checked={config.includeBusinessName ?? true}
+                onCheckedChange={(v) => setConfig({ ...config, includeBusinessName: v })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">Thank for Positive Reviews</Label>
+              <Switch
+                checked={config.thankForPositive ?? true}
+                onCheckedChange={(v) => setConfig({ ...config, thankForPositive: v })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm">Apologize for Negative Reviews</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Include an apology and offer to make it right for 1-2 star reviews
+                </p>
+              </div>
+              <Switch
+                checked={config.apologizeForNegative ?? true}
+                onCheckedChange={(v) => setConfig({ ...config, apologizeForNegative: v })}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground border-l-2 border-muted pl-3">
+              All AI-drafted responses require your approval before posting to Google. Review pending responses in the Reviews tab.
+            </p>
           </div>
         )}
 

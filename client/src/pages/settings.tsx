@@ -81,6 +81,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Phone, PhoneCall, Power, PowerOff, AlertTriangle, Loader2, RefreshCw, Search, ChevronDown, ChevronUp, MapPin, ArrowRight, Info, Upload, X, ImageIcon, Shield, FileText, Trash2, Download, Palette, RotateCcw, Check } from "lucide-react";
 import { hexToHSL, getContrastForeground } from "@/lib/brand-colors";
+import { SkeletonForm } from "@/components/ui/skeleton-loader";
 import {
   Collapsible,
   CollapsibleContent,
@@ -537,7 +538,7 @@ function BookingPageBranding({
 export default function Settings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
   // Read tab from URL query param (e.g. /settings?tab=services)
   const urlParams = new URLSearchParams(window.location.search);
   const initialTab = urlParams.get('tab') || "profile";
@@ -1075,6 +1076,25 @@ export default function Settings() {
       });
     },
   });
+
+  // Show skeleton while auth or business data is loading to prevent empty form flash
+  const isPageLoading = isAuthLoading || isLoadingBusiness || (!business && !!businessId);
+
+  if (isPageLoading) {
+    return (
+      <PageLayout title="Settings">
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-2xl font-bold">Business Settings</h2>
+            <p className="text-gray-500">
+              Manage your business profile, hours, and services
+            </p>
+          </div>
+          <SkeletonForm />
+        </div>
+      </PageLayout>
+    );
+  }
 
   return (
     <PageLayout title="Settings">

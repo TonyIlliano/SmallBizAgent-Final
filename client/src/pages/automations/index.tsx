@@ -8,11 +8,13 @@ import { AgentCard } from "@/components/automations/AgentCard";
 import { AgentSettingsForm } from "@/components/automations/AgentSettingsForm";
 import { ActivityFeed } from "@/components/automations/ActivityFeed";
 import { ConversationList } from "@/components/automations/ConversationList";
+import { ReviewQueue } from "@/components/automations/ReviewQueue";
 import {
   LayoutDashboard,
   Activity,
   MessageSquare,
   Settings,
+  Star,
   Loader2,
 } from "lucide-react";
 
@@ -192,7 +194,7 @@ export default function AutomationsPage() {
         </div>
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview" className="flex items-center gap-1.5">
               <LayoutDashboard className="h-4 w-4" />
               <span className="hidden sm:inline">Overview</span>
@@ -204,6 +206,10 @@ export default function AutomationsPage() {
             <TabsTrigger value="conversations" className="flex items-center gap-1.5">
               <MessageSquare className="h-4 w-4" />
               <span className="hidden sm:inline">Conversations</span>
+            </TabsTrigger>
+            <TabsTrigger value="reviews" className="flex items-center gap-1.5">
+              <Star className="h-4 w-4" />
+              <span className="hidden sm:inline">Reviews</span>
             </TabsTrigger>
             <TabsTrigger value="settings" className="flex items-center gap-1.5">
               <Settings className="h-4 w-4" />
@@ -221,6 +227,10 @@ export default function AutomationsPage() {
 
           <TabsContent value="conversations">
             <ConversationsTab />
+          </TabsContent>
+
+          <TabsContent value="reviews">
+            <ReviewQueue />
           </TabsContent>
 
           <TabsContent value="settings">

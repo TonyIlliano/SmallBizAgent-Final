@@ -149,4 +149,111 @@ export function registerAutomationRoutes(app: any) {
       res.status(500).json({ message: error.message });
     }
   });
+
+  // ── Review Responses ──
+
+  /** GET /api/automations/reviews — List review responses for the business */
+  app.get('/api/automations/reviews', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const status = req.query.status as string | undefined;
+      const responses = await storage.getReviewResponses(businessId, status ? { status } : undefined);
+      res.json(responses);
+    } catch (error: any) {
+      console.error('[Automations] Error fetching review responses:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  /** PUT /api/automations/reviews/:id — Edit a draft review response */
+  app.put('/api/automations/reviews/:id', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const id = parseInt(req.params.id);
+      const { finalResponse } = req.body;
+
+      const existing = await storage.getReviewResponseById(id);
+      if (!existing || existing.businessId !== businessId) {
+        return res.status(404).json({ message: 'Review response not found' });
+      }
+
+      const updated = await storage.updateReviewResponse(id, { finalResponse });
+      res.json(updated);
+    } catch (error: any) {
+      console.error('[Automations] Error updating review response:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  /** POST /api/automations/reviews/:id/approve — Approve and post response to Google */
+  app.post('/api/automations/reviews/:id/approve', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const id = parseInt(req.params.id);
+
+      const existing = await storage.getReviewResponseById(id);
+      if (!existing || existing.businessId !== businessId) {
+        return res.status(404).json({ message: 'Review response not found' });
+      }
+
+      // If user edited the response, save it first
+      if (req.body.finalResponse) {
+        await storage.updateReviewResponse(id, { finalResponse: req.body.finalResponse });
+      } else if (!existing.finalResponse) {
+        // Use the AI draft as the final response
+        await storage.updateReviewResponse(id, { finalResponse: existing.aiDraftResponse });
+      }
+
+      const { postReviewResponse } = await import('../services/reviewResponseAgentService');
+      await postReviewResponse(id);
+
+      const updated = await storage.getReviewResponseById(id);
+      res.json(updated);
+    } catch (error: any) {
+      console.error('[Automations] Error approving review response:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  /** POST /api/automations/reviews/:id/dismiss — Dismiss a review */
+  app.post('/api/automations/reviews/:id/dismiss', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const id = parseInt(req.params.id);
+
+      const existing = await storage.getReviewResponseById(id);
+      if (!existing || existing.businessId !== businessId) {
+        return res.status(404).json({ message: 'Review response not found' });
+      }
+
+      const updated = await storage.updateReviewResponse(id, { status: 'dismissed' });
+      res.json(updated);
+    } catch (error: any) {
+      console.error('[Automations] Error dismissing review:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  /** POST /api/automations/reviews/fetch — Manual trigger to fetch new reviews */
+  app.post('/api/automations/reviews/fetch', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+
+      const { GoogleBusinessProfileService } = await import('../services/googleBusinessProfileService');
+      const gbp = new GoogleBusinessProfileService();
+      const connected = await gbp.isConnected(businessId);
+      if (!connected) {
+        return res.status(400).json({
+          message: 'Google Business Profile not connected. Connect in Settings > Integrations first.',
+        });
+      }
+
+      const { processBusinessReviews } = await import('../services/reviewResponseAgentService');
+      const count = await processBusinessReviews(businessId);
+      res.json({ message: `Fetched and processed ${count} new review(s).`, count });
+    } catch (error: any) {
+      console.error('[Automations] Error fetching reviews:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
 }

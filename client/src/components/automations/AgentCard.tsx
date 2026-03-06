@@ -1,6 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 import {
   Heart,
   UserX,
@@ -74,7 +73,6 @@ export function AgentCard({
 }: AgentCardProps) {
   const meta = getAgentMeta(agentType);
   const Icon = meta.icon;
-  const isComingSoon = agentType === "review_response";
 
   return (
     <Card className="border-border bg-card">
@@ -92,9 +90,7 @@ export function AgentCard({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {isComingSoon ? (
-              <Badge variant="secondary" className="text-xs">Coming Soon</Badge>
-            ) : isToggling ? (
+            {isToggling ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : (
               <Switch
@@ -105,27 +101,25 @@ export function AgentCard({
           </div>
         </div>
 
-        {!isComingSoon && (
-          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <MessageSquare className="h-3 w-3" />
-              <span>{smsSentCount} sent</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span>{repliesReceivedCount} replies</span>
-            </div>
-            {lastActivityAt && (
-              <div className="ml-auto">
-                Last: {new Date(lastActivityAt).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
-              </div>
-            )}
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <MessageSquare className="h-3 w-3" />
+            <span>{smsSentCount} sent</span>
           </div>
-        )}
+          <div className="flex items-center gap-1">
+            <span>{repliesReceivedCount} replies</span>
+          </div>
+          {lastActivityAt && (
+            <div className="ml-auto">
+              Last: {new Date(lastActivityAt).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

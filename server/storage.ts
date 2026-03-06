@@ -338,6 +338,7 @@ export interface IStorage {
 
   // Review Responses
   createReviewResponse(entry: InsertReviewResponse): Promise<ReviewResponse>;
+  getReviewResponseById(id: number): Promise<ReviewResponse | undefined>;
   getReviewResponses(businessId: number, params?: { status?: string }): Promise<ReviewResponse[]>;
   updateReviewResponse(id: number, data: Partial<ReviewResponse>): Promise<ReviewResponse>;
 
@@ -1979,6 +1980,11 @@ export class DatabaseStorage implements IStorage {
   async createReviewResponse(entry: InsertReviewResponse): Promise<ReviewResponse> {
     const [created] = await db.insert(reviewResponses).values(entry).returning();
     return created;
+  }
+
+  async getReviewResponseById(id: number): Promise<ReviewResponse | undefined> {
+    const [result] = await db.select().from(reviewResponses).where(eq(reviewResponses.id, id)).limit(1);
+    return result;
   }
 
   async getReviewResponses(businessId: number, params?: { status?: string }): Promise<ReviewResponse[]> {

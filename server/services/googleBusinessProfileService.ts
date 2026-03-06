@@ -48,6 +48,24 @@ export interface GBPPhoneNumbers {
   additionalPhones?: string[];
 }
 
+export interface GBPReview {
+  reviewId: string;
+  name: string;           // Full resource name, e.g., "accounts/123/locations/456/reviews/789"
+  reviewerName: string;
+  rating: number | null;
+  comment: string;
+  createTime: string;
+  updateTime: string;
+  hasReply: boolean;
+}
+
+function starRatingToNumber(starRating: string): number {
+  const map: Record<string, number> = {
+    ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5,
+  };
+  return map[starRating] ?? 0;
+}
+
 export interface GBPStoredData {
   selectedAccount?: GBPAccount;
   selectedLocation?: GBPLocation;
@@ -593,6 +611,67 @@ export class GoogleBusinessProfileService {
         updatedAt: new Date(),
       })
       .where(eq(calendarIntegrations.id, integration[0].id));
+  }
+
+  async listReviews(businessId: number): Promise<GBPReview[]> {
+    try {
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) return [];
+
+      const storedData = await this.getStoredData(businessId);
+      if (!storedData?.selectedAccount || !storedData?.selectedLocation) {
+        console.log(`[GBP] No location selected for business ${businessId}`);
+        return [];
+      }
+
+      const accountName = storedData.selectedAccount.name;
+      const locationName = storedData.selectedLocation.name;
+
+      // Use My Business API v4 for reviews
+      const url = `https://mybusiness.googleapis.com/v4/${accountName}/${locationName}/reviews`;
+      const res = await oauth2Client.request({ url });
+
+      const data = res.data as any;
+      return (data.reviews || []).map((r: any) => ({
+        reviewId: r.reviewId || r.name,
+        name: r.name,
+        reviewerName: r.reviewer?.displayName || 'Anonymous',
+        rating: r.starRating ? starRatingToNumber(r.starRating) : null,
+        comment: r.comment || '',
+        createTime: r.createTime,
+        updateTime: r.updateTime,
+        hasReply: !!r.reviewReply,
+      }));
+    } catch (error: any) {
+      console.error('Error listing GBP reviews:', error?.message || error);
+      if (error.code === 403 || error.code === 401) {
+        throw new Error('Google Business Profile API access not enabled or insufficient permissions.');
+      }
+      throw error;
+    }
+  }
+
+  async replyToReview(businessId: number, reviewName: string, comment: string): Promise<boolean> {
+    try {
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) throw new Error('Not connected to Google Business Profile');
+
+      const url = `https://mybusiness.googleapis.com/v4/${reviewName}/reply`;
+      await oauth2Client.request({
+        url,
+        method: 'PUT',
+        data: { comment },
+      });
+
+      console.log(`[GBP] Reply posted for review: ${reviewName}`);
+      return true;
+    } catch (error: any) {
+      console.error('Error replying to review:', error?.message || error);
+      if (error.code === 403) {
+        throw new Error('Insufficient permissions to reply to reviews.');
+      }
+      throw error;
+    }
   }
 
   async getStoredData(businessId: number): Promise<GBPStoredData | null> {
