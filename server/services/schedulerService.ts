@@ -633,6 +633,69 @@ async function runAutoRefine(): Promise<void> {
   }
 }
 
+// ── Estimate Follow-Up Agent Scheduler (every 6 hours) ──
+
+export function startEstimateFollowUpAgentScheduler(): void {
+  const jobKey = 'estimate-follow-up-agent';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 6 * 60 * 60 * 1000; // 6 hours
+  const intervalId = setInterval(async () => {
+    try {
+      console.log(`[EstimateFollowUpAgent] Running scheduled check at ${new Date().toISOString()}`);
+      const { runEstimateFollowUpCheck } = await import('./estimateFollowUpAgentService');
+      await runEstimateFollowUpCheck();
+    } catch (error) {
+      console.error('[EstimateFollowUpAgent] Scheduler error:', error);
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`Estimate follow-up agent scheduler started (every 6 hours)`);
+}
+
+// ── No-Show Agent Scheduler (every 30 minutes) ──
+
+export function startNoShowAgentScheduler(): void {
+  const jobKey = 'no-show-agent';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 30 * 60 * 1000; // 30 minutes
+  const intervalId = setInterval(async () => {
+    try {
+      console.log(`[NoShowAgent] Running scheduled check at ${new Date().toISOString()}`);
+      const { runNoShowDetection } = await import('./noShowAgentService');
+      await runNoShowDetection();
+    } catch (error) {
+      console.error('[NoShowAgent] Scheduler error:', error);
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`No-show agent scheduler started (every 30 minutes)`);
+}
+
+// ── Rebooking Agent Scheduler (every 24 hours) ──
+
+export function startRebookingAgentScheduler(): void {
+  const jobKey = 'rebooking-agent';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 24 * 60 * 60 * 1000; // 24 hours
+  const intervalId = setInterval(async () => {
+    try {
+      console.log(`[RebookingAgent] Running scheduled check at ${new Date().toISOString()}`);
+      const { runRebookingCheck } = await import('./rebookingAgentService');
+      await runRebookingCheck();
+    } catch (error) {
+      console.error('[RebookingAgent] Scheduler error:', error);
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`Rebooking agent scheduler started (every 24 hours)`);
+}
+
 /**
  * Start schedulers for all active businesses
  */
@@ -676,6 +739,11 @@ export async function startAllSchedulers(): Promise<void> {
     // Start auto-refine scheduler (analyzes call transcripts weekly, suggests receptionist improvements)
     startAutoRefineScheduler();
 
+    // Start SMS automation agent schedulers
+    startEstimateFollowUpAgentScheduler();
+    startNoShowAgentScheduler();
+    startRebookingAgentScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -705,6 +773,9 @@ export default {
   startTrialExpirationScheduler,
   startDataRetentionScheduler,
   startAutoRefineScheduler,
+  startEstimateFollowUpAgentScheduler,
+  startNoShowAgentScheduler,
+  startRebookingAgentScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

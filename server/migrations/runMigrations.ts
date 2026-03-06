@@ -744,6 +744,87 @@ async function fixExistingTables() {
     );
   `);
 
+  // Create agent_settings table (per-business SMS automation agent config)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_settings (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      agent_type TEXT NOT NULL,
+      enabled BOOLEAN DEFAULT false,
+      config JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT agent_settings_business_agent_unique UNIQUE (business_id, agent_type)
+    );
+  `);
+
+  // Create sms_conversations table (multi-turn SMS thread tracking)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sms_conversations (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER,
+      customer_phone TEXT NOT NULL,
+      agent_type TEXT NOT NULL,
+      reference_type TEXT,
+      reference_id INTEGER,
+      state TEXT NOT NULL DEFAULT 'awaiting_reply',
+      context JSONB,
+      last_message_sent_at TIMESTAMP,
+      last_reply_received_at TIMESTAMP,
+      expires_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create agent_activity_log table (audit trail for agent actions)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_activity_log (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      agent_type TEXT NOT NULL,
+      action TEXT NOT NULL,
+      customer_id INTEGER,
+      reference_type TEXT,
+      reference_id INTEGER,
+      details JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create quote_follow_ups table (track SMS follow-up attempts on quotes)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quote_follow_ups (
+      id SERIAL PRIMARY KEY,
+      quote_id INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      attempt_number INTEGER NOT NULL,
+      channel TEXT NOT NULL,
+      sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      message_body TEXT
+    );
+  `);
+
+  // Create review_responses table (AI-drafted review responses)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS review_responses (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      review_source TEXT NOT NULL,
+      review_id TEXT NOT NULL,
+      reviewer_name TEXT,
+      review_rating INTEGER,
+      review_text TEXT,
+      ai_draft_response TEXT,
+      final_response TEXT,
+      status TEXT DEFAULT 'pending',
+      posted_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Create overage_charges table (tracks automatic overage billing per billing period)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS overage_charges (
@@ -1679,6 +1760,12 @@ async function createPerformanceIndexes() {
     'CREATE INDEX IF NOT EXISTS idx_inventory_items_biz_source ON inventory_items (business_id, pos_source)',
     'CREATE INDEX IF NOT EXISTS idx_ai_suggestions_business_id ON ai_suggestions (business_id)',
     'CREATE INDEX IF NOT EXISTS idx_ai_suggestions_biz_status ON ai_suggestions (business_id, status)',
+    'CREATE INDEX IF NOT EXISTS idx_agent_settings_business_id ON agent_settings (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_sms_conversations_phone_biz_state ON sms_conversations (customer_phone, business_id, state)',
+    'CREATE INDEX IF NOT EXISTS idx_sms_conversations_business_id ON sms_conversations (business_id)',
+    'CREATE INDEX IF NOT EXISTS idx_agent_activity_log_biz_agent_created ON agent_activity_log (business_id, agent_type, created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_quote_follow_ups_quote_id ON quote_follow_ups (quote_id)',
+    'CREATE INDEX IF NOT EXISTS idx_review_responses_business_id ON review_responses (business_id)',
 
     // ── Phase 4: Date indexes for range queries ──
     'CREATE INDEX IF NOT EXISTS idx_appointments_start_date ON appointments (start_date)',

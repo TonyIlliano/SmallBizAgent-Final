@@ -700,6 +700,78 @@ export const aiSuggestions = pgTable("ai_suggestions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Agent Settings - per-business, per-agent configuration for SMS automation agents
+export const agentSettings = pgTable("agent_settings", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  agentType: text("agent_type").notNull(), // follow_up, no_show, estimate_follow_up, rebooking, review_response
+  enabled: boolean("enabled").default(false),
+  config: jsonb("config"), // Agent-specific JSON config (templates, delays, thresholds)
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  businessAgentUnique: unique("agent_settings_business_agent_unique").on(table.businessId, table.agentType),
+}));
+
+// SMS Conversations - multi-turn SMS thread tracking for conversational agents
+export const smsConversations = pgTable("sms_conversations", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id"),
+  customerPhone: text("customer_phone").notNull(),
+  agentType: text("agent_type").notNull(), // Which agent owns this conversation
+  referenceType: text("reference_type"), // appointment, quote, job, rebooking
+  referenceId: integer("reference_id"), // The appointment/quote/job ID
+  state: text("state").notNull().default("awaiting_reply"), // awaiting_reply, replied, resolved, expired, escalated
+  context: jsonb("context"), // Agent-specific state data
+  lastMessageSentAt: timestamp("last_message_sent_at"),
+  lastReplyReceivedAt: timestamp("last_reply_received_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Agent Activity Log - audit trail of all agent actions
+export const agentActivityLog = pgTable("agent_activity_log", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  agentType: text("agent_type").notNull(),
+  action: text("action").notNull(), // sms_sent, reply_received, status_changed, escalated, review_drafted, review_posted
+  customerId: integer("customer_id"),
+  referenceType: text("reference_type"), // appointment, job, quote, customer, review
+  referenceId: integer("reference_id"),
+  details: jsonb("details"), // { message, fromPhone, response, etc. }
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Quote Follow-ups - track SMS follow-up attempts on quotes
+export const quoteFollowUps = pgTable("quote_follow_ups", {
+  id: serial("id").primaryKey(),
+  quoteId: integer("quote_id").notNull(),
+  businessId: integer("business_id").notNull(),
+  attemptNumber: integer("attempt_number").notNull(), // 1, 2, 3
+  channel: text("channel").notNull(), // sms, email
+  sentAt: timestamp("sent_at").defaultNow(),
+  messageBody: text("message_body"),
+});
+
+// Review Responses - AI-drafted review responses (for Review Response Agent)
+export const reviewResponses = pgTable("review_responses", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  reviewSource: text("review_source").notNull(), // google
+  reviewId: text("review_id").notNull(), // External review ID
+  reviewerName: text("reviewer_name"),
+  reviewRating: integer("review_rating"),
+  reviewText: text("review_text"),
+  aiDraftResponse: text("ai_draft_response"),
+  finalResponse: text("final_response"),
+  status: text("status").default("pending"), // pending, approved, auto_posted, posted, dismissed
+  postedAt: timestamp("posted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Website Scrape Cache - cached results from business website scraping
 export const websiteScrapeCache = pgTable("website_scrape_cache", {
   id: serial("id").primaryKey(),
@@ -932,6 +1004,11 @@ export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTo
 export const insertBusinessKnowledgeSchema = createInsertSchema(businessKnowledge).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertUnansweredQuestionSchema = createInsertSchema(unansweredQuestions).omit({ id: true, createdAt: true });
 export const insertAiSuggestionSchema = createInsertSchema(aiSuggestions).omit({ id: true, createdAt: true });
+export const insertAgentSettingsSchema = createInsertSchema(agentSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertSmsConversationSchema = createInsertSchema(smsConversations).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertAgentActivityLogSchema = createInsertSchema(agentActivityLog).omit({ id: true, createdAt: true });
+export const insertQuoteFollowUpSchema = createInsertSchema(quoteFollowUps).omit({ id: true, sentAt: true });
+export const insertReviewResponseSchema = createInsertSchema(reviewResponses).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
@@ -1090,3 +1167,18 @@ export type InsertUserBusinessAccess = z.infer<typeof insertUserBusinessAccessSc
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+
+export type AgentSettings = typeof agentSettings.$inferSelect;
+export type InsertAgentSettings = z.infer<typeof insertAgentSettingsSchema>;
+
+export type SmsConversation = typeof smsConversations.$inferSelect;
+export type InsertSmsConversation = z.infer<typeof insertSmsConversationSchema>;
+
+export type AgentActivityLog = typeof agentActivityLog.$inferSelect;
+export type InsertAgentActivityLog = z.infer<typeof insertAgentActivityLogSchema>;
+
+export type QuoteFollowUp = typeof quoteFollowUps.$inferSelect;
+export type InsertQuoteFollowUp = z.infer<typeof insertQuoteFollowUpSchema>;
+
+export type ReviewResponse = typeof reviewResponses.$inferSelect;
+export type InsertReviewResponse = z.infer<typeof insertReviewResponseSchema>;

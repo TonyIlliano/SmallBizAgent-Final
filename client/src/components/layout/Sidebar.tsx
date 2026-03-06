@@ -17,6 +17,7 @@ import {
   RefreshCw,
   BarChart3,
   Megaphone,
+  Zap,
 } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -36,6 +37,7 @@ const allNavItems = [
   { path: "/receptionist", label: "AI Receptionist", icon: Bot },
   { path: "/analytics", label: "Analytics", icon: BarChart3 },
   { path: "/marketing", label: "Marketing", icon: Megaphone },
+  { path: "/automations", label: "Automations", icon: Zap },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 

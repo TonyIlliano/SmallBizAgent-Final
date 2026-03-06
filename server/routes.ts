@@ -152,6 +152,7 @@ import { registerMarketingRoutes } from './routes/marketingRoutes';
 // Import Zapier/API key routes
 import { registerZapierRoutes } from './routes/zapierRoutes';
 import { registerInventoryRoutes } from './routes/inventoryRoutes';
+import { registerAutomationRoutes } from './routes/automationRoutes';
 import { fireEvent } from './services/webhookService';
 // Multi-line phone + multi-location routes
 import phoneRoutes from './routes/phoneRoutes';
@@ -219,6 +220,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register inventory routes (restaurant POS stock tracking)
   registerInventoryRoutes(app);
+
+  // Register automation routes (SMS agents)
+  registerAutomationRoutes(app);
 
   // Register admin dashboard routes
   app.use(adminRoutes);
@@ -1646,6 +1650,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }).catch(err => console.error('[Review] Error checking review settings:', err));
         }).catch(err => console.error('[Review] Error importing review service:', err));
+
+        // Follow-Up Agent: send thank-you + upsell SMS (fire-and-forget)
+        import('./services/followUpAgentService').then(mod => {
+          mod.triggerFollowUp('appointment', appointment.id, existing.businessId)
+            .catch(err => console.error('[FollowUpAgent] Error:', err));
+        }).catch(err => console.error('[FollowUpAgent] Import error:', err));
       }
 
       res.json(appointment);
@@ -1923,6 +1933,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }).catch(err => console.error('[Review] Error checking review settings:', err));
         }).catch(err => console.error('[Review] Error importing review service:', err));
+
+        // Follow-Up Agent: send thank-you + upsell SMS (fire-and-forget)
+        import('./services/followUpAgentService').then(mod => {
+          mod.triggerFollowUp('job', job.id, existing.businessId)
+            .catch(err => console.error('[FollowUpAgent] Error:', err));
+        }).catch(err => console.error('[FollowUpAgent] Import error:', err));
       }
 
       // Sync linked appointment when job changes
@@ -3752,7 +3768,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         callTime: new Date()
       });
 
-      // Generate TwiML response for SMS
+      // ── Check for active SMS agent conversation from this phone ──
+      try {
+        const activeConversation = await storage.getActiveSmsConversation(From, businessId);
+        if (activeConversation) {
+          const { routeConversationReply } = await import('./services/smsConversationRouter');
+          const handled = await routeConversationReply(activeConversation, Body, customer ?? undefined, businessId);
+          if (handled) {
+            const agentTwiml = new twilio.twiml.MessagingResponse();
+            agentTwiml.message(handled.replyMessage);
+            res.type('text/xml');
+            return res.send(agentTwiml.toString());
+          }
+        }
+      } catch (convErr) {
+        console.error('[SMS] Error checking agent conversations:', convErr);
+      }
+
+      // Generate TwiML response for SMS (generic auto-reply fallback)
       const twiml = new twilio.twiml.MessagingResponse();
 
       // Auto-reply with business hours or acknowledgment

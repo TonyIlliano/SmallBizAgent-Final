@@ -31,6 +31,7 @@ import OnboardingFlow from "@/pages/onboarding/index";
 import Receptionist from "@/pages/receptionist/index";
 import AnalyticsPage from "@/pages/analytics";
 import MarketingPage from "@/pages/marketing";
+import AutomationsPage from "@/pages/automations/index";
 import Settings from "@/pages/settings";
 import CalendarSettings from "@/pages/settings/calendar";
 import PWAInstallationGuide from "@/pages/settings/pwa-installation";
@@ -127,6 +128,7 @@ function Router() {
       <ProtectedRoute path="/receptionist" component={Receptionist} />
       <ProtectedRoute path="/analytics" component={AnalyticsPage} />
       <ProtectedRoute path="/marketing" component={MarketingPage} />
+      <ProtectedRoute path="/automations" component={AutomationsPage} />
       <ProtectedRoute path="/recurring" component={RecurringSchedules} />
       <ProtectedRoute path="/settings" component={Settings} />
       <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />

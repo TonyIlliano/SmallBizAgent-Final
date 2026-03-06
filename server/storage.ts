@@ -29,6 +29,11 @@ import {
   BusinessKnowledge, InsertBusinessKnowledge, businessKnowledge,
   UnansweredQuestion, InsertUnansweredQuestion, unansweredQuestions,
   AiSuggestion, InsertAiSuggestion, aiSuggestions,
+  AgentSettings, InsertAgentSettings, agentSettings,
+  SmsConversation, InsertSmsConversation, smsConversations,
+  AgentActivityLog, InsertAgentActivityLog, agentActivityLog,
+  QuoteFollowUp, InsertQuoteFollowUp, quoteFollowUps,
+  ReviewResponse, InsertReviewResponse, reviewResponses,
   WebsiteScrapeCache, InsertWebsiteScrapeCache, websiteScrapeCache,
   RestaurantReservation, InsertRestaurantReservation, restaurantReservations,
   BusinessPhoneNumber, InsertBusinessPhoneNumber, businessPhoneNumbers,
@@ -310,6 +315,31 @@ export interface IStorage {
   updateAiSuggestion(id: number, data: Partial<AiSuggestion>): Promise<AiSuggestion>;
   getAiSuggestionCount(businessId: number): Promise<number>;
   getAiSuggestionsAcceptedCount(businessId: number): Promise<number>;
+
+  // Agent Settings (SMS Automation Agents)
+  getAgentSettings(businessId: number, agentType: string): Promise<AgentSettings | undefined>;
+  getAllAgentSettings(businessId: number): Promise<AgentSettings[]>;
+  upsertAgentSettings(businessId: number, agentType: string, enabled: boolean, config: any): Promise<AgentSettings>;
+
+  // SMS Conversations
+  createSmsConversation(conv: InsertSmsConversation): Promise<SmsConversation>;
+  getActiveSmsConversation(customerPhone: string, businessId: number): Promise<SmsConversation | undefined>;
+  getSmsConversationsByBusiness(businessId: number, params?: { agentType?: string; state?: string; limit?: number }): Promise<SmsConversation[]>;
+  updateSmsConversation(id: number, data: Partial<SmsConversation>): Promise<SmsConversation>;
+  getExpiredConversations(): Promise<SmsConversation[]>;
+
+  // Agent Activity Log
+  createAgentActivityLog(entry: InsertAgentActivityLog): Promise<AgentActivityLog>;
+  getAgentActivityLogs(businessId: number, params?: { agentType?: string; limit?: number }): Promise<AgentActivityLog[]>;
+
+  // Quote Follow-ups
+  createQuoteFollowUp(entry: InsertQuoteFollowUp): Promise<QuoteFollowUp>;
+  getQuoteFollowUpCount(quoteId: number): Promise<number>;
+
+  // Review Responses
+  createReviewResponse(entry: InsertReviewResponse): Promise<ReviewResponse>;
+  getReviewResponses(businessId: number, params?: { status?: string }): Promise<ReviewResponse[]>;
+  updateReviewResponse(id: number, data: Partial<ReviewResponse>): Promise<ReviewResponse>;
 
   // Website Scrape Cache
   getWebsiteScrapeCache(businessId: number): Promise<WebsiteScrapeCache | undefined>;
@@ -1836,6 +1866,137 @@ export class DatabaseStorage implements IStorage {
         or(eq(aiSuggestions.status, 'accepted'), eq(aiSuggestions.status, 'edited'))
       ));
     return Number(result[0]?.count ?? 0);
+  }
+
+  // =================== Agent Settings ===================
+
+  async getAgentSettings(businessId: number, agentType: string): Promise<AgentSettings | undefined> {
+    const [settings] = await db.select().from(agentSettings)
+      .where(and(eq(agentSettings.businessId, businessId), eq(agentSettings.agentType, agentType)));
+    return settings;
+  }
+
+  async getAllAgentSettings(businessId: number): Promise<AgentSettings[]> {
+    return db.select().from(agentSettings)
+      .where(eq(agentSettings.businessId, businessId));
+  }
+
+  async upsertAgentSettings(businessId: number, agentType: string, enabled: boolean, config: any): Promise<AgentSettings> {
+    const existing = await this.getAgentSettings(businessId, agentType);
+    if (existing) {
+      const [updated] = await db.update(agentSettings)
+        .set({ enabled, config, updatedAt: new Date() })
+        .where(eq(agentSettings.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(agentSettings)
+      .values({ businessId, agentType, enabled, config })
+      .returning();
+    return created;
+  }
+
+  // =================== SMS Conversations ===================
+
+  async createSmsConversation(conv: InsertSmsConversation): Promise<SmsConversation> {
+    const [created] = await db.insert(smsConversations).values(conv).returning();
+    return created;
+  }
+
+  async getActiveSmsConversation(customerPhone: string, businessId: number): Promise<SmsConversation | undefined> {
+    // Normalize phone for matching
+    const digits = customerPhone.replace(/\D/g, '').slice(-10);
+    const results = await db.select().from(smsConversations)
+      .where(and(
+        eq(smsConversations.businessId, businessId),
+        eq(smsConversations.state, 'awaiting_reply')
+      ))
+      .orderBy(desc(smsConversations.createdAt));
+    // Match by normalized phone
+    return results.find(c => c.customerPhone.replace(/\D/g, '').slice(-10) === digits);
+  }
+
+  async getSmsConversationsByBusiness(businessId: number, params?: { agentType?: string; state?: string; limit?: number }): Promise<SmsConversation[]> {
+    const conditions = [eq(smsConversations.businessId, businessId)];
+    if (params?.agentType) conditions.push(eq(smsConversations.agentType, params.agentType));
+    if (params?.state) conditions.push(eq(smsConversations.state, params.state));
+    return db.select().from(smsConversations)
+      .where(and(...conditions))
+      .orderBy(desc(smsConversations.createdAt))
+      .limit(params?.limit ?? 50);
+  }
+
+  async updateSmsConversation(id: number, data: Partial<SmsConversation>): Promise<SmsConversation> {
+    const [updated] = await db.update(smsConversations)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(smsConversations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getExpiredConversations(): Promise<SmsConversation[]> {
+    return db.select().from(smsConversations)
+      .where(and(
+        eq(smsConversations.state, 'awaiting_reply'),
+        lte(smsConversations.expiresAt, new Date())
+      ));
+  }
+
+  // =================== Agent Activity Log ===================
+
+  async createAgentActivityLog(entry: InsertAgentActivityLog): Promise<AgentActivityLog> {
+    const [created] = await db.insert(agentActivityLog).values(entry).returning();
+    return created;
+  }
+
+  async getAgentActivityLogs(businessId: number, params?: { agentType?: string; limit?: number }): Promise<AgentActivityLog[]> {
+    const conditions = [eq(agentActivityLog.businessId, businessId)];
+    if (params?.agentType) {
+      conditions.push(eq(agentActivityLog.agentType, params.agentType));
+    }
+    return db.select().from(agentActivityLog)
+      .where(and(...conditions))
+      .orderBy(desc(agentActivityLog.createdAt))
+      .limit(params?.limit ?? 50);
+  }
+
+  // =================== Quote Follow-ups ===================
+
+  async createQuoteFollowUp(entry: InsertQuoteFollowUp): Promise<QuoteFollowUp> {
+    const [created] = await db.insert(quoteFollowUps).values(entry).returning();
+    return created;
+  }
+
+  async getQuoteFollowUpCount(quoteId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(quoteFollowUps)
+      .where(eq(quoteFollowUps.quoteId, quoteId));
+    return Number(result[0]?.count ?? 0);
+  }
+
+  // =================== Review Responses ===================
+
+  async createReviewResponse(entry: InsertReviewResponse): Promise<ReviewResponse> {
+    const [created] = await db.insert(reviewResponses).values(entry).returning();
+    return created;
+  }
+
+  async getReviewResponses(businessId: number, params?: { status?: string }): Promise<ReviewResponse[]> {
+    const conditions = [eq(reviewResponses.businessId, businessId)];
+    if (params?.status) {
+      conditions.push(eq(reviewResponses.status, params.status));
+    }
+    return db.select().from(reviewResponses)
+      .where(and(...conditions))
+      .orderBy(desc(reviewResponses.createdAt));
+  }
+
+  async updateReviewResponse(id: number, data: Partial<ReviewResponse>): Promise<ReviewResponse> {
+    const [updated] = await db.update(reviewResponses)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(reviewResponses.id, id))
+      .returning();
+    return updated;
   }
 
   // =================== Website Scrape Cache ===================
