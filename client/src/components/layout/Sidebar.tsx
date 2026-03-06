@@ -37,7 +37,7 @@ const allNavItems = [
   { path: "/receptionist", label: "AI Receptionist", icon: Bot },
   { path: "/analytics", label: "Analytics", icon: BarChart3, hideForRoles: ['staff'] as string[] },
   { path: "/marketing", label: "Marketing", icon: Megaphone, hideForRoles: ['staff'] as string[] },
-  { path: "/automations", label: "AI Agents", icon: Zap },
+  { path: "/ai-agents", label: "AI Agents", icon: Zap },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 

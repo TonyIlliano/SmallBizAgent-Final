@@ -128,7 +128,7 @@ function Router() {
       <ProtectedRoute path="/receptionist" component={Receptionist} />
       <ProtectedRoute path="/analytics" component={AnalyticsPage} />
       <ProtectedRoute path="/marketing" component={MarketingPage} />
-      <ProtectedRoute path="/automations" component={AutomationsPage} />
+      <ProtectedRoute path="/ai-agents" component={AutomationsPage} />
       <ProtectedRoute path="/recurring" component={RecurringSchedules} />
       <ProtectedRoute path="/settings" component={Settings} />
       <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />

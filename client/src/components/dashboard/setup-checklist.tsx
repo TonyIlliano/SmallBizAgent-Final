@@ -127,7 +127,7 @@ function getChecklistItems(status: SetupStatus): ChecklistItemConfig[] {
       subtitle: 'SMS agents follow up, recover no-shows, and rebook customers automatically',
       completedSubtitle: `${status.details?.enabledAgentCount || 0} agent(s) active`,
       icon: Zap,
-      href: '/automations',
+      href: '/ai-agents',
       isCompleted: status.agents,
       priority: 5,
     },
