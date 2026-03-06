@@ -2,10 +2,19 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
-import { AgentCard } from "@/components/automations/AgentCard";
+import { AgentCard, getAgentMeta } from "@/components/automations/AgentCard";
 import { AgentSettingsForm } from "@/components/automations/AgentSettingsForm";
 import { ActivityFeed } from "@/components/automations/ActivityFeed";
 import { ConversationList } from "@/components/automations/ConversationList";
@@ -19,6 +28,8 @@ import {
   Star,
   BarChart3,
   Loader2,
+  CheckCircle2,
+  FlaskConical,
 } from "lucide-react";
 
 interface AgentDashboard {
@@ -54,9 +65,130 @@ interface SmsConversation {
 
 const AGENT_ORDER = ["follow_up", "no_show", "estimate_follow_up", "rebooking", "review_response"];
 
+const TEST_DESCRIPTIONS: Record<string, string> = {
+  follow_up: "You'll receive a thank-you SMS. This is a one-way message — no reply tracking.",
+  no_show: "You'll receive a no-show check-in SMS. Reply YES to test the full conversational booking flow.",
+  estimate_follow_up: "You'll receive an estimate follow-up SMS. This is a one-way message — no reply tracking.",
+  rebooking: "You'll receive a rebooking prompt. Reply YES to test the full conversational booking flow.",
+  review_response: "We'll generate a sample AI response to a mock 4-star review. No SMS will be sent.",
+};
+
+// ── Test Dialog ──
+
+function TestAgentDialog({
+  open,
+  agentType,
+  businessPhone,
+  onClose,
+}: {
+  open: boolean;
+  agentType: string | null;
+  businessPhone?: string;
+  onClose: () => void;
+}) {
+  const [phone, setPhone] = useState(businessPhone || "");
+  const [result, setResult] = useState<{ message: string; aiDraft?: string } | null>(null);
+  const { toast } = useToast();
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/automations/test/${agentType}`, { phone });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setResult({ message: data.message, aiDraft: data.aiDraft });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Test failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const meta = agentType ? getAgentMeta(agentType) : null;
+  const isReviewAgent = agentType === "review_response";
+
+  const handleClose = () => {
+    setResult(null);
+    setPhone(businessPhone || "");
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FlaskConical className="h-4 w-4" />
+            Test {meta?.label} Agent
+          </DialogTitle>
+          <DialogDescription>
+            {agentType ? TEST_DESCRIPTIONS[agentType] : ""}
+          </DialogDescription>
+        </DialogHeader>
+
+        {result ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+              <CheckCircle2 className="h-4 w-4" />
+              <span className="text-sm font-medium">
+                {isReviewAgent ? "AI response generated" : "Test SMS sent"}
+              </span>
+            </div>
+            <div className="p-3 rounded-lg bg-muted text-sm">
+              <p className="font-medium text-xs text-muted-foreground mb-1">
+                {isReviewAgent ? "Mock Review:" : "Message Sent:"}
+              </p>
+              <p>{result.message}</p>
+            </div>
+            {result.aiDraft && (
+              <div className="p-3 rounded-lg bg-muted text-sm">
+                <p className="font-medium text-xs text-muted-foreground mb-1">AI Draft Response:</p>
+                <p>{result.aiDraft}</p>
+              </div>
+            )}
+            {!isReviewAgent && (agentType === "no_show" || agentType === "rebooking") && (
+              <p className="text-xs text-muted-foreground">
+                Reply YES to test the conversational booking flow. The test conversation expires in 1 hour. No real appointments will be created.
+              </p>
+            )}
+            <Button variant="outline" className="w-full" onClick={handleClose}>
+              Close
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {!isReviewAgent && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Phone Number</label>
+                <Input
+                  placeholder="+1 (555) 123-4567"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter your phone number to receive the test SMS.
+                </p>
+              </div>
+            )}
+            <Button
+              className="w-full"
+              onClick={() => testMutation.mutate()}
+              disabled={testMutation.isPending || (!isReviewAgent && (!phone || phone.replace(/\D/g, "").length < 10))}
+            >
+              {testMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              {isReviewAgent ? "Generate Test Response" : "Send Test SMS"}
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Overview Tab ──
 
-function OverviewTab() {
+function OverviewTab({ isOwner, onTest }: { isOwner: boolean; onTest: (agentType: string) => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [togglingAgent, setTogglingAgent] = useState<string | null>(null);
@@ -122,6 +254,8 @@ function OverviewTab() {
           onToggle={(enabled) =>
             toggleMutation.mutate({ agentType: agent.agentType, enabled })
           }
+          isOwner={isOwner}
+          onTest={onTest}
         />
       ))}
     </div>
@@ -188,6 +322,12 @@ function ConversationsTab() {
 export default function AutomationsPage() {
   const { user } = useAuth();
   const isOwner = user?.role !== "staff";
+  const [testAgent, setTestAgent] = useState<string | null>(null);
+
+  const { data: business } = useQuery<any>({
+    queryKey: ["/api/business"],
+    enabled: !!user?.businessId,
+  });
 
   return (
     <PageLayout title="Automations">
@@ -230,7 +370,7 @@ export default function AutomationsPage() {
           </TabsList>
 
           <TabsContent value="overview">
-            <OverviewTab />
+            <OverviewTab isOwner={isOwner} onTest={setTestAgent} />
           </TabsContent>
 
           <TabsContent value="activity">
@@ -256,6 +396,14 @@ export default function AutomationsPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Test Agent Dialog */}
+      <TestAgentDialog
+        open={testAgent !== null}
+        agentType={testAgent}
+        businessPhone={business?.phone || ""}
+        onClose={() => setTestAgent(null)}
+      />
     </PageLayout>
   );
 }

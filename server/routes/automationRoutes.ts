@@ -132,7 +132,9 @@ export function registerAutomationRoutes(app: any) {
       const agentTypes = getAgentTypes();
       const dashboard = agentTypes.map(type => {
         const agentSettings = settings.find(s => s.agentType === type);
-        const agentLogs = recentLogs.filter(l => l.agentType === type);
+        const agentLogs = recentLogs
+          .filter(l => l.agentType === type)
+          .filter(l => !(l.details as any)?.isTest);
         const smsSent = agentLogs.filter(l => l.action === 'sms_sent').length;
         const repliesReceived = agentLogs.filter(l => l.action === 'reply_received').length;
         const lastActivity = agentLogs[0]?.createdAt ?? null;
@@ -149,6 +151,33 @@ export function registerAutomationRoutes(app: any) {
       res.json(dashboard);
     } catch (error: any) {
       console.error('[Automations] Error fetching dashboard:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── Agent Test ──
+
+  /** POST /api/automations/test/:agentType — Send a test SMS to the owner's phone */
+  app.post('/api/automations/test/:agentType', isOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { agentType } = req.params;
+      const { phone } = req.body;
+
+      if (!phone || typeof phone !== 'string' || phone.replace(/\D/g, '').length < 10) {
+        return res.status(400).json({ message: 'A valid phone number is required.' });
+      }
+
+      const validTypes = getAgentTypes();
+      if (!validTypes.includes(agentType)) {
+        return res.status(400).json({ message: `Invalid agent type: ${agentType}` });
+      }
+
+      const { sendAgentTest } = await import('../services/agentTestService');
+      const result = await sendAgentTest(businessId, agentType, phone);
+      res.json({ success: true, ...result });
+    } catch (error: any) {
+      console.error('[Automations] Error sending test:', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -180,27 +209,29 @@ export function registerAutomationRoutes(app: any) {
           break;
       }
 
-      // Per-agent action counts from activity log
+      // Per-agent action counts from activity log (exclude test data)
       const actionCounts = await db.execute(sql`
         SELECT agent_type, action, COUNT(*)::int AS count
         FROM agent_activity_log
         WHERE business_id = ${businessId}
           AND created_at >= ${sinceDate}
+          AND NOT (details->>'isTest' = 'true')
         GROUP BY agent_type, action
         ORDER BY agent_type, action
       `);
 
-      // Per-agent conversation outcome counts
+      // Per-agent conversation outcome counts (exclude test data)
       const convOutcomes = await db.execute(sql`
         SELECT agent_type, state, COUNT(*)::int AS count
         FROM sms_conversations
         WHERE business_id = ${businessId}
           AND created_at >= ${sinceDate}
+          AND NOT (context->>'isTest' = 'true')
         GROUP BY agent_type, state
         ORDER BY agent_type, state
       `);
 
-      // Average response time (hours) per agent
+      // Average response time (hours) per agent (exclude test data)
       const avgResponseTime = await db.execute(sql`
         SELECT agent_type,
           ROUND(AVG(EXTRACT(EPOCH FROM (last_reply_received_at - last_message_sent_at)) / 3600)::numeric, 1) AS avg_hours
@@ -209,10 +240,11 @@ export function registerAutomationRoutes(app: any) {
           AND created_at >= ${sinceDate}
           AND last_reply_received_at IS NOT NULL
           AND last_message_sent_at IS NOT NULL
+          AND NOT (context->>'isTest' = 'true')
         GROUP BY agent_type
       `);
 
-      // Daily activity trend (for chart)
+      // Daily activity trend (exclude test data)
       const dailyTrend = await db.execute(sql`
         SELECT
           TO_CHAR(created_at, 'YYYY-MM-DD') AS date,
@@ -221,11 +253,12 @@ export function registerAutomationRoutes(app: any) {
         FROM agent_activity_log
         WHERE business_id = ${businessId}
           AND created_at >= ${sinceDate}
+          AND NOT (details->>'isTest' = 'true')
         GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD'), action
         ORDER BY date
       `);
 
-      // Appointments booked via conversational SMS
+      // Appointments booked via conversational SMS (exclude test data)
       const smsBookings = await db.execute(sql`
         SELECT COUNT(*)::int AS count
         FROM agent_activity_log
@@ -233,6 +266,7 @@ export function registerAutomationRoutes(app: any) {
           AND created_at >= ${sinceDate}
           AND action = 'booking_reply_received'
           AND (details->>'replyMessage') ILIKE '%booked%'
+          AND NOT (details->>'isTest' = 'true')
       `);
 
       // Build per-agent report

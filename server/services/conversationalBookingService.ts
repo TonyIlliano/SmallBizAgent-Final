@@ -601,6 +601,16 @@ async function handleConfirmingBooking(
   const isNegative = negativeWords.some(w => upperMsg.includes(w));
 
   if (isPositive && !isNegative) {
+    // Test mode — skip real booking creation
+    if (existingContext?.isTest === true) {
+      await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+      const sName = bookingFlow.preferences.serviceName || 'Your appointment';
+      const stName = bookingFlow.preferences.staffName || '';
+      return {
+        replyMessage: `(Test mode) ${sName}${stName ? ` with ${stName}` : ''} would be booked on ${bookingFlow.preferences.date || 'the selected date'} at ${bookingFlow.preferences.time || 'the selected time'}. No real appointment was created. - ${business.name}`,
+      };
+    }
+
     // Create the booking
     if (!customer?.id || !bookingFlow.preferences.date || !bookingFlow.preferences.time || !bookingFlow.preferences.serviceId) {
       const link = business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '';

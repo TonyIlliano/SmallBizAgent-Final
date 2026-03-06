@@ -1,5 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import {
   Heart,
   UserX,
@@ -8,6 +9,7 @@ import {
   Star,
   MessageSquare,
   Loader2,
+  FlaskConical,
 } from "lucide-react";
 
 const AGENT_META: Record<string, { label: string; description: string; icon: any; color: string }> = {
@@ -60,6 +62,8 @@ interface AgentCardProps {
   lastActivityAt?: string | null;
   isToggling?: boolean;
   onToggle: (enabled: boolean) => void;
+  isOwner?: boolean;
+  onTest?: (agentType: string) => void;
 }
 
 export function AgentCard({
@@ -70,6 +74,8 @@ export function AgentCard({
   lastActivityAt,
   isToggling,
   onToggle,
+  isOwner,
+  onTest,
 }: AgentCardProps) {
   const meta = getAgentMeta(agentType);
   const Icon = meta.icon;
@@ -109,7 +115,18 @@ export function AgentCard({
           <div className="flex items-center gap-1">
             <span>{repliesReceivedCount} replies</span>
           </div>
-          {lastActivityAt && (
+          {isOwner && onTest && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-6 px-2 text-xs gap-1"
+              onClick={() => onTest(agentType)}
+            >
+              <FlaskConical className="h-3 w-3" />
+              Test
+            </Button>
+          )}
+          {!onTest && lastActivityAt && (
             <div className="ml-auto">
               Last: {new Date(lastActivityAt).toLocaleDateString("en-US", {
                 month: "short",
