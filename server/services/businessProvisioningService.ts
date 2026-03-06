@@ -211,6 +211,17 @@ export async function provisionBusiness(
 
     console.log(`Provisioning completed for business ID ${businessId}`);
 
+    // Enable all SMS automation agents by default
+    try {
+      const agentTypes = ['follow_up', 'no_show', 'estimate_follow_up', 'rebooking', 'review_response'];
+      for (const agentType of agentTypes) {
+        await storage.upsertAgentSettings(businessId, agentType, true, null);
+      }
+      console.log(`[Provisioning] Business ${businessId}: All ${agentTypes.length} agents enabled by default`);
+    } catch (agentErr) {
+      console.error(`[Provisioning] Business ${businessId}: Failed to enable default agents:`, agentErr);
+    }
+
     // Store provisioning results in database
     const finalStatus = results.success ? 'completed' : 'failed';
     await storage.updateBusiness(businessId, {

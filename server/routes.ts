@@ -567,6 +567,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check reservations (restaurant-specific)
       const hasReservations = !!(business.reservationEnabled);
 
+      // Check AI agents: at least one agent enabled
+      const agentSettings = await storage.getAllAgentSettings(businessId);
+      const enabledAgentCount = agentSettings.filter(s => s.enabled).length;
+      const hasAgents = enabledAgentCount > 0;
+
       // Determine business category for industry-specific checklist
       const businessType = business.type || 'general';
       const businessIndustry = business.industry || null;
@@ -583,6 +588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         booking: hasBooking,
         pos: hasPOS,
         reservations: hasReservations,
+        agents: hasAgents,
         allComplete,
         businessType,
         businessIndustry,
@@ -598,6 +604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           businessHoursDays: businessHours.length,
           bookingSlug: business.bookingSlug || null,
           bookingEnabled: business.bookingEnabled || false,
+          enabledAgentCount,
         }
       });
     } catch (error) {

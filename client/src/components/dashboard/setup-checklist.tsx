@@ -24,6 +24,7 @@ import {
   UtensilsCrossed,
   Scissors,
   Wrench,
+  Zap,
 } from 'lucide-react';
 import { formatPhoneNumber } from '@/lib/utils';
 
@@ -37,6 +38,7 @@ interface SetupStatus {
   booking: boolean;
   pos: boolean;
   reservations: boolean;
+  agents: boolean;
   allComplete: boolean;
   businessType: string;
   businessIndustry: string | null;
@@ -52,6 +54,7 @@ interface SetupStatus {
     businessHoursDays: number;
     bookingSlug: string | null;
     bookingEnabled: boolean;
+    enabledAgentCount: number;
   };
 }
 
@@ -117,6 +120,16 @@ function getChecklistItems(status: SetupStatus): ChecklistItemConfig[] {
       href: '/settings?tab=profile',
       isCompleted: status.receptionist,
       priority: 4,
+    },
+    {
+      key: 'agents',
+      title: 'Review your AI agents',
+      subtitle: 'SMS agents follow up, recover no-shows, and rebook customers automatically',
+      completedSubtitle: `${status.details?.enabledAgentCount || 0} agent(s) active`,
+      icon: Zap,
+      href: '/automations',
+      isCompleted: status.agents,
+      priority: 5,
     },
   ];
 

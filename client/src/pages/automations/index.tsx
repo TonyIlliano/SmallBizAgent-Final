@@ -30,7 +30,10 @@ import {
   Loader2,
   CheckCircle2,
   FlaskConical,
+  TrendingUp,
+  Zap,
 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface AgentDashboard {
   agentType: string;
@@ -186,6 +189,59 @@ function TestAgentDialog({
   );
 }
 
+// ── Performance Banner ──
+
+function PerformanceBanner() {
+  const { data: report } = useQuery<{
+    totals: {
+      smsSent: number;
+      repliesReceived: number;
+      totalConversations: number;
+      resolved: number;
+      appointmentsBooked: number;
+      replyRate: number;
+      resolutionRate: number;
+    };
+  }>({
+    queryKey: ["/api/automations/report", { period: "month" }],
+  });
+
+  if (!report?.totals || report.totals.smsSent === 0) return null;
+
+  const { smsSent, repliesReceived, resolved, appointmentsBooked } = report.totals;
+  // Estimate $85 avg revenue per recovered appointment (industry average for service businesses)
+  const estimatedRevenue = appointmentsBooked * 85;
+
+  return (
+    <Card className="border-primary/20 bg-primary/5">
+      <CardContent className="py-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <Zap className="h-5 w-5 text-primary" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">
+              Your agents sent <span className="font-bold">{smsSent}</span> messages this month
+              {repliesReceived > 0 && <>, got <span className="font-bold">{repliesReceived}</span> replies</>}
+              {resolved > 0 && <>, and resolved <span className="font-bold">{resolved}</span> conversations</>}
+              {estimatedRevenue > 0 && (
+                <> — recovering an estimated <span className="font-bold text-green-600 dark:text-green-400">${estimatedRevenue.toLocaleString()}</span> in revenue</>
+              )}
+              .
+            </p>
+          </div>
+          {estimatedRevenue > 0 && (
+            <div className="hidden sm:flex items-center gap-1 text-green-600 dark:text-green-400">
+              <TrendingUp className="h-4 w-4" />
+              <span className="text-sm font-bold">${estimatedRevenue.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Overview Tab ──
 
 function OverviewTab({ isOwner, onTest }: { isOwner: boolean; onTest: (agentType: string) => void }) {
@@ -241,23 +297,26 @@ function OverviewTab({ isOwner, onTest }: { isOwner: boolean; onTest: (agentType
   });
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {sorted.map((agent) => (
-        <AgentCard
-          key={agent.agentType}
-          agentType={agent.agentType}
-          enabled={agent.enabled}
-          smsSentCount={agent.smsSentCount}
-          repliesReceivedCount={agent.repliesReceivedCount}
-          lastActivityAt={agent.lastActivityAt}
-          isToggling={togglingAgent === agent.agentType}
-          onToggle={(enabled) =>
-            toggleMutation.mutate({ agentType: agent.agentType, enabled })
-          }
-          isOwner={isOwner}
-          onTest={onTest}
-        />
-      ))}
+    <div className="space-y-4">
+      {isOwner && <PerformanceBanner />}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {sorted.map((agent) => (
+          <AgentCard
+            key={agent.agentType}
+            agentType={agent.agentType}
+            enabled={agent.enabled}
+            smsSentCount={agent.smsSentCount}
+            repliesReceivedCount={agent.repliesReceivedCount}
+            lastActivityAt={agent.lastActivityAt}
+            isToggling={togglingAgent === agent.agentType}
+            onToggle={(enabled) =>
+              toggleMutation.mutate({ agentType: agent.agentType, enabled })
+            }
+            isOwner={isOwner}
+            onTest={onTest}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -330,12 +389,12 @@ export default function AutomationsPage() {
   });
 
   return (
-    <PageLayout title="Automations">
+    <PageLayout title="AI Agents">
       <div className="space-y-6">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">SMS Automations</h2>
+          <h2 className="text-2xl font-bold text-foreground">AI Agents</h2>
           <p className="text-muted-foreground mt-1">
-            Configure automated SMS agents that engage customers on your behalf — follow-ups, no-show recovery, estimate reminders, and rebooking prompts.
+            Your AI-powered agents work around the clock — following up, recovering no-shows, closing estimates, rebooking inactive customers, and responding to reviews.
           </p>
         </div>
 
