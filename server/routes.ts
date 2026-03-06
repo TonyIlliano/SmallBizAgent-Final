@@ -230,6 +230,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register Stripe Connect routes
   app.use("/api/stripe-connect", isAuthenticated, stripeConnectRoutes);
 
+  // Public config endpoint (no auth required — exposes only public keys)
+  app.get("/api/config/public", (_req: Request, res: Response) => {
+    res.json({
+      turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || process.env.VITE_TURNSTILE_SITE_KEY || "",
+      stripePublicKey: process.env.VITE_STRIPE_PUBLIC_KEY || "",
+    });
+  });
+
   // Register data import routes (with business ownership verification)
   const importAuthCheck = (req: Request, res: Response, next: Function) => {
     const { businessId } = req.body;
