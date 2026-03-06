@@ -140,6 +140,7 @@ const businessProfileSchema = z.object({
   state: z.string().optional(),
   zip: z.string().optional(),
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
+  ownerPhone: z.string().min(10, "Cell phone must be at least 10 digits").optional().or(z.literal("")),
   email: z.string().email("Invalid email address"),
   website: z.string().url("Invalid website URL").optional().or(z.literal("")),
   logoUrl: z.string().optional().or(z.literal("")),
@@ -666,12 +667,13 @@ export default function Settings() {
       state: "",
       zip: "",
       phone: "",
+      ownerPhone: "",
       email: "",
       website: "",
       logoUrl: "",
     },
   });
-  
+
   // Update form when business data is loaded
   useEffect(() => {
     if (business) {
@@ -684,6 +686,7 @@ export default function Settings() {
         state: business.state || "",
         zip: business.zip || "",
         phone: business.phone || "",
+        ownerPhone: (business as any).ownerPhone || "",
         email: business.email || "",
         website: business.website || "",
         logoUrl: business.logoUrl || "",
@@ -1316,15 +1319,33 @@ export default function Settings() {
                           name="phone"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Phone Number</FormLabel>
+                              <FormLabel>Business Phone</FormLabel>
                               <FormControl>
                                 <Input {...field} />
                               </FormControl>
+                              <FormDescription>Shown to customers</FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
-                        
+
+                        <FormField
+                          control={businessForm.control}
+                          name="ownerPhone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Owner Cell Phone</FormLabel>
+                              <FormControl>
+                                <Input placeholder="(555) 987-6543" {...field} />
+                              </FormControl>
+                              <FormDescription>For payment alerts and account notifications</FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <FormField
                           control={businessForm.control}
                           name="email"

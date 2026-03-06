@@ -1010,19 +1010,22 @@ export class SubscriptionService {
         }
       }
 
-      // Send SMS notification
-      if (business.phone) {
+      // Send SMS notification to owner's personal cell phone
+      const ownerCell = business.ownerPhone;
+      if (ownerCell) {
         try {
           const { sendSms } = await import('./twilioService.js');
           const isLast = attemptNumber >= 3;
           const smsBody = isLast
             ? `SmallBizAgent: Your payment for ${business.name} has failed after 3 attempts. Please update your payment method at smallbizagent.ai/settings to avoid service interruption.`
             : `SmallBizAgent: Payment failed for ${business.name} (attempt ${attemptNumber}/3). We'll retry automatically. No action needed right now.`;
-          await sendSms(business.phone, smsBody);
-          console.log(`[Dunning] Payment failure SMS sent to business ${business.id} (attempt ${attemptNumber})`);
+          await sendSms(ownerCell, smsBody);
+          console.log(`[Dunning] Payment failure SMS sent to owner of business ${business.id} at ${ownerCell} (attempt ${attemptNumber})`);
         } catch (smsErr) {
           console.error(`[Dunning] Failed to send payment failure SMS to business ${business.id}:`, smsErr);
         }
+      } else {
+        console.log(`[Dunning] No owner cell phone for business ${business.id} — skipping SMS notification`);
       }
 
       // Update business with payment failure tracking

@@ -422,6 +422,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (body.state === '') body.state = null;
       if (body.industry === '') body.industry = null;
       if (body.phone === '') body.phone = null;
+      if (body.ownerPhone === '') body.ownerPhone = null;
       if (body.logoUrl === '') body.logoUrl = null;
       // Remove fields that don't exist in the businesses table
       delete body.description;

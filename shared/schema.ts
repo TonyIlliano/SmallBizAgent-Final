@@ -41,6 +41,7 @@ export const businesses = pgTable("businesses", {
   state: text("state"),
   zip: text("zip"),
   phone: text("phone"),
+  ownerPhone: text("owner_phone"), // Owner's personal cell for notifications (payment failures, alerts)
   email: text("email").notNull(),
   website: text("website"),
   logoUrl: text("logo_url"),

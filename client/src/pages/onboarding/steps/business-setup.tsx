@@ -25,6 +25,7 @@ const formSchema = z.object({
   description: z.string().optional(),
   industry: z.string().min(1, 'Please select an industry'),
   phone: z.string().min(10, 'Phone number must be at least 10 digits'),
+  ownerPhone: z.string().min(10, 'Cell phone must be at least 10 digits').optional().or(z.literal('')),
   email: z.string().email('Please enter a valid email'),
   website: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
   address: z.string().min(5, 'Address must be at least 5 characters'),
@@ -50,6 +51,7 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
       description: '',
       industry: '',
       phone: '',
+      ownerPhone: '',
       email: user?.email || '',
       website: '',
       address: '',
@@ -287,15 +289,33 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
                 name="phone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone Number</FormLabel>
+                    <FormLabel>Business Phone</FormLabel>
                     <FormControl>
                       <Input placeholder="(555) 123-4567" {...field} />
                     </FormControl>
+                    <FormDescription>Your business phone number (shown to customers)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
+              <FormField
+                control={form.control}
+                name="ownerPhone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Your Cell Phone <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                    <FormControl>
+                      <Input placeholder="(555) 987-6543" {...field} />
+                    </FormControl>
+                    <FormDescription>For payment alerts and account notifications only</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
               <FormField
                 control={form.control}
                 name="email"
