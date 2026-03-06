@@ -12,47 +12,38 @@ declare global {
   }
 }
 
-/**
- * Resolve the Turnstile site key.
- *
- * Priority:
- *  1. Explicit `siteKey` prop
- *  2. Build-time env var (`VITE_TURNSTILE_SITE_KEY`)
- *  3. Runtime fetch from `/api/config/public`
- */
-async function resolveSiteKey(propKey?: string): Promise<string> {
+// Synchronously resolve the site key from prop or build-time env var
+function getStaticSiteKey(propKey?: string): string {
   if (propKey) return propKey;
-
-  const buildKey = typeof import.meta !== 'undefined'
-    ? import.meta.env?.VITE_TURNSTILE_SITE_KEY
-    : '';
-  if (buildKey) return buildKey;
-
   try {
-    const res = await fetch('/api/config/public');
-    if (res.ok) {
-      const data = await res.json();
-      return data.turnstileSiteKey || '';
-    }
-  } catch {}
-  return '';
+    return import.meta.env?.VITE_TURNSTILE_SITE_KEY || '';
+  } catch {
+    return '';
+  }
 }
 
 export function Turnstile({ onVerify, onExpire, siteKey }: TurnstileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
-  const [resolvedKey, setResolvedKey] = useState<string | null>(null);
+  // Initialize synchronously from prop or build-time env var
+  const [resolvedKey, setResolvedKey] = useState<string>(() => getStaticSiteKey(siteKey));
 
-  // Resolve the site key once on mount
+  // If no static key available, fetch at runtime from the server
   useEffect(() => {
+    if (resolvedKey) return; // Already have a key
     let cancelled = false;
-    resolveSiteKey(siteKey).then((key) => {
-      if (!cancelled) setResolvedKey(key);
-    });
+    fetch('/api/config/public')
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (!cancelled && data?.turnstileSiteKey) {
+          setResolvedKey(data.turnstileSiteKey);
+        }
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [siteKey]);
+  }, [resolvedKey]);
 
-  // Render the widget once we have a key
+  // Render the Turnstile widget once we have a key and the container is mounted
   useEffect(() => {
     if (!resolvedKey || !containerRef.current) return;
 
@@ -76,7 +67,7 @@ export function Turnstile({ onVerify, onExpire, siteKey }: TurnstileProps) {
     if (window.turnstile) {
       renderWidget();
     } else {
-      // Poll until loaded
+      // Poll until Cloudflare script has loaded
       const interval = setInterval(() => {
         if (window.turnstile) {
           clearInterval(interval);
@@ -93,7 +84,7 @@ export function Turnstile({ onVerify, onExpire, siteKey }: TurnstileProps) {
     };
   }, [resolvedKey, onVerify, onExpire]);
 
-  // Don't render anything until we know the key; return null if no key available
+  // No key available at all — don't render (allows dev without CAPTCHA)
   if (!resolvedKey) return null;
 
   return <div ref={containerRef} className="my-2" />;
