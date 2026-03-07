@@ -142,6 +142,7 @@ import squareRoutes from "./routes/squareRoutes";
 import heartlandRoutes from "./routes/heartlandRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import gbpRoutes from "./routes/gbpRoutes";
+import socialMediaRoutes from "./routes/socialMediaRoutes";
 
 // Import analytics routes
 import { registerAnalyticsRoutes } from './routes/analyticsRoutes';
@@ -5394,6 +5395,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register Google Business Profile routes
   app.use('/api/gbp', gbpRoutes);
+
+  // Register Social Media routes (OAuth + post management)
+  app.use('/api/social-media', socialMediaRoutes);
 
   // Register QuickBooks integration routes
   app.use('/api/quickbooks', quickbooksRoutes);

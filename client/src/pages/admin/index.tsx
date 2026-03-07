@@ -17,7 +17,7 @@ import {
   Loader2, UserPlus, PhoneCall, Shield,
   TrendingUp, TrendingDown, PieChart,
   Bot, Play, ChevronDown, ChevronUp, Bell,
-  Brain, Target, Heart, Wrench, Zap, FileText, Star, Search,
+  Brain, Target, Heart, Wrench, Zap, FileText, Star, Search, Share2,
 } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -713,6 +713,7 @@ const AGENT_ICONS: Record<string, React.ReactNode> = {
   content_seo: <FileText className="h-5 w-5 text-cyan-500" />,
   testimonial: <Star className="h-5 w-5 text-yellow-500" />,
   competitive_intel: <Search className="h-5 w-5 text-indigo-500" />,
+  social_media: <Share2 className="h-5 w-5 text-sky-500" />,
 };
 
 const CATEGORY_COLORS: Record<string, string> = {

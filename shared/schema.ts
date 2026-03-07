@@ -773,6 +773,25 @@ export const reviewResponses = pgTable("review_responses", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Social Media Posts - platform-level AI-generated social media content
+export const socialMediaPosts = pgTable("social_media_posts", {
+  id: serial("id").primaryKey(),
+  platform: text("platform").notNull(), // twitter, facebook, instagram, linkedin
+  content: text("content").notNull(),
+  mediaUrl: text("media_url"),
+  status: text("status").default("draft"), // draft, approved, published, failed, rejected
+  scheduledFor: timestamp("scheduled_for"),
+  publishedAt: timestamp("published_at"),
+  externalPostId: text("external_post_id"),
+  agentType: text("agent_type").default("platform:social_media"),
+  industry: text("industry"),
+  details: jsonb("details"),
+  rejectionReason: text("rejection_reason"),
+  editedContent: text("edited_content"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Website Scrape Cache - cached results from business website scraping
 export const websiteScrapeCache = pgTable("website_scrape_cache", {
   id: serial("id").primaryKey(),
@@ -1010,6 +1029,7 @@ export const insertSmsConversationSchema = createInsertSchema(smsConversations).
 export const insertAgentActivityLogSchema = createInsertSchema(agentActivityLog).omit({ id: true, createdAt: true });
 export const insertQuoteFollowUpSchema = createInsertSchema(quoteFollowUps).omit({ id: true, sentAt: true });
 export const insertReviewResponseSchema = createInsertSchema(reviewResponses).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertSocialMediaPostSchema = createInsertSchema(socialMediaPosts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
@@ -1183,3 +1203,6 @@ export type InsertQuoteFollowUp = z.infer<typeof insertQuoteFollowUpSchema>;
 
 export type ReviewResponse = typeof reviewResponses.$inferSelect;
 export type InsertReviewResponse = z.infer<typeof insertReviewResponseSchema>;
+
+export type SocialMediaPost = typeof socialMediaPosts.$inferSelect;
+export type InsertSocialMediaPost = z.infer<typeof insertSocialMediaPostSchema>;

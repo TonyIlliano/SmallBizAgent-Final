@@ -217,6 +217,13 @@ const PLATFORM_AGENTS = [
     schedule: 'Every 7 days',
     category: 'strategy',
   },
+  {
+    id: 'social_media',
+    name: 'Social Media',
+    description: 'Generates platform-specific marketing content drafts and publishes approved posts',
+    schedule: 'Every 24 hours',
+    category: 'marketing',
+  },
 ];
 
 /**
@@ -383,6 +390,11 @@ router.post("/api/admin/platform-agents/:agentId/run", isAdmin, async (req: Requ
       case 'competitive_intel': {
         const { runCompetitiveIntelAgent } = await import("../services/platformAgents/competitiveIntelAgent");
         result = await runCompetitiveIntelAgent();
+        break;
+      }
+      case 'social_media': {
+        const { runSocialMediaAgent } = await import("../services/platformAgents/socialMediaAgent");
+        result = await runSocialMediaAgent();
         break;
       }
       default:

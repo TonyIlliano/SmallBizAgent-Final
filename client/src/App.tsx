@@ -62,6 +62,7 @@ const ManageReservation = lazy(() => import("@/pages/book/manage-reservation"));
 // Admin pages
 const AdminDashboard = lazy(() => import("@/pages/admin/index"));
 const PhoneManagement = lazy(() => import("@/pages/admin/phone-management"));
+const SocialMediaAdmin = lazy(() => import("@/pages/admin/social-media"));
 // Staff pages
 const StaffDashboard = lazy(() => import("@/pages/staff/dashboard"));
 const StaffJoin = lazy(() => import("@/pages/staff/join"));
@@ -151,6 +152,7 @@ function Router() {
         {/* Admin routes */}
         <ProtectedAdminRoute path="/admin" component={AdminDashboard} />
         <ProtectedAdminRoute path="/admin/phone-management" component={PhoneManagement} />
+        <ProtectedAdminRoute path="/admin/social-media" component={SocialMediaAdmin} />
 
         {/* Staff routes */}
         <ProtectedRoute path="/staff/dashboard" component={StaffDashboard} />

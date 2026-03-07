@@ -903,6 +903,38 @@ export function startPlatformAgentsScheduler(): void {
     scheduledJobs.set(compIntelKey, id);
     console.log('Platform agent started: Competitive Intelligence (every 7d)');
   }
+
+  // Social Media Content — every 24 hours (generates drafts)
+  const socialMediaKey = 'platform-social-media';
+  if (!scheduledJobs.has(socialMediaKey)) {
+    setTimeout(async () => {
+      try {
+        const { runSocialMediaAgent } = await import('./platformAgents/socialMediaAgent');
+        await runSocialMediaAgent();
+      } catch (err) { console.error('[PlatformAgent:SocialMedia] Startup error:', err); }
+    }, 11 * 60 * 1000);
+    const id = setInterval(async () => {
+      try {
+        const { runSocialMediaAgent } = await import('./platformAgents/socialMediaAgent');
+        await runSocialMediaAgent();
+      } catch (err) { console.error('[PlatformAgent:SocialMedia] Error:', err); }
+    }, 24 * 60 * 60 * 1000);
+    scheduledJobs.set(socialMediaKey, id);
+    console.log('Platform agent started: Social Media (every 24h)');
+  }
+
+  // Social Media Publisher — every 30 minutes (publishes approved posts)
+  const socialPublisherKey = 'platform-social-publisher';
+  if (!scheduledJobs.has(socialPublisherKey)) {
+    const id = setInterval(async () => {
+      try {
+        const { publishApprovedPosts } = await import('./platformAgents/socialMediaAgent');
+        await publishApprovedPosts();
+      } catch (err) { console.error('[PlatformAgent:SocialPublisher] Error:', err); }
+    }, 30 * 60 * 1000);
+    scheduledJobs.set(socialPublisherKey, id);
+    console.log('Platform agent started: Social Media Publisher (every 30m)');
+  }
 }
 
 /**
