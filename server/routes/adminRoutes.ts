@@ -10,8 +10,8 @@ import { isAdmin } from "../middleware/auth";
 import * as adminService from "../services/adminService";
 import { storage } from "../storage";
 import { db } from "../db";
-import { agentActivityLog } from "../../shared/schema";
-import { eq, sql, desc, and, gte } from "drizzle-orm";
+import { agentActivityLog, businesses } from "../../shared/schema";
+import { eq, sql, desc, and, gte, inArray } from "drizzle-orm";
 
 const router = Router();
 
@@ -145,6 +145,71 @@ router.post("/api/admin/process-overage-billing", isAdmin, async (req: Request, 
   } catch (error: any) {
     console.error("[Admin] Error processing overage billing:", error);
     res.status(500).json({ error: "Failed to process overage billing", details: error.message });
+  }
+});
+
+/**
+ * PATCH /api/admin/businesses/:id/subscription-status — Update a business's subscription status
+ */
+router.patch("/api/admin/businesses/:id/subscription-status", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.id);
+    const { status } = req.body;
+    const validStatuses = ['active', 'trialing', 'inactive', 'past_due', 'canceled', 'canceling'];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    const [updated] = await db.update(businesses)
+      .set({ subscriptionStatus: status, updatedAt: new Date() })
+      .where(eq(businesses.id, businessId))
+      .returning();
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    res.json({ success: true, business: { id: updated.id, name: updated.name, subscriptionStatus: updated.subscriptionStatus } });
+  } catch (error: any) {
+    console.error("[Admin] Error updating subscription status:", error);
+    res.status(500).json({ error: "Failed to update subscription status", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/businesses/bulk-subscription-status — Bulk update subscription status
+ */
+router.post("/api/admin/businesses/bulk-subscription-status", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { status, businessIds } = req.body;
+    const validStatuses = ['active', 'trialing', 'inactive', 'past_due', 'canceled', 'canceling'];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    let result;
+    if (businessIds && businessIds.length > 0) {
+      result = await db.update(businesses)
+        .set({ subscriptionStatus: status, updatedAt: new Date() })
+        .where(inArray(businesses.id, businessIds))
+        .returning();
+    } else {
+      // Update ALL businesses
+      result = await db.update(businesses)
+        .set({ subscriptionStatus: status, updatedAt: new Date() })
+        .returning();
+    }
+
+    res.json({
+      success: true,
+      updated: result.length,
+      businesses: result.map(b => ({ id: b.id, name: b.name, subscriptionStatus: b.subscriptionStatus }))
+    });
+  } catch (error: any) {
+    console.error("[Admin] Error bulk updating subscription status:", error);
+    res.status(500).json({ error: "Failed to bulk update subscription status", details: error.message });
   }
 });
 
