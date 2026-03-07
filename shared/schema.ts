@@ -779,6 +779,8 @@ export const socialMediaPosts = pgTable("social_media_posts", {
   platform: text("platform").notNull(), // twitter, facebook, instagram, linkedin
   content: text("content").notNull(),
   mediaUrl: text("media_url"),
+  mediaType: text("media_type").default("text"), // text, video, image
+  thumbnailUrl: text("thumbnail_url"),
   status: text("status").default("draft"), // draft, approved, published, failed, rejected
   scheduledFor: timestamp("scheduled_for"),
   publishedAt: timestamp("published_at"),

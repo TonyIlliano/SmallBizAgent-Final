@@ -151,18 +151,53 @@ export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
           content = generateTemplatePost(platform, industry);
         }
 
+        // Optionally generate a video for this post
+        let mediaUrl: string | null = null;
+        let mediaType: string = 'text';
+        let thumbnailUrl: string | null = null;
+        let videoMeta: Record<string, any> | null = null;
+
+        try {
+          const { isVideoGenerationAvailable, generateMarketingVideo } = await import('../videoGenerationService');
+
+          if (isVideoGenerationAvailable()) {
+            console.log(`[${AGENT_TYPE}] Generating video for ${platform}/${industry}...`);
+            const videoResult = await generateMarketingVideo(platform as any, industry, content);
+
+            if (videoResult.success && videoResult.videoUrl) {
+              mediaUrl = videoResult.videoUrl;
+              mediaType = 'video';
+              thumbnailUrl = videoResult.thumbnailUrl || null;
+              videoMeta = {
+                renderId: videoResult.renderId,
+                duration: videoResult.duration,
+                template: videoResult.template,
+              };
+              console.log(`[${AGENT_TYPE}] Video generated: ${mediaUrl}`);
+            } else if (videoResult.error) {
+              console.warn(`[${AGENT_TYPE}] Video generation failed (using text-only): ${videoResult.error}`);
+            }
+          }
+        } catch (videoErr) {
+          console.warn(`[${AGENT_TYPE}] Video generation error (using text-only):`, videoErr);
+        }
+
         // Insert the draft into the socialMediaPosts table
         const [inserted] = await db
           .insert(socialMediaPosts)
           .values({
             platform,
             content,
+            mediaUrl,
+            mediaType,
+            thumbnailUrl,
             status: 'draft',
             agentType: AGENT_TYPE,
             industry,
             details: {
               generatedVia: useOpenAI ? 'openai' : 'template',
               model: useOpenAI ? 'gpt-4o-mini' : null,
+              ...(videoMeta ? { video: videoMeta } : {}),
             },
           })
           .returning();
@@ -176,8 +211,10 @@ export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
             postId: inserted.id,
             platform,
             industry,
+            mediaType,
             contentPreview: content.substring(0, 100),
             generatedVia: useOpenAI ? 'openai' : 'template',
+            hasVideo: mediaType === 'video',
           },
         });
 

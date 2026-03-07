@@ -345,4 +345,124 @@ router.post('/generate', isAdmin, async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /posts/:id/generate-video — Generate a video for an existing text post
+ */
+router.post('/posts/:id/generate-video', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid post ID' });
+    }
+
+    const [post] = await db
+      .select()
+      .from(socialMediaPosts)
+      .where(eq(socialMediaPosts.id, id))
+      .limit(1);
+
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const { isVideoGenerationAvailable, generateMarketingVideo } = await import("../services/videoGenerationService");
+
+    if (!isVideoGenerationAvailable()) {
+      return res.status(503).json({ error: 'Video generation not configured. Set SHOTSTACK_API_KEY.' });
+    }
+
+    // Generate video asynchronously — update the post when done
+    const platform = post.platform as any;
+    const industry = post.industry || 'Small Business';
+    const content = post.editedContent || post.content;
+
+    // Return immediately with a "generating" status
+    res.json({ status: 'generating', postId: id });
+
+    // Generate in background
+    try {
+      const result = await generateMarketingVideo(platform, industry, content);
+
+      if (result.success && result.videoUrl) {
+        await db
+          .update(socialMediaPosts)
+          .set({
+            mediaUrl: result.videoUrl,
+            mediaType: 'video',
+            thumbnailUrl: result.thumbnailUrl || null,
+            details: {
+              ...(post.details as Record<string, any> || {}),
+              video: {
+                renderId: result.renderId,
+                duration: result.duration,
+                template: result.template,
+                generatedAt: new Date().toISOString(),
+              },
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(socialMediaPosts.id, id));
+
+        console.log(`[SocialMedia] Video generated for post ${id}: ${result.videoUrl}`);
+      } else {
+        console.error(`[SocialMedia] Video generation failed for post ${id}: ${result.error}`);
+      }
+    } catch (err) {
+      console.error(`[SocialMedia] Background video generation error for post ${id}:`, err);
+    }
+  } catch (error: any) {
+    console.error('[SocialMedia] Error triggering video generation:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /posts/:id/video-status — Check video generation status for a post
+ */
+router.get('/posts/:id/video-status', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid post ID' });
+    }
+
+    const [post] = await db
+      .select()
+      .from(socialMediaPosts)
+      .where(eq(socialMediaPosts.id, id))
+      .limit(1);
+
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const details = post.details as Record<string, any> || {};
+    const videoMeta = details.video || null;
+
+    res.json({
+      postId: id,
+      mediaType: post.mediaType || 'text',
+      mediaUrl: post.mediaUrl || null,
+      thumbnailUrl: post.thumbnailUrl || null,
+      videoMeta,
+      hasVideo: post.mediaType === 'video' && !!post.mediaUrl,
+    });
+  } catch (error: any) {
+    console.error('[SocialMedia] Error checking video status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /video-available — Check if video generation is configured
+ */
+router.get('/video-available', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { isVideoGenerationAvailable } = await import("../services/videoGenerationService");
+    res.json({ available: isVideoGenerationAvailable() });
+  } catch (error: any) {
+    res.json({ available: false });
+  }
+});
+
 export default router;

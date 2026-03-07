@@ -25,7 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, CheckCircle, XCircle, ExternalLink, Play, Pencil, Trash2,
-  Send, Eye, RefreshCw, Link2, Unlink, Shield, Share2,
+  Send, Eye, RefreshCw, Link2, Unlink, Shield, Share2, Video, FileText,
 } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -40,6 +40,8 @@ interface SocialPost {
   platform: string;
   content: string;
   mediaUrl: string | null;
+  mediaType: string | null;
+  thumbnailUrl: string | null;
   status: string;
   scheduledFor: string | null;
   publishedAt: string | null;
@@ -307,6 +309,31 @@ function PostsTable({ status }: { status: string }) {
     },
   });
 
+  const { data: videoAvailability } = useQuery<{ available: boolean }>({
+    queryKey: ["/api/social-media/video-available"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/social-media/video-available");
+      return res.json();
+    },
+  });
+
+  const generateVideoMutation = useMutation({
+    mutationFn: async (postId: number) => {
+      const res = await apiRequest("POST", `/api/social-media/posts/${postId}/generate-video`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Video generation started", description: "The video is being rendered. Refresh to see when it's ready." });
+      // Poll for updates after a delay
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
+      }, 10000);
+    },
+    onError: () => {
+      toast({ title: "Video generation failed", variant: "destructive" });
+    },
+  });
+
   const approveMutation = useMutation({
     mutationFn: async (postId: number) => {
       await apiRequest("POST", `/api/social-media/posts/${postId}/approve`);
@@ -408,10 +435,21 @@ function PostsTable({ status }: { status: string }) {
                   </div>
                 </TableCell>
                 <TableCell className="max-w-md">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    {post.mediaType === 'video' ? (
+                      <Badge variant="secondary" className="text-xs flex items-center gap-1 bg-purple-100 text-purple-800">
+                        <Video className="h-3 w-3" /> Video
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                        <FileText className="h-3 w-3" /> Text
+                      </Badge>
+                    )}
+                    {post.editedContent && (
+                      <span className="text-xs text-amber-600">(edited)</span>
+                    )}
+                  </div>
                   <p className="text-sm truncate">{displayContent.slice(0, 120)}...</p>
-                  {post.editedContent && (
-                    <span className="text-xs text-amber-600">(edited)</span>
-                  )}
                 </TableCell>
                 <TableCell>
                   {post.industry ? (
@@ -431,6 +469,23 @@ function PostsTable({ status }: { status: string }) {
                     {/* Draft actions */}
                     {status === "draft" && (
                       <>
+                        {/* Generate Video button (only for text posts when Shotstack is configured) */}
+                        {post.mediaType !== 'video' && videoAvailability?.available && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-purple-600"
+                            title="Generate Video"
+                            onClick={() => generateVideoMutation.mutate(post.id)}
+                            disabled={generateVideoMutation.isPending}
+                          >
+                            {generateVideoMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Video className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -520,6 +575,30 @@ function PostsTable({ status }: { status: string }) {
               {viewingPost?.industry && `Industry: ${viewingPost.industry}`}
             </DialogDescription>
           </DialogHeader>
+          {/* Video Preview */}
+          {viewingPost?.mediaType === 'video' && viewingPost?.mediaUrl && (
+            <div className="rounded-lg overflow-hidden border bg-black">
+              <video
+                src={viewingPost.mediaUrl}
+                controls
+                className="w-full max-h-64"
+                poster={viewingPost.thumbnailUrl || undefined}
+              />
+              <div className="flex items-center gap-2 p-2 bg-muted/50 text-xs text-muted-foreground">
+                <Video className="h-3 w-3" />
+                <span>
+                  {viewingPost.details?.video?.template && `Template: ${viewingPost.details.video.template}`}
+                  {viewingPost.details?.video?.duration && ` • ${viewingPost.details.video.duration}s`}
+                </span>
+              </div>
+            </div>
+          )}
+          {viewingPost?.mediaType === 'video' && !viewingPost?.mediaUrl && (
+            <div className="rounded-lg border p-4 bg-muted/50 flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Video is being generated...
+            </div>
+          )}
           <div className="whitespace-pre-wrap text-sm border rounded-lg p-4 bg-muted/50 max-h-80 overflow-y-auto">
             {viewingPost?.editedContent || viewingPost?.content}
           </div>

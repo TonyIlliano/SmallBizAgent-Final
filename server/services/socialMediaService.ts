@@ -621,6 +621,8 @@ class SocialMediaService {
 
       const platform = post.platform as SocialPlatform;
       const content = post.editedContent || post.content;
+      const videoUrl = post.mediaUrl || undefined;
+      const hasVideo = post.mediaType === 'video' && !!videoUrl;
 
       const tokens = await this.getTokens(platform);
       if (!tokens) {
@@ -628,22 +630,22 @@ class SocialMediaService {
         return { success: false, error: `No ${platform} tokens found` };
       }
 
-      console.log(`[SocialMedia] Publishing post ${postId} to ${platform}...`);
+      console.log(`[SocialMedia] Publishing post ${postId} to ${platform}${hasVideo ? ' (with video)' : ''}...`);
 
       let result: { externalPostId?: string; error?: string };
 
       switch (platform) {
         case "twitter":
-          result = await this.publishToTwitter(content, tokens);
+          result = await this.publishToTwitter(content, tokens, hasVideo ? videoUrl : undefined);
           break;
         case "facebook":
-          result = await this.publishToFacebook(content, tokens);
+          result = await this.publishToFacebook(content, tokens, hasVideo ? videoUrl : undefined);
           break;
         case "instagram":
-          result = await this.publishToInstagram(content, tokens);
+          result = await this.publishToInstagram(content, tokens, hasVideo ? videoUrl : undefined);
           break;
         case "linkedin":
-          result = await this.publishToLinkedIn(content, tokens);
+          result = await this.publishToLinkedIn(content, tokens, hasVideo ? videoUrl : undefined);
           break;
         default:
           result = { error: `Unsupported platform: ${platform}` };
@@ -677,19 +679,68 @@ class SocialMediaService {
 
   /**
    * Publish a tweet to Twitter/X using the v2 API.
+   * If videoUrl is provided, uploads the video via media upload endpoint first.
    */
   private async publishToTwitter(
     content: string,
-    tokens: { accessToken: string; refreshToken?: string; data?: any }
+    tokens: { accessToken: string; refreshToken?: string; data?: any },
+    videoUrl?: string
   ): Promise<{ externalPostId?: string; error?: string }> {
     try {
+      let mediaId: string | undefined;
+
+      // Upload video if present
+      if (videoUrl) {
+        try {
+          const videoResponse = await fetch(videoUrl);
+          if (videoResponse.ok) {
+            const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+            // Twitter chunked media upload (v1.1 — required for video)
+            // Step 1: INIT
+            const initRes = await fetch("https://upload.twitter.com/1.1/media/upload.json", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${tokens.accessToken}`, "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({ command: "INIT", total_bytes: String(videoBuffer.length), media_type: "video/mp4", media_category: "tweet_video" }),
+            });
+            if (initRes.ok) {
+              const initData = await initRes.json() as any;
+              mediaId = initData.media_id_string;
+              // Step 2: APPEND (send entire file as one chunk for small videos)
+              const formData = new FormData();
+              formData.append("command", "APPEND");
+              formData.append("media_id", mediaId!);
+              formData.append("segment_index", "0");
+              formData.append("media_data", videoBuffer.toString("base64"));
+              await fetch("https://upload.twitter.com/1.1/media/upload.json", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${tokens.accessToken}` },
+                body: formData as any,
+              });
+              // Step 3: FINALIZE
+              await fetch("https://upload.twitter.com/1.1/media/upload.json", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${tokens.accessToken}`, "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({ command: "FINALIZE", media_id: mediaId! }),
+              });
+            }
+          }
+        } catch (uploadErr) {
+          console.error("[SocialMedia] Twitter video upload failed, publishing text-only:", uploadErr);
+        }
+      }
+
+      const tweetBody: any = { text: content };
+      if (mediaId) {
+        tweetBody.media = { media_ids: [mediaId] };
+      }
+
       const response = await fetch("https://api.twitter.com/2/tweets", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${tokens.accessToken}`,
         },
-        body: JSON.stringify({ text: content }),
+        body: JSON.stringify(tweetBody),
       });
 
       if (!response.ok) {
@@ -706,11 +757,12 @@ class SocialMediaService {
 
   /**
    * Publish a post to a Facebook Page using the Graph API.
-   * Requires pageId in tokens.data.
+   * If videoUrl is provided, posts to /{pageId}/videos instead of /feed.
    */
   private async publishToFacebook(
     content: string,
-    tokens: { accessToken: string; refreshToken?: string; data?: any }
+    tokens: { accessToken: string; refreshToken?: string; data?: any },
+    videoUrl?: string
   ): Promise<{ externalPostId?: string; error?: string }> {
     try {
       const pageId = tokens.data?.pageId;
@@ -718,11 +770,32 @@ class SocialMediaService {
         return { error: "Facebook pageId not found in stored tokens. Please reconnect." };
       }
 
+      // Video post
+      if (videoUrl) {
+        const response = await fetch(`https://graph.facebook.com/v19.0/${pageId}/videos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            file_url: videoUrl,
+            description: content,
+            access_token: tokens.accessToken,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          console.warn(`[SocialMedia] Facebook video upload failed, falling back to text: ${errorBody}`);
+          // Fall through to text post
+        } else {
+          const data = await response.json() as any;
+          return { externalPostId: data.id };
+        }
+      }
+
+      // Text-only post (or video fallback)
       const response = await fetch(`https://graph.facebook.com/v19.0/${pageId}/feed`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: content,
           access_token: tokens.accessToken,
@@ -743,12 +816,13 @@ class SocialMediaService {
 
   /**
    * Publish to Instagram using the Content Publishing API.
+   * If videoUrl is provided, creates a REELS container instead of a basic post.
    * Two-step process: create media container, then publish it.
-   * Requires igUserId in tokens.data.
    */
   private async publishToInstagram(
     content: string,
-    tokens: { accessToken: string; refreshToken?: string; data?: any }
+    tokens: { accessToken: string; refreshToken?: string; data?: any },
+    videoUrl?: string
   ): Promise<{ externalPostId?: string; error?: string }> {
     try {
       const igUserId = tokens.data?.igUserId;
@@ -756,18 +830,23 @@ class SocialMediaService {
         return { error: "Instagram igUserId not found in stored tokens. Please reconnect." };
       }
 
-      // Step 1: Create the media container
+      // Step 1: Create the media container (video = REELS, text = basic)
+      const containerBody: any = {
+        caption: content,
+        access_token: tokens.accessToken,
+      };
+
+      if (videoUrl) {
+        containerBody.media_type = "REELS";
+        containerBody.video_url = videoUrl;
+      }
+
       const createResponse = await fetch(
         `https://graph.facebook.com/v19.0/${igUserId}/media`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            caption: content,
-            access_token: tokens.accessToken,
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(containerBody),
         }
       );
 
@@ -783,14 +862,33 @@ class SocialMediaService {
         return { error: "Instagram media container ID not returned" };
       }
 
+      // For video, wait for processing to complete (poll status)
+      if (videoUrl) {
+        let ready = false;
+        for (let i = 0; i < 30; i++) { // Max 150 seconds
+          await new Promise(r => setTimeout(r, 5000));
+          const statusRes = await fetch(
+            `https://graph.facebook.com/v19.0/${containerId}?fields=status_code&access_token=${tokens.accessToken}`
+          );
+          if (statusRes.ok) {
+            const statusData = await statusRes.json() as any;
+            if (statusData.status_code === "FINISHED") { ready = true; break; }
+            if (statusData.status_code === "ERROR") {
+              return { error: "Instagram video processing failed" };
+            }
+          }
+        }
+        if (!ready) {
+          return { error: "Instagram video processing timed out" };
+        }
+      }
+
       // Step 2: Publish the media container
       const publishResponse = await fetch(
         `https://graph.facebook.com/v19.0/${igUserId}/media_publish`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             creation_id: containerId,
             access_token: tokens.accessToken,
@@ -812,17 +910,87 @@ class SocialMediaService {
 
   /**
    * Publish a post to LinkedIn using the UGC Posts API.
-   * Requires personUrn in tokens.data.
+   * If videoUrl is provided, registers an upload, uploads the binary, then creates a video post.
    */
   private async publishToLinkedIn(
     content: string,
-    tokens: { accessToken: string; refreshToken?: string; data?: any }
+    tokens: { accessToken: string; refreshToken?: string; data?: any },
+    videoUrl?: string
   ): Promise<{ externalPostId?: string; error?: string }> {
     try {
       const personUrn = tokens.data?.personUrn;
       if (!personUrn) {
         return { error: "LinkedIn personUrn not found in stored tokens. Please reconnect." };
       }
+
+      let shareMediaCategory = "NONE";
+      let mediaElements: any[] = [];
+
+      // Upload video if present
+      if (videoUrl) {
+        try {
+          // Step 1: Register upload
+          const registerRes = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${tokens.accessToken}`,
+            },
+            body: JSON.stringify({
+              registerUploadRequest: {
+                recipes: ["urn:li:digitalmediaRecipe:feedshare-video"],
+                owner: personUrn,
+                serviceRelationships: [{ relationshipType: "OWNER", identifier: "urn:li:userGeneratedContent" }],
+              },
+            }),
+          });
+
+          if (registerRes.ok) {
+            const registerData = await registerRes.json() as any;
+            const uploadUrl = registerData.value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]?.uploadUrl;
+            const asset = registerData.value?.asset;
+
+            if (uploadUrl && asset) {
+              // Step 2: Upload the video binary
+              const videoResponse = await fetch(videoUrl);
+              if (videoResponse.ok) {
+                const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+                await fetch(uploadUrl, {
+                  method: "PUT",
+                  headers: {
+                    Authorization: `Bearer ${tokens.accessToken}`,
+                    "Content-Type": "application/octet-stream",
+                  },
+                  body: videoBuffer,
+                });
+
+                shareMediaCategory = "VIDEO";
+                mediaElements = [{
+                  status: "READY",
+                  media: asset,
+                }];
+              }
+            }
+          }
+        } catch (uploadErr) {
+          console.error("[SocialMedia] LinkedIn video upload failed, publishing text-only:", uploadErr);
+        }
+      }
+
+      const ugcBody: any = {
+        author: personUrn,
+        lifecycleState: "PUBLISHED",
+        specificContent: {
+          "com.linkedin.ugc.ShareContent": {
+            shareCommentary: { text: content },
+            shareMediaCategory,
+            ...(mediaElements.length > 0 ? { media: mediaElements } : {}),
+          },
+        },
+        visibility: {
+          "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+        },
+      };
 
       const response = await fetch("https://api.linkedin.com/v2/ugcPosts", {
         method: "POST",
@@ -831,21 +999,7 @@ class SocialMediaService {
           Authorization: `Bearer ${tokens.accessToken}`,
           "X-Restli-Protocol-Version": "2.0.0",
         },
-        body: JSON.stringify({
-          author: personUrn,
-          lifecycleState: "PUBLISHED",
-          specificContent: {
-            "com.linkedin.ugc.ShareContent": {
-              shareCommentary: {
-                text: content,
-              },
-              shareMediaCategory: "NONE",
-            },
-          },
-          visibility: {
-            "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-          },
-        }),
+        body: JSON.stringify(ugcBody),
       });
 
       if (!response.ok) {
