@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { Redirect } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -727,6 +728,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 function PlatformAgentsTab() {
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const { data: agentsData, isLoading } = useQuery<{ agents: PlatformAgent[] }>({
     queryKey: ["/api/admin/platform-agents"],
@@ -749,9 +751,24 @@ function PlatformAgentsTab() {
       const res = await apiRequest("POST", `/api/admin/platform-agents/${agentId}/run`);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data, agentId) => {
+      const agentName = agentsData?.agents.find(a => a.id === agentId)?.name || agentId;
+      toast({
+        title: "Agent completed",
+        description: `${agentName} finished running successfully.`,
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-agents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-agents-summary"] });
+      // Also refetch activity for the expanded agent
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/platform-agents/${agentId}/activity`] });
+    },
+    onError: (error: any, agentId) => {
+      const agentName = agentsData?.agents.find(a => a.id === agentId)?.name || agentId;
+      toast({
+        title: "Agent failed",
+        description: `${agentName} encountered an error: ${error.message}`,
+        variant: "destructive",
+      });
     },
   });
 
