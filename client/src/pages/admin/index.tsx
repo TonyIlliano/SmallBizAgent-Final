@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -846,6 +847,8 @@ function AgentCard({ agent, isExpanded, onToggle, onRun, isRunning }: {
   onRun: () => void;
   isRunning: boolean;
 }) {
+  const [selectedLog, setSelectedLog] = useState<AgentActivityLogEntry | null>(null);
+
   // Fetch activity when expanded
   const { data: activityData, isLoading: loadingActivity } = useQuery<{ logs: AgentActivityLogEntry[] }>({
     queryKey: [`/api/admin/platform-agents/${agent.id}/activity`],
@@ -926,7 +929,11 @@ function AgentCard({ agent, isExpanded, onToggle, onRun, isRunning }: {
                 </TableHeader>
                 <TableBody>
                   {activityData.logs.map((log) => (
-                    <TableRow key={log.id}>
+                    <TableRow
+                      key={log.id}
+                      className="cursor-pointer hover:bg-muted/60"
+                      onClick={() => setSelectedLog(log)}
+                    >
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                         {log.createdAt ? formatRelative(log.createdAt) : "—"}
                       </TableCell>
@@ -956,7 +963,163 @@ function AgentCard({ agent, isExpanded, onToggle, onRun, isRunning }: {
           )}
         </CardContent>
       )}
+
+      {/* Activity Detail Dialog */}
+      <Dialog open={!!selectedLog} onOpenChange={() => setSelectedLog(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Badge
+                variant={selectedLog?.action === 'alert_generated' ? 'destructive' : 'secondary'}
+                className="text-xs"
+              >
+                {selectedLog?.action?.replace(/_/g, ' ')}
+              </Badge>
+              <span className="text-muted-foreground text-sm font-normal">
+                {selectedLog?.createdAt ? formatRelative(selectedLog.createdAt) : ""}
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          {selectedLog && <AgentDetailView details={selectedLog.details} action={selectedLog.action} businessId={selectedLog.businessId} />}
+        </DialogContent>
+      </Dialog>
     </Card>
+  );
+}
+
+function AgentDetailView({ details, action, businessId }: { details: any; action: string; businessId: number }) {
+  const d = typeof details === 'string' ? JSON.parse(details) : details;
+  if (!d) return <p className="text-muted-foreground">No details available.</p>;
+
+  // Content draft (blog or social)
+  if (d.contentType === 'blog') {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Blog Post Draft</p>
+          <h3 className="text-lg font-semibold mt-1">{d.title}</h3>
+        </div>
+        {d.industry && (
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">{d.industry}</Badge>
+            {d.businessCount && <span className="text-xs text-muted-foreground">({d.businessCount} businesses)</span>}
+            {d.generatedVia && <Badge variant="secondary" className="text-xs">{d.generatedVia === 'openai' ? 'AI Generated' : 'Template'}</Badge>}
+          </div>
+        )}
+        {d.outline && d.outline.length > 0 && (
+          <div>
+            <p className="text-sm font-medium mb-2">Outline</p>
+            <ol className="list-decimal list-inside space-y-1">
+              {d.outline.map((item: string, i: number) => (
+                <li key={i} className="text-sm text-muted-foreground">{item}</li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {d.targetKeywords && d.targetKeywords.length > 0 && (
+          <div>
+            <p className="text-sm font-medium mb-2">Target Keywords</p>
+            <div className="flex flex-wrap gap-1">
+              {d.targetKeywords.map((kw: string, i: number) => (
+                <Badge key={i} variant="outline" className="text-xs">{kw}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (d.contentType === 'social') {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Social Media Post Draft</p>
+          <h3 className="text-lg font-semibold mt-1">{d.title}</h3>
+        </div>
+        {d.industry && (
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">{d.industry}</Badge>
+            {d.generatedVia && <Badge variant="secondary" className="text-xs">{d.generatedVia === 'openai' ? 'AI Generated' : 'Template'}</Badge>}
+          </div>
+        )}
+        {d.body && (
+          <div className="bg-muted rounded-lg p-4">
+            <p className="text-sm whitespace-pre-wrap">{d.body}</p>
+          </div>
+        )}
+        {d.targetKeywords && d.targetKeywords.length > 0 && (
+          <div>
+            <p className="text-sm font-medium mb-2">Target Keywords</p>
+            <div className="flex flex-wrap gap-1">
+              {d.targetKeywords.map((kw: string, i: number) => (
+                <Badge key={i} variant="outline" className="text-xs">{kw}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Health score
+  if (d.tier || d.breakdown) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-4">
+          <div className="text-center">
+            <p className="text-4xl font-bold">{d.score}</p>
+            <p className="text-xs text-muted-foreground">Health Score</p>
+          </div>
+          <Badge variant={d.tier === 'critical' ? 'destructive' : d.tier === 'at_risk' ? 'secondary' : 'default'} className="text-sm">
+            {d.tier?.replace(/_/g, ' ')}
+          </Badge>
+        </div>
+        {d.breakdown && (
+          <div>
+            <p className="text-sm font-medium mb-2">Score Breakdown</p>
+            <div className="space-y-1">
+              {Object.entries(d.breakdown).map(([key, value]) => (
+                <div key={key} className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}</span>
+                  <span className="font-medium">{String(value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {d.message && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-sm text-red-800">{d.message}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Alert
+  if (d.alertType || d.message) {
+    return (
+      <div className="space-y-4">
+        {d.alertType && <Badge variant="destructive">{d.alertType.replace(/_/g, ' ')}</Badge>}
+        {d.message && <p className="text-sm">{d.message}</p>}
+        {d.score !== undefined && <p className="text-sm text-muted-foreground">Score: {d.score}</p>}
+      </div>
+    );
+  }
+
+  // Generic fallback - show all details nicely
+  return (
+    <div className="space-y-2">
+      {Object.entries(d).map(([key, value]) => (
+        <div key={key} className="flex gap-2">
+          <span className="text-sm font-medium min-w-[120px]">{key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}:</span>
+          <span className="text-sm text-muted-foreground">
+            {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
