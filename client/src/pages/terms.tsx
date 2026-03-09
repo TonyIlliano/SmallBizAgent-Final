@@ -151,16 +151,34 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">7. Your Data</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">7. SMS/Text Messaging Terms</h2>
+              <p className="text-neutral-300 leading-relaxed mb-4">
+                The SmallBizAgent platform sends SMS text messages on behalf of businesses using our Service.
+                By providing your phone number to a business that uses SmallBizAgent, you may receive text
+                messages including appointment reminders, reservation confirmations, order updates, missed call
+                notifications, review requests, and promotional offers.
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-neutral-300">
+                <li><strong className="text-white">Message Frequency:</strong> Message frequency varies based on your interactions with the business (e.g., appointments booked, invoices sent, marketing campaigns). You may receive multiple messages per month.</li>
+                <li><strong className="text-white">Message and Data Rates:</strong> Message and data rates may apply. Check with your mobile carrier for details about your messaging plan.</li>
+                <li><strong className="text-white">Opt-Out:</strong> You can opt out of text messages at any time by replying <strong>STOP</strong> to any message. After opting out, you will receive a confirmation message and no further messages will be sent unless you re-subscribe.</li>
+                <li><strong className="text-white">Help:</strong> For help or questions about text messages, reply <strong>HELP</strong> to any message or contact us at Bark@smallbizagent.ai.</li>
+                <li><strong className="text-white">Supported Carriers:</strong> Messages are sent via Twilio and are supported on all major US carriers.</li>
+                <li><strong className="text-white">Privacy:</strong> Your phone number and messaging data are handled in accordance with our <a href="/privacy" className="text-blue-400 hover:text-blue-300">Privacy Policy</a>. We do not sell your personal information or share it for third-party marketing purposes.</li>
+              </ul>
+            </section>
 
-              <h3 className="text-xl font-medium mb-3 text-neutral-200">7.1 Ownership</h3>
+            <section>
+              <h2 className="text-2xl font-semibold mb-4 text-white">8. Your Data</h2>
+
+              <h3 className="text-xl font-medium mb-3 text-neutral-200">8.1 Ownership</h3>
               <p className="text-neutral-300 leading-relaxed mb-4">
                 You retain ownership of all data you upload or create using the Service ("Your Data"), including
                 customer information, appointment records, invoices, and business details. We do not claim
                 ownership of Your Data.
               </p>
 
-              <h3 className="text-xl font-medium mb-3 text-neutral-200">7.2 License Grant</h3>
+              <h3 className="text-xl font-medium mb-3 text-neutral-200">8.2 License Grant</h3>
               <p className="text-neutral-300 leading-relaxed mb-4">
                 By using the Service, you grant us a limited, non-exclusive license to use, process, and store
                 Your Data solely for the purpose of providing the Service to you. This includes processing data
@@ -168,7 +186,7 @@ export default function TermsOfService() {
                 necessary to deliver the features you use.
               </p>
 
-              <h3 className="text-xl font-medium mb-3 text-neutral-200">7.3 Data Export</h3>
+              <h3 className="text-xl font-medium mb-3 text-neutral-200">8.3 Data Export</h3>
               <p className="text-neutral-300 leading-relaxed">
                 You may export Your Data at any time through the Service's export features or by contacting
                 support. Upon account termination, we will make Your Data available for export for a period of
@@ -177,7 +195,7 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">8. Intellectual Property</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">9. Intellectual Property</h2>
               <p className="text-neutral-300 leading-relaxed">
                 The Service, including its design, code, features, documentation, and branding, is the property
                 of SmallBizAgent and is protected by intellectual property laws. You may not copy, modify,
@@ -187,7 +205,7 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">9. AI Receptionist Disclaimer</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">10. AI Receptionist Disclaimer</h2>
               <p className="text-neutral-300 leading-relaxed">
                 The AI receptionist is an automated system that uses artificial intelligence to handle phone
                 calls on behalf of your business. While we strive for accuracy and natural interactions, the
@@ -204,7 +222,7 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">10. Service Availability</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">11. Service Availability</h2>
               <p className="text-neutral-300 leading-relaxed">
                 We strive to maintain high availability but do not guarantee uninterrupted access to the Service.
                 The Service may be temporarily unavailable due to maintenance, updates, or circumstances beyond
@@ -214,7 +232,7 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">11. Limitation of Liability</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">12. Limitation of Liability</h2>
               <p className="text-neutral-300 leading-relaxed">
                 TO THE MAXIMUM EXTENT PERMITTED BY LAW, SMALLBIZAGENT AND ITS OFFICERS, DIRECTORS, EMPLOYEES,
                 AND AGENTS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
@@ -226,7 +244,7 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">12. Disclaimer of Warranties</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">13. Disclaimer of Warranties</h2>
               <p className="text-neutral-300 leading-relaxed">
                 THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS
                 OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
@@ -236,7 +254,7 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">13. Indemnification</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">14. Indemnification</h2>
               <p className="text-neutral-300 leading-relaxed">
                 You agree to indemnify, defend, and hold harmless SmallBizAgent and its officers, directors,
                 employees, and agents from and against any claims, liabilities, damages, losses, and expenses
@@ -248,17 +266,17 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">14. Termination</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">15. Termination</h2>
               <p className="text-neutral-300 leading-relaxed">
                 We may suspend or terminate your access to the Service at any time, with or without cause, with
                 or without notice. Upon termination: (a) your right to use the Service ceases immediately;
                 (b) we may delete Your Data after the 30-day export period; (c) any outstanding fees become
-                immediately due. Sections 7, 8, 11, 12, 13, and 15 survive termination.
+                immediately due. Sections 8, 9, 12, 13, 14, and 16 survive termination.
               </p>
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">15. Governing Law and Disputes</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">16. Governing Law and Disputes</h2>
               <p className="text-neutral-300 leading-relaxed">
                 These Terms are governed by the laws of the State of New York, without regard to conflict of law
                 provisions. Any disputes arising from these Terms or the Service shall first be addressed through
@@ -270,7 +288,7 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">16. Changes to Terms</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">17. Changes to Terms</h2>
               <p className="text-neutral-300 leading-relaxed">
                 We reserve the right to modify these Terms at any time. We will notify you of material changes
                 by posting the updated Terms on this page and, for significant changes, by sending an email or
@@ -280,7 +298,7 @@ export default function TermsOfService() {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4 text-white">17. Contact Us</h2>
+              <h2 className="text-2xl font-semibold mb-4 text-white">18. Contact Us</h2>
               <p className="text-neutral-300 leading-relaxed">
                 If you have questions about these Terms, please contact us:
               </p>
