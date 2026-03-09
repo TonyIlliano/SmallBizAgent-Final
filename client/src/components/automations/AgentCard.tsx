@@ -21,7 +21,7 @@ const AGENT_META: Record<string, { label: string; description: string; icon: any
   },
   no_show: {
     label: "No-Show",
-    description: "Detect missed appointments and offer rescheduling",
+    description: "SMS customers to reschedule when you mark an appointment as no-show",
     icon: UserX,
     color: "text-orange-600 dark:text-orange-400",
   },

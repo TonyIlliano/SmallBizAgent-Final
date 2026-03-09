@@ -16,7 +16,6 @@ const DEFAULT_CONFIGS: Record<AgentType, any> = {
     messageTemplate: "Hey {customerName}, we missed you at your {appointmentTime} appointment with {businessName}. Want to reschedule? Reply YES.",
     rescheduleReplyTemplate: "Great! Book online at {bookingLink} or call us at {businessPhone}.",
     declineReplyTemplate: "No problem! We'll be here whenever you're ready. - {businessName}",
-    checkDelayMinutes: 60,
     expirationHours: 24,
   },
   estimate_follow_up: {

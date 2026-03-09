@@ -30,6 +30,7 @@ import {
   ExternalLink,
   CheckCircle2,
   XCircle,
+  UserX,
   MapPin,
   Armchair,
   AlertTriangle,
@@ -776,6 +777,7 @@ function AppointmentDetailPanel({
               <SelectItem value="scheduled">Scheduled</SelectItem>
               <SelectItem value="confirmed">Confirmed</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="no_show">No Show</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
@@ -805,6 +807,18 @@ function AppointmentDetailPanel({
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
               Complete
+            </Button>
+          )}
+          {appointment.status !== "no_show" && appointment.status !== "completed" && appointment.status !== "cancelled" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onStatusChange("no_show")}
+              disabled={statusPending}
+              className="text-amber-700 border-amber-200 hover:bg-amber-50"
+            >
+              <UserX className="h-3.5 w-3.5 mr-1" />
+              No Show
             </Button>
           )}
           {appointment.status !== "cancelled" && (

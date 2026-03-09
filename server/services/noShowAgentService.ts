@@ -4,113 +4,117 @@ import { isAgentEnabled, getAgentConfig, fillTemplate } from './agentSettingsSer
 import { logAgentAction } from './agentActivityService';
 import type { SmsConversation, Customer } from '@shared/schema';
 
-export async function runNoShowDetection(): Promise<void> {
-  console.log('[NoShowAgent] Running no-show detection...');
-
+/**
+ * Triggered when a staff member manually marks an appointment as "no_show".
+ * Sends the customer an SMS offering to reschedule and opens a conversation.
+ *
+ * This replaces the old auto-detection approach which scanned all appointments
+ * on a 30-minute timer. Manual triggering prevents false positives — only a
+ * human who knows the customer didn't show up can fire this.
+ */
+export async function triggerNoShowSms(
+  appointmentId: number,
+  businessId: number,
+): Promise<{ sent: boolean; reason?: string }> {
   try {
-    const businesses = await storage.getAllBusinesses();
-
-    for (const business of businesses) {
-      try {
-        const enabled = await isAgentEnabled(business.id, 'no_show');
-        if (!enabled) continue;
-
-        await detectNoShows(business.id);
-        await new Promise(r => setTimeout(r, 1000));
-      } catch (err) {
-        console.error(`[NoShowAgent] Error processing business ${business.id}:`, err);
-      }
+    const enabled = await isAgentEnabled(businessId, 'no_show');
+    if (!enabled) {
+      return { sent: false, reason: 'no_show agent is disabled' };
     }
 
-    // Also process expired conversations
-    await processExpiredConversations();
+    const config = await getAgentConfig(businessId, 'no_show');
+    const business = await storage.getBusiness(businessId);
+    if (!business) {
+      return { sent: false, reason: 'business not found' };
+    }
 
-    console.log('[NoShowAgent] No-show detection complete.');
+    const appointment = await storage.getAppointment(appointmentId);
+    if (!appointment) {
+      return { sent: false, reason: 'appointment not found' };
+    }
+
+    if (!appointment.customerId) {
+      return { sent: false, reason: 'appointment has no customer' };
+    }
+
+    const customer = await storage.getCustomer(appointment.customerId);
+    if (!customer?.phone) {
+      return { sent: false, reason: 'customer has no phone number' };
+    }
+    if (!customer.smsOptIn) {
+      return { sent: false, reason: 'customer has not opted into SMS' };
+    }
+
+    // Idempotency: don't send twice for the same appointment
+    const existingLogs = await storage.getAgentActivityLogs(businessId, { agentType: 'no_show' });
+    const alreadySent = existingLogs.some(
+      (log) => log.referenceType === 'appointment' && log.referenceId === appointmentId && log.action === 'sms_sent'
+    );
+    if (alreadySent) {
+      return { sent: false, reason: 'no-show SMS already sent for this appointment' };
+    }
+
+    // Format appointment time
+    const apptTime = appointment.startDate
+      ? new Date(appointment.startDate).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        })
+      : 'your appointment';
+
+    const message = fillTemplate(config.messageTemplate, {
+      customerName: customer.firstName || 'there',
+      appointmentTime: apptTime,
+      businessName: business.name,
+      businessPhone: business.phone || '',
+      bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
+    });
+
+    await sendSms(customer.phone, message, undefined, businessId);
+
+    // Create conversation for reply tracking
+    const expirationHours = config.expirationHours ?? 24;
+    const expiresAt = new Date(Date.now() + expirationHours * 60 * 60 * 1000);
+    await storage.createSmsConversation({
+      businessId,
+      customerId: customer.id,
+      customerPhone: customer.phone,
+      agentType: 'no_show',
+      referenceType: 'appointment',
+      referenceId: appointmentId,
+      state: 'awaiting_reply',
+      context: { expectedReplies: ['YES', 'NO'] },
+      lastMessageSentAt: new Date(),
+      expiresAt,
+    });
+
+    await logAgentAction({
+      businessId,
+      agentType: 'no_show',
+      action: 'sms_sent',
+      customerId: customer.id,
+      referenceType: 'appointment',
+      referenceId: appointmentId,
+      details: { message, appointmentTime: apptTime },
+    });
+
+    console.log(`[NoShowAgent] Sent no-show SMS for appointment ${appointmentId} (manual trigger)`);
+    return { sent: true };
   } catch (err) {
-    console.error('[NoShowAgent] Error in main loop:', err);
+    console.error(`[NoShowAgent] Error sending no-show SMS for appointment ${appointmentId}:`, err);
+    return { sent: false, reason: 'unexpected error' };
   }
 }
 
-async function detectNoShows(businessId: number): Promise<void> {
-  const config = await getAgentConfig(businessId, 'no_show');
-  const business = await storage.getBusiness(businessId);
-  if (!business) return;
-
-  const checkDelayMinutes = config.checkDelayMinutes ?? 60;
-  const expirationHours = config.expirationHours ?? 24;
-
-  // Get appointments that should have started but are still "scheduled"
-  const cutoffTime = new Date(Date.now() - checkDelayMinutes * 60 * 1000);
-  const appointments = await storage.getAppointments(businessId);
-
-  for (const appt of appointments) {
-    try {
-      // Only consider "scheduled" appointments that are past their start time
-      if (appt.status !== 'scheduled') continue;
-      if (!appt.startDate || new Date(appt.startDate) > cutoffTime) continue;
-      if (!appt.customerId) continue;
-
-      const customer = await storage.getCustomer(appt.customerId);
-      if (!customer?.phone || !customer.smsOptIn) continue;
-
-      // Check if we already have a conversation for this appointment
-      const existingConvs = await storage.getAgentActivityLogs(businessId, { agentType: 'no_show' });
-      const alreadySent = existingConvs.some(
-        (log) => log.referenceType === 'appointment' && log.referenceId === appt.id && log.action === 'sms_sent'
-      );
-      if (alreadySent) continue;
-
-      // Mark appointment as no_show
-      await storage.updateAppointment(appt.id, { status: 'no_show' as any });
-
-      // Format appointment time
-      const apptTime = new Date(appt.startDate).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-
-      const message = fillTemplate(config.messageTemplate, {
-        customerName: customer.firstName || 'there',
-        appointmentTime: apptTime,
-        businessName: business.name,
-        businessPhone: business.phone || '',
-        bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
-      });
-
-      await sendSms(customer.phone, message, undefined, businessId);
-
-      // Create conversation for reply tracking
-      const expiresAt = new Date(Date.now() + expirationHours * 60 * 60 * 1000);
-      await storage.createSmsConversation({
-        businessId,
-        customerId: customer.id,
-        customerPhone: customer.phone,
-        agentType: 'no_show',
-        referenceType: 'appointment',
-        referenceId: appt.id,
-        state: 'awaiting_reply',
-        context: { expectedReplies: ['YES', 'NO'] },
-        lastMessageSentAt: new Date(),
-        expiresAt,
-      });
-
-      await logAgentAction({
-        businessId,
-        agentType: 'no_show',
-        action: 'sms_sent',
-        customerId: customer.id,
-        referenceType: 'appointment',
-        referenceId: appt.id,
-        details: { message, appointmentTime: apptTime },
-      });
-
-      console.log(`[NoShowAgent] Sent no-show SMS for appointment ${appt.id}`);
-      await new Promise(r => setTimeout(r, 500));
-    } catch (err) {
-      console.error(`[NoShowAgent] Error processing appointment ${appt.id}:`, err);
-    }
-  }
+/**
+ * @deprecated Use triggerNoShowSms() instead — called when staff marks appointment as no_show.
+ * Kept temporarily for backward compatibility; the scheduler no longer calls this.
+ */
+export async function runNoShowDetection(): Promise<void> {
+  console.log('[NoShowAgent] Auto-detection is disabled. No-show SMS is now triggered when staff marks an appointment as no_show.');
+  // Only process expired conversations (cleanup)
+  await processExpiredConversations();
 }
 
 export async function handleNoShowReply(
@@ -188,4 +192,4 @@ export async function processExpiredConversations(): Promise<void> {
   }
 }
 
-export default { runNoShowDetection, handleNoShowReply, processExpiredConversations };
+export default { triggerNoShowSms, runNoShowDetection, handleNoShowReply, processExpiredConversations };

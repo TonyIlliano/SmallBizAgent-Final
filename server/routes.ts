@@ -914,7 +914,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             messageTemplate: "Hey {customerName}, we stopped by for your estimate walkthrough with {businessName} but didn't catch you. Want to reschedule? Reply YES!",
             rescheduleReplyTemplate: "Great! Book your free estimate here: {bookingLink} or call {businessPhone}.",
             declineReplyTemplate: "No problem! Whenever you're ready for that free estimate, just give us a call. - {businessName}",
-            checkDelayMinutes: 45,
             expirationHours: 48,
           });
 
@@ -1734,6 +1733,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           mod.triggerFollowUp('appointment', appointment.id, existing.businessId)
             .catch(err => console.error('[FollowUpAgent] Error:', err));
         }).catch(err => console.error('[FollowUpAgent] Import error:', err));
+      }
+
+      // No-Show Agent: send reschedule SMS when staff marks appointment as no_show (fire-and-forget)
+      if (validatedData.status === 'no_show' && existing.status !== 'no_show') {
+        import('./services/noShowAgentService').then(mod => {
+          mod.triggerNoShowSms(appointment.id, existing.businessId)
+            .then(result => {
+              if (result.sent) {
+                console.log(`[NoShowAgent] Sent reschedule SMS for appointment ${appointment.id}`);
+              } else {
+                console.log(`[NoShowAgent] Skipped SMS for appointment ${appointment.id}: ${result.reason}`);
+              }
+            })
+            .catch(err => console.error('[NoShowAgent] Error:', err));
+        }).catch(err => console.error('[NoShowAgent] Import error:', err));
       }
 
       res.json(appointment);

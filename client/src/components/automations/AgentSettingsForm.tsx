@@ -190,31 +190,20 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 rows={2}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm">Check Delay (minutes)</Label>
-                <Input
-                  type="number"
-                  min={15}
-                  max={240}
-                  value={config.checkDelayMinutes ?? 60}
-                  onChange={(e) => setConfig({ ...config, checkDelayMinutes: parseInt(e.target.value) || 60 })}
-                  className="w-32"
-                />
-                <p className="text-xs text-muted-foreground">Minutes after appointment start to check</p>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm">Expiration (hours)</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={72}
-                  value={config.expirationHours ?? 24}
-                  onChange={(e) => setConfig({ ...config, expirationHours: parseInt(e.target.value) || 24 })}
-                  className="w-32"
-                />
-                <p className="text-xs text-muted-foreground">Hours before conversation expires</p>
-              </div>
+            <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
+              When you mark an appointment as "No Show", the customer will automatically receive the SMS above offering to reschedule.
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Reply Window (hours)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={72}
+                value={config.expirationHours ?? 24}
+                onChange={(e) => setConfig({ ...config, expirationHours: parseInt(e.target.value) || 24 })}
+                className="w-32"
+              />
+              <p className="text-xs text-muted-foreground">How long the customer has to reply before the conversation expires</p>
             </div>
           </div>
         )}

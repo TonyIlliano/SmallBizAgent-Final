@@ -734,7 +734,10 @@ export function startEstimateFollowUpAgentScheduler(): void {
   console.log(`Estimate follow-up agent scheduler started (every 6 hours)`);
 }
 
-// ── No-Show Agent Scheduler (every 30 minutes) ──
+// ── No-Show Conversation Cleanup (every 30 minutes) ──
+// Note: No-show SMS is now triggered manually when staff marks an appointment
+// as "no_show" (see routes.ts PUT /api/appointments/:id). This scheduler only
+// cleans up expired conversations that never got a reply.
 
 export function startNoShowAgentScheduler(): void {
   const jobKey = 'no-show-agent';
@@ -743,16 +746,15 @@ export function startNoShowAgentScheduler(): void {
   const intervalMs = 30 * 60 * 1000; // 30 minutes
   const intervalId = setInterval(async () => {
     try {
-      console.log(`[NoShowAgent] Running scheduled check at ${new Date().toISOString()}`);
-      const { runNoShowDetection } = await import('./noShowAgentService');
-      await runNoShowDetection();
+      const { processExpiredConversations } = await import('./noShowAgentService');
+      await processExpiredConversations();
     } catch (error) {
       console.error('[NoShowAgent] Scheduler error:', error);
     }
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
-  console.log(`No-show agent scheduler started (every 30 minutes)`);
+  console.log(`No-show conversation cleanup scheduler started (every 30 minutes)`);
 }
 
 // ── Rebooking Agent Scheduler (every 24 hours) ──
