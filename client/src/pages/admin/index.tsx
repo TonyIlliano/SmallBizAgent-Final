@@ -357,7 +357,7 @@ function OverviewTab() {
 // ── Businesses Tab ──────────────────────────────────────────────────────
 
 function BusinessesTab() {
-  const { data, isLoading } = useQuery<{ businesses: AdminBusiness[] }>({
+  const { data, isLoading, error } = useQuery<{ businesses: AdminBusiness[] }>({
     queryKey: ["/api/admin/businesses"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/businesses");
@@ -367,6 +367,20 @@ function BusinessesTab() {
 
   if (isLoading) {
     return <LoadingSpinner />;
+  }
+
+  if (error) {
+    return (
+      <Card className="border-red-200">
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-2 text-red-600">
+            <XCircle className="h-5 w-5" />
+            <p className="font-medium">Failed to load businesses</p>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">{(error as Error).message}</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   const businesses = data?.businesses || [];

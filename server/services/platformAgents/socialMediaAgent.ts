@@ -111,21 +111,25 @@ function generateTemplatePost(platform: SocialPlatform, industry: string): strin
 export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
   console.log(`[${AGENT_TYPE}] Starting social media agent...`);
 
-  // Dynamically import the social media service
-  const { socialMediaService } = await import('../socialMediaService');
-
-  // Find which platforms are connected
-  const connectionStatuses = await socialMediaService.getAllConnectionStatuses();
-  const connectedPlatforms = Object.entries(connectionStatuses)
-    .filter(([_, status]) => (status as any).connected)
-    .map(([platform]) => platform as SocialPlatform);
-
-  if (connectedPlatforms.length === 0) {
-    console.log(`[${AGENT_TYPE}] No social media platforms connected. Skipping.`);
-    return { draftsGenerated: 0, platforms: [] };
+  // Check which platforms are connected (for publishing later)
+  let connectedPlatforms: SocialPlatform[] = [];
+  try {
+    const { socialMediaService } = await import('../socialMediaService');
+    const connectionStatuses = await socialMediaService.getAllConnectionStatuses();
+    connectedPlatforms = Object.entries(connectionStatuses)
+      .filter(([_, status]) => (status as any).connected)
+      .map(([platform]) => platform as SocialPlatform);
+  } catch (err) {
+    console.warn(`[${AGENT_TYPE}] Could not check platform connections:`, err);
   }
 
-  console.log(`[${AGENT_TYPE}] Connected platforms: ${connectedPlatforms.join(', ')}`);
+  // Generate drafts for ALL platforms — connection only needed for publishing
+  const targetPlatforms: SocialPlatform[] = connectedPlatforms.length > 0
+    ? connectedPlatforms
+    : ['twitter', 'facebook', 'instagram', 'linkedin'];
+
+  console.log(`[${AGENT_TYPE}] Connected: ${connectedPlatforms.length > 0 ? connectedPlatforms.join(', ') : 'none (generating drafts for all platforms)'}`);
+  console.log(`[${AGENT_TYPE}] Generating drafts for: ${targetPlatforms.join(', ')}`);
 
   // Get top 3 industries from active businesses
   const topIndustries = await getTopIndustries(3);
@@ -138,7 +142,7 @@ export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
   const useOpenAI = !!process.env.OPENAI_API_KEY;
   let draftsGenerated = 0;
 
-  for (const platform of connectedPlatforms) {
+  for (const platform of targetPlatforms) {
     for (const { industry } of topIndustries) {
       try {
         console.log(`[${AGENT_TYPE}] Generating ${platform} post for ${industry}...`);
@@ -235,14 +239,15 @@ export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
     action: 'generation_complete',
     details: {
       draftsGenerated,
-      platforms: connectedPlatforms,
+      platforms: targetPlatforms,
+      connectedPlatforms,
       industries: topIndustries.map(i => i.industry),
       usedOpenAI: useOpenAI,
     },
   });
 
-  console.log(`[${AGENT_TYPE}] Complete. Generated ${draftsGenerated} drafts across ${connectedPlatforms.length} platforms.`);
-  return { draftsGenerated, platforms: connectedPlatforms };
+  console.log(`[${AGENT_TYPE}] Complete. Generated ${draftsGenerated} drafts across ${targetPlatforms.length} platforms.`);
+  return { draftsGenerated, platforms: targetPlatforms };
 }
 
 /**

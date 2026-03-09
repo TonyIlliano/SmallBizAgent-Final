@@ -111,8 +111,15 @@ router.get("/api/admin/costs", isAdmin, async (req: Request, res: Response) => {
  */
 router.get("/api/admin/phone-numbers", isAdmin, async (req: Request, res: Response) => {
   try {
-    const businesses = await storage.getAllBusinesses();
-    const phoneNumbers = businesses.map(business => ({
+    // Use direct DB query — no encryption/decryption needed for phone number listing
+    const allBusinesses = await db.select({
+      id: businesses.id,
+      name: businesses.name,
+      twilioPhoneNumber: businesses.twilioPhoneNumber,
+      twilioPhoneNumberSid: businesses.twilioPhoneNumberSid,
+      twilioDateProvisioned: businesses.twilioDateProvisioned,
+    }).from(businesses);
+    const phoneNumbers = allBusinesses.map(business => ({
       businessId: business.id,
       businessName: business.name,
       phoneNumber: business.twilioPhoneNumber,

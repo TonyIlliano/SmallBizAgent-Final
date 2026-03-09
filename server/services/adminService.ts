@@ -202,46 +202,58 @@ export async function getPlatformStats(): Promise<PlatformStats> {
  * Get all businesses with owner info and activity counts
  */
 export async function getAdminBusinesses(): Promise<AdminBusiness[]> {
-  // Get all businesses
+  // Get all businesses — this is the critical query
   const allBusinesses = await db.select().from(businesses);
+  console.log(`[Admin] getAdminBusinesses: found ${allBusinesses.length} businesses`);
 
-  // Get call counts per business
-  const callCounts = await db
-    .select({
-      businessId: callLogs.businessId,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(callLogs)
-    .groupBy(callLogs.businessId);
+  // Get call counts per business (non-critical — fallback to 0)
+  let callCountMap = new Map<number, number>();
+  try {
+    const callCounts = await db
+      .select({
+        businessId: callLogs.businessId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(callLogs)
+      .groupBy(callLogs.businessId);
+    callCountMap = new Map(callCounts.map(c => [c.businessId, c.count]));
+  } catch (err) {
+    console.warn("[Admin] Error fetching call counts (using 0):", err);
+  }
 
-  const callCountMap = new Map(callCounts.map(c => [c.businessId, c.count]));
-
-  // Get appointment counts per business
-  const appointmentCounts = await db
-    .select({
-      businessId: appointments.businessId,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(appointments)
-    .groupBy(appointments.businessId);
-
-  const appointmentCountMap = new Map(appointmentCounts.map(a => [a.businessId, a.count]));
+  // Get appointment counts per business (non-critical — fallback to 0)
+  let appointmentCountMap = new Map<number, number>();
+  try {
+    const appointmentCounts = await db
+      .select({
+        businessId: appointments.businessId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(appointments)
+      .groupBy(appointments.businessId);
+    appointmentCountMap = new Map(appointmentCounts.map(a => [a.businessId, a.count]));
+  } catch (err) {
+    console.warn("[Admin] Error fetching appointment counts (using 0):", err);
+  }
 
   // Get owners (users linked to each business)
-  const allUsers = await db.select({
-    id: users.id,
-    username: users.username,
-    email: users.email,
-    businessId: users.businessId,
-    role: users.role,
-  }).from(users);
+  let ownerMap = new Map<number, { username: string; email: string }>();
+  try {
+    const allUsers = await db.select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      businessId: users.businessId,
+      role: users.role,
+    }).from(users);
 
-  // Map business owners (first user with role='user' or any user linked to the business)
-  const ownerMap = new Map<number, { username: string; email: string }>();
-  for (const u of allUsers) {
-    if (u.businessId && !ownerMap.has(u.businessId)) {
-      ownerMap.set(u.businessId, { username: u.username, email: u.email });
+    for (const u of allUsers) {
+      if (u.businessId && !ownerMap.has(u.businessId)) {
+        ownerMap.set(u.businessId, { username: u.username, email: u.email });
+      }
     }
+  } catch (err) {
+    console.warn("[Admin] Error fetching users for owner mapping:", err);
   }
 
   return allBusinesses.map(b => ({
