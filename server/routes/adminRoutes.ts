@@ -33,11 +33,39 @@ router.get("/api/admin/stats", isAdmin, async (req: Request, res: Response) => {
  */
 router.get("/api/admin/businesses", isAdmin, async (req: Request, res: Response) => {
   try {
+    // Step 1: Try the full admin service (enriched data with counts/owners)
     const businesses = await adminService.getAdminBusinesses();
     res.json({ businesses });
   } catch (error: any) {
-    console.error("[Admin] Error fetching businesses:", error);
-    res.status(500).json({ error: "Failed to fetch businesses", details: error.message });
+    console.error("[Admin] Error fetching businesses via adminService:", error);
+    // Step 2: Fallback — return raw businesses from DB without enrichment
+    try {
+      const rawBusinesses = await db.select().from(businesses);
+      console.log(`[Admin] Fallback: returning ${rawBusinesses.length} raw businesses`);
+      res.json({
+        businesses: rawBusinesses.map(b => ({
+          id: b.id,
+          name: b.name,
+          email: b.email,
+          phone: b.phone,
+          type: b.type,
+          industry: b.industry,
+          subscriptionStatus: b.subscriptionStatus,
+          twilioPhoneNumber: b.twilioPhoneNumber,
+          vapiAssistantId: b.vapiAssistantId,
+          createdAt: b.createdAt,
+          ownerUsername: null,
+          ownerEmail: null,
+          callCount: 0,
+          appointmentCount: 0,
+        })),
+        _fallback: true,
+        _error: error?.message,
+      });
+    } catch (fallbackError: any) {
+      console.error("[Admin] Fallback also failed:", fallbackError);
+      res.status(500).json({ error: `Failed to fetch businesses: ${error?.message}. Fallback: ${fallbackError?.message}` });
+    }
   }
 });
 
