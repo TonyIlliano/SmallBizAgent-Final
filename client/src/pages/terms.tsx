@@ -147,6 +147,8 @@ export default function TermsOfService() {
                 <li><strong className="text-white">Opt-Out Handling:</strong> You must honor opt-out requests promptly. The Service automatically processes STOP requests, but you must not re-add opted-out customers to marketing lists.</li>
                 <li><strong className="text-white">Message Content:</strong> You are solely responsible for the content of messages sent through the Service. Messages must not contain illegal, deceptive, or misleading content.</li>
                 <li><strong className="text-white">Call Recording Disclosure:</strong> If you use the AI receptionist in a jurisdiction requiring two-party consent for call recording, you are responsible for ensuring appropriate disclosures are made.</li>
+                <li><strong className="text-white">Sender of Record:</strong> You acknowledge that when SMS messages are sent through the Service to your customers, you — the business subscriber — are the sender of record. SmallBizAgent acts solely as a technology platform facilitating message delivery on your behalf and is not the originator or sender of your messages.</li>
+                <li><strong className="text-white">Consent Record-Keeping:</strong> You are required to obtain and maintain records of consent from your customers before sending them messages through the Service. This includes documenting the date, time, method, and scope of consent obtained. You must be able to produce these records upon request by SmallBizAgent, any regulatory authority, or in connection with any legal proceeding. Failure to maintain adequate consent records may result in suspension or termination of your account.</li>
               </ul>
             </section>
 
@@ -191,6 +193,18 @@ export default function TermsOfService() {
                 You may export Your Data at any time through the Service's export features or by contacting
                 support. Upon account termination, we will make Your Data available for export for a period of
                 30 days before deletion.
+              </p>
+
+              <h3 className="text-xl font-medium mb-3 mt-6 text-neutral-200">8.4 Data Processing</h3>
+              <p className="text-neutral-300 leading-relaxed">
+                With respect to any personal data of your customers that you store or process through the Service,
+                you are the data controller and SmallBizAgent acts as a data processor on your behalf. We process
+                your customers' personal data only as necessary to provide the Service to you and in accordance
+                with your instructions as expressed through your use of the Service's features. We will not process
+                your customers' data for any independent purpose, sell it to third parties, or use it for our own
+                marketing. You are responsible for ensuring that you have a lawful basis to collect and process
+                your customers' personal data and that your use of the Service complies with all applicable data
+                protection laws.
               </p>
             </section>
 
@@ -255,13 +269,23 @@ export default function TermsOfService() {
 
             <section>
               <h2 className="text-2xl font-semibold mb-4 text-white">14. Indemnification</h2>
-              <p className="text-neutral-300 leading-relaxed">
+              <p className="text-neutral-300 leading-relaxed mb-4">
                 You agree to indemnify, defend, and hold harmless SmallBizAgent and its officers, directors,
                 employees, and agents from and against any claims, liabilities, damages, losses, and expenses
                 (including reasonable attorneys' fees) arising out of or related to: (a) your use of the Service;
                 (b) your violation of these Terms; (c) your violation of any applicable law or regulation,
                 including TCPA and SMS compliance; or (d) any content or data you upload, transmit, or store
                 through the Service.
+              </p>
+              <p className="text-neutral-300 leading-relaxed">
+                <strong className="text-white">SMS and TCPA Indemnification:</strong> Without limiting the foregoing,
+                you specifically agree to indemnify, defend, and hold harmless SmallBizAgent from any and all claims,
+                damages, fines, penalties, and expenses (including reasonable attorneys' fees) arising from or related
+                to SMS messages or telephone calls sent or made through the Service on your behalf, including but not
+                limited to claims under the Telephone Consumer Protection Act (TCPA), state telemarketing laws, or any
+                other telecommunications regulation. As the sender of record for all messages sent through your account,
+                you bear sole responsibility for ensuring proper consent has been obtained and maintained for each
+                recipient. This indemnification obligation survives termination of your account and these Terms.
               </p>
             </section>
 
@@ -271,14 +295,14 @@ export default function TermsOfService() {
                 We may suspend or terminate your access to the Service at any time, with or without cause, with
                 or without notice. Upon termination: (a) your right to use the Service ceases immediately;
                 (b) we may delete Your Data after the 30-day export period; (c) any outstanding fees become
-                immediately due. Sections 8, 9, 12, 13, 14, and 16 survive termination.
+                immediately due. Sections 7, 8, 9, 12, 13, 14, and 16 survive termination.
               </p>
             </section>
 
             <section>
               <h2 className="text-2xl font-semibold mb-4 text-white">16. Governing Law and Disputes</h2>
               <p className="text-neutral-300 leading-relaxed">
-                These Terms are governed by the laws of the State of New York, without regard to conflict of law
+                These Terms are governed by the laws of the State of Maryland, without regard to conflict of law
                 provisions. Any disputes arising from these Terms or the Service shall first be addressed through
                 good-faith negotiation. If the dispute cannot be resolved within 30 days, it shall be resolved
                 through binding arbitration in accordance with the American Arbitration Association's rules. You
