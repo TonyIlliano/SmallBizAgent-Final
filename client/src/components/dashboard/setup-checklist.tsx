@@ -24,6 +24,7 @@ import {
   UtensilsCrossed,
   Scissors,
   Wrench,
+  Leaf,
   Zap,
 } from 'lucide-react';
 import { formatPhoneNumber } from '@/lib/utils';
@@ -75,7 +76,8 @@ function getChecklistItems(status: SetupStatus): ChecklistItemConfig[] {
 
   const isRestaurant = type === 'restaurant' || industry.includes('restaurant') || industry.includes('food') || industry.includes('cafe') || industry.includes('bar');
   const isSalon = type === 'salon' || type === 'barber' || industry.includes('salon') || industry.includes('barber') || industry.includes('beauty') || industry.includes('spa') || industry.includes('hair');
-  const isHomeService = type === 'plumbing' || type === 'electrical' || type === 'hvac' || type === 'cleaning' || industry.includes('plumb') || industry.includes('electric') || industry.includes('hvac') || industry.includes('clean') || industry.includes('handyman') || industry.includes('landscap');
+  const isLandscaping = type === 'landscaping' || industry.includes('landscap') || industry.includes('lawn');
+  const isHomeService = !isLandscaping && (type === 'plumbing' || type === 'electrical' || type === 'hvac' || type === 'cleaning' || industry.includes('plumb') || industry.includes('electric') || industry.includes('hvac') || industry.includes('clean') || industry.includes('handyman'));
   const isMedical = type === 'medical' || type === 'dental' || industry.includes('medical') || industry.includes('dental') || industry.includes('health') || industry.includes('therapy') || industry.includes('chiro');
 
   const items: ChecklistItemConfig[] = [
@@ -199,6 +201,41 @@ function getChecklistItems(status: SetupStatus): ChecklistItemConfig[] {
         href: '/settings?tab=staff',
         isCompleted: status.staff,
         priority: 6,
+      },
+    );
+  } else if (isLandscaping) {
+    items.push(
+      {
+        key: 'staff',
+        title: 'Add your crew members',
+        subtitle: 'Set up your field crew and their schedules',
+        completedSubtitle: `${status.details?.staffCount || 0} crew member(s)`,
+        icon: Leaf,
+        href: '/settings?tab=staff',
+        isCompleted: status.staff,
+        priority: 5,
+      },
+      {
+        key: 'booking',
+        title: 'Enable free estimate booking',
+        subtitle: 'Let homeowners schedule property walkthroughs online',
+        completedSubtitle: status.details?.bookingSlug
+          ? `Live at /${status.details.bookingSlug}`
+          : 'Booking enabled',
+        icon: Globe,
+        href: '/settings?tab=booking',
+        isCompleted: status.booking,
+        priority: 6,
+      },
+      {
+        key: 'customer',
+        title: 'Add your first property owner',
+        subtitle: 'Start building your customer list with property addresses',
+        completedSubtitle: `${status.details?.customerCount || 0} customer(s)`,
+        icon: UserPlus,
+        href: '/customers/new',
+        isCompleted: status.customers,
+        priority: 7,
       },
     );
   } else if (isHomeService) {

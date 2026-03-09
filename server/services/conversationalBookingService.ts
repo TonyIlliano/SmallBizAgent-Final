@@ -18,6 +18,7 @@ interface BookingIntent {
   serviceName?: string;
   confirmed?: boolean;
   slotSelection?: number; // 1-based index
+  propertyAddress?: string; // For field service businesses (landscaping, plumbing, HVAC, etc.)
 }
 
 interface BookingPreferences {
@@ -27,6 +28,7 @@ interface BookingPreferences {
   staffName?: string;
   serviceId?: number;
   serviceName?: string;
+  propertyAddress?: string;
 }
 
 interface AvailableSlot {
@@ -108,10 +110,15 @@ export async function initializeBookingConversation(
 
   // Build personalized prompt
   const name = customer?.firstName || 'there';
+  const industry = (business?.industry || '').toLowerCase();
+  const isFieldService = industry.includes('landscap') || industry.includes('lawn') || industry.includes('plumb') || industry.includes('hvac') || industry.includes('electric') || industry.includes('clean') || industry.includes('handyman');
+
   if (preferences.serviceName && preferences.staffName) {
     promptMessage = `Hi ${name}! When would you like to reschedule your ${preferences.serviceName} with ${preferences.staffName}? Just tell me a day and time, like "Tuesday at 2pm".`;
   } else if (preferences.serviceName) {
     promptMessage = `Hi ${name}! When would you like to reschedule your ${preferences.serviceName}? Just tell me a day and time, like "Tuesday at 2pm".`;
+  } else if (isFieldService) {
+    promptMessage = `Hi ${name}! When works for you? Tell me a day and time, like "Tuesday at 2pm". Also, what's the property address where we'll be working?`;
   } else {
     promptMessage = `Hi ${name}! When works for you? Just tell me a day and time, like "Tuesday at 2pm".`;
   }
@@ -370,6 +377,11 @@ async function handleCollectingPreferences(
     }
   }
 
+  // Capture property address if provided (field service businesses)
+  if (intent.propertyAddress && !bookingFlow.preferences.propertyAddress) {
+    bookingFlow.preferences.propertyAddress = intent.propertyAddress;
+  }
+
   // Handle date/time
   if (intent.type === 'date_time' && intent.date) {
     bookingFlow.preferences.date = intent.date;
@@ -618,6 +630,9 @@ async function handleConfirmingBooking(
       return { replyMessage: link ? `Something went wrong. Book online here: ${link}` : `Something went wrong. Call us at ${business.phone || 'our office'} to book.` };
     }
 
+    const extraNotes = bookingFlow.preferences.propertyAddress
+      ? `Property: ${bookingFlow.preferences.propertyAddress}`
+      : undefined;
     const result = await createBookingFromSms(
       business,
       customer.id,
@@ -625,6 +640,7 @@ async function handleConfirmingBooking(
       bookingFlow.preferences.time,
       bookingFlow.preferences.staffId ?? null,
       bookingFlow.preferences.serviceId,
+      extraNotes,
     );
 
     if (result.success && result.appointment) {
@@ -739,7 +755,8 @@ Return ONLY a JSON object with these fields:
   "staffName": "name or null",
   "serviceName": "service name or null",
   "confirmed": true | false | null,
-  "slotSelection": number | null
+  "slotSelection": number | null,
+  "propertyAddress": "street address or null"
 }
 
 Rules:
@@ -780,6 +797,7 @@ Rules:
       serviceName: parsed.serviceName || undefined,
       confirmed: parsed.confirmed ?? undefined,
       slotSelection: parsed.slotSelection ?? undefined,
+      propertyAddress: parsed.propertyAddress || undefined,
     };
   } catch (err) {
     console.error('[ConversationalBooking] OpenAI parse error:', err);
@@ -967,6 +985,7 @@ async function createBookingFromSms(
   time: string,
   staffId: number | null,
   serviceId: number,
+  extraNotes?: string,
 ): Promise<{ success: boolean; appointment?: any; error?: string }> {
   try {
     const service = await storage.getService(serviceId);
@@ -1031,6 +1050,7 @@ async function createBookingFromSms(
     }
 
     // Create appointment
+    const appointmentNotes = extraNotes ? `Booked via SMS. ${extraNotes}` : 'Booked via SMS';
     const appointment = await storage.createAppointment({
       businessId: business.id,
       customerId,
@@ -1039,7 +1059,7 @@ async function createBookingFromSms(
       startDate,
       endDate,
       status: 'scheduled',
-      notes: 'Booked via SMS',
+      notes: appointmentNotes,
     });
 
     // Set manage token

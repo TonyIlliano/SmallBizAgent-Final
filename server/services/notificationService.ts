@@ -129,9 +129,22 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
     // Send SMS
     if (sendSms && canSendSms(customer)) {
       try {
-        const message = manageUrl
-          ? `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Manage or reschedule: ${manageUrl} - ${business.name}`
-          : `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to reschedule. - ${business.name}`;
+        const industry = (business.industry || '').toLowerCase();
+        const isFieldService = industry.includes('landscap') || industry.includes('lawn') || industry.includes('plumb') || industry.includes('hvac') || industry.includes('electric') || industry.includes('clean');
+        // Extract property address from appointment notes if available (field service businesses)
+        const propertyMatch = appointment.notes?.match(/(?:Property|Address):\s*(.+?)(?:\.|$)/i);
+        const propertyNote = isFieldService && propertyMatch ? ` at ${propertyMatch[1].trim()}` : '';
+
+        let message: string;
+        if (isFieldService) {
+          message = manageUrl
+            ? `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Weather permitting! Manage: ${manageUrl}`
+            : `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Weather permitting! Call ${business.phone} to reschedule.`;
+        } else {
+          message = manageUrl
+            ? `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Manage or reschedule: ${manageUrl} - ${business.name}`
+            : `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to reschedule. - ${business.name}`;
+        }
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
@@ -226,7 +239,17 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
     // Send SMS
     if (sendSmsPref && customer.phone) {
       try {
-        const message = `Hi ${customer.firstName}! Reminder: ${serviceName} is scheduled for ${dateStr} at ${timeStr}. Reply CONFIRM to confirm or call ${business.phone} to reschedule. - ${business.name}`;
+        const industry = (business.industry || '').toLowerCase();
+        const isFieldService = industry.includes('landscap') || industry.includes('lawn') || industry.includes('plumb') || industry.includes('hvac') || industry.includes('electric') || industry.includes('clean');
+        const propertyMatch = appointment.notes?.match(/(?:Property|Address):\s*(.+?)(?:\.|$)/i);
+        const propertyNote = isFieldService && propertyMatch ? ` at ${propertyMatch[1].trim()}` : '';
+
+        let message: string;
+        if (isFieldService) {
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Weather permitting! Call ${business.phone} if anything changes.`;
+        } else {
+          message = `Hi ${customer.firstName}! Reminder: ${serviceName} is scheduled for ${dateStr} at ${timeStr}. Reply CONFIRM to confirm or call ${business.phone} to reschedule. - ${business.name}`;
+        }
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
