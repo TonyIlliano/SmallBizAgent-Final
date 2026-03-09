@@ -27,6 +27,7 @@ import PhoneNumbersManager from "@/components/settings/PhoneNumbersManager";
 import LocationsManager from "@/components/settings/LocationsManager";
 import TwoFactorSetup from "@/components/settings/TwoFactorSetup";
 import AuditLog from "@/components/settings/AuditLog";
+import NotificationHistory from "@/components/settings/NotificationHistory";
 import {
   Dialog,
   DialogContent,
@@ -1129,6 +1130,9 @@ export default function Settings() {
             <TabsTrigger value="locations" className="whitespace-nowrap flex-shrink-0">Locations</TabsTrigger>
             <TabsTrigger value="pwa" className="whitespace-nowrap flex-shrink-0">App</TabsTrigger>
             <TabsTrigger value="security" className="whitespace-nowrap flex-shrink-0">Security</TabsTrigger>
+            {(user?.role === 'admin' || user?.role === 'owner') && (
+              <TabsTrigger value="notification-history" className="whitespace-nowrap flex-shrink-0">Notification Log</TabsTrigger>
+            )}
             <TabsTrigger value="privacy" className="whitespace-nowrap flex-shrink-0">Privacy</TabsTrigger>
           </TabsList>
           
@@ -2473,6 +2477,13 @@ export default function Settings() {
 
             <ActiveSessionsCard />
           </TabsContent>
+
+          {/* Notification Log — admin/owner only */}
+          {(user?.role === 'admin' || user?.role === 'owner') && businessId && (
+            <TabsContent value="notification-history" className="space-y-4">
+              <NotificationHistory businessId={businessId} />
+            </TabsContent>
+          )}
 
           <TabsContent value="privacy" className="space-y-4">
             <Card>

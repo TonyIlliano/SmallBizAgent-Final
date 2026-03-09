@@ -147,8 +147,14 @@ async function processOnboardingDrip(business: Business): Promise<number> {
   const greetingHtml = `Hi <strong>${business.name}</strong> team,`;
   let sent = 0;
 
-  // Day 1: Remind them to complete onboarding
-  if (daysSinceSignup >= 1) {
+  // Check if the business has already completed core setup
+  const hasPhone = !!(business as any).twilioPhoneNumber;
+  const hasReceptionist = !!(business as any).vapiAssistantId;
+  const hasHours = !!(business as any).businessHours;
+  const isFullySetup = hasPhone && hasReceptionist && hasHours;
+
+  // Day 1: Remind them to complete onboarding (skip if already set up)
+  if (daysSinceSignup >= 1 && !isFullySetup) {
     const key = `drip:onboarding:day1:${business.id}`;
     const subject = "Set up your AI receptionist — it takes 2 minutes";
     const text = [
@@ -190,8 +196,8 @@ async function processOnboardingDrip(business: Business): Promise<number> {
     if (await sendDripEmail(business, key, subject, text, html)) sent++;
   }
 
-  // Day 3: Highlight SMS agents feature
-  if (daysSinceSignup >= 3) {
+  // Day 3: Highlight SMS agents feature (skip if already set up — they've seen the dashboard)
+  if (daysSinceSignup >= 3 && !isFullySetup) {
     const key = `drip:onboarding:day3:${business.id}`;
     const subject = "Your AI agents are ready to work for you";
     const text = [
@@ -284,7 +290,7 @@ async function processOnboardingDrip(business: Business): Promise<number> {
 // 3 days before:  Warning (handled by schedulerService.ts — sendTrialExpirationWarnings)
 // 1 day before:   Urgent warning (handled by schedulerService.ts — sendTrialExpirationWarnings)
 // Day of expiry:  "Your trial has ended"
-// 3 days after:   Win-back — "We miss you, here's 20% off"
+// 3 days after:   Win-back — "We miss you"
 
 async function processTrialExpirationDrip(business: Business): Promise<number> {
   if (!business.trialEndsAt || !business.email) return 0;
@@ -346,21 +352,20 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
     if (await sendDripEmail(business, key, subject, text, html)) sent++;
   }
 
-  // 3 days after expiry: Win-back with 20% off
+  // 3 days after expiry: Win-back
   if (daysSinceExpiry >= 3) {
     const key = `drip:trial:winback3:${business.id}`;
-    const subject = "We miss you — here's 20% off SmallBizAgent";
+    const subject = "We miss you at SmallBizAgent";
     const text = [
       greeting,
       "",
       "It's been a few days since your SmallBizAgent trial ended, and we'd love to have you back.",
       "",
-      "As a thank-you for trying us out, here's an exclusive offer:",
-      "",
-      "  20% OFF your first 3 months",
-      `  Use code COMEBACK20 at checkout: ${APP_URL}/settings?tab=subscription`,
-      "",
       "Your data is still here — customers, appointments, invoices — all safe and waiting. You can be back up and running in seconds.",
+      "",
+      "If there's anything we can do to help — a walkthrough, a custom setup, or just answering questions — reply to this email. We're happy to help.",
+      "",
+      `Reactivate anytime: ${APP_URL}/settings?tab=subscription`,
       textFooter(business.id),
     ].join("\n");
 
@@ -369,12 +374,8 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
         <h2 style="color: #333;">We Miss You!</h2>
         <p>${greetingHtml}</p>
         <p>It's been a few days since your SmallBizAgent trial ended, and we'd love to have you back.</p>
-        <div style="background: #eff6ff; border: 2px solid #2563eb; border-radius: 8px; padding: 20px; margin: 24px 0; text-align: center;">
-          <p style="font-size: 24px; font-weight: bold; color: #1e40af; margin: 0 0 8px;">20% OFF</p>
-          <p style="color: #1e40af; margin: 0;">Your first 3 months</p>
-          <p style="margin: 12px 0 0; font-family: monospace; background: #dbeafe; display: inline-block; padding: 6px 16px; border-radius: 4px; font-size: 16px; font-weight: bold; color: #1e3a8a;">COMEBACK20</p>
-        </div>
         <p>Your data is still here &mdash; customers, appointments, invoices &mdash; all safe and waiting. You can be back up and running in seconds.</p>
+        <p>If there's anything we can do to help &mdash; a walkthrough, a custom setup, or just answering questions &mdash; reply to this email. We're happy to help.</p>
         <div style="margin: 24px 0; text-align: center;">
           <a href="${APP_URL}/settings?tab=subscription" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Reactivate Now</a>
         </div>
@@ -390,7 +391,7 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
 
 // ─── Win-back Drip Campaign (Churned / Canceled) ──────────────────────────────
 // 7 days after cancel:  "We'd love to have you back"
-// 30 days after cancel: "Special offer: 30% off for 3 months"
+// 30 days after cancel: "A lot has changed"
 
 async function processWinbackDrip(business: Business): Promise<number> {
   if (!business.email) return 0;
@@ -443,10 +444,10 @@ async function processWinbackDrip(business: Business): Promise<number> {
     if (await sendDripEmail(business, key, subject, text, html)) sent++;
   }
 
-  // 30 days after cancel: Special offer
+  // 30 days after cancel: Check in with what's new
   if (daysSinceCancel >= 30) {
     const key = `drip:winback:day30:${business.id}`;
-    const subject = "Special offer: 30% off SmallBizAgent for 3 months";
+    const subject = "A lot has changed at SmallBizAgent";
     const text = [
       greeting,
       "",
@@ -456,10 +457,9 @@ async function processWinbackDrip(business: Business): Promise<number> {
       "- New SMS automation agents that work while you sleep",
       "- Improved online booking and customer management",
       "",
-      "We'd love for you to give us another shot. Here's an exclusive offer:",
+      "We'd love for you to give us another shot. If you'd like a personal walkthrough of what's new, just reply to this email — we'll set something up.",
       "",
-      "  30% OFF for 3 months",
-      `  Use code WINBACK30 at checkout: ${APP_URL}/settings?tab=subscription`,
+      `Reactivate anytime: ${APP_URL}/settings?tab=subscription`,
       "",
       "No pressure — your data is still safe and waiting for you.",
       textFooter(business.id),
@@ -467,7 +467,7 @@ async function processWinbackDrip(business: Business): Promise<number> {
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #333;">We've Missed You</h2>
+        <h2 style="color: #333;">A Lot Has Changed</h2>
         <p>${greetingHtml}</p>
         <p>It's been a month since you left SmallBizAgent, and we've been busy shipping improvements:</p>
         <ul style="color: #374151; line-height: 1.8;">
@@ -475,13 +475,9 @@ async function processWinbackDrip(business: Business): Promise<number> {
           <li>New SMS automation agents that work while you sleep</li>
           <li>Improved online booking and customer management</li>
         </ul>
-        <div style="background: #f0fdf4; border: 2px solid #22c55e; border-radius: 8px; padding: 20px; margin: 24px 0; text-align: center;">
-          <p style="font-size: 24px; font-weight: bold; color: #166534; margin: 0 0 8px;">30% OFF</p>
-          <p style="color: #166534; margin: 0;">For 3 months</p>
-          <p style="margin: 12px 0 0; font-family: monospace; background: #dcfce7; display: inline-block; padding: 6px 16px; border-radius: 4px; font-size: 16px; font-weight: bold; color: #14532d;">WINBACK30</p>
-        </div>
+        <p>We'd love for you to give us another shot. If you'd like a personal walkthrough of what's new, just reply to this email &mdash; we'll set something up.</p>
         <div style="margin: 24px 0; text-align: center;">
-          <a href="${APP_URL}/settings?tab=subscription" style="display: inline-block; background: #16a34a; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Reactivate with 30% Off</a>
+          <a href="${APP_URL}/settings?tab=subscription" style="display: inline-block; background: #000; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Reactivate My Account</a>
         </div>
         <p style="color: #666; font-size: 14px;">No pressure &mdash; your data is still safe and waiting for you.</p>
         ${emailFooter(business.id)}
