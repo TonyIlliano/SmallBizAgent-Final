@@ -79,6 +79,9 @@ async function fixExistingTables() {
   // Review settings - configurable cooldown per business (restaurants need longer cooldown)
   await addColumnIfNotExists('review_settings', 'review_cooldown_days', 'INTEGER DEFAULT 90');
 
+  // Owner phone for notifications (payment failures, alerts)
+  await addColumnIfNotExists('businesses', 'owner_phone', 'TEXT');
+
   // Inventory alert settings for restaurants
   await addColumnIfNotExists('businesses', 'inventory_alerts_enabled', 'BOOLEAN DEFAULT false');
   await addColumnIfNotExists('businesses', 'inventory_alert_channel', "TEXT DEFAULT 'both'");
