@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
 import { FeatureTip } from "@/components/ui/feature-tip";
+import { ExportButton } from "@/components/ui/export-button";
 import {
   PlusCircle,
   Calendar as CalendarIcon,
@@ -478,6 +479,7 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
           <p className="text-gray-500 text-sm">Manage your schedule</p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportButton endpoint="/api/export/appointments" filename="appointments.csv" />
           <Button
             variant="outline"
             onClick={() => navigate("/appointments/fullscreen")}

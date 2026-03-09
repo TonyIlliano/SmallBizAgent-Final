@@ -159,6 +159,7 @@ import { fireEvent } from './services/webhookService';
 // Multi-line phone + multi-location routes
 import phoneRoutes from './routes/phoneRoutes';
 import locationRoutes from './routes/locationRoutes';
+import exportRoutes from './routes/exportRoutes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication first
@@ -251,6 +252,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/import/customers", isAuthenticated, importAuthCheck, importCustomers);
   app.post("/api/import/services", isAuthenticated, importAuthCheck, importServices);
   app.post("/api/import/appointments", isAuthenticated, importAuthCheck, importAppointments);
+
+  // Register data export routes
+  app.use("/api", isAuthenticated, exportRoutes);
   
   // Helper function to get businessId from authenticated user or API key
   // Returns 0 if no business is associated (caller must handle this)
@@ -1654,6 +1658,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fire webhook event (fire-and-forget)
       fireEvent(businessId, 'appointment.created', { appointment })
         .catch(err => console.error('Webhook fire error:', err));
+
+      // Notify business owner of new booking (fire-and-forget)
+      import('./services/ownerNotificationService').then(mod => {
+        mod.notifyOwnerNewBooking(appointment.id, businessId)
+          .catch(err => console.error('[OwnerNotify] Booking alert error:', err));
+      }).catch(err => console.error('[OwnerNotify] Import error:', err));
 
       res.status(201).json(appointment);
     } catch (error) {
@@ -3797,6 +3807,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (invoiceId) {
           try {
             await storage.updateInvoice(invoiceId, { status: 'paid' });
+
+            // Notify business owner of payment (fire-and-forget)
+            const paidInvoice = await storage.getInvoice(invoiceId);
+            if (paidInvoice) {
+              import('./services/ownerNotificationService').then(mod => {
+                mod.notifyOwnerPaymentReceived(invoiceId, paidInvoice.businessId, paymentIntent.amount / 100)
+                  .catch(err => console.error('[OwnerNotify] Payment alert error:', err));
+              }).catch(err => console.error('[OwnerNotify] Import error:', err));
+            }
           } catch (error) {
             console.error('Error updating invoice status:', error);
           }
@@ -4475,9 +4494,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Send SMS notification to business owner if configured
+      const callerName = customer ? `${customer.firstName} ${customer.lastName}` : undefined;
       if (business?.phone) {
-        const callerName = customer ? `${customer.firstName} ${customer.lastName}` : From;
-        const message = `New voicemail from ${callerName}. Duration: ${RecordingDuration}s. ${TranscriptionText ? `Message: "${TranscriptionText.substring(0, 100)}..."` : 'Listen at: ' + RecordingUrl}`;
+        const displayName = callerName || From;
+        const message = `New voicemail from ${displayName}. Duration: ${RecordingDuration}s. ${TranscriptionText ? `Message: "${TranscriptionText.substring(0, 100)}..."` : 'Listen at: ' + RecordingUrl}`;
 
         try {
           await twilioService.sendSms(business.phone, message);
@@ -4485,6 +4505,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error('Error sending voicemail notification:', smsError);
         }
       }
+
+      // Send email notification for missed call (fire-and-forget)
+      import('./services/ownerNotificationService').then(mod => {
+        mod.notifyOwnerMissedCall(parsedBusinessId, From, callerName || undefined)
+          .catch(err => console.error('[OwnerNotify] Missed call alert error:', err));
+      }).catch(err => console.error('[OwnerNotify] Import error:', err));
 
       res.status(200).send('OK');
     } catch (error) {
@@ -5559,13 +5585,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Customer not found" });
       }
 
-      // Fetch all related data in parallel
-      const [customerJobs, customerInvoices, customerAppointments, customerQuotes] = await Promise.all([
+      // Fetch all related data in parallel (including call logs for communication history)
+      const [customerJobs, customerInvoices, customerAppointments, customerQuotes, allCallLogs] = await Promise.all([
         storage.getJobs(businessId, { customerId }),
         storage.getInvoices(businessId, { customerId }),
         storage.getAppointments(businessId, { customerId }),
         storage.getAllQuotes(businessId, { customerId }),
+        storage.getCallLogs(businessId).catch(() => []),
       ]);
+
+      // Filter call logs for this customer (by phone number match)
+      const customerCallLogs = customer.phone
+        ? allCallLogs.filter((log: any) => {
+            const normalizedLogPhone = (log.callerId || '').replace(/\D/g, '');
+            const normalizedCustomerPhone = (customer.phone || '').replace(/\D/g, '');
+            return normalizedLogPhone === normalizedCustomerPhone ||
+                   normalizedLogPhone.endsWith(normalizedCustomerPhone) ||
+                   normalizedCustomerPhone.endsWith(normalizedLogPhone);
+          })
+        : [];
 
       // Calculate stats
       const totalJobs = customerJobs.length;
@@ -5634,6 +5672,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: q.status,
           date: q.createdAt,
           amount: q.total,
+        });
+      }
+
+      for (const call of customerCallLogs) {
+        const callStatus = (call as any).status || 'answered';
+        const isSms = callStatus === 'sms';
+        timeline.push({
+          type: isSms ? "sms" : "call",
+          id: call.id,
+          title: isSms
+            ? `SMS: ${((call as any).transcript || '').substring(0, 60)}${((call as any).transcript || '').length > 60 ? '...' : ''}`
+            : `Phone Call${(call as any).intentDetected ? ` — ${(call as any).intentDetected}` : ''}`,
+          status: callStatus,
+          date: (call as any).callTime || (call as any).createdAt,
         });
       }
 

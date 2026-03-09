@@ -1074,6 +1074,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start platform-level AI agents
     startPlatformAgentsScheduler();
 
+    // Start daily digest email scheduler (morning summary for business owners)
+    startDailyDigestScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -1083,6 +1086,31 @@ export async function startAllSchedulers(): Promise<void> {
 /**
  * Stop all schedulers
  */
+// ── Daily Digest Email (runs once daily at ~7 AM) ──
+
+export function startDailyDigestScheduler(): void {
+  const jobKey = 'daily-digest';
+  if (scheduledJobs.has(jobKey)) return;
+
+  // Check every hour if it's time to send digests (7 AM local)
+  const intervalMs = 60 * 60 * 1000; // 1 hour
+  const intervalId = setInterval(async () => {
+    const hour = new Date().getHours();
+    if (hour === 7) {
+      try {
+        console.log(`[DailyDigest] Running daily digest at ${new Date().toISOString()}`);
+        const { processDailyDigests } = await import('./dailyDigestService');
+        await processDailyDigests();
+      } catch (error) {
+        console.error('[DailyDigest] Scheduler error:', error);
+      }
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log('Daily digest scheduler started (checks hourly, sends at 7 AM)');
+}
+
 export function stopAllSchedulers(): void {
   scheduledJobs.forEach((intervalId, jobKey) => {
     clearInterval(intervalId);
@@ -1109,6 +1137,7 @@ export default {
   startReviewResponseAgentScheduler,
   startEmailDripScheduler,
   startPlatformAgentsScheduler,
+  startDailyDigestScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

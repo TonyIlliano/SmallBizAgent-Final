@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useParams, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { PageLayout } from "@/components/layout/PageLayout";
 import PageTitle from "@/components/PageTitle";
 import { CustomerForm } from "@/components/customers/CustomerForm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { SkeletonForm, SkeletonStats } from "@/components/ui/skeleton-loader";
 import {
   Dialog,
@@ -25,9 +27,14 @@ import {
   Users,
   Mail,
   Phone,
+  PhoneIncoming,
+  MessageSquare,
   MapPin,
   Edit,
   StickyNote,
+  Tag,
+  X,
+  Plus,
 } from "lucide-react";
 
 function formatDate(dateStr: string) {
@@ -44,6 +51,8 @@ const typeIcons: Record<string, any> = {
   invoice: FileText,
   appointment: Calendar,
   quote: ClipboardList,
+  call: PhoneIncoming,
+  sms: MessageSquare,
 };
 
 const typeColors: Record<string, string> = {
@@ -51,6 +60,8 @@ const typeColors: Record<string, string> = {
   invoice: "text-green-500 bg-green-50 dark:bg-green-900/20",
   appointment: "text-purple-500 bg-purple-50 dark:bg-purple-900/20",
   quote: "text-orange-500 bg-orange-50 dark:bg-orange-900/20",
+  call: "text-blue-500 bg-blue-50 dark:bg-blue-900/20",
+  sms: "text-teal-500 bg-teal-50 dark:bg-teal-900/20",
 };
 
 const typePaths: Record<string, string> = {
@@ -58,7 +69,93 @@ const typePaths: Record<string, string> = {
   invoice: "/invoices",
   appointment: "/appointments",
   quote: "/quotes",
+  call: "/calls",
+  sms: "/calls",
 };
+
+function CustomerTags({ customerId, tags }: { customerId: number; tags: string[] }) {
+  const [newTag, setNewTag] = useState("");
+  const [showInput, setShowInput] = useState(false);
+  const queryClient = useQueryClient();
+
+  const addTagMutation = useMutation({
+    mutationFn: async (tag: string) => {
+      const res = await apiRequest("POST", `/api/customers/${customerId}/tags`, { tags: [tag] });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/customers/${customerId}`] });
+      setNewTag("");
+      setShowInput(false);
+    },
+  });
+
+  const removeTagMutation = useMutation({
+    mutationFn: async (tag: string) => {
+      const res = await apiRequest("DELETE", `/api/customers/${customerId}/tags/${encodeURIComponent(tag)}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/customers/${customerId}`] });
+    },
+  });
+
+  const handleAddTag = () => {
+    const trimmed = newTag.trim();
+    if (trimmed && !tags.includes(trimmed)) {
+      addTagMutation.mutate(trimmed);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {tags.map((tag) => (
+        <Badge
+          key={tag}
+          variant="secondary"
+          className="text-xs flex items-center gap-1 pr-1"
+        >
+          <Tag className="h-3 w-3" />
+          {tag}
+          <button
+            onClick={() => removeTagMutation.mutate(tag)}
+            className="ml-0.5 hover:text-destructive rounded-full"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </Badge>
+      ))}
+      {showInput ? (
+        <div className="flex items-center gap-1">
+          <Input
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
+            placeholder="Tag name"
+            className="h-6 w-24 text-xs"
+            autoFocus
+          />
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={handleAddTag}>
+            <Plus className="h-3 w-3" />
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setShowInput(false); setNewTag(""); }}>
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 text-xs text-muted-foreground"
+          onClick={() => setShowInput(true)}
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          Add Tag
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export default function CustomerDetail() {
   const params = useParams();
@@ -254,6 +351,19 @@ export default function CustomerDetail() {
                   </p>
                 </div>
               )}
+              {/* Customer Tags */}
+              <div className="pt-3 border-t">
+                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
+                  <Tag className="h-3.5 w-3.5" />
+                  Tags
+                </div>
+                <CustomerTags
+                  customerId={parseInt(customerId!)}
+                  tags={(() => {
+                    try { return customer?.tags ? JSON.parse(customer.tags) : []; } catch { return []; }
+                  })()}
+                />
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -331,7 +441,7 @@ export default function CustomerDetail() {
                   <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">No activity yet</p>
                   <p className="text-xs mt-1">
-                    Jobs, invoices, and appointments will appear here
+                    Jobs, invoices, appointments, calls, and messages will appear here
                   </p>
                 </div>
               )}

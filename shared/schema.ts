@@ -186,6 +186,7 @@ export const customers = pgTable("customers", {
   smsOptInMethod: text("sms_opt_in_method"), // 'booking_form', 'manual', 'phone', 'import'
   marketingOptIn: boolean("marketing_opt_in").default(false),
   marketingOptInDate: timestamp("marketing_opt_in_date"),
+  tags: text("tags"), // JSON array of string tags, e.g. '["VIP","Residential","Repeat"]'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

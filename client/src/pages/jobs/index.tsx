@@ -9,6 +9,7 @@ import { formatDate, formatPhoneNumber } from "@/lib/utils";
 import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { useAuth } from "@/hooks/use-auth";
 import { PlusCircle, Briefcase, ChevronRight as ChevronRightIcon, FileText } from "lucide-react";
+import { ExportButton } from "@/components/ui/export-button";
 import { FeatureTip } from "@/components/ui/feature-tip";
 import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import {
@@ -140,12 +141,15 @@ export default function Jobs() {
           <h2 className="text-2xl font-bold">Job Management</h2>
           <p className="text-gray-500">Manage all your ongoing and completed jobs</p>
         </div>
-        <Link href="/jobs/new">
-          <Button className="flex items-center">
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New Job
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <ExportButton endpoint="/api/export/jobs" filename="jobs.csv" />
+          <Link href="/jobs/new">
+            <Button className="flex items-center">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              New Job
+            </Button>
+          </Link>
+        </div>
       </div>
       
       <div className="bg-white rounded-lg shadow-sm border overflow-hidden">

@@ -181,6 +181,7 @@ router.post("/customers", async (req, res) => {
       state: z.string().optional(),
       zipcode: z.string().optional(),
       birthday: z.string().optional(), // MM-DD format
+      tags: z.array(z.string()).optional(), // Customer tags/labels
       // SMS consent fields (TCPA compliance)
       smsOptIn: z.boolean().optional(),
       smsOptInDate: z.string().optional(),
@@ -204,6 +205,7 @@ router.post("/customers", async (req, res) => {
       state: validatedData.state || null,
       zipcode: validatedData.zipcode || null,
       birthday: validatedData.birthday || null,
+      tags: validatedData.tags ? JSON.stringify(validatedData.tags) : null,
     };
 
     // Add SMS consent fields if provided
@@ -267,6 +269,7 @@ router.patch("/customers/:id", async (req, res) => {
       state: z.string().optional(),
       zipcode: z.string().optional(),
       birthday: z.string().optional(), // MM-DD format
+      tags: z.array(z.string()).optional(), // Customer tags/labels
       // SMS consent fields (TCPA compliance)
       smsOptIn: z.boolean().optional(),
       smsOptInDate: z.string().optional(),
@@ -280,6 +283,9 @@ router.patch("/customers/:id", async (req, res) => {
 
     // Build update data with consent timestamps
     const updateData: any = { ...validatedData };
+    if (validatedData.tags) {
+      updateData.tags = JSON.stringify(validatedData.tags);
+    }
     if (validatedData.smsOptIn === true && !existingCustomer.smsOptIn) {
       updateData.smsOptInDate = validatedData.smsOptInDate ? new Date(validatedData.smsOptInDate) : new Date();
       updateData.smsOptInMethod = validatedData.smsOptInMethod || 'manual';
@@ -331,6 +337,106 @@ router.delete("/customers/:id", async (req, res) => {
   } catch (error) {
     console.error("Error deleting customer:", error);
     res.status(500).json({ error: "Failed to delete customer" });
+  }
+});
+
+// ── Customer Tags ──
+
+// Get all unique tags for a business
+router.get("/customers/tags", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = req.user.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+
+    const allCustomers = await storage.getCustomers(businessId);
+    const tagSet = new Set<string>();
+    for (const c of allCustomers) {
+      if ((c as any).tags) {
+        try {
+          const parsed = JSON.parse((c as any).tags);
+          if (Array.isArray(parsed)) parsed.forEach((t: string) => tagSet.add(t));
+        } catch {}
+      }
+    }
+    res.json(Array.from(tagSet).sort());
+  } catch (error) {
+    console.error("Error fetching tags:", error);
+    res.status(500).json({ error: "Failed to fetch tags" });
+  }
+});
+
+// Add tags to a customer
+router.post("/customers/:id/tags", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = req.user.businessId;
+    const customerId = parseInt(req.params.id);
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+
+    const customer = await storage.getCustomer(customerId);
+    if (!customer || customer.businessId !== businessId) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    const { tags } = z.object({ tags: z.array(z.string()) }).parse(req.body);
+
+    // Merge with existing tags
+    let existingTags: string[] = [];
+    if ((customer as any).tags) {
+      try { existingTags = JSON.parse((customer as any).tags); } catch {}
+    }
+    const merged = Array.from(new Set([...existingTags, ...tags]));
+
+    const updated = await storage.updateCustomer(customerId, { tags: JSON.stringify(merged) } as any);
+    res.json(updated);
+  } catch (error: any) {
+    console.error("Error adding tags:", error);
+    if (error.name === "ZodError") {
+      return res.status(400).json({ error: "Invalid tag data", details: error.errors });
+    }
+    res.status(500).json({ error: "Failed to add tags" });
+  }
+});
+
+// Remove a tag from a customer
+router.delete("/customers/:id/tags/:tag", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = req.user.businessId;
+    const customerId = parseInt(req.params.id);
+    const tagToRemove = decodeURIComponent(req.params.tag);
+
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+
+    const customer = await storage.getCustomer(customerId);
+    if (!customer || customer.businessId !== businessId) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    let existingTags: string[] = [];
+    if ((customer as any).tags) {
+      try { existingTags = JSON.parse((customer as any).tags); } catch {}
+    }
+    const filtered = existingTags.filter(t => t !== tagToRemove);
+
+    const updated = await storage.updateCustomer(customerId, { tags: JSON.stringify(filtered) } as any);
+    res.json(updated);
+  } catch (error) {
+    console.error("Error removing tag:", error);
+    res.status(500).json({ error: "Failed to remove tag" });
   }
 });
 

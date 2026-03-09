@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
 import { PlusCircle, FileText, Download, Edit, Printer, MessageSquare, Share2, Copy, Check, MoreVertical, ChevronRight as ChevronRightIcon, CreditCard } from "lucide-react";
+import { ExportButton } from "@/components/ui/export-button";
 import { FeatureTip } from "@/components/ui/feature-tip";
 import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import {
@@ -249,12 +250,15 @@ export default function Invoices() {
           <h2 className="text-2xl font-bold">Invoice Management</h2>
           <p className="text-gray-500">Manage all your invoices and payments</p>
         </div>
-        <Link href="/invoices/create">
-          <Button className="flex items-center">
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New Invoice
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <ExportButton endpoint="/api/export/invoices" filename="invoices.csv" />
+          <Link href="/invoices/create">
+            <Button className="flex items-center">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              New Invoice
+            </Button>
+          </Link>
+        </div>
       </div>
       
       <div className="bg-white rounded-lg shadow-sm border overflow-hidden">

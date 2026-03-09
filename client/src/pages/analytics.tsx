@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
 } from "lucide-react";
+import { ExportButton } from "@/components/ui/export-button";
 
 type Period = "week" | "month" | "quarter" | "year";
 
@@ -197,14 +198,21 @@ export default function AnalyticsPage() {
         <p className="text-muted-foreground">
           Business performance overview
         </p>
-        <Tabs value={period} onValueChange={(v) => setPeriod(v as Period)}>
-          <TabsList>
-            <TabsTrigger value="week">Week</TabsTrigger>
-            <TabsTrigger value="month">Month</TabsTrigger>
-            <TabsTrigger value="quarter">Quarter</TabsTrigger>
-            <TabsTrigger value="year">Year</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-3">
+          <ExportButton
+            endpoint={`/api/analytics/export?period=${period}`}
+            filename={`analytics-report-${period}.csv`}
+            label="Export Report"
+          />
+          <Tabs value={period} onValueChange={(v) => setPeriod(v as Period)}>
+            <TabsList>
+              <TabsTrigger value="week">Week</TabsTrigger>
+              <TabsTrigger value="month">Month</TabsTrigger>
+              <TabsTrigger value="quarter">Quarter</TabsTrigger>
+              <TabsTrigger value="year">Year</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       {isLoading ? (
