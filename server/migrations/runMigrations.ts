@@ -82,6 +82,9 @@ async function fixExistingTables() {
   // Owner phone for notifications (payment failures, alerts)
   await addColumnIfNotExists('businesses', 'owner_phone', 'TEXT');
 
+  // Weather alerts toggle for notification settings
+  await addColumnIfNotExists('notification_settings', 'weather_alerts_enabled', 'BOOLEAN DEFAULT true');
+
   // Inventory alert settings for restaurants
   await addColumnIfNotExists('businesses', 'inventory_alerts_enabled', 'BOOLEAN DEFAULT false');
   await addColumnIfNotExists('businesses', 'inventory_alert_channel', "TEXT DEFAULT 'both'");
@@ -655,6 +658,7 @@ async function fixExistingTables() {
       invoice_payment_confirmation_email BOOLEAN DEFAULT true,
       job_completed_email BOOLEAN DEFAULT true,
       job_completed_sms BOOLEAN DEFAULT true,
+      weather_alerts_enabled BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -1548,6 +1552,7 @@ async function createBaseTables() {
       invoice_payment_confirmation_email BOOLEAN DEFAULT true,
       job_completed_email BOOLEAN DEFAULT true,
       job_completed_sms BOOLEAN DEFAULT true,
+      weather_alerts_enabled BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );

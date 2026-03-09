@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Mail, MessageSquare, Bell, Calendar, FileText, Briefcase } from "lucide-react";
+import { Loader2, Mail, MessageSquare, Bell, Calendar, FileText, Briefcase, CloudRain } from "lucide-react";
 
 interface NotificationSettingsData {
   businessId: number;
@@ -22,6 +22,7 @@ interface NotificationSettingsData {
   invoicePaymentConfirmationEmail: boolean;
   jobCompletedEmail: boolean;
   jobCompletedSms: boolean;
+  weatherAlertsEnabled: boolean;
 }
 
 function NotificationRow({
@@ -270,6 +271,31 @@ export default function NotificationSettingsPanel({ businessId }: { businessId: 
             emailId="job-done-email"
             smsId="job-done-sms"
           />
+        </CardContent>
+      </Card>
+
+      {/* Weather Alerts */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <CloudRain className="h-4 w-4" />
+            <CardTitle className="text-base">Weather Alerts</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between py-3">
+            <div className="flex-1">
+              <p className="text-sm font-medium">Weather Forecast in Reminders</p>
+              <p className="text-xs text-muted-foreground">
+                Include a weather heads-up in appointment reminders when rain, snow, or storms are forecasted. Useful for outdoor and field service businesses.
+              </p>
+            </div>
+            <Switch
+              id="weather-alerts"
+              checked={settings.weatherAlertsEnabled}
+              onCheckedChange={(v) => handleToggle("weatherAlertsEnabled", v)}
+            />
+          </div>
         </CardContent>
       </Card>
 

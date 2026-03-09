@@ -252,8 +252,9 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
           message = `Hi ${customer.firstName}! Reminder: ${serviceName} is scheduled for ${dateStr} at ${timeStr}. Reply CONFIRM to confirm or call ${business.phone} to reschedule. - ${business.name}`;
         }
 
-        // Weather alert for field service reminders (only when forecast shows rain/snow/storms)
-        if (isFieldService && business.zip) {
+        // Weather alert for field service reminders (only when enabled and forecast shows rain/snow/storms)
+        const weatherEnabled = settings?.weatherAlertsEnabled !== false; // defaults to true
+        if (isFieldService && business.zip && weatherEnabled) {
           try {
             const forecast = await getWeatherForecast(business.zip, appointment.startDate);
             if (forecast?.isBadWeather) {

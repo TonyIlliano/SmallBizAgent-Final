@@ -3466,6 +3466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           invoicePaymentConfirmationEmail: true,
           jobCompletedEmail: true,
           jobCompletedSms: true,
+          weatherAlertsEnabled: true,
         });
       }
       res.json(settings);

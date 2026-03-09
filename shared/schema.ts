@@ -510,6 +510,8 @@ export const notificationSettings = pgTable("notification_settings", {
   // Job notifications
   jobCompletedEmail: boolean("job_completed_email").default(true),
   jobCompletedSms: boolean("job_completed_sms").default(true),
+  // Weather alerts (field service businesses)
+  weatherAlertsEnabled: boolean("weather_alerts_enabled").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
