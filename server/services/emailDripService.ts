@@ -14,15 +14,38 @@
  */
 
 import { storage } from "../storage";
-import { Business } from "@shared/schema";
+import { Business, users } from "@shared/schema";
 import { sendEmail } from "../emailService";
+import { db } from "../db";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const APP_URL = process.env.APP_URL || "https://www.smallbizagent.ai";
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || "bark@smallbizagent.ai";
 
 /** Milliseconds in one day */
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Build one-click unsubscribe URL for a business */
+function unsubscribeUrl(businessId: number): string {
+  return `${APP_URL}/api/email/unsubscribe?bid=${businessId}`;
+}
+
+/** Shared HTML footer with unsubscribe link for all drip emails */
+function emailFooter(businessId: number): string {
+  return `
+    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+    <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+    <p style="color: #bbb; font-size: 11px;">
+      <a href="${unsubscribeUrl(businessId)}" style="color: #bbb; text-decoration: underline;">Unsubscribe</a> from SmallBizAgent emails
+    </p>
+  `;
+}
+
+/** Shared plain-text footer with unsubscribe link */
+function textFooter(businessId: number): string {
+  return `\n— The SmallBizAgent Team\n\nUnsubscribe: ${unsubscribeUrl(businessId)}`;
+}
 
 /** Calculate whole days between two dates (positive = dateA is in the past relative to dateB) */
 function daysBetween(dateA: Date, dateB: Date): number {
@@ -77,13 +100,30 @@ async function sendDripEmail(
 ): Promise<boolean> {
   if (!business.email) return false;
 
+  // Respect email opt-out
+  if ((business as any).emailOptOut === true) {
+    return false;
+  }
+
   // Idempotency: skip if already sent
   if (await hasAlreadySent(business.id, idempotencyKey)) {
     return false;
   }
 
+  const unsub = unsubscribeUrl(business.id);
+
   try {
-    await sendEmail({ to: business.email, subject, text, html });
+    await sendEmail({
+      to: business.email,
+      subject,
+      text,
+      html,
+      replyTo: SUPPORT_EMAIL,
+      headers: {
+        "List-Unsubscribe": `<${unsub}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+    });
     await recordDripSend(business.id, idempotencyKey, business.email, subject, "sent");
     console.log(`[EmailDrip] Sent "${idempotencyKey}" to business ${business.id} (${business.email})`);
     return true;
@@ -100,10 +140,12 @@ async function sendDripEmail(
 // Day 3: "Your AI agents are ready"
 // Day 7: "How's it going?"
 
-async function processOnboardingDrip(business: Business): Promise<number> {
+async function processOnboardingDrip(business: Business, ownerName: string): Promise<number> {
   if (!business.createdAt || !business.email) return 0;
 
   const daysSinceSignup = daysBetween(new Date(business.createdAt), new Date());
+  const greeting = ownerName ? `Hi ${ownerName},` : "Hi there,";
+  const greetingHtml = ownerName ? `Hi <strong>${ownerName}</strong>,` : "Hi there,";
   let sent = 0;
 
   // Day 1: Remind them to complete onboarding
@@ -111,7 +153,7 @@ async function processOnboardingDrip(business: Business): Promise<number> {
     const key = `drip:onboarding:day1:${business.id}`;
     const subject = "Set up your AI receptionist — it takes 2 minutes";
     const text = [
-      `Hi${business.name ? ` ${business.name} team` : ""},`,
+      greeting,
       "",
       "Welcome to SmallBizAgent! You signed up yesterday, and we wanted to make sure you get the most out of your free trial.",
       "",
@@ -124,14 +166,13 @@ async function processOnboardingDrip(business: Business): Promise<number> {
       `Get started: ${APP_URL}/dashboard`,
       "",
       "If you need any help, just reply to this email.",
-      "",
-      "— The SmallBizAgent Team",
+      textFooter(business.id),
     ].join("\n");
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h2 style="color: #333;">Set Up Your AI Receptionist</h2>
-        <p>Hi${business.name ? ` <strong>${business.name}</strong> team` : ""},</p>
+        <p>${greetingHtml}</p>
         <p>Welcome to SmallBizAgent! You signed up yesterday, and we wanted to make sure you get the most out of your free trial.</p>
         <p>Have you set up your AI receptionist yet? It only takes a couple of minutes:</p>
         <ol style="color: #374151; line-height: 1.8;">
@@ -143,8 +184,7 @@ async function processOnboardingDrip(business: Business): Promise<number> {
           <a href="${APP_URL}/dashboard" style="display: inline-block; background: #000; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Go to Dashboard</a>
         </div>
         <p style="color: #666; font-size: 14px;">If you need any help, just reply to this email.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+        ${emailFooter(business.id)}
       </div>
     `;
 
@@ -156,7 +196,7 @@ async function processOnboardingDrip(business: Business): Promise<number> {
     const key = `drip:onboarding:day3:${business.id}`;
     const subject = "Your AI agents are ready to work for you";
     const text = [
-      `Hi${business.name ? ` ${business.name} team` : ""},`,
+      greeting,
       "",
       "Did you know SmallBizAgent includes AI-powered SMS agents that handle common tasks automatically?",
       "",
@@ -169,14 +209,13 @@ async function processOnboardingDrip(business: Business): Promise<number> {
       `Turn them on in AI Agents: ${APP_URL}/ai-agents`,
       "",
       "They run in the background so you can focus on your craft.",
-      "",
-      "— The SmallBizAgent Team",
+      textFooter(business.id),
     ].join("\n");
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h2 style="color: #333;">Your AI Agents Are Ready</h2>
-        <p>Hi${business.name ? ` <strong>${business.name}</strong> team` : ""},</p>
+        <p>${greetingHtml}</p>
         <p>Did you know SmallBizAgent includes AI-powered SMS agents that handle common tasks automatically?</p>
         <div style="background: #f0f9ff; border-radius: 8px; padding: 16px; margin: 20px 0; border-left: 4px solid #2563eb;">
           <ul style="color: #374151; line-height: 1.8; margin: 0; padding-left: 20px;">
@@ -190,8 +229,7 @@ async function processOnboardingDrip(business: Business): Promise<number> {
           <a href="${APP_URL}/ai-agents" style="display: inline-block; background: #000; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Explore AI Agents</a>
         </div>
         <p style="color: #666; font-size: 14px;">They run in the background so you can focus on your craft.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+        ${emailFooter(business.id)}
       </div>
     `;
 
@@ -203,7 +241,7 @@ async function processOnboardingDrip(business: Business): Promise<number> {
     const key = `drip:onboarding:day7:${business.id}`;
     const subject = "How's it going with SmallBizAgent?";
     const text = [
-      `Hi${business.name ? ` ${business.name} team` : ""},`,
+      greeting,
       "",
       "You've been using SmallBizAgent for a week now — how's it going?",
       "",
@@ -215,14 +253,13 @@ async function processOnboardingDrip(business: Business): Promise<number> {
       "- Custom knowledge base so your AI receptionist can answer specific questions",
       "",
       "Just hit reply if you need anything at all. We read every message.",
-      "",
-      "— The SmallBizAgent Team",
+      textFooter(business.id),
     ].join("\n");
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h2 style="color: #333;">How's It Going?</h2>
-        <p>Hi${business.name ? ` <strong>${business.name}</strong> team` : ""},</p>
+        <p>${greetingHtml}</p>
         <p>You've been using SmallBizAgent for a week now &mdash; how's it going?</p>
         <p>We'd love to hear what's working, what's confusing, or what we can improve.</p>
         <div style="background: #f9f9f9; border-radius: 8px; padding: 16px; margin: 20px 0;">
@@ -234,8 +271,7 @@ async function processOnboardingDrip(business: Business): Promise<number> {
           </ul>
         </div>
         <p>Just hit reply if you need anything at all. We read every message.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+        ${emailFooter(business.id)}
       </div>
     `;
 
@@ -251,8 +287,10 @@ async function processOnboardingDrip(business: Business): Promise<number> {
 // Day of expiry:  "Your trial has ended"
 // 3 days after:   Win-back — "We miss you, here's 20% off"
 
-async function processTrialExpirationDrip(business: Business): Promise<number> {
+async function processTrialExpirationDrip(business: Business, ownerName: string): Promise<number> {
   if (!business.trialEndsAt || !business.email) return 0;
+  const greeting = ownerName ? `Hi ${ownerName},` : "Hi there,";
+  const greetingHtml = ownerName ? `Hi <strong>${ownerName}</strong>,` : "Hi there,";
 
   // Skip businesses with active paid subscriptions
   const status = (business as any).subscriptionStatus;
@@ -269,7 +307,7 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
     const key = `drip:trial:expired:${business.id}`;
     const subject = "Your SmallBizAgent trial has ended";
     const text = [
-      `Hi${business.name ? ` ${business.name} team` : ""},`,
+      greeting,
       "",
       "Your free trial of SmallBizAgent has ended.",
       "",
@@ -280,8 +318,7 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
       "",
       "Subscribe now to pick up right where you left off:",
       `${APP_URL}/settings?tab=subscription`,
-      "",
-      "— The SmallBizAgent Team",
+      textFooter(business.id),
     ].join("\n");
 
     const html = `
@@ -289,7 +326,7 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
         <div style="background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
           <h2 style="color: #dc2626; margin: 0;">Your Trial Has Ended</h2>
         </div>
-        <p>Hi${business.name ? ` <strong>${business.name}</strong> team` : ""},</p>
+        <p>${greetingHtml}</p>
         <p>Your free trial of SmallBizAgent has ended.</p>
         <div style="background: #f9f9f9; border-radius: 8px; padding: 16px; margin: 20px 0;">
           <p style="margin: 0 0 8px; font-weight: bold;">Here's what happens now:</p>
@@ -303,8 +340,7 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
           <a href="${APP_URL}/settings?tab=subscription" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Subscribe Now</a>
         </div>
         <p style="color: #666; font-size: 14px;">Pick up right where you left off.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+        ${emailFooter(business.id)}
       </div>
     `;
 
@@ -316,7 +352,7 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
     const key = `drip:trial:winback3:${business.id}`;
     const subject = "We miss you — here's 20% off SmallBizAgent";
     const text = [
-      `Hi${business.name ? ` ${business.name} team` : ""},`,
+      greeting,
       "",
       "It's been a few days since your SmallBizAgent trial ended, and we'd love to have you back.",
       "",
@@ -326,14 +362,13 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
       `  Use code COMEBACK20 at checkout: ${APP_URL}/settings?tab=subscription`,
       "",
       "Your data is still here — customers, appointments, invoices — all safe and waiting. You can be back up and running in seconds.",
-      "",
-      "— The SmallBizAgent Team",
+      textFooter(business.id),
     ].join("\n");
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h2 style="color: #333;">We Miss You!</h2>
-        <p>Hi${business.name ? ` <strong>${business.name}</strong> team` : ""},</p>
+        <p>${greetingHtml}</p>
         <p>It's been a few days since your SmallBizAgent trial ended, and we'd love to have you back.</p>
         <div style="background: #eff6ff; border: 2px solid #2563eb; border-radius: 8px; padding: 20px; margin: 24px 0; text-align: center;">
           <p style="font-size: 24px; font-weight: bold; color: #1e40af; margin: 0 0 8px;">20% OFF</p>
@@ -344,8 +379,7 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
         <div style="margin: 24px 0; text-align: center;">
           <a href="${APP_URL}/settings?tab=subscription" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Reactivate Now</a>
         </div>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+        ${emailFooter(business.id)}
       </div>
     `;
 
@@ -359,8 +393,10 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
 // 7 days after cancel:  "We'd love to have you back"
 // 30 days after cancel: "Special offer: 30% off for 3 months"
 
-async function processWinbackDrip(business: Business): Promise<number> {
+async function processWinbackDrip(business: Business, ownerName: string): Promise<number> {
   if (!business.email) return 0;
+  const greeting = ownerName ? `Hi ${ownerName},` : "Hi there,";
+  const greetingHtml = ownerName ? `Hi <strong>${ownerName}</strong>,` : "Hi there,";
 
   // Only target businesses that had a subscription that ended (canceled/churned)
   const status = (business as any).subscriptionStatus;
@@ -380,7 +416,7 @@ async function processWinbackDrip(business: Business): Promise<number> {
     const key = `drip:winback:day7:${business.id}`;
     const subject = "We'd love to have you back on SmallBizAgent";
     const text = [
-      `Hi${business.name ? ` ${business.name} team` : ""},`,
+      greeting,
       "",
       "We noticed your SmallBizAgent subscription ended recently, and we're sorry to see you go.",
       "",
@@ -388,22 +424,20 @@ async function processWinbackDrip(business: Business): Promise<number> {
       "",
       "In the meantime, your account and all your data are still here if you ever want to come back. Reactivating takes just a few clicks:",
       `${APP_URL}/settings?tab=subscription`,
-      "",
-      "— The SmallBizAgent Team",
+      textFooter(business.id),
     ].join("\n");
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h2 style="color: #333;">We'd Love to Have You Back</h2>
-        <p>Hi${business.name ? ` <strong>${business.name}</strong> team` : ""},</p>
+        <p>${greetingHtml}</p>
         <p>We noticed your SmallBizAgent subscription ended recently, and we're sorry to see you go.</p>
         <p>If there was anything we could have done better, we'd love to hear about it &mdash; just reply to this email.</p>
         <p>In the meantime, your account and all your data are still here if you ever want to come back. Reactivating takes just a few clicks.</p>
         <div style="margin: 24px 0; text-align: center;">
           <a href="${APP_URL}/settings?tab=subscription" style="display: inline-block; background: #000; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Reactivate My Account</a>
         </div>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+        ${emailFooter(business.id)}
       </div>
     `;
 
@@ -415,7 +449,7 @@ async function processWinbackDrip(business: Business): Promise<number> {
     const key = `drip:winback:day30:${business.id}`;
     const subject = "Special offer: 30% off SmallBizAgent for 3 months";
     const text = [
-      `Hi${business.name ? ` ${business.name} team` : ""},`,
+      greeting,
       "",
       "It's been a month since you left SmallBizAgent, and we've been busy shipping improvements:",
       "",
@@ -429,14 +463,13 @@ async function processWinbackDrip(business: Business): Promise<number> {
       `  Use code WINBACK30 at checkout: ${APP_URL}/settings?tab=subscription`,
       "",
       "No pressure — your data is still safe and waiting for you.",
-      "",
-      "— The SmallBizAgent Team",
+      textFooter(business.id),
     ].join("\n");
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h2 style="color: #333;">We've Missed You</h2>
-        <p>Hi${business.name ? ` <strong>${business.name}</strong> team` : ""},</p>
+        <p>${greetingHtml}</p>
         <p>It's been a month since you left SmallBizAgent, and we've been busy shipping improvements:</p>
         <ul style="color: #374151; line-height: 1.8;">
           <li>Smarter AI receptionist with better call handling</li>
@@ -452,8 +485,7 @@ async function processWinbackDrip(business: Business): Promise<number> {
           <a href="${APP_URL}/settings?tab=subscription" style="display: inline-block; background: #16a34a; color: #fff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold;">Reactivate with 30% Off</a>
         </div>
         <p style="color: #666; font-size: 14px;">No pressure &mdash; your data is still safe and waiting for you.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+        ${emailFooter(business.id)}
       </div>
     `;
 
@@ -474,15 +506,40 @@ export async function processEmailDrips(): Promise<void> {
     console.log(`[EmailDrip] Starting drip campaign processing at ${new Date().toISOString()}`);
     const allBusinesses = await storage.getAllBusinesses();
 
+    // Build a map of businessId → owner first name for personalized greetings
+    const ownerNameMap = new Map<number, string>();
+    try {
+      const allUsers = await db.select({
+        businessId: users.businessId,
+        username: users.username,
+        role: users.role,
+      }).from(users);
+
+      for (const u of allUsers) {
+        if (!u.businessId) continue;
+        const existing = ownerNameMap.get(u.businessId);
+        if (!existing || u.role === "admin" || u.role === "user") {
+          // Use the username (first word / first name) as the greeting name
+          const firstName = (u.username || "").split(/[\s@]+/)[0];
+          if (firstName && firstName.toLowerCase() !== "admin") {
+            ownerNameMap.set(u.businessId, firstName);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[EmailDrip] Could not load owner names, using fallback greetings:", err);
+    }
+
     let totalOnboarding = 0;
     let totalTrialExpiration = 0;
     let totalWinback = 0;
 
     for (const business of allBusinesses) {
       try {
-        totalOnboarding += await processOnboardingDrip(business);
-        totalTrialExpiration += await processTrialExpirationDrip(business);
-        totalWinback += await processWinbackDrip(business);
+        const ownerName = ownerNameMap.get(business.id) || "";
+        totalOnboarding += await processOnboardingDrip(business, ownerName);
+        totalTrialExpiration += await processTrialExpirationDrip(business, ownerName);
+        totalWinback += await processWinbackDrip(business, ownerName);
       } catch (err) {
         console.error(`[EmailDrip] Error processing business ${business.id}:`, err);
       }

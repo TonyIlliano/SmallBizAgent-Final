@@ -42,6 +42,7 @@ export const businesses = pgTable("businesses", {
   zip: text("zip"),
   phone: text("phone"),
   ownerPhone: text("owner_phone"), // Owner's personal cell for notifications (payment failures, alerts)
+  emailOptOut: boolean("email_opt_out").default(false), // Unsubscribed from marketing/drip emails
   email: text("email").notNull(),
   website: text("website"),
   logoUrl: text("logo_url"),

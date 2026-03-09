@@ -82,6 +82,9 @@ async function fixExistingTables() {
   // Owner phone for notifications (payment failures, alerts)
   await addColumnIfNotExists('businesses', 'owner_phone', 'TEXT');
 
+  // Email opt-out for drip/marketing emails
+  await addColumnIfNotExists('businesses', 'email_opt_out', 'BOOLEAN DEFAULT false');
+
   // Weather alerts toggle for notification settings
   await addColumnIfNotExists('notification_settings', 'weather_alerts_enabled', 'BOOLEAN DEFAULT true');
 

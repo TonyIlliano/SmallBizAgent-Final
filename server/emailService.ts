@@ -77,6 +77,8 @@ interface EmailOptions {
   html?: string;
   from?: string;
   senderName?: string;
+  replyTo?: string;
+  headers?: Record<string, string>;
 }
 
 /**
@@ -95,6 +97,8 @@ export async function sendEmail(options: EmailOptions): Promise<{ messageId: str
         subject: options.subject,
         text: options.text,
         html: options.html || options.text,
+        ...(options.replyTo ? { reply_to: options.replyTo } : {}),
+        ...(options.headers ? { headers: options.headers } : {}),
       });
 
       if (error) {
@@ -120,6 +124,8 @@ export async function sendEmail(options: EmailOptions): Promise<{ messageId: str
         subject: options.subject,
         text: options.text,
         html: options.html || options.text,
+        ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+        ...(options.headers ? { headers: options.headers } : {}),
       });
 
       const messageId = response.headers['x-message-id'] || `sg-${Date.now()}`;
@@ -140,7 +146,9 @@ export async function sendEmail(options: EmailOptions): Promise<{ messageId: str
     to: options.to,
     subject: options.subject,
     text: options.text,
-    html: options.html || undefined
+    html: options.html || undefined,
+    ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+    ...(options.headers ? { headers: options.headers } : {}),
   };
 
   try {
