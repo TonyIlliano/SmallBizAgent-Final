@@ -399,22 +399,26 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
       ? new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : 'Upon receipt';
 
-    // Build payment link if the invoice has an access token
+    // Build payment link only if the business has Stripe Connect set up
+    // (no point sending a "pay online" link if they can't actually accept payments)
     const APP_URL = process.env.APP_URL || 'https://www.smallbizagent.ai';
     let payUrl: string | null = null;
+    const hasStripe = !!(business as any).stripeConnectAccountId;
 
-    // Auto-generate access token if one doesn't exist yet
-    if (!(invoice as any).accessToken) {
-      try {
-        const crypto = await import('crypto');
-        const token = crypto.randomBytes(32).toString('hex');
-        await storage.updateInvoice(invoiceId, { accessToken: token } as any);
-        payUrl = `${APP_URL}/portal/invoice/${token}`;
-      } catch {
-        // If token generation fails, fall back to no link
+    if (hasStripe) {
+      // Auto-generate access token if one doesn't exist yet
+      if (!(invoice as any).accessToken) {
+        try {
+          const crypto = await import('crypto');
+          const token = crypto.randomBytes(32).toString('hex');
+          await storage.updateInvoice(invoiceId, { accessToken: token } as any);
+          payUrl = `${APP_URL}/portal/invoice/${token}`;
+        } catch {
+          // If token generation fails, fall back to no link
+        }
+      } else {
+        payUrl = `${APP_URL}/portal/invoice/${(invoice as any).accessToken}`;
       }
-    } else {
-      payUrl = `${APP_URL}/portal/invoice/${(invoice as any).accessToken}`;
     }
 
     // Send email
