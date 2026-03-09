@@ -269,8 +269,8 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
                 : `Heads up: ${forecast.description} is in the forecast`;
               message += ` ${weatherNote} \u2014 we'll reach out if we need to reschedule.`;
             }
-          } catch {
-            // Weather check failed — send reminder without weather note
+          } catch (weatherErr) {
+            console.warn(`[Notification] Weather check failed for business ${businessId}, continuing without weather note:`, weatherErr);
           }
         }
 
@@ -413,8 +413,8 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
           const token = crypto.randomBytes(32).toString('hex');
           await storage.updateInvoice(invoiceId, { accessToken: token } as any);
           payUrl = `${APP_URL}/portal/invoice/${token}`;
-        } catch {
-          // If token generation fails, fall back to no link
+        } catch (tokenErr) {
+          console.warn(`[Notification] Failed to generate access token for invoice ${invoiceId}:`, tokenErr);
         }
       } else {
         payUrl = `${APP_URL}/portal/invoice/${(invoice as any).accessToken}`;

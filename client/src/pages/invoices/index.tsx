@@ -6,6 +6,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatCurrency } from "@/lib/utils";
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
@@ -89,7 +90,7 @@ export default function Invoices() {
   }
   
   // Fetch invoices
-  const { data: invoices = [], isLoading } = useQuery<any[]>({
+  const { data: invoices = [], isLoading, isError, error: queryError, refetch } = useQuery<any[]>({
     queryKey: ['/api/invoices', queryParams],
   });
   
@@ -236,6 +237,7 @@ export default function Invoices() {
   
   return (
     <PageLayout title="Invoices">
+      {isError && <QueryErrorBanner error={queryError} onRetry={() => refetch()} />}
       <FeatureTip
         tipId="invoices-payments"
         title="Collect payments online"

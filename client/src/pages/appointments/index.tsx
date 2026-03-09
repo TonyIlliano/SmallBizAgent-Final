@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { formatTime } from "@/lib/utils";
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/api";
@@ -361,7 +362,7 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
   };
 
   // ─── Fetch appointments ─────────────────────────────────────────
-  const { data: appointments = [], isLoading } = useQuery<AppointmentData[]>({
+  const { data: appointments = [], isLoading, isError, error: queryError, refetch } = useQuery<AppointmentData[]>({
     queryKey: ["/api/appointments", queryParams],
     refetchInterval: 10000,
     staleTime: 5000,
@@ -460,6 +461,7 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
   // ─── Render ─────────────────────────────────────────────────────
   return (
     <PageLayout title="Appointments">
+      {isError && <QueryErrorBanner error={queryError} onRetry={() => refetch()} />}
       <FeatureTip
         tipId="appointments-booking"
         title="Enable online booking"

@@ -12,6 +12,7 @@ import { SkeletonStats } from "@/components/ui/skeleton-loader";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { formatCurrency } from "@/lib/utils";
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 
 
 import { Progress } from "@/components/ui/progress";
@@ -103,7 +104,7 @@ export default function Dashboard() {
   const businessId = user?.businessId;
 
   // Fetch business info for greeting
-  const { data: business } = useQuery<any>({
+  const { data: business, isError: businessError, error: businessErrorObj, refetch: refetchBusiness } = useQuery<any>({
     queryKey: ['/api/business'],
     enabled: !!businessId,
   });
@@ -261,6 +262,14 @@ export default function Dashboard() {
   return (
     <PageLayout title="Dashboard">
       <div className="space-y-4 sm:space-y-6">
+        {/* Error banner if core data failed to load */}
+        {businessError && (
+          <QueryErrorBanner
+            error={businessErrorObj}
+            onRetry={() => refetchBusiness()}
+            message="Failed to load dashboard data. Please check your connection and try again."
+          />
+        )}
         {/* Welcome Greeting */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>

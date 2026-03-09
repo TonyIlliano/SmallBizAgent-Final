@@ -3104,7 +3104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
         debouncedUpdateVapiAssistant(businessId);
-      } catch (e) { /* silent */ }
+      } catch (e) { console.error(`[Knowledge] Failed to update Vapi assistant for business ${businessId}:`, e); }
 
       res.json(entry);
     } catch (error) {
@@ -3133,7 +3133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
         debouncedUpdateVapiAssistant(existing.businessId);
-      } catch (e) { /* silent */ }
+      } catch (e) { console.error(`[Knowledge] Failed to update Vapi assistant for business ${existing.businessId}:`, e); }
 
       res.json(updated);
     } catch (error) {
@@ -3155,7 +3155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
         debouncedUpdateVapiAssistant(existing.businessId);
-      } catch (e) { /* silent */ }
+      } catch (e) { console.error(`[Knowledge] Failed to update Vapi assistant for business ${existing.businessId}:`, e); }
 
       res.json({ message: "Knowledge entry deleted" });
     } catch (error) {
@@ -3543,6 +3543,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching agent insights:", error);
       res.status(500).json({ message: "Error fetching agent insights" });
+    }
+  });
+
+  // Admin: Integration health status — shows which services are configured
+  app.get("/api/admin/integration-health", isAdmin, async (req: Request, res: Response) => {
+    try {
+      const integrations = [
+        {
+          name: "Twilio (SMS/Voice)",
+          key: "twilio",
+          configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
+          required: true,
+          description: "SMS notifications, AI receptionist phone numbers",
+        },
+        {
+          name: "Vapi (Voice AI)",
+          key: "vapi",
+          configured: !!(process.env.VAPI_API_KEY),
+          required: true,
+          description: "AI receptionist voice calls",
+        },
+        {
+          name: "SendGrid (Email)",
+          key: "sendgrid",
+          configured: !!(process.env.SENDGRID_API_KEY),
+          required: true,
+          description: "Transactional emails, drip campaigns, invoice emails",
+        },
+        {
+          name: "Stripe (Payments)",
+          key: "stripe",
+          configured: !!(process.env.STRIPE_SECRET_KEY && process.env.VITE_STRIPE_PUBLIC_KEY),
+          required: true,
+          description: "Subscription billing, invoice payments via Stripe Connect",
+        },
+        {
+          name: "OpenAI",
+          key: "openai",
+          configured: !!(process.env.OPENAI_API_KEY),
+          required: true,
+          description: "Platform AI agents, content generation, SMS agent intelligence",
+        },
+        {
+          name: "Google Calendar",
+          key: "google_calendar",
+          configured: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+          required: false,
+          description: "Two-way calendar sync for appointments",
+        },
+        {
+          name: "OpenWeatherMap",
+          key: "weather",
+          configured: !!(process.env.OPENWEATHER_API_KEY),
+          required: false,
+          description: "Weather alerts in appointment reminders for field service",
+        },
+        {
+          name: "Shotstack (Video)",
+          key: "shotstack",
+          configured: !!(process.env.SHOTSTACK_API_KEY),
+          required: false,
+          description: "Social media video generation",
+        },
+        {
+          name: "AWS S3 (Storage)",
+          key: "s3",
+          configured: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.AWS_S3_BUCKET),
+          required: false,
+          description: "File uploads, document storage",
+        },
+        {
+          name: "Sentry (Error Tracking)",
+          key: "sentry",
+          configured: !!(process.env.SENTRY_DSN),
+          required: false,
+          description: "Production error monitoring and alerts",
+        },
+      ];
+
+      const summary = {
+        total: integrations.length,
+        configured: integrations.filter(i => i.configured).length,
+        requiredMissing: integrations.filter(i => i.required && !i.configured).map(i => i.name),
+      };
+
+      res.json({ integrations, summary });
+    } catch (error) {
+      console.error("Error fetching integration health:", error);
+      res.status(500).json({ message: "Error fetching integration health" });
     }
   });
 

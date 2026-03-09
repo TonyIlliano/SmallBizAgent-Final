@@ -86,7 +86,8 @@ export async function checkBelongsToBusinessAsync(user: any, businessId: number)
   try {
     const { storage } = await import('../storage');
     return await storage.hasBusinessAccess(user.id, businessId);
-  } catch {
+  } catch (err) {
+    console.warn(`[Auth] Failed to check business access for user ${user?.id}, business ${businessId}:`, err);
     return false;
   }
 }

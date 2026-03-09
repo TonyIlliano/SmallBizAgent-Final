@@ -6,6 +6,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatPhoneNumber } from "@/lib/utils";
+import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { useAuth } from "@/hooks/use-auth";
 import { PlusCircle, Briefcase, ChevronRight as ChevronRightIcon, FileText } from "lucide-react";
 import { FeatureTip } from "@/components/ui/feature-tip";
@@ -31,7 +32,7 @@ export default function Jobs() {
   }
   
   // Fetch jobs
-  const { data: jobs = [], isLoading } = useQuery<any[]>({
+  const { data: jobs = [], isLoading, isError, error: queryError, refetch } = useQuery<any[]>({
     queryKey: ['/api/jobs', queryParams],
   });
   
@@ -127,6 +128,7 @@ export default function Jobs() {
   
   return (
     <PageLayout title="Jobs">
+      {isError && <QueryErrorBanner error={queryError} onRetry={() => refetch()} />}
       <FeatureTip
         tipId="jobs-workflow"
         title="Track jobs from start to finish"

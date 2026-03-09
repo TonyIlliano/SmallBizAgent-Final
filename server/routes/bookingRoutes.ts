@@ -629,7 +629,7 @@ router.post("/book/:slug/manage/:token/cancel", async (req, res) => {
       if (linkedJob) {
         await storage.updateJob(linkedJob.id, { status: 'cancelled' });
       }
-    } catch (e) { /* non-blocking */ }
+    } catch (e) { console.warn(`[Booking] Failed to cancel linked job for appointment ${appointment.id}:`, e); }
 
     // Fire webhook
     fireEvent(business.id, 'appointment.cancelled', { appointment: updated }).catch(() => {});
@@ -707,7 +707,7 @@ router.post("/book/:slug/manage/:token/reschedule", async (req, res) => {
       if (linkedJob) {
         await storage.updateJob(linkedJob.id, { scheduledDate: date });
       }
-    } catch (e) { /* non-blocking */ }
+    } catch (e) { console.warn(`[Booking] Failed to reschedule linked job for appointment ${appointment.id}:`, e); }
 
     // Fire webhook
     fireEvent(business.id, 'appointment.updated', { appointment: updated }).catch(() => {});

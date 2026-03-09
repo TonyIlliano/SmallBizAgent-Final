@@ -29,6 +29,7 @@ import TwoFactorSetup from "@/components/settings/TwoFactorSetup";
 import AuditLog from "@/components/settings/AuditLog";
 import NotificationHistory from "@/components/settings/NotificationHistory";
 import AgentInsights from "@/components/settings/AgentInsights";
+import IntegrationHealth from "@/components/settings/IntegrationHealth";
 import {
   Dialog,
   DialogContent,
@@ -1135,6 +1136,7 @@ export default function Settings() {
               <>
                 <TabsTrigger value="notification-history" className="whitespace-nowrap flex-shrink-0">Notification Log</TabsTrigger>
                 <TabsTrigger value="agent-insights" className="whitespace-nowrap flex-shrink-0">AI Insights</TabsTrigger>
+                <TabsTrigger value="integrations-health" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
               </>
             )}
             <TabsTrigger value="privacy" className="whitespace-nowrap flex-shrink-0">Privacy</TabsTrigger>
@@ -2491,9 +2493,14 @@ export default function Settings() {
 
           {/* AI Agent Insights — admin/owner only */}
           {(user?.role === 'admin' || user?.role === 'owner') && (
-            <TabsContent value="agent-insights" className="space-y-4">
-              <AgentInsights />
-            </TabsContent>
+            <>
+              <TabsContent value="agent-insights" className="space-y-4">
+                <AgentInsights />
+              </TabsContent>
+              <TabsContent value="integrations-health" className="space-y-4">
+                <IntegrationHealth />
+              </TabsContent>
+            </>
           )}
 
           <TabsContent value="privacy" className="space-y-4">

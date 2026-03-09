@@ -1,4 +1,4 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { QueryClient, QueryCache, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -109,4 +109,12 @@ export const queryClient = new QueryClient({
       retry: false,
     },
   },
+  // Global query cache error handler — logs failed queries for visibility
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      // Skip 401s — those are handled by auth redirect
+      if (error.message?.startsWith("401:")) return;
+      console.error(`[QueryError] ${query.queryKey[0]}:`, error.message);
+    },
+  }),
 });
