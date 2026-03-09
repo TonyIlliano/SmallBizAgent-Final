@@ -41,14 +41,18 @@ function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }
 
-// Helper to format date
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+// Helper to format date in the business timezone (defaults to UTC if not set)
+function formatDate(date: Date, timezone?: string): string {
+  const opts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
+  if (timezone) opts.timeZone = timezone;
+  return date.toLocaleDateString('en-US', opts);
 }
 
-// Helper to format time
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+// Helper to format time in the business timezone (defaults to UTC if not set)
+function formatTime(date: Date, timezone?: string): string {
+  const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
+  if (timezone) opts.timeZone = timezone;
+  return date.toLocaleTimeString('en-US', opts);
 }
 
 /**
@@ -79,8 +83,9 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
     }
 
     const appointmentDate = new Date(appointment.startDate);
-    const dateStr = formatDate(appointmentDate);
-    const timeStr = formatTime(appointmentDate);
+    const tz = (business as any).timezone || undefined;
+    const dateStr = formatDate(appointmentDate, tz);
+    const timeStr = formatTime(appointmentDate, tz);
 
     // Build manage URL if appointment has a manage token
     const manageUrl = appointment.manageToken && business.bookingSlug
@@ -206,8 +211,9 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
     }
 
     const appointmentDate = new Date(appointment.startDate);
-    const dateStr = formatDate(appointmentDate);
-    const timeStr = formatTime(appointmentDate);
+    const tz = (business as any).timezone || undefined;
+    const dateStr = formatDate(appointmentDate, tz);
+    const timeStr = formatTime(appointmentDate, tz);
 
     // Send email
     if (sendEmailPref && customer.email) {
@@ -875,8 +881,9 @@ export async function sendReservationConfirmation(reservationId: number, busines
     if (!business) return;
 
     const reservationDate = new Date(reservation.startDate);
-    const dateStr = formatDate(reservationDate);
-    const timeStr = formatTime(reservationDate);
+    const tz = (business as any).timezone || undefined;
+    const dateStr = formatDate(reservationDate, tz);
+    const timeStr = formatTime(reservationDate, tz);
     const partyStr = reservation.partySize === 1 ? '1 guest' : `${reservation.partySize} guests`;
 
     // Build manage URL

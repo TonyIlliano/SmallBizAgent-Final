@@ -290,10 +290,19 @@ export async function sendReviewRequestEmail(
       reviewLink: reviewUrl
     });
 
-    // TODO: Integrate with email service (SendGrid, SES, etc.)
-    console.log(`[Review Service] Would send email to ${customer.email}:`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Body: ${body}`);
+    // Send via email service
+    try {
+      const { sendEmail } = await import("../emailService");
+      await sendEmail({
+        to: customer.email!,
+        subject,
+        text: `Hi ${customer.firstName}, thank you for choosing ${business.name}! We'd love your feedback. Leave a review: ${reviewUrl}`,
+        html: body,
+      });
+      console.log(`[Review Service] Sent review request email to ${customer.email}`);
+    } catch (emailErr) {
+      console.error(`[Review Service] Failed to send email to ${customer.email}:`, emailErr);
+    }
 
     // Record the review request
     const [request] = await db.insert(reviewRequests)

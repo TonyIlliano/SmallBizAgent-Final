@@ -22,6 +22,8 @@ import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import compression from "compression";
+import cookieParser from "cookie-parser";
+import crypto from "crypto";
 import { pool } from "./db";
 
 /**
@@ -146,7 +148,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
 }));
 
 // Rate limiting - General API rate limit
@@ -185,9 +187,65 @@ app.use('/api/subscription/webhook', express.raw({ type: 'application/json' }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
 
 // Compression - gzip responses for faster page loads
 app.use(compression());
+
+/**
+ * CSRF Protection (Double-Submit Cookie Pattern)
+ *
+ * How it works:
+ * 1. Server sets a `csrf-token` cookie with a random token on every response
+ * 2. Client reads the cookie and sends the value as `X-CSRF-Token` header
+ * 3. Server verifies cookie value === header value on state-changing requests
+ *
+ * This works because:
+ * - A cross-site attacker can trigger requests that include cookies, but
+ *   cannot read them (same-origin policy) to set the header
+ * - CORS prevents cross-origin JS from reading the cookie value
+ */
+app.use((req, res, next) => {
+  // Set the CSRF cookie if not already present
+  if (!req.cookies?.['csrf-token']) {
+    const token = crypto.randomBytes(32).toString('hex');
+    res.cookie('csrf-token', token, {
+      httpOnly: false, // Client JS needs to read this
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+    });
+  }
+
+  // Skip CSRF check for safe methods and specific paths
+  const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
+  const exemptPaths = [
+    '/api/stripe-webhook',
+    '/api/subscription/webhook',
+    '/api/twilio/',
+    '/api/vapi/',
+    '/api/clover-webhook',
+    '/api/square-webhook',
+    '/health',
+  ];
+
+  if (
+    safeMethods.includes(req.method) ||
+    exemptPaths.some((p) => req.path.startsWith(p))
+  ) {
+    return next();
+  }
+
+  // Validate CSRF token on state-changing requests
+  const cookieToken = req.cookies?.['csrf-token'];
+  const headerToken = req.headers['x-csrf-token'];
+
+  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+    return res.status(403).json({ message: 'Invalid CSRF token' });
+  }
+
+  next();
+});
 
 app.use((req, res, next) => {
   const start = Date.now();

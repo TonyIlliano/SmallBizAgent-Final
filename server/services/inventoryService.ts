@@ -491,25 +491,42 @@ export async function checkAndSendLowStockAlerts(
     business.email
   ) {
     try {
-      // Use pool.query to log the notification (email service integration)
+      const subject = `⚠️ Low Stock Alert — ${lowStockItems.length} items need restock`;
+      const itemList = lowStockItems
+        .map((item: any) => `• ${item.name}: ${item.currentStock} remaining (threshold: ${item.lowStockThreshold})`)
+        .join('\n');
+      const htmlItemList = lowStockItems
+        .map((item: any) => `<li><strong>${item.name}</strong>: ${item.currentStock} remaining (threshold: ${item.lowStockThreshold})</li>`)
+        .join('');
+
+      const { sendEmail } = await import("../emailService");
+      await sendEmail({
+        to: business.email,
+        subject,
+        text: `Low Stock Alert for ${business.name}\n\nThe following items are running low:\n${itemList}\n\nPlease restock soon to avoid service disruptions.`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #dc2626;">⚠️ Low Stock Alert</h2>
+            <p>The following items at <strong>${business.name}</strong> are running low:</p>
+            <ul style="line-height: 1.8;">${htmlItemList}</ul>
+            <p>Please restock soon to avoid service disruptions.</p>
+          </div>
+        `,
+      });
+
+      // Log the notification
       await pool.query(
         `INSERT INTO notification_log (business_id, type, channel, recipient, subject, message, status, sent_at)
          VALUES ($1, 'inventory_alert', 'email', $2, $3, $4, 'sent', NOW())`,
-        [
-          businessId,
-          business.email,
-          `⚠️ Low Stock Alert — ${lowStockItems.length} items need restock`,
-          alertMessage,
-        ]
+        [businessId, business.email, subject, alertMessage]
       );
-      // TODO: Integrate with email service (SendGrid/SES) for actual email delivery
       console.log(
-        `[Inventory] Logged low-stock email alert to ${business.email} for business ${businessId}`
+        `[Inventory] Sent low-stock email alert to ${business.email} for business ${businessId}`
       );
       alertsSent++;
     } catch (err: any) {
       console.error(
-        `[Inventory] Failed to log email alert: ${err.message}`
+        `[Inventory] Failed to send email alert: ${err.message}`
       );
     }
   }

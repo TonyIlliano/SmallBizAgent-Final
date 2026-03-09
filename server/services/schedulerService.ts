@@ -3,7 +3,7 @@ import { Business } from "@shared/schema";
 import reminderService from "./reminderService";
 import { processDueRecurringSchedules } from "../routes/recurring";
 import { updateVapiAssistant } from "./vapiProvisioningService";
-import { sendQuoteFollowUpNotification } from "./notificationService";
+import { sendQuoteFollowUpNotification, sendInvoiceReminderNotification } from "./notificationService";
 import { sendBirthdayCampaigns } from "./marketingService";
 import { deprovisionBusiness } from "./businessProvisioningService";
 import twilioService from "./twilioService";
@@ -177,8 +177,8 @@ async function runVapiRefresh(): Promise<void> {
 
 /**
  * Start the overdue invoice detection scheduler.
- * Runs every 6 hours to find pending invoices past their due date
- * and marks them as "overdue".
+ * Runs every 6 hours to find pending invoices past their due date,
+ * marks them as "overdue", and sends automated payment reminders.
  */
 export function startOverdueInvoiceScheduler(): void {
   const jobKey = 'overdue-invoices';
@@ -201,20 +201,31 @@ export function startOverdueInvoiceScheduler(): void {
   scheduledJobs.set(jobKey, intervalId);
 }
 
+/** Milliseconds in one day */
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Check all businesses for pending invoices past their due date
- * and mark them as overdue
+ * Check all businesses for pending invoices past their due date,
+ * mark them as overdue, and send automated payment reminders at
+ * 1 day, 7 days, 14 days, and 30 days overdue.
+ *
+ * Idempotency: uses notification_log to ensure each reminder tier
+ * is only sent once per invoice.
  */
 async function runOverdueInvoiceCheck(): Promise<void> {
   try {
     console.log(`[OverdueCheck] Running overdue invoice check at ${new Date().toISOString()}`);
     const allBusinesses = await storage.getAllBusinesses();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     let totalMarked = 0;
+    let totalReminders = 0;
 
     for (const business of allBusinesses) {
       try {
+        // Use business timezone for "today" comparison (default UTC)
+        const tz = (business as any).timezone || 'UTC';
+        const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+        nowInTz.setHours(0, 0, 0, 0);
+
         const pendingInvoices = await storage.getInvoices(business.id, { status: 'pending' });
 
         for (const invoice of pendingInvoices) {
@@ -222,10 +233,40 @@ async function runOverdueInvoiceCheck(): Promise<void> {
             const dueDate = new Date(invoice.dueDate);
             dueDate.setHours(0, 0, 0, 0);
 
-            if (dueDate < today) {
+            if (dueDate < nowInTz) {
               await storage.updateInvoice(invoice.id, { status: 'overdue' });
               totalMarked++;
               console.log(`[OverdueCheck] Invoice ${invoice.invoiceNumber} (business ${business.id}) marked as overdue`);
+
+              // Send first reminder immediately when newly overdue
+              try {
+                await sendInvoiceReminderIfDue(invoice.id, business.id, 1);
+                totalReminders++;
+              } catch (err) {
+                console.error(`[OverdueCheck] Failed to send reminder for invoice ${invoice.id}:`, err);
+              }
+            }
+          }
+        }
+
+        // Also check already-overdue invoices for follow-up reminders (7d, 14d, 30d)
+        const overdueInvoices = await storage.getInvoices(business.id, { status: 'overdue' });
+
+        for (const invoice of overdueInvoices) {
+          if (!invoice.dueDate) continue;
+          const dueDate = new Date(invoice.dueDate);
+          const daysOverdue = Math.floor((nowInTz.getTime() - dueDate.getTime()) / ONE_DAY_MS);
+
+          // Send escalating reminders at 7, 14, and 30 days overdue
+          const reminderTiers = [7, 14, 30];
+          for (const tier of reminderTiers) {
+            if (daysOverdue >= tier) {
+              try {
+                const sent = await sendInvoiceReminderIfDue(invoice.id, business.id, tier);
+                if (sent) totalReminders++;
+              } catch (err) {
+                console.error(`[OverdueCheck] Failed ${tier}d reminder for invoice ${invoice.id}:`, err);
+              }
             }
           }
         }
@@ -234,10 +275,49 @@ async function runOverdueInvoiceCheck(): Promise<void> {
       }
     }
 
-    console.log(`[OverdueCheck] Done — ${totalMarked} invoices marked as overdue`);
+    console.log(`[OverdueCheck] Done — ${totalMarked} newly overdue, ${totalReminders} reminders sent`);
   } catch (error) {
     console.error('[OverdueCheck] Error:', error);
   }
+}
+
+/**
+ * Send a payment reminder for an overdue invoice if it hasn't been sent
+ * for this tier yet. Uses notification_log for idempotency.
+ *
+ * @returns true if a reminder was sent
+ */
+async function sendInvoiceReminderIfDue(
+  invoiceId: number,
+  businessId: number,
+  daysTier: number
+): Promise<boolean> {
+  const idempotencyKey = `invoice_reminder:${daysTier}d:${invoiceId}`;
+
+  // Check if we already sent this tier's reminder
+  const logs = await storage.getNotificationLogs(businessId, 500);
+  const alreadySent = logs.some(
+    (l) => l.type === idempotencyKey && l.status === 'sent'
+  );
+  if (alreadySent) return false;
+
+  // Send the actual reminder (email + SMS based on business preferences)
+  await sendInvoiceReminderNotification(invoiceId, businessId);
+
+  // Log the tier so we don't resend
+  await storage.createNotificationLog({
+    businessId,
+    type: idempotencyKey,
+    channel: 'system',
+    recipient: 'internal',
+    subject: `Invoice reminder tier: ${daysTier} days overdue`,
+    status: 'sent',
+    referenceType: 'invoice',
+    referenceId: invoiceId,
+  });
+
+  console.log(`[OverdueCheck] Sent ${daysTier}-day reminder for invoice ${invoiceId} (business ${businessId})`);
+  return true;
 }
 
 /**

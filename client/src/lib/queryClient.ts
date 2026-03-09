@@ -21,15 +21,30 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+/** Read a cookie value by name */
+function getCookie(name: string): string | undefined {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
   try {
+    const headers: Record<string, string> = {};
+    if (data) headers["Content-Type"] = "application/json";
+
+    // Include CSRF token on state-changing requests
+    const csrfToken = getCookie("csrf-token");
+    if (csrfToken && !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
+      headers["X-CSRF-Token"] = csrfToken;
+    }
+
     const res = await fetch(url, {
       method,
-      headers: data ? { "Content-Type": "application/json" } : {},
+      headers,
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
     });
