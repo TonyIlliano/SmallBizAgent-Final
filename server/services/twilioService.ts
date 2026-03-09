@@ -73,12 +73,29 @@ async function getSmsFromNumber(): Promise<string | null> {
  * @param body Message content
  * @returns Promise with message response
  */
-export async function sendSms(to: string, body: string, from?: string) {
+export async function sendSms(to: string, body: string, from?: string, businessId?: number) {
   if (!client) {
     console.warn('Twilio not configured - SMS would be sent to:', to, 'Message:', body.substring(0, 50));
     return { sid: 'mock-sid', status: 'mock' };
   }
   try {
+    // ── TCPA: Check global suppression list before sending ──
+    if (businessId) {
+      try {
+        const { pool } = await import('../db');
+        const suppressionCheck = await pool.query(
+          `SELECT id FROM sms_suppression_list WHERE phone_number = $1 AND business_id = $2 LIMIT 1`,
+          [to, businessId]
+        );
+        if (suppressionCheck.rows.length > 0) {
+          console.log(`[SMS] BLOCKED: ${to} is on suppression list for business ${businessId}`);
+          return { sid: 'suppressed', status: 'suppressed' };
+        }
+      } catch (suppressionErr) {
+        // Don't block sends if suppression check fails — log and continue
+        console.error('[SMS] Suppression list check failed:', suppressionErr);
+      }
+    }
     // Prefer Messaging Service SID (A2P 10DLC compliant) over individual from numbers
     if (messagingServiceSid) {
       console.log(`Sending SMS via Messaging Service: to=${to} body="${body.substring(0, 60)}..."`);

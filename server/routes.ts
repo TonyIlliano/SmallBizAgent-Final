@@ -3720,6 +3720,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           console.log(`[SMS] Customer ${customer.id} opted out via STOP keyword`);
         }
+        // Add to global SMS suppression list
+        try {
+          const { pool } = await import("./db");
+          await pool.query(
+            `INSERT INTO sms_suppression_list (phone_number, business_id, reason, source, created_at)
+             VALUES ($1, $2, 'opt_out', 'stop_keyword', NOW())
+             ON CONFLICT (phone_number, business_id) DO UPDATE SET reason = 'opt_out', source = 'stop_keyword', updated_at = NOW()`,
+            [From, businessId]
+          );
+          console.log(`[SMS] Added ${From} to suppression list for business ${businessId}`);
+        } catch (suppressionErr) {
+          console.error('[SMS] Failed to add to suppression list:', suppressionErr);
+        }
         const twiml = new twilio.twiml.MessagingResponse();
         twiml.message(`You have been unsubscribed from ${business.name} messages. Reply START to re-subscribe.`);
         res.type('text/xml');
@@ -3738,8 +3751,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           console.log(`[SMS] Customer ${customer.id} re-opted in via START keyword`);
         }
+        // Remove from global SMS suppression list
+        try {
+          const { pool } = await import("./db");
+          await pool.query(
+            `DELETE FROM sms_suppression_list WHERE phone_number = $1 AND business_id = $2`,
+            [From, businessId]
+          );
+          console.log(`[SMS] Removed ${From} from suppression list for business ${businessId}`);
+        } catch (suppressionErr) {
+          console.error('[SMS] Failed to remove from suppression list:', suppressionErr);
+        }
         const twiml = new twilio.twiml.MessagingResponse();
         twiml.message(`You're subscribed to ${business.name} updates! Reply STOP to opt out. Msg & data rates may apply.`);
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+
+      // ── TCPA: Handle HELP keyword ──
+      if (bodyTrimmed === 'HELP') {
+        const twiml = new twilio.twiml.MessagingResponse();
+        twiml.message(
+          `${business.name}: For support, contact us at ${business.phone || 'our business number'} or email Bark@smallbizagent.ai. ` +
+          `Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out.`
+        );
+        console.log(`[SMS] HELP keyword received from ${From} for business ${businessId}`);
         res.type('text/xml');
         return res.send(twiml.toString());
       }

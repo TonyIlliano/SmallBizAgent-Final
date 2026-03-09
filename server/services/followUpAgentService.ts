@@ -46,7 +46,7 @@ export async function triggerFollowUp(
       setTimeout(async () => {
         try {
           const message = fillTemplate(config.thankYouTemplate, templateVars);
-          await sendSms(customer.phone!, message);
+          await sendSms(customer.phone!, message, undefined, businessId);
           await logAgentAction({
             businessId,
             agentType: 'follow_up',
@@ -72,7 +72,7 @@ export async function triggerFollowUp(
           if (!freshCustomer?.phone || !freshCustomer.smsOptIn) return;
 
           const message = fillTemplate(config.upsellTemplate, templateVars);
-          await sendSms(freshCustomer.phone, message);
+          await sendSms(freshCustomer.phone, message, undefined, businessId);
           await logAgentAction({
             businessId,
             agentType: 'follow_up',

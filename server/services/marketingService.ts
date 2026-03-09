@@ -13,6 +13,15 @@ import { pool } from "../db";
 // Day-of-week mapping (PostgreSQL EXTRACT(DOW) returns 0=Sunday through 6=Saturday)
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+// SMS rate limiting: delay between sends to avoid carrier spam filters
+const SMS_SEND_DELAY_MS = 1000; // 1 second between each SMS
+const SMS_MAX_PER_CAMPAIGN_BATCH = 100; // Max recipients per campaign batch
+const SMS_BATCH_COOLDOWN_MS = 60000; // 60 second cooldown between batches of 100
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /**
  * Generate actionable business insights from database analytics.
  */
@@ -316,13 +325,19 @@ export async function sendWinBackCampaign(
           try {
             const smsMessage = message + '\n\nReply STOP to opt out. Msg & data rates may apply.';
             const { sendSms } = await import("./twilioService");
-            await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
+            await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined, businessId);
             await pool.query(
               `INSERT INTO notification_log (business_id, customer_id, type, channel, recipient, message, status, reference_type)
                VALUES ($1, $2, 'marketing_campaign', 'sms', $3, $4, 'sent', 'campaign')`,
               [businessId, customer.id, customer.phone, smsMessage]
             );
             sentCount++;
+            // Rate limiting: pause between SMS sends to avoid carrier spam filters
+            await delay(SMS_SEND_DELAY_MS);
+            if (sentCount > 0 && sentCount % SMS_MAX_PER_CAMPAIGN_BATCH === 0) {
+              console.log(`[MarketingService] Batch cooldown after ${sentCount} SMS sends...`);
+              await delay(SMS_BATCH_COOLDOWN_MS);
+            }
           } catch (err) {
             console.error(`[MarketingService] Failed to send SMS to customer ${customer.id}:`, err);
             await pool.query(
@@ -586,7 +601,7 @@ export async function sendBulkReviewRequests(businessId: number, customerIds: nu
           try {
             const smsMessage = message + '\n\nReply STOP to opt out. Msg & data rates may apply.';
             const { sendSms } = await import("./twilioService");
-            await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
+            await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined, businessId);
             // Record AFTER successful send
             await pool.query(
               `INSERT INTO review_requests (business_id, customer_id, sent_via, platform, review_link, status, sent_at, created_at)
@@ -594,6 +609,8 @@ export async function sendBulkReviewRequests(businessId: number, customerIds: nu
               [businessId, customerId, sentVia, settings?.preferred_platform || "google", reviewUrl]
             );
             sent++;
+            // Rate limiting: pause between SMS sends
+            await delay(SMS_SEND_DELAY_MS);
           } catch (err) {
             console.error(`[MarketingService] Failed to send review SMS to customer ${customerId}:`, err);
             failed++;
@@ -757,13 +774,19 @@ export async function sendCampaign(
         try {
           const smsMessage = message + '\n\nReply STOP to opt out. Msg & data rates may apply.';
           const { sendSms } = await import("./twilioService");
-          await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
+          await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined, businessId);
           await pool.query(
             `INSERT INTO notification_log (business_id, customer_id, type, channel, recipient, message, status, reference_type, reference_id)
              VALUES ($1, $2, 'marketing_campaign', 'sms', $3, $4, 'sent', 'campaign', $5)`,
             [businessId, customer.id, customer.phone, smsMessage, campaign.id]
           );
           sentCount++;
+          // Rate limiting: pause between SMS sends
+          await delay(SMS_SEND_DELAY_MS);
+          if (sentCount > 0 && sentCount % SMS_MAX_PER_CAMPAIGN_BATCH === 0) {
+            console.log(`[MarketingService] Batch cooldown after ${sentCount} SMS sends...`);
+            await delay(SMS_BATCH_COOLDOWN_MS);
+          }
         } catch (err) {
           console.error(`[MarketingService] Failed to send campaign SMS to customer ${customer.id}:`, err);
           await pool.query(
@@ -912,13 +935,15 @@ export async function sendBirthdayCampaigns(businessId: number, options?: {
         try {
           const smsMessage = defaultMessage + '\n\nReply STOP to opt out. Msg & data rates may apply.';
           const { sendSms } = await import("./twilioService");
-          await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined);
+          await sendSms(customer.phone, smsMessage, business.twilio_phone_number || undefined, businessId);
           await pool.query(
             `INSERT INTO notification_log (business_id, customer_id, type, channel, recipient, message, status)
              VALUES ($1, $2, 'birthday_campaign', 'sms', $3, $4, 'sent')`,
             [businessId, customer.id, customer.phone, smsMessage]
           );
           sentCount++;
+          // Rate limiting: pause between SMS sends
+          await delay(SMS_SEND_DELAY_MS);
         } catch (err) {
           console.error(`[MarketingService] Failed birthday SMS to customer ${customer.id}:`, err);
         }

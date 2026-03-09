@@ -1923,7 +1923,9 @@ async function bookAppointment(
       try {
         await twilioService.sendSms(
           customerPhone,
-          `Your appointment${withStaff} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Reply HELP for assistance.`
+          `Your appointment${withStaff} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Reply HELP for assistance.`,
+          undefined,
+          businessId || undefined
         );
       } catch (smsError) {
         console.error('Failed to send SMS confirmation:', smsError);
@@ -2448,7 +2450,9 @@ async function rescheduleAppointment(
       try {
         await twilioService.sendSms(
           callerPhone,
-          `Your appointment with ${business.name} has been rescheduled to ${newDateStr} at ${newTimeStr}.`
+          `Your appointment with ${business.name} has been rescheduled to ${newDateStr} at ${newTimeStr}.`,
+          undefined,
+          businessId || undefined
         );
       } catch (smsError) {
         console.error('Failed to send reschedule SMS:', smsError);
@@ -2556,7 +2560,9 @@ async function cancelAppointment(
       try {
         await twilioService.sendSms(
           callerPhone,
-          `Your appointment with ${business.name} on ${dateStr} at ${timeStr} has been cancelled. Call us anytime to reschedule.`
+          `Your appointment with ${business.name} on ${dateStr} at ${timeStr} has been cancelled. Call us anytime to reschedule.`,
+          undefined,
+          businessId || undefined
         );
       } catch (smsError) {
         console.error('Failed to send cancellation SMS:', smsError);
@@ -3031,7 +3037,9 @@ async function scheduleCallback(
     try {
       await twilioService.sendSms(
         callerPhone,
-        `${business.name} has received your callback request. We'll call you back ${callbackTime}. Thank you!`
+        `${business.name} has received your callback request. We'll call you back ${callbackTime}. Thank you!`,
+        undefined,
+        businessId || undefined
       );
     } catch (smsError) {
       console.error('Failed to send customer callback confirmation:', smsError);
@@ -3699,7 +3707,7 @@ async function handleEndOfCall(
         const textMessage = `Hi! We noticed we missed your call to ${businessName}. ` +
           `We'd love to help — feel free to call us back or reply to this text and we'll get back to you shortly. Thank you!`;
 
-        twilioService.sendSms(callerPhone, textMessage, business.twilioPhoneNumber)
+        twilioService.sendSms(callerPhone, textMessage, business.twilioPhoneNumber, businessId)
           .then(() => {
             console.log(`[MissedCallTextBack] Sent text-back to ${callerPhone} for business ${businessId}`);
             // Log the notification
@@ -4111,7 +4119,7 @@ async function handleCreateOrder(
           // Use the default Twilio number (TWILIO_PHONE_NUMBER env var) for SMS.
           // The business's twilioPhoneNumber is imported into VAPI for voice and may
           // not be registered for A2P 10DLC SMS, causing carrier rejections (error 30034).
-          twilioService.sendSms(phone, smsBody).catch(err => {
+          twilioService.sendSms(phone, smsBody, undefined, businessId || undefined).catch(err => {
             console.error(`Failed to send order confirmation SMS to ${phone}:`, err);
           });
         } catch (smsError) {
@@ -4437,7 +4445,7 @@ async function handleMakeReservation(
         const smsMessage = manageUrl
           ? `Your reservation for ${params.partySize} at ${business.name} is confirmed for ${friendlyDate} at ${friendlyTime}. Manage: ${manageUrl}`
           : `Your reservation for ${params.partySize} at ${business.name} is confirmed for ${friendlyDate} at ${friendlyTime}.`;
-        twilioService.sendSms(phone, smsMessage).catch(e =>
+        twilioService.sendSms(phone, smsMessage, undefined, businessId || undefined).catch(e =>
           console.error('Failed to send reservation SMS:', e));
       } catch (e) {
         console.error('Error building reservation SMS:', e);

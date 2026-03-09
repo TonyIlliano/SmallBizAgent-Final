@@ -92,7 +92,7 @@ async function processBusinessEstimates(businessId: number): Promise<void> {
         validUntil: quote.validUntil || '',
       });
 
-      await sendSms(customer.phone, message);
+      await sendSms(customer.phone, message, undefined, businessId);
 
       await storage.createQuoteFollowUp({
         quoteId: quote.id,

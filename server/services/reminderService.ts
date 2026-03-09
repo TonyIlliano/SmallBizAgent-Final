@@ -87,7 +87,7 @@ export async function sendAppointmentReminder(
 
     // Send the SMS
     try {
-      const result = await twilioService.sendSms(customer.phone, message);
+      const result = await twilioService.sendSms(customer.phone, message, undefined, businessId);
       console.log(`Reminder sent to ${customer.phone} for appointment ${appointmentId}`);
       return {
         appointmentId,
@@ -191,7 +191,7 @@ export async function sendInvoiceReminder(
     const message = `Hi ${customer.firstName}! This is a reminder from ${business.name} that invoice #${invoice.invoiceNumber} for ${amount} is due. Pay online or call us at ${business.phone}. Thank you!`;
 
     try {
-      const result = await twilioService.sendSms(customer.phone, message);
+      const result = await twilioService.sendSms(customer.phone, message, undefined, businessId);
       console.log(`Invoice reminder sent to ${customer.phone} for invoice ${invoiceId}`);
       return { success: true };
     } catch (smsError) {
@@ -242,7 +242,7 @@ export async function sendJobFollowUp(
     }
 
     try {
-      const result = await twilioService.sendSms(customer.phone, message);
+      const result = await twilioService.sendSms(customer.phone, message, undefined, businessId);
       console.log(`Follow-up sent to ${customer.phone} for job ${jobId}`);
       return { success: true };
     } catch (smsError) {

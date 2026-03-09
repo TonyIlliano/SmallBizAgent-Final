@@ -78,7 +78,7 @@ async function detectNoShows(businessId: number): Promise<void> {
         bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
       });
 
-      await sendSms(customer.phone, message);
+      await sendSms(customer.phone, message, undefined, businessId);
 
       // Create conversation for reply tracking
       const expiresAt = new Date(Date.now() + expirationHours * 60 * 60 * 1000);

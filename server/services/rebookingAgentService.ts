@@ -99,7 +99,7 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
         serviceName: lastServiceName,
       });
 
-      await sendSms(customer.phone, message);
+      await sendSms(customer.phone, message, undefined, businessId);
 
       // Create conversation for reply tracking
       await storage.createSmsConversation({

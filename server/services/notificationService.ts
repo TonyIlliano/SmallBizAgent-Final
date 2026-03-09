@@ -132,7 +132,7 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
         const message = manageUrl
           ? `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Manage or reschedule: ${manageUrl} - ${business.name}`
           : `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to reschedule. - ${business.name}`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,
@@ -227,7 +227,7 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
     if (sendSmsPref && customer.phone) {
       try {
         const message = `Hi ${customer.firstName}! Reminder: ${serviceName} is scheduled for ${dateStr} at ${timeStr}. Reply CONFIRM to confirm or call ${business.phone} to reschedule. - ${business.name}`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,
@@ -305,7 +305,7 @@ export async function sendInvoiceCreatedNotification(invoiceId: number, business
     if (sendSmsPref && customer.phone) {
       try {
         const message = `Hi ${customer.firstName}! You have a new invoice #${invoice.invoiceNumber} for ${amount} from ${business.name}. Due: ${dueDate}. Call ${business.phone} for questions.`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,
@@ -383,7 +383,7 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
     if (sendSmsPref && customer.phone) {
       try {
         const message = `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. Call ${business.phone} to pay. - ${business.name}`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,
@@ -502,7 +502,7 @@ export async function sendJobCompletedNotification(jobId: number, businessId: nu
     if (sendSmsPref && customer.phone) {
       try {
         const message = `Hi ${customer.firstName}! "${job.title}" has been completed. Questions? Call ${business.phone}. Thank you for choosing ${business.name}!`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,
@@ -578,7 +578,7 @@ export async function sendQuoteSentNotification(
     if (canSendSms(customer)) {
       try {
         const message = `Hi ${customer.firstName}! ${business.name} has sent you a quote #${quote.quoteNumber} for ${amount}. View it here: ${quoteUrl}${getSmsFooter()}`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,
@@ -654,7 +654,7 @@ export async function sendInvoiceSentNotification(
     if (canSendSms(customer)) {
       try {
         const message = `Hi ${customer.firstName}! ${business.name} has sent you invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). View & pay here: ${invoiceUrl}${getSmsFooter()}`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,
@@ -729,7 +729,7 @@ export async function sendQuoteConvertedNotification(
     if (canSendSms(customer)) {
       try {
         const message = `Hi ${customer.firstName}! Your accepted quote from ${business.name} has been converted to invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). Call ${business.phone || 'us'} with any questions.${getSmsFooter()}`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,
@@ -849,7 +849,7 @@ export async function sendReservationConfirmation(reservationId: number, busines
         const message = manageUrl
           ? `Hi ${customer.firstName}! Your reservation for ${partyStr} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Manage: ${manageUrl}`
           : `Hi ${customer.firstName}! Your reservation for ${partyStr} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to modify.`;
-        await twilioService.sendSms(customer.phone, message);
+        await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
           customerId: customer.id,

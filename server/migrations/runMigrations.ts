@@ -1017,6 +1017,20 @@ async function fixExistingTables() {
   // Feature discovery tips dismissed tracking
   await addColumnIfNotExists('users', 'dismissed_tips', 'TEXT');
 
+  // Create SMS suppression list table (TCPA compliance - global opt-out enforcement)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sms_suppression_list (
+      id SERIAL PRIMARY KEY,
+      phone_number TEXT NOT NULL,
+      business_id INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      source TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT sms_suppression_phone_business_idx UNIQUE (phone_number, business_id)
+    );
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 
@@ -1789,6 +1803,9 @@ async function createPerformanceIndexes() {
     'CREATE INDEX IF NOT EXISTS idx_user_business_access_business_id ON user_business_access (business_id)',
     'CREATE INDEX IF NOT EXISTS idx_business_groups_owner_user_id ON business_groups (owner_user_id)',
     'CREATE INDEX IF NOT EXISTS idx_call_logs_phone_number_id ON call_logs (phone_number_id)',
+
+    // ── Phase 7: SMS suppression list (TCPA compliance) ──
+    'CREATE INDEX IF NOT EXISTS idx_sms_suppression_phone_business ON sms_suppression_list (phone_number, business_id)',
   ];
 
   let created = 0;

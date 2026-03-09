@@ -1043,6 +1043,22 @@ export const insertBusinessPhoneNumberSchema = createInsertSchema(businessPhoneN
 export const insertUserBusinessAccessSchema = createInsertSchema(userBusinessAccess).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 
+// SMS Suppression List - global TCPA compliance suppression (checked before every SMS send)
+export const smsSuppressionList = pgTable("sms_suppression_list", {
+  id: serial("id").primaryKey(),
+  phoneNumber: text("phone_number").notNull(),
+  businessId: integer("business_id").notNull(),
+  reason: text("reason").notNull(), // 'opt_out', 'carrier_block', 'invalid_number', 'manual', 'complaint'
+  source: text("source"), // 'stop_keyword', 'admin', 'carrier_feedback', 'bounce'
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    phoneBusinessIdx: unique("sms_suppression_phone_business_idx").on(table.phoneNumber, table.businessId),
+  };
+});
+export const insertSmsSuppressionSchema = createInsertSchema(smsSuppressionList).omit({ id: true, createdAt: true, updatedAt: true });
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -1208,3 +1224,6 @@ export type InsertReviewResponse = z.infer<typeof insertReviewResponseSchema>;
 
 export type SocialMediaPost = typeof socialMediaPosts.$inferSelect;
 export type InsertSocialMediaPost = z.infer<typeof insertSocialMediaPostSchema>;
+
+export type SmsSuppression = typeof smsSuppressionList.$inferSelect;
+export type InsertSmsSuppression = z.infer<typeof insertSmsSuppressionSchema>;
