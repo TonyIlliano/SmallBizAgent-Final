@@ -863,7 +863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const createdServices = [];
-      
+
       // Create services one by one
       for (const serviceData of services) {
         const validatedData = insertServiceSchema.parse({
@@ -871,11 +871,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
           businessId,
           active: true,
         });
-        
+
         const service = await storage.createService(validatedData);
         createdServices.push(service);
       }
-      
+
+      // Seed industry-specific agent configs based on the template being applied
+      // The client also sends industryType in the body to identify the template
+      const industryType = req.body.industryType || '';
+      if (industryType === 'landscaping') {
+        try {
+          // Follow-up agent: landscaping-specific thank-you and upsell messages
+          await storage.upsertAgentSettings(businessId, 'follow_up', true, {
+            thankYouTemplate: "Hi {customerName}! Thank you for choosing {businessName} for your lawn and landscape needs. We hope everything looks great! Reply if you need anything.",
+            upsellTemplate: "Hi {customerName}, your property is probably due for some attention. Book your next service with {businessName}: {bookingLink}",
+            thankYouDelayMinutes: 60,
+            upsellDelayHours: 72,
+            enableThankYou: true,
+            enableUpsell: true,
+          });
+
+          // Rebooking agent: weekly mowing cycle + seasonal service intervals
+          await storage.upsertAgentSettings(businessId, 'rebooking', true, {
+            defaultIntervalDays: 7,
+            serviceIntervals: {
+              'Lawn Mowing': 7,
+              'Fertilization Treatment': 42,
+              'Tree & Shrub Trimming': 90,
+              'Mulching': 180,
+              'Lawn Aeration & Seeding': 365,
+              'Spring Cleanup': 365,
+              'Fall Leaf Cleanup': 365,
+            },
+            messageTemplate: "Hi {customerName}! It's been {daysSinceVisit} days since your last {serviceName} with {businessName}. Ready for us to come back? Reply YES to schedule!",
+            bookingReplyTemplate: "Great! Book your next service here: {bookingLink} or call us at {businessPhone}",
+            declineReplyTemplate: "No problem, {customerName}! We'll be here when your yard needs us. - {businessName}",
+          });
+
+          // No-show agent: tuned for estimate walkthroughs
+          await storage.upsertAgentSettings(businessId, 'no_show', true, {
+            messageTemplate: "Hey {customerName}, we stopped by for your estimate walkthrough with {businessName} but didn't catch you. Want to reschedule? Reply YES!",
+            rescheduleReplyTemplate: "Great! Book your free estimate here: {bookingLink} or call {businessPhone}.",
+            declineReplyTemplate: "No problem! Whenever you're ready for that free estimate, just give us a call. - {businessName}",
+            checkDelayMinutes: 45,
+            expirationHours: 48,
+          });
+
+          // Estimate follow-up agent: patient cadence with seasonal urgency
+          await storage.upsertAgentSettings(businessId, 'estimate_follow_up', true, {
+            messageTemplates: [
+              "Hi {customerName}! Just following up on your estimate from {businessName}. Any questions about the work we discussed?",
+              "Hi {customerName}, wanted to check in on your landscaping estimate. Spots are filling up — let us know if you'd like to get on the schedule!",
+              "Hi {customerName}, last check-in on your estimate from {businessName}. We'd love to help transform your property!",
+            ],
+            attemptIntervalHours: [72, 168, 336],
+            maxAttempts: 3,
+            autoExpire: true,
+          });
+
+          console.log(`[Template] Seeded landscaping-specific agent configs for business ${businessId}`);
+        } catch (agentErr) {
+          console.error(`[Template] Failed to seed landscaping agent configs for business ${businessId}:`, agentErr);
+          // Non-fatal — services were still created successfully
+        }
+      }
+
       res.status(201).json({
         message: `Created ${createdServices.length} services`,
         services: createdServices

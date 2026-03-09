@@ -151,13 +151,18 @@ const industryTemplates = [
     id: 'landscaping',
     name: 'Landscaping',
     icon: Leaf,
-    description: 'Landscape design and maintenance services',
+    description: 'Lawn care, landscaping, and seasonal property maintenance',
     services: [
-      { name: 'Lawn Mowing', price: 45, duration: 60, category: 'Maintenance' },
-      { name: 'Garden Design', price: 350, duration: 180, category: 'Design' },
-      { name: 'Tree Trimming', price: 200, duration: 120, category: 'Maintenance' },
-      { name: 'Irrigation Installation', price: 800, duration: 360, category: 'Installation' },
-      { name: 'Seasonal Cleanup', price: 250, duration: 180, category: 'Maintenance' }
+      { name: 'Lawn Mowing', price: 45, duration: 60, category: 'Maintenance', description: 'Weekly or biweekly lawn mowing for residential and commercial properties' },
+      { name: 'Spring Cleanup', price: 275, duration: 180, category: 'Seasonal', description: 'Debris removal, bed edging, mulch prep, and lawn dethatching to start the season right' },
+      { name: 'Mulching', price: 200, duration: 120, category: 'Seasonal', description: 'Fresh mulch installation for garden beds and tree rings' },
+      { name: 'Lawn Aeration & Seeding', price: 300, duration: 150, category: 'Seasonal', description: 'Core aeration and overseeding to promote thick, healthy turf' },
+      { name: 'Free Estimate Walkthrough', price: 0, duration: 30, category: 'Consultation', description: 'Free on-site property walkthrough to assess your needs and provide a detailed estimate' },
+      { name: 'Tree & Shrub Trimming', price: 200, duration: 120, category: 'Maintenance', description: 'Professional pruning and shaping for trees, hedges, and ornamental shrubs' },
+      { name: 'Landscape Design & Installation', price: 1500, duration: 480, category: 'Installation', description: 'Custom landscape design with planting, hardscaping, and full installation' },
+      { name: 'Fall Leaf Cleanup', price: 250, duration: 180, category: 'Seasonal', description: 'Complete leaf removal, gutter clearing, and yard winterization' },
+      { name: 'Fertilization Treatment', price: 75, duration: 45, category: 'Maintenance', description: 'Seasonal fertilizer application to keep your lawn green and healthy' },
+      { name: 'Snow Removal', price: 100, duration: 60, category: 'Seasonal', description: 'Snow plowing and shoveling for driveways, walkways, and parking areas' }
     ]
   },
   {
@@ -206,7 +211,8 @@ export function IndustryTemplateSelector({ businessId, onTemplateApplied }: Indu
       // Apply the template services to the business
       const response = await apiRequest('POST', '/api/services/template', {
         businessId,
-        services: template.services
+        services: template.services,
+        industryType: template.id
       });
       
       if (response.ok) {

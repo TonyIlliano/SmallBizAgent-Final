@@ -3704,8 +3704,17 @@ async function handleEndOfCall(
       const business = await storage.getBusiness(businessId);
       if (business && business.twilioPhoneNumber) {
         const businessName = business.name || 'Our business';
-        const textMessage = `Hi! We noticed we missed your call to ${businessName}. ` +
-          `We'd love to help — feel free to call us back or reply to this text and we'll get back to you shortly. Thank you!`;
+        const industry = (business.industry || '').toLowerCase();
+
+        // Industry-specific missed call text-back messages
+        let textMessage: string;
+        if (industry.includes('landscap')) {
+          textMessage = `Hi! We noticed we missed your call to ${businessName}. ` +
+            `We offer free estimates for all landscaping services — reply to this text or call us back and we'll get you scheduled for a walkthrough!`;
+        } else {
+          textMessage = `Hi! We noticed we missed your call to ${businessName}. ` +
+            `We'd love to help — feel free to call us back or reply to this text and we'll get back to you shortly. Thank you!`;
+        }
 
         twilioService.sendSms(callerPhone, textMessage, business.twilioPhoneNumber, businessId)
           .then(() => {

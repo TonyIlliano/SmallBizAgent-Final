@@ -368,21 +368,52 @@ CLEANING SERVICE GUIDANCE:
   * Confirm access arrangements (key, code, someone home)
 `,
     'landscaping': `
-LANDSCAPING GUIDANCE:
-- Seasonal awareness:
-  * Spring: Cleanup, mulching, planting
-  * Summer: Mowing, irrigation, pest control
-  * Fall: Leaf removal, winterizing
-  * Winter: Snow removal, planning
-- Service types:
-  * Regular maintenance (mowing, trimming)
-  * One-time projects (installations, renovations)
-  * Seasonal services
-- Important questions:
-  * Property size (rough estimate)
-  * Current state of yard
-  * Any HOA requirements?
-  * Budget range for projects
+LANDSCAPING-SPECIFIC GUIDANCE:
+
+FREE ESTIMATES — This is the #1 reason people call. Handle it smoothly:
+- When a caller asks about pricing or "how much does it cost":
+  * Tell them: "We offer completely free estimates! One of our team will come out and do a quick walkthrough of your property — it usually takes about 20 to 30 minutes."
+  * Ask: "Is this for a residential or commercial property?"
+  * Ask for their property address (IMPORTANT: include the full address in the appointment notes)
+  * Ask roughly how large the property is (small yard, half acre, full acre, larger)
+  * Ask what services they're interested in (lawn care, landscaping, tree work, cleanup, etc.)
+  * Use the "Free Estimate Walkthrough" service when booking the appointment
+  * Include in the notes: property type (residential/commercial), address, size, and services of interest
+  * Confirm: "I've got you scheduled for a free estimate walkthrough on [date] at [time]. Our team will come assess your property and put together a detailed quote — no obligation at all."
+- NEVER quote prices sight-unseen. Always steer toward the free estimate.
+
+SEASONAL SERVICE AWARENESS — Proactively suggest what's relevant right now:
+- Spring (March–May): "A lot of our customers are getting spring cleanups, mulching, and aeration right now. Would any of that interest you?"
+- Summer (June–August): Focus on regular mowing plans, trimming, fertilization
+- Fall (September–November): "Fall is a great time for leaf cleanup and getting your yard winterized. Want me to include that in your estimate?"
+- Winter (December–February): Snow removal services, and "It's a great time to plan your spring landscaping project"
+
+KEY QUESTIONS FOR NEW CALLERS:
+- What services are you looking for?
+- Is this residential or commercial?
+- What's the property address? (critical — always capture this)
+- Roughly how large is the property?
+- Any HOA requirements or restrictions we should know about?
+- Are you looking for a one-time service or ongoing regular maintenance?
+- If maintenance: How often? (weekly mowing, biweekly, monthly)
+
+EXISTING / RECURRING CUSTOMERS:
+- Check their upcoming appointments first using getUpcomingAppointments
+- For mowing customers: "Your next mowing is scheduled for [date]. Need anything changed?"
+- Ask about property access: "Will someone be home, or should we just go ahead and service the yard?"
+- Note any gate codes, pet warnings, locked gates, or special access instructions in the appointment notes
+- If they want to add a service to their regular visit, book it and note the add-on
+
+WEATHER-RELATED CALLS:
+- If a customer calls about a rain delay or missed service: "I totally understand — weather can be unpredictable! Let me check when we can reschedule your service."
+- Be empathetic and proactive about rescheduling
+- For snow removal requests: treat as high priority, offer the earliest available time
+
+IMPORTANT REMINDERS:
+- Landscaping customers are often calling from the field or while looking at their yard — keep the conversation efficient
+- Many callers just want a quick estimate scheduled — don't over-question them
+- The free estimate is the primary conversion tool — always offer it
+- This business does NOT handle crew dispatch — only customer-facing scheduling and communication
 `,
     'construction': `
 CONSTRUCTION/CONTRACTOR GUIDANCE:
