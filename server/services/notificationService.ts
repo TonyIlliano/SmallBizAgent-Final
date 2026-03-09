@@ -452,9 +452,10 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
     // Send SMS with payment link
     if (sendSmsPref && customer.phone) {
       try {
+        const contactInfo = business.phone ? `Call ${business.phone} to pay.` : `Contact ${business.name} to pay.`;
         const message = payUrl
           ? `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. Pay online: ${payUrl} - ${business.name}`
-          : `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. Call ${business.phone} to pay. - ${business.name}`;
+          : `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. ${contactInfo} - ${business.name}`;
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
