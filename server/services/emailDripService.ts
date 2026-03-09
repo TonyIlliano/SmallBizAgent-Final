@@ -14,9 +14,8 @@
  */
 
 import { storage } from "../storage";
-import { Business, users } from "@shared/schema";
+import { Business } from "@shared/schema";
 import { sendEmail } from "../emailService";
-import { db } from "../db";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -140,12 +139,12 @@ async function sendDripEmail(
 // Day 3: "Your AI agents are ready"
 // Day 7: "How's it going?"
 
-async function processOnboardingDrip(business: Business, ownerName: string): Promise<number> {
+async function processOnboardingDrip(business: Business): Promise<number> {
   if (!business.createdAt || !business.email) return 0;
 
   const daysSinceSignup = daysBetween(new Date(business.createdAt), new Date());
-  const greeting = ownerName ? `Hi ${ownerName},` : "Hi there,";
-  const greetingHtml = ownerName ? `Hi <strong>${ownerName}</strong>,` : "Hi there,";
+  const greeting = `Hi ${business.name} team,`;
+  const greetingHtml = `Hi <strong>${business.name}</strong> team,`;
   let sent = 0;
 
   // Day 1: Remind them to complete onboarding
@@ -287,10 +286,10 @@ async function processOnboardingDrip(business: Business, ownerName: string): Pro
 // Day of expiry:  "Your trial has ended"
 // 3 days after:   Win-back — "We miss you, here's 20% off"
 
-async function processTrialExpirationDrip(business: Business, ownerName: string): Promise<number> {
+async function processTrialExpirationDrip(business: Business): Promise<number> {
   if (!business.trialEndsAt || !business.email) return 0;
-  const greeting = ownerName ? `Hi ${ownerName},` : "Hi there,";
-  const greetingHtml = ownerName ? `Hi <strong>${ownerName}</strong>,` : "Hi there,";
+  const greeting = `Hi ${business.name} team,`;
+  const greetingHtml = `Hi <strong>${business.name}</strong> team,`;
 
   // Skip businesses with active paid subscriptions
   const status = (business as any).subscriptionStatus;
@@ -393,10 +392,10 @@ async function processTrialExpirationDrip(business: Business, ownerName: string)
 // 7 days after cancel:  "We'd love to have you back"
 // 30 days after cancel: "Special offer: 30% off for 3 months"
 
-async function processWinbackDrip(business: Business, ownerName: string): Promise<number> {
+async function processWinbackDrip(business: Business): Promise<number> {
   if (!business.email) return 0;
-  const greeting = ownerName ? `Hi ${ownerName},` : "Hi there,";
-  const greetingHtml = ownerName ? `Hi <strong>${ownerName}</strong>,` : "Hi there,";
+  const greeting = `Hi ${business.name} team,`;
+  const greetingHtml = `Hi <strong>${business.name}</strong> team,`;
 
   // Only target businesses that had a subscription that ended (canceled/churned)
   const status = (business as any).subscriptionStatus;
@@ -506,40 +505,15 @@ export async function processEmailDrips(): Promise<void> {
     console.log(`[EmailDrip] Starting drip campaign processing at ${new Date().toISOString()}`);
     const allBusinesses = await storage.getAllBusinesses();
 
-    // Build a map of businessId → owner first name for personalized greetings
-    const ownerNameMap = new Map<number, string>();
-    try {
-      const allUsers = await db.select({
-        businessId: users.businessId,
-        username: users.username,
-        role: users.role,
-      }).from(users);
-
-      for (const u of allUsers) {
-        if (!u.businessId) continue;
-        const existing = ownerNameMap.get(u.businessId);
-        if (!existing || u.role === "admin" || u.role === "user") {
-          // Use the username (first word / first name) as the greeting name
-          const firstName = (u.username || "").split(/[\s@]+/)[0];
-          if (firstName && firstName.toLowerCase() !== "admin") {
-            ownerNameMap.set(u.businessId, firstName);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("[EmailDrip] Could not load owner names, using fallback greetings:", err);
-    }
-
     let totalOnboarding = 0;
     let totalTrialExpiration = 0;
     let totalWinback = 0;
 
     for (const business of allBusinesses) {
       try {
-        const ownerName = ownerNameMap.get(business.id) || "";
-        totalOnboarding += await processOnboardingDrip(business, ownerName);
-        totalTrialExpiration += await processTrialExpirationDrip(business, ownerName);
-        totalWinback += await processWinbackDrip(business, ownerName);
+        totalOnboarding += await processOnboardingDrip(business);
+        totalTrialExpiration += await processTrialExpirationDrip(business);
+        totalWinback += await processWinbackDrip(business);
       } catch (err) {
         console.error(`[EmailDrip] Error processing business ${business.id}:`, err);
       }
