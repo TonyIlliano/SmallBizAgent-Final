@@ -19,57 +19,75 @@ import Dashboard from "@/pages/dashboard";
 import LandingPage from "@/pages/landing";
 import AuthPage from "@/pages/auth/index";
 
+// Auto-retry lazy imports on chunk load failure (stale cache after deployment)
+function lazyWithRetry(importFn: () => Promise<any>) {
+  return lazy(() =>
+    importFn().catch(() => {
+      // Chunk failed to load — likely stale cache after a deployment.
+      // Reload the page once to get fresh assets.
+      const hasReloaded = sessionStorage.getItem('chunk-reload');
+      if (!hasReloaded) {
+        sessionStorage.setItem('chunk-reload', '1');
+        window.location.reload();
+        return new Promise(() => {}); // Never resolves — page is reloading
+      }
+      sessionStorage.removeItem('chunk-reload');
+      return importFn(); // Final attempt after reload
+    })
+  );
+}
+
 // Lazy-loaded routes (code-split into separate chunks)
-const Customers = lazy(() => import("@/pages/customers/index"));
-const CustomerDetail = lazy(() => import("@/pages/customers/[id]"));
-const Appointments = lazy(() => import("@/pages/appointments/index"));
-const AppointmentDetail = lazy(() => import("@/pages/appointments/[id]"));
-const FullscreenSchedule = lazy(() => import("@/pages/appointments/fullscreen"));
-const Jobs = lazy(() => import("@/pages/jobs/index"));
-const JobDetail = lazy(() => import("@/pages/jobs/[id]"));
-const Invoices = lazy(() => import("@/pages/invoices/index"));
-const CreateInvoice = lazy(() => import("@/pages/invoices/create"));
-const InvoicePayment = lazy(() => import("@/pages/invoices/pay"));
-const InvoiceDetail = lazy(() => import("@/pages/invoices/[id]/index"));
-const EditInvoice = lazy(() => import("@/pages/invoices/[id]/edit"));
-const PrintInvoice = lazy(() => import("@/pages/invoices/[id]/print"));
-const Quotes = lazy(() => import("@/pages/quotes/index"));
-const CreateQuote = lazy(() => import("@/pages/quotes/create"));
-const QuoteDetail = lazy(() => import("@/pages/quotes/[id]/index"));
-const EditQuote = lazy(() => import("@/pages/quotes/[id]/edit"));
-const PrintQuote = lazy(() => import("@/pages/quotes/[id]/print"));
-const Payment = lazy(() => import("@/pages/payment"));
-const SubscriptionSuccess = lazy(() => import("@/pages/subscription-success"));
-const OnboardingSubscription = lazy(() => import("@/pages/onboarding/subscription"));
-const OnboardingFlow = lazy(() => import("@/pages/onboarding/index"));
-const Receptionist = lazy(() => import("@/pages/receptionist/index"));
-const AnalyticsPage = lazy(() => import("@/pages/analytics"));
-const MarketingPage = lazy(() => import("@/pages/marketing"));
-const AutomationsPage = lazy(() => import("@/pages/automations/index"));
-const Settings = lazy(() => import("@/pages/settings"));
-const CalendarSettings = lazy(() => import("@/pages/settings/calendar"));
-const PWAInstallationGuide = lazy(() => import("@/pages/settings/pwa-installation"));
-const RecurringSchedules = lazy(() => import("@/pages/recurring/index"));
-const VerifyEmailPage = lazy(() => import("@/pages/auth/verify-email"));
-const ResetPasswordPage = lazy(() => import("@/pages/reset-password"));
+const Customers = lazyWithRetry(() => import("@/pages/customers/index"));
+const CustomerDetail = lazyWithRetry(() => import("@/pages/customers/[id]"));
+const Appointments = lazyWithRetry(() => import("@/pages/appointments/index"));
+const AppointmentDetail = lazyWithRetry(() => import("@/pages/appointments/[id]"));
+const FullscreenSchedule = lazyWithRetry(() => import("@/pages/appointments/fullscreen"));
+const Jobs = lazyWithRetry(() => import("@/pages/jobs/index"));
+const JobDetail = lazyWithRetry(() => import("@/pages/jobs/[id]"));
+const Invoices = lazyWithRetry(() => import("@/pages/invoices/index"));
+const CreateInvoice = lazyWithRetry(() => import("@/pages/invoices/create"));
+const InvoicePayment = lazyWithRetry(() => import("@/pages/invoices/pay"));
+const InvoiceDetail = lazyWithRetry(() => import("@/pages/invoices/[id]/index"));
+const EditInvoice = lazyWithRetry(() => import("@/pages/invoices/[id]/edit"));
+const PrintInvoice = lazyWithRetry(() => import("@/pages/invoices/[id]/print"));
+const Quotes = lazyWithRetry(() => import("@/pages/quotes/index"));
+const CreateQuote = lazyWithRetry(() => import("@/pages/quotes/create"));
+const QuoteDetail = lazyWithRetry(() => import("@/pages/quotes/[id]/index"));
+const EditQuote = lazyWithRetry(() => import("@/pages/quotes/[id]/edit"));
+const PrintQuote = lazyWithRetry(() => import("@/pages/quotes/[id]/print"));
+const Payment = lazyWithRetry(() => import("@/pages/payment"));
+const SubscriptionSuccess = lazyWithRetry(() => import("@/pages/subscription-success"));
+const OnboardingSubscription = lazyWithRetry(() => import("@/pages/onboarding/subscription"));
+const OnboardingFlow = lazyWithRetry(() => import("@/pages/onboarding/index"));
+const Receptionist = lazyWithRetry(() => import("@/pages/receptionist/index"));
+const AnalyticsPage = lazyWithRetry(() => import("@/pages/analytics"));
+const MarketingPage = lazyWithRetry(() => import("@/pages/marketing"));
+const AutomationsPage = lazyWithRetry(() => import("@/pages/automations/index"));
+const Settings = lazyWithRetry(() => import("@/pages/settings"));
+const CalendarSettings = lazyWithRetry(() => import("@/pages/settings/calendar"));
+const PWAInstallationGuide = lazyWithRetry(() => import("@/pages/settings/pwa-installation"));
+const RecurringSchedules = lazyWithRetry(() => import("@/pages/recurring/index"));
+const VerifyEmailPage = lazyWithRetry(() => import("@/pages/auth/verify-email"));
+const ResetPasswordPage = lazyWithRetry(() => import("@/pages/reset-password"));
 // Customer Portal pages (public)
-const CustomerPortal = lazy(() => import("@/pages/portal/index"));
-const PortalInvoice = lazy(() => import("@/pages/portal/invoice"));
-const PortalQuote = lazy(() => import("@/pages/portal/quote"));
-const PublicBooking = lazy(() => import("@/pages/book/[slug]"));
-const ManageAppointment = lazy(() => import("@/pages/book/manage"));
-const ManageReservation = lazy(() => import("@/pages/book/manage-reservation"));
+const CustomerPortal = lazyWithRetry(() => import("@/pages/portal/index"));
+const PortalInvoice = lazyWithRetry(() => import("@/pages/portal/invoice"));
+const PortalQuote = lazyWithRetry(() => import("@/pages/portal/quote"));
+const PublicBooking = lazyWithRetry(() => import("@/pages/book/[slug]"));
+const ManageAppointment = lazyWithRetry(() => import("@/pages/book/manage"));
+const ManageReservation = lazyWithRetry(() => import("@/pages/book/manage-reservation"));
 // Admin pages
-const AdminDashboard = lazy(() => import("@/pages/admin/index"));
-const PhoneManagement = lazy(() => import("@/pages/admin/phone-management"));
-const SocialMediaAdmin = lazy(() => import("@/pages/admin/social-media"));
+const AdminDashboard = lazyWithRetry(() => import("@/pages/admin/index"));
+const PhoneManagement = lazyWithRetry(() => import("@/pages/admin/phone-management"));
+const SocialMediaAdmin = lazyWithRetry(() => import("@/pages/admin/social-media"));
 // Staff pages
-const StaffDashboard = lazy(() => import("@/pages/staff/dashboard"));
-const StaffJoin = lazy(() => import("@/pages/staff/join"));
-const PrivacyPolicy = lazy(() => import("@/pages/privacy"));
-const TermsOfService = lazy(() => import("@/pages/terms"));
-const SupportPage = lazy(() => import("@/pages/support"));
-const ContactPage = lazy(() => import("@/pages/contact"));
+const StaffDashboard = lazyWithRetry(() => import("@/pages/staff/dashboard"));
+const StaffJoin = lazyWithRetry(() => import("@/pages/staff/join"));
+const PrivacyPolicy = lazyWithRetry(() => import("@/pages/privacy"));
+const TermsOfService = lazyWithRetry(() => import("@/pages/terms"));
+const SupportPage = lazyWithRetry(() => import("@/pages/support"));
+const ContactPage = lazyWithRetry(() => import("@/pages/contact"));
 
 // Loading fallback for lazy-loaded routes
 function PageLoader() {
