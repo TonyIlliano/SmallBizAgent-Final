@@ -22,7 +22,8 @@ import {
   quotes,
   appointments,
   services,
-  auditLogs
+  auditLogs,
+  agentActivityLog
 } from "@shared/schema";
 import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
 import { sanitizeBusiness } from './utils/sanitize';
@@ -3501,6 +3502,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching notification log:", error);
       res.status(500).json({ message: "Error fetching notification log" });
+    }
+  });
+
+  // Get agent activity logs for the business (admin/owner only)
+  app.get("/api/agent-activity", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const agentType = req.query.agentType as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const logs = await storage.getAgentActivityLogs(businessId, { agentType, limit });
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching agent activity logs:", error);
+      res.status(500).json({ message: "Error fetching agent activity logs" });
+    }
+  });
+
+  // Get platform-wide agent insights (admin only — cross-business)
+  app.get("/api/admin/agent-insights", isAdmin, async (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 200;
+      const agentType = req.query.agentType as string | undefined;
+
+      // Query agent_activity_log directly for platform agents
+      const conditions: any[] = [];
+      if (agentType) {
+        conditions.push(eq(agentActivityLog.agentType, agentType));
+      } else {
+        // Default: only platform agents
+        conditions.push(sql`${agentActivityLog.agentType} LIKE 'platform:%'`);
+      }
+
+      const logs = await db.select().from(agentActivityLog)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(agentActivityLog.createdAt))
+        .limit(limit);
+
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching agent insights:", error);
+      res.status(500).json({ message: "Error fetching agent insights" });
     }
   });
 

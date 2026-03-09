@@ -374,7 +374,8 @@ export async function sendInvoiceCreatedNotification(invoiceId: number, business
 }
 
 /**
- * Send invoice payment reminder notifications
+ * Send invoice payment reminder notifications.
+ * Includes a one-tap payment link if the invoice has an access token.
  */
 export async function sendInvoiceReminderNotification(invoiceId: number, businessId: number) {
   try {
@@ -397,6 +398,24 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
     const dueDate = invoice.dueDate
       ? new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : 'Upon receipt';
+
+    // Build payment link if the invoice has an access token
+    const APP_URL = process.env.APP_URL || 'https://www.smallbizagent.ai';
+    let payUrl: string | null = null;
+
+    // Auto-generate access token if one doesn't exist yet
+    if (!(invoice as any).accessToken) {
+      try {
+        const crypto = await import('crypto');
+        const token = crypto.randomBytes(32).toString('hex');
+        await storage.updateInvoice(invoiceId, { accessToken: token } as any);
+        payUrl = `${APP_URL}/portal/invoice/${token}`;
+      } catch {
+        // If token generation fails, fall back to no link
+      }
+    } else {
+      payUrl = `${APP_URL}/portal/invoice/${(invoice as any).accessToken}`;
+    }
 
     // Send email
     if (sendEmailPref && customer.email) {
@@ -426,10 +445,12 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
       }
     }
 
-    // Send SMS
+    // Send SMS with payment link
     if (sendSmsPref && customer.phone) {
       try {
-        const message = `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. Call ${business.phone} to pay. - ${business.name}`;
+        const message = payUrl
+          ? `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. Pay online: ${payUrl} - ${business.name}`
+          : `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. Call ${business.phone} to pay. - ${business.name}`;
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,

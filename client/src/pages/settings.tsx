@@ -28,6 +28,7 @@ import LocationsManager from "@/components/settings/LocationsManager";
 import TwoFactorSetup from "@/components/settings/TwoFactorSetup";
 import AuditLog from "@/components/settings/AuditLog";
 import NotificationHistory from "@/components/settings/NotificationHistory";
+import AgentInsights from "@/components/settings/AgentInsights";
 import {
   Dialog,
   DialogContent,
@@ -1131,7 +1132,10 @@ export default function Settings() {
             <TabsTrigger value="pwa" className="whitespace-nowrap flex-shrink-0">App</TabsTrigger>
             <TabsTrigger value="security" className="whitespace-nowrap flex-shrink-0">Security</TabsTrigger>
             {(user?.role === 'admin' || user?.role === 'owner') && (
-              <TabsTrigger value="notification-history" className="whitespace-nowrap flex-shrink-0">Notification Log</TabsTrigger>
+              <>
+                <TabsTrigger value="notification-history" className="whitespace-nowrap flex-shrink-0">Notification Log</TabsTrigger>
+                <TabsTrigger value="agent-insights" className="whitespace-nowrap flex-shrink-0">AI Insights</TabsTrigger>
+              </>
             )}
             <TabsTrigger value="privacy" className="whitespace-nowrap flex-shrink-0">Privacy</TabsTrigger>
           </TabsList>
@@ -2482,6 +2486,13 @@ export default function Settings() {
           {(user?.role === 'admin' || user?.role === 'owner') && businessId && (
             <TabsContent value="notification-history" className="space-y-4">
               <NotificationHistory businessId={businessId} />
+            </TabsContent>
+          )}
+
+          {/* AI Agent Insights — admin/owner only */}
+          {(user?.role === 'admin' || user?.role === 'owner') && (
+            <TabsContent value="agent-insights" className="space-y-4">
+              <AgentInsights />
             </TabsContent>
           )}
 

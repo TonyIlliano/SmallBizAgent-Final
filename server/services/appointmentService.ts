@@ -2,6 +2,7 @@ import { storage } from '../storage';
 import { appointments, services, staff, InsertAppointment } from '@shared/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db';
+import { createDateInTimezone } from '../utils/timezone';
 
 /**
  * Checks if a time slot is available for booking
@@ -73,9 +74,13 @@ export async function findAvailableTimeSlots(
   durationMinutes: number = 60
 ): Promise<{ date: Date, available: boolean }[]> {
   try {
+    // Get business info to determine timezone
+    const business = await storage.getBusiness(businessId);
+    const tz = (business as any)?.timezone || 'America/New_York';
+
     // Get business hours for the days in the range
     const businessHours = await storage.getBusinessHours(businessId);
-    
+
     // Get service duration if service ID is provided
     let duration = durationMinutes;
     if (serviceId) {
@@ -94,62 +99,84 @@ export async function findAvailableTimeSlots(
 
     // Generate time slots at 30-minute intervals during business hours
     const timeSlots: { date: Date, available: boolean }[] = [];
-    
-    // Create a working copy of the start date
-    const currentDate = new Date(startDate);
-    
-    // Iterate through each day in the range
-    while (currentDate <= endDate) {
-      const dayOfWeek = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-      
+
+    // Determine the start/end dates in the business's timezone for iteration
+    // Use Intl to get the local date components in the business timezone
+    const localStartParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(startDate);
+    const localEndParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(endDate);
+
+    const getPart = (parts: Intl.DateTimeFormatPart[], type: string) =>
+      parseInt(parts.find(p => p.type === type)?.value || '0');
+
+    let curYear = getPart(localStartParts, 'year');
+    let curMonth = getPart(localStartParts, 'month') - 1; // 0-indexed
+    let curDay = getPart(localStartParts, 'day');
+
+    const endYear = getPart(localEndParts, 'year');
+    const endMonth = getPart(localEndParts, 'month') - 1;
+    const endDay = getPart(localEndParts, 'day');
+
+    // Iterate through each day in the range (in business-local dates)
+    while (
+      curYear < endYear ||
+      (curYear === endYear && curMonth < endMonth) ||
+      (curYear === endYear && curMonth === endMonth && curDay <= endDay)
+    ) {
+      // Get the day of week in the business timezone
+      const dayProbe = createDateInTimezone(curYear, curMonth, curDay, 12, 0, tz);
+      const dayOfWeek = dayProbe.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz }).toLowerCase();
+
       // Find business hours for this day
       const hoursForDay = businessHours.find(h => h.day.toLowerCase() === dayOfWeek);
-      
+
       if (hoursForDay && !hoursForDay.isClosed && hoursForDay.open && hoursForDay.close) {
         // Parse opening and closing hours
         const [openHour, openMinute] = hoursForDay.open.split(':').map(Number);
         const [closeHour, closeMinute] = hoursForDay.close.split(':').map(Number);
-        
-        // Set start time to opening time on this day
-        currentDate.setHours(openHour, openMinute, 0, 0);
-        
-        // Calculate end time (closing time)
-        const closeTime = new Date(currentDate);
-        closeTime.setHours(closeHour, closeMinute, 0, 0);
-        
+
+        // Create timezone-aware open and close times (these are correct UTC instants)
+        const openTime = createDateInTimezone(curYear, curMonth, curDay, openHour, openMinute, tz);
+        const closeTime = createDateInTimezone(curYear, curMonth, curDay, closeHour, closeMinute, tz);
+
         // Generate slots at 30-minute intervals
-        while (currentDate < closeTime) {
+        let slotStart = new Date(openTime);
+        while (slotStart < closeTime) {
           // Calculate end time for this slot
-          const slotEndTime = new Date(currentDate);
-          slotEndTime.setMinutes(slotEndTime.getMinutes() + duration);
-          
+          const slotEndTime = new Date(slotStart.getTime() + duration * 60 * 1000);
+
           // Only add the slot if it ends before or at closing time
           if (slotEndTime <= closeTime) {
             // Check if this slot is available
             const isAvailable = await isTimeSlotAvailable(
               businessId,
-              new Date(currentDate),
+              new Date(slotStart),
               slotEndTime,
               staffId,
               serviceId
             );
-            
+
             timeSlots.push({
-              date: new Date(currentDate),
+              date: new Date(slotStart),
               available: isAvailable
             });
           }
-          
+
           // Move to next slot (30-minute increments)
-          currentDate.setMinutes(currentDate.getMinutes() + 30);
+          slotStart = new Date(slotStart.getTime() + 30 * 60 * 1000);
         }
       }
-      
+
       // Move to the next day
-      currentDate.setDate(currentDate.getDate() + 1);
-      currentDate.setHours(0, 0, 0, 0);
+      const nextDay = new Date(curYear, curMonth, curDay + 1);
+      curYear = nextDay.getFullYear();
+      curMonth = nextDay.getMonth();
+      curDay = nextDay.getDate();
     }
-    
+
     return timeSlots;
   } catch (error) {
     console.error('Error finding available time slots:', error);
