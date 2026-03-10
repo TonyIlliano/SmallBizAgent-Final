@@ -228,6 +228,7 @@ export default function PrivacyPolicy() {
             <div className="flex items-center gap-8 text-sm text-neutral-400">
               <span className="text-white font-medium">Privacy</span>
               <Link href="/terms"><span className="hover:text-white transition-colors cursor-pointer">Terms</span></Link>
+              <Link href="/sms-terms"><span className="hover:text-white transition-colors cursor-pointer">SMS Terms</span></Link>
               <Link href="/support"><span className="hover:text-white transition-colors cursor-pointer">Support</span></Link>
               <Link href="/contact"><span className="hover:text-white transition-colors cursor-pointer">Contact</span></Link>
             </div>

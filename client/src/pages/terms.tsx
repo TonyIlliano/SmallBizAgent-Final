@@ -353,6 +353,7 @@ export default function TermsOfService() {
             <div className="flex items-center gap-8 text-sm text-neutral-400">
               <Link href="/privacy"><span className="hover:text-white transition-colors cursor-pointer">Privacy</span></Link>
               <span className="text-white font-medium">Terms</span>
+              <Link href="/sms-terms"><span className="hover:text-white transition-colors cursor-pointer">SMS Terms</span></Link>
               <Link href="/support"><span className="hover:text-white transition-colors cursor-pointer">Support</span></Link>
               <Link href="/contact"><span className="hover:text-white transition-colors cursor-pointer">Contact</span></Link>
             </div>

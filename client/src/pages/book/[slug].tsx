@@ -1227,7 +1227,10 @@ export default function PublicBooking() {
                   onChange={(e) => setSmsOptIn(e.target.checked)}
                   className="mt-1 h-4 w-4 rounded border-gray-300" />
                 <label htmlFor="res-smsOptIn" className="text-sm text-muted-foreground">
-                  I agree to receive SMS reminders and marketing messages. Msg & data rates may apply.
+                  I agree to receive SMS reservation confirmations, reminders, follow-ups, and marketing messages.
+                  Msg frequency varies. Msg & data rates may apply. Reply STOP to cancel, HELP for help.{" "}
+                  <a href="/sms-terms" target="_blank" className="underline hover:text-foreground">SMS Terms</a>{" "}
+                  & <a href="/privacy" target="_blank" className="underline hover:text-foreground">Privacy Policy</a>.
                 </label>
               </div>
 
@@ -1492,7 +1495,10 @@ export default function PublicBooking() {
                   onChange={(e) => setSmsOptIn(e.target.checked)}
                   className="mt-1 h-4 w-4 rounded border-gray-300" />
                 <label htmlFor="smsOptIn" className="text-sm text-muted-foreground">
-                  I agree to receive SMS reminders and marketing messages. Msg & data rates may apply.
+                  I agree to receive SMS appointment reminders, confirmations, follow-ups, and marketing messages.
+                  Msg frequency varies. Msg & data rates may apply. Reply STOP to cancel, HELP for help.{" "}
+                  <a href="/sms-terms" target="_blank" className="underline hover:text-foreground">SMS Terms</a>{" "}
+                  & <a href="/privacy" target="_blank" className="underline hover:text-foreground">Privacy Policy</a>.
                 </label>
               </div>
 

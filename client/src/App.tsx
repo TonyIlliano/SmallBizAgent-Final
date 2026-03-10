@@ -86,6 +86,7 @@ const StaffDashboard = lazyWithRetry(() => import("@/pages/staff/dashboard"));
 const StaffJoin = lazyWithRetry(() => import("@/pages/staff/join"));
 const PrivacyPolicy = lazyWithRetry(() => import("@/pages/privacy"));
 const TermsOfService = lazyWithRetry(() => import("@/pages/terms"));
+const SmsTerms = lazyWithRetry(() => import("@/pages/sms-terms"));
 const SupportPage = lazyWithRetry(() => import("@/pages/support"));
 const ContactPage = lazyWithRetry(() => import("@/pages/contact"));
 
@@ -189,6 +190,7 @@ function Router() {
         <Route path="/book/:slug" component={PublicBooking} />
         <Route path="/privacy" component={PrivacyPolicy} />
         <Route path="/terms" component={TermsOfService} />
+        <Route path="/sms-terms" component={SmsTerms} />
         <Route path="/support" component={SupportPage} />
         <Route path="/contact" component={ContactPage} />
         <Route component={NotFound} />
