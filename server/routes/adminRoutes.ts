@@ -10,7 +10,7 @@ import { isAdmin } from "../middleware/auth";
 import * as adminService from "../services/adminService";
 import { storage } from "../storage";
 import { db } from "../db";
-import { agentActivityLog, businesses } from "../../shared/schema";
+import { agentActivityLog, businesses, blogPosts } from "../../shared/schema";
 import { eq, sql, desc, and, gte, inArray } from "drizzle-orm";
 
 const router = Router();
@@ -565,6 +565,168 @@ router.get("/api/admin/platform-agents-summary", isAdmin, async (req: Request, r
   } catch (error: any) {
     console.error("[Admin] Error fetching agents summary:", error);
     res.status(500).json({ error: "Failed to fetch agents summary", details: error.message });
+  }
+});
+
+// ===========================================
+// Blog Content Management Routes
+// ===========================================
+
+/**
+ * GET /api/admin/blog-posts — List all blog posts with optional status filter
+ */
+router.get("/api/admin/blog-posts", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const queryLimit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+
+    let posts;
+    if (status && ['draft', 'approved', 'published', 'archived'].includes(status)) {
+      posts = await db.select().from(blogPosts).where(eq(blogPosts.status, status)).orderBy(desc(blogPosts.createdAt)).limit(queryLimit);
+    } else {
+      posts = await db.select().from(blogPosts).orderBy(desc(blogPosts.createdAt)).limit(queryLimit);
+    }
+
+    res.json({ posts });
+  } catch (error: any) {
+    console.error("[Admin] Error fetching blog posts:", error);
+    res.status(500).json({ error: "Failed to fetch blog posts", details: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/blog-posts/:id — Get a single blog post
+ */
+router.get("/api/admin/blog-posts/:id", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid blog post ID" });
+
+    const [post] = await db.select().from(blogPosts).where(eq(blogPosts.id, id));
+    if (!post) return res.status(404).json({ error: "Blog post not found" });
+
+    res.json(post);
+  } catch (error: any) {
+    console.error("[Admin] Error fetching blog post:", error);
+    res.status(500).json({ error: "Failed to fetch blog post", details: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/blog-posts/:id — Update a blog post (edit content, approve, publish)
+ */
+router.put("/api/admin/blog-posts/:id", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid blog post ID" });
+
+    const { title, editedBody, excerpt, metaTitle, metaDescription, status } = req.body;
+
+    const updates: Record<string, any> = { updatedAt: new Date() };
+    if (title !== undefined) updates.title = title;
+    if (editedBody !== undefined) updates.editedBody = editedBody;
+    if (excerpt !== undefined) updates.excerpt = excerpt;
+    if (metaTitle !== undefined) updates.metaTitle = metaTitle;
+    if (metaDescription !== undefined) updates.metaDescription = metaDescription;
+    if (status !== undefined && ['draft', 'approved', 'published', 'archived'].includes(status)) {
+      updates.status = status;
+      if (status === 'published') updates.publishedAt = new Date();
+    }
+
+    const [updated] = await db
+      .update(blogPosts)
+      .set(updates)
+      .where(eq(blogPosts.id, id))
+      .returning();
+
+    if (!updated) return res.status(404).json({ error: "Blog post not found" });
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error("[Admin] Error updating blog post:", error);
+    res.status(500).json({ error: "Failed to update blog post", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/blog-posts/:id/approve — Approve a draft blog post
+ */
+router.post("/api/admin/blog-posts/:id/approve", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid blog post ID" });
+
+    const [updated] = await db
+      .update(blogPosts)
+      .set({ status: 'approved', updatedAt: new Date() })
+      .where(eq(blogPosts.id, id))
+      .returning();
+
+    if (!updated) return res.status(404).json({ error: "Blog post not found" });
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error("[Admin] Error approving blog post:", error);
+    res.status(500).json({ error: "Failed to approve blog post", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/blog-posts/:id/publish — Publish a blog post
+ */
+router.post("/api/admin/blog-posts/:id/publish", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid blog post ID" });
+
+    const [updated] = await db
+      .update(blogPosts)
+      .set({ status: 'published', publishedAt: new Date(), updatedAt: new Date() })
+      .where(eq(blogPosts.id, id))
+      .returning();
+
+    if (!updated) return res.status(404).json({ error: "Blog post not found" });
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error("[Admin] Error publishing blog post:", error);
+    res.status(500).json({ error: "Failed to publish blog post", details: error.message });
+  }
+});
+
+/**
+ * DELETE /api/admin/blog-posts/:id — Delete a blog post
+ */
+router.delete("/api/admin/blog-posts/:id", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid blog post ID" });
+
+    const [deleted] = await db
+      .delete(blogPosts)
+      .where(eq(blogPosts.id, id))
+      .returning();
+
+    if (!deleted) return res.status(404).json({ error: "Blog post not found" });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[Admin] Error deleting blog post:", error);
+    res.status(500).json({ error: "Failed to delete blog post", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/blog-posts/generate — Manually trigger the Content SEO agent
+ */
+router.post("/api/admin/blog-posts/generate", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { runContentSeoAgent } = await import("../services/platformAgents/contentSeoAgent");
+    const result = await runContentSeoAgent();
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error("[Admin] Error running content SEO agent:", error);
+    res.status(500).json({ error: "Failed to generate content", details: error.message });
   }
 });
 

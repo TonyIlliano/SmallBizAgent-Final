@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Link, Redirect, useLocation } from "wouter";
 import { z } from "zod";
@@ -69,6 +69,7 @@ export default function AuthPage() {
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const handleTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
   const { user, loginMutation, registerMutation } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -151,8 +152,11 @@ export default function AuthPage() {
           const errorData = await res.json();
           if (errorData.error) errorMessage = errorData.error;
         } catch { /* use default */ }
-        if (errorMessage.includes("Invalid") || res.status === 401) {
+        if (res.status === 401) {
           setLoginError("Invalid username or password. Please try again.");
+        } else if (res.status === 403) {
+          setLoginError(errorMessage || "CAPTCHA verification failed. Please refresh and try again.");
+          setTurnstileToken(null); // Reset token so user can retry
         } else {
           setLoginError(errorMessage);
         }
@@ -483,7 +487,7 @@ export default function AuthPage() {
                             </FormItem>
                           )}
                         />
-                        <Turnstile onVerify={setTurnstileToken} onExpire={() => setTurnstileToken(null)} />
+                        <Turnstile onVerify={setTurnstileToken} onExpire={handleTurnstileExpire} />
                         <Button type="submit" className="w-full" disabled={isLoggingIn}>
                           {isLoggingIn ? (
                             <>
@@ -585,7 +589,7 @@ export default function AuthPage() {
                         </FormItem>
                       )}
                     />
-                    <Turnstile onVerify={setTurnstileToken} onExpire={() => setTurnstileToken(null)} />
+                    <Turnstile onVerify={setTurnstileToken} onExpire={handleTurnstileExpire} />
                     <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
                       {registerMutation.isPending ? (
                         <>

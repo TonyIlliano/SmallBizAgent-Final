@@ -27,6 +27,8 @@ import {
   Star,
   BarChart3,
   RefreshCw,
+  FileText,
+  Share2,
 } from "lucide-react";
 
 interface AgentLog {
@@ -49,6 +51,8 @@ const AGENT_LABELS: Record<string, { label: string; icon: typeof Brain; color: s
   "platform:revenue_optimization": { label: "Revenue Optimization", icon: BarChart3, color: "text-purple-500" },
   "platform:testimonial": { label: "Testimonial Finder", icon: Star, color: "text-yellow-500" },
   "platform:onboarding_coach": { label: "Onboarding Coach", icon: Users, color: "text-cyan-500" },
+  "platform:content_seo": { label: "Content & SEO", icon: FileText, color: "text-indigo-500" },
+  "platform:social_media": { label: "Social Media", icon: Share2, color: "text-pink-500" },
 };
 
 function formatAction(action: string): string {
@@ -150,9 +154,37 @@ function InsightCard({ log }: { log: AgentLog }) {
         {d.message && (
           <p className="text-xs text-muted-foreground mt-1 truncate">{d.message}</p>
         )}
+        {/* Content & SEO agent details */}
+        {d.title && (
+          <p className="text-xs text-muted-foreground mt-1 truncate">
+            📝 {d.title} {d.wordCount ? `(${d.wordCount} words)` : ""}
+          </p>
+        )}
+        {d.industry && !d.title && (
+          <p className="text-xs text-muted-foreground mt-1 capitalize">Industry: {d.industry}</p>
+        )}
+        {d.generatedVia && (
+          <Badge variant="outline" className="text-[10px] mt-1 mr-1">
+            {d.generatedVia === "openai" ? "🤖 OpenAI" : "📋 Template"}
+          </Badge>
+        )}
+        {d.platform && (
+          <Badge variant="outline" className="text-[10px] mt-1 mr-1 capitalize">{d.platform}</Badge>
+        )}
+        {d.hasVideo && (
+          <Badge variant="secondary" className="text-[10px] mt-1">🎬 Video</Badge>
+        )}
+        {d.blogsCreated !== undefined && (
+          <p className="text-xs text-muted-foreground mt-1">
+            📊 {d.blogsCreated} blogs, {d.socialDraftsCreated} social posts generated
+          </p>
+        )}
+        {d.contentPreview && (
+          <p className="text-xs text-muted-foreground mt-1 truncate italic">"{d.contentPreview}..."</p>
+        )}
 
         <p className="text-xs text-muted-foreground/60 mt-1">
-          Business #{log.businessId} · {formatDate(log.createdAt)}
+          {log.businessId > 0 ? `Business #${log.businessId} · ` : ""}{formatDate(log.createdAt)}
         </p>
       </div>
     </div>
@@ -262,6 +294,8 @@ export default function AgentInsights() {
                 <SelectItem value="platform:revenue_optimization">Revenue Optimization</SelectItem>
                 <SelectItem value="platform:onboarding_coach">Onboarding Coach</SelectItem>
                 <SelectItem value="platform:testimonial">Testimonial Finder</SelectItem>
+                <SelectItem value="platform:content_seo">Content & SEO</SelectItem>
+                <SelectItem value="platform:social_media">Social Media</SelectItem>
               </SelectContent>
             </Select>
 

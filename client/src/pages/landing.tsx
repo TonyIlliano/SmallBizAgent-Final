@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -175,6 +175,7 @@ function LandingAuthForm() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const handleTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
   const { loginMutation, registerMutation } = useAuth();
 
 
@@ -323,7 +324,7 @@ function LandingAuthForm() {
                   className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
                 />
               </div>
-              <Turnstile onVerify={setTurnstileToken} onExpire={() => setTurnstileToken(null)} />
+              <Turnstile onVerify={setTurnstileToken} onExpire={handleTurnstileExpire} />
               <Button type="submit" className="w-full bg-white text-black hover:bg-neutral-200" disabled={registerMutation.isPending}>
                 {registerMutation.isPending ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...</>
@@ -367,7 +368,7 @@ function LandingAuthForm() {
                   className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
                 />
               </div>
-              <Turnstile onVerify={setTurnstileToken} onExpire={() => setTurnstileToken(null)} />
+              <Turnstile onVerify={setTurnstileToken} onExpire={handleTurnstileExpire} />
               <Button type="submit" className="w-full bg-white text-black hover:bg-neutral-200" disabled={loginMutation.isPending}>
                 {loginMutation.isPending ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in...</>

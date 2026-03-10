@@ -1028,6 +1028,51 @@ async function fixExistingTables() {
   // Feature discovery tips dismissed tracking
   await addColumnIfNotExists('users', 'dismissed_tips', 'TEXT');
 
+  // Create social_media_posts table (AI-generated social content with approval workflow)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS social_media_posts (
+      id SERIAL PRIMARY KEY,
+      platform TEXT NOT NULL,
+      content TEXT NOT NULL,
+      media_url TEXT,
+      media_type TEXT DEFAULT 'text',
+      thumbnail_url TEXT,
+      status TEXT DEFAULT 'draft',
+      scheduled_for TIMESTAMP,
+      published_at TIMESTAMP,
+      external_post_id TEXT,
+      agent_type TEXT DEFAULT 'platform:social_media',
+      industry TEXT,
+      details JSONB,
+      rejection_reason TEXT,
+      edited_content TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create blog_posts table (AI-generated blog content for platform SEO)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blog_posts (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      excerpt TEXT,
+      body TEXT NOT NULL,
+      industry TEXT,
+      target_keywords JSONB,
+      meta_title TEXT,
+      meta_description TEXT,
+      status TEXT DEFAULT 'draft',
+      generated_via TEXT DEFAULT 'template',
+      word_count INTEGER DEFAULT 0,
+      published_at TIMESTAMP,
+      edited_body TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Create SMS suppression list table (TCPA compliance - global opt-out enforcement)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS sms_suppression_list (

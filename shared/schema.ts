@@ -1231,3 +1231,27 @@ export type InsertSocialMediaPost = z.infer<typeof insertSocialMediaPostSchema>;
 
 export type SmsSuppression = typeof smsSuppressionList.$inferSelect;
 export type InsertSmsSuppression = z.infer<typeof insertSmsSuppressionSchema>;
+
+// Blog Posts - AI-generated blog content for platform SEO
+export const blogPosts = pgTable("blog_posts", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull(),
+  excerpt: text("excerpt"),
+  body: text("body").notNull(), // Full article in markdown
+  industry: text("industry"),
+  targetKeywords: jsonb("target_keywords"), // string[]
+  metaTitle: text("meta_title"),
+  metaDescription: text("meta_description"),
+  status: text("status").default("draft"), // draft, approved, published, archived
+  generatedVia: text("generated_via").default("template"), // openai, template
+  wordCount: integer("word_count").default(0),
+  publishedAt: timestamp("published_at"),
+  editedBody: text("edited_body"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: true, createdAt: true, updatedAt: true });
+export type BlogPost = typeof blogPosts.$inferSelect;
+export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;

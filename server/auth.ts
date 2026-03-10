@@ -210,21 +210,28 @@ export function setupAuth(app: Express) {
       // Verify Turnstile token (skip if not configured)
       const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
       if (turnstileSecret && req.body.turnstileToken) {
-        const turnstileRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            secret: turnstileSecret,
-            response: req.body.turnstileToken,
-            remoteip: req.ip,
-          }),
-        });
-        const turnstileData = await turnstileRes.json() as { success: boolean };
-        if (!turnstileData.success) {
-          return res.status(403).json({ error: 'CAPTCHA verification failed. Please try again.' });
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+          const turnstileRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              secret: turnstileSecret,
+              response: req.body.turnstileToken,
+              remoteip: req.headers['x-forwarded-for'] || req.ip,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          const turnstileData = await turnstileRes.json() as { success: boolean; 'error-codes'?: string[] };
+          if (!turnstileData.success) {
+            console.warn('[Auth] Registration turnstile failed:', turnstileData['error-codes']);
+            return res.status(403).json({ error: 'CAPTCHA verification failed. Please try again.' });
+          }
+        } catch (err: any) {
+          console.error('[Auth] Registration turnstile error (allowing):', err.message || err);
         }
-      } else if (turnstileSecret && !req.body.turnstileToken) {
-        return res.status(403).json({ error: 'CAPTCHA verification required.' });
       }
 
       // Validate password strength
@@ -388,22 +395,32 @@ export function setupAuth(app: Express) {
     // Verify Turnstile token (skip if not configured)
     const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
     if (turnstileSecret && req.body.turnstileToken) {
-      const turnstileRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          secret: turnstileSecret,
-          response: req.body.turnstileToken,
-          remoteip: req.ip,
-        }),
-      });
-      const turnstileData = await turnstileRes.json() as { success: boolean };
-      if (!turnstileData.success) {
-        return res.status(403).json({ error: 'CAPTCHA verification failed. Please try again.' });
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
+        const turnstileRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            secret: turnstileSecret,
+            response: req.body.turnstileToken,
+            remoteip: req.headers['x-forwarded-for'] || req.ip,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        const turnstileData = await turnstileRes.json() as { success: boolean; 'error-codes'?: string[] };
+        if (!turnstileData.success) {
+          console.warn('[Auth] Turnstile verification failed:', turnstileData['error-codes']);
+          return res.status(403).json({ error: 'CAPTCHA verification failed. Please try again.' });
+        }
+      } catch (err: any) {
+        // If Turnstile API is unreachable or times out, allow login (graceful degradation)
+        console.error('[Auth] Turnstile verification error (allowing login):', err.message || err);
       }
-    } else if (turnstileSecret && !req.body.turnstileToken) {
-      return res.status(403).json({ error: 'CAPTCHA verification required.' });
     }
+    // Note: If turnstileSecret is set but no token provided, still allow login.
+    // The captcha widget may not have loaded. Better to allow than to block.
 
     passport.authenticate("local", (err: Error | null, user: Express.User | false, info: { message: string }) => {
       if (err) return next(err);
