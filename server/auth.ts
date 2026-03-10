@@ -423,8 +423,12 @@ export function setupAuth(app: Express) {
     // The captcha widget may not have loaded. Better to allow than to block.
 
     passport.authenticate("local", (err: Error | null, user: Express.User | false, info: { message: string }) => {
-      if (err) return next(err);
+      if (err) {
+        console.error('[Auth] Login passport error:', err);
+        return res.status(500).json({ error: "An error occurred during login. Please try again." });
+      }
       if (!user) {
+        console.log(`[Auth] Login rejected for: "${req.body.username}"`);
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
