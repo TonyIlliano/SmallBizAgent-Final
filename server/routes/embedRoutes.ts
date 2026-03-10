@@ -20,7 +20,8 @@ const router = Router();
 router.get("/embed/booking-widget.js", (req, res) => {
   // Determine the base URL from the request
   const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
-  const host = req.headers["x-forwarded-host"] || req.headers.host || "www.smallbizagent.ai";
+  const defaultHost = (process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\//, '');
+  const host = req.headers["x-forwarded-host"] || req.headers.host || defaultHost;
   const baseUrl = `${protocol}://${host}`;
 
   const script = `

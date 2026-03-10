@@ -89,7 +89,7 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
 
     // Build manage URL if appointment has a manage token
     const manageUrl = appointment.manageToken && business.bookingSlug
-      ? `https://www.smallbizagent.ai/book/${business.bookingSlug}/manage/${appointment.manageToken}`
+      ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}/manage/${appointment.manageToken}`
       : null;
 
     // Send email
@@ -914,7 +914,7 @@ export async function sendReservationConfirmation(reservationId: number, busines
 
     // Build manage URL
     const manageUrl = reservation.manageToken && business.bookingSlug
-      ? `https://www.smallbizagent.ai/book/${business.bookingSlug}/manage-reservation/${reservation.manageToken}`
+      ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}/manage-reservation/${reservation.manageToken}`
       : null;
 
     // Send SMS

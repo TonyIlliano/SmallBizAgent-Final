@@ -125,9 +125,11 @@ const allowedOrigins = [
   process.env.BASE_URL,
   process.env.APP_URL,
   process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null,
-  // Always allow both www and bare domain in production
-  'https://www.smallbizagent.ai',
-  'https://smallbizagent.ai',
+  // Derive www/bare domain variants from APP_URL for Cloudflare redirect compatibility
+  ...(process.env.APP_URL ? [
+    process.env.APP_URL.replace('://www.', '://'),   // bare domain variant
+    process.env.APP_URL.replace('://', '://www.'),    // www variant
+  ] : []),
   process.env.NODE_ENV !== 'production' ? 'http://localhost:5000' : null,
   process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : null,
 ].filter(Boolean) as string[];

@@ -69,7 +69,7 @@ export async function triggerNoShowSms(
       appointmentTime: apptTime,
       businessName: business.name,
       businessPhone: business.phone || '',
-      bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
+      bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
     });
 
     await sendSms(customer.phone, message, undefined, businessId);
@@ -134,7 +134,7 @@ export async function handleNoShowReply(
     customerName: customer?.firstName || 'there',
     businessName: business.name,
     businessPhone: business.phone || '',
-    bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
+    bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
   };
 
   // Handle STOP requests — opt the customer out immediately (TCPA)

@@ -191,7 +191,7 @@ function buildTemplateVars(customer: any, business: any): Record<string, string>
     customerName: customer.firstName || 'there',
     businessName: business.name,
     businessPhone: business.phone || '',
-    bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
+    bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
   };
 }
 

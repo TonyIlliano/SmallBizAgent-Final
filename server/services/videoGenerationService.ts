@@ -297,7 +297,7 @@ function buildFeatureHighlight(industry: string, content: string, isVertical: bo
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white"><p style="font-size:${bodyFontSize}px;font-weight:bold">Try SmallBizAgent Free</p><p style="font-size:${bodyFontSize - 8}px;opacity:0.8">smallbizagent.com</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white"><p style="font-size:${bodyFontSize}px;font-weight:bold">Try SmallBizAgent Free</p><p style="font-size:${bodyFontSize - 8}px;opacity:0.8">${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\/(www\.)?/, '')}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 1920 : 1080,
           },
@@ -471,7 +471,7 @@ function buildBeforeAfter(industry: string, isVertical: boolean) {
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white;background:linear-gradient(135deg,#059669,#2563eb)"><p style="font-size:${headerFont}px;font-weight:bold">Upgrade Your ${industry} Business</p><p style="font-size:${bodyFont - 4}px;margin-top:20px;opacity:0.9">smallbizagent.com</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white;background:linear-gradient(135deg,#059669,#2563eb)"><p style="font-size:${headerFont}px;font-weight:bold">Upgrade Your ${industry} Business</p><p style="font-size:${bodyFont - 4}px;margin-top:20px;opacity:0.9">${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\/(www\.)?/, '')}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 1920 : 1080,
           },
@@ -572,7 +572,7 @@ function buildTestimonialQuote(content: string, industry: string, isVertical: bo
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:40px;color:white"><p style="font-size:${creditFont + 4}px;font-weight:bold">See why ${industry} businesses choose us</p><p style="font-size:${creditFont}px;opacity:0.8;margin-top:10px">smallbizagent.com</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:40px;color:white"><p style="font-size:${creditFont + 4}px;font-weight:bold">See why ${industry} businesses choose us</p><p style="font-size:${creditFont}px;opacity:0.8;margin-top:10px">${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\/(www\.)?/, '')}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 400 : 250,
           },
@@ -680,7 +680,7 @@ function buildPlatformDemo(industry: string, isVertical: boolean) {
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white;background:linear-gradient(135deg,#2563eb,#7c3aed)"><p style="font-size:${headerFont}px;font-weight:bold">Ready to automate your ${industry} business?</p><p style="font-size:${captionFont + 4}px;margin-top:20px;opacity:0.9">Start your free trial → smallbizagent.com</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white;background:linear-gradient(135deg,#2563eb,#7c3aed)"><p style="font-size:${headerFont}px;font-weight:bold">Ready to automate your ${industry} business?</p><p style="font-size:${captionFont + 4}px;margin-top:20px;opacity:0.9">Start your free trial → ${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\/(www\.)?/, '')}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 1920 : 1080,
           },

@@ -1017,7 +1017,7 @@ export class SubscriptionService {
           const { sendSms } = await import('./twilioService.js');
           const isLast = attemptNumber >= 3;
           const smsBody = isLast
-            ? `SmallBizAgent: Your payment for ${business.name} has failed after 3 attempts. Please update your payment method at smallbizagent.ai/settings to avoid service interruption.`
+            ? `SmallBizAgent: Your payment for ${business.name} has failed after 3 attempts. Please update your payment method at ${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace('https://', '')}/settings to avoid service interruption.`
             : `SmallBizAgent: Payment failed for ${business.name} (attempt ${attemptNumber}/3). We'll retry automatically. No action needed right now.`;
           await sendSms(ownerCell, smsBody);
           console.log(`[Dunning] Payment failure SMS sent to owner of business ${business.id} at ${ownerCell} (attempt ${attemptNumber})`);

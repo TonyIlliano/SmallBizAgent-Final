@@ -174,16 +174,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       const today = new Date().toISOString().split('T')[0];
+      const siteUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
       let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://www.smallbizagent.ai/</loc>
+    <loc>${siteUrl}/</loc>
     <lastmod>${today}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://www.smallbizagent.ai/auth</loc>
+    <loc>${siteUrl}/auth</loc>
     <lastmod>${today}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
@@ -193,7 +194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const lastmod = biz.updated_at ? new Date(biz.updated_at).toISOString().split('T')[0] : today;
         xml += `
   <url>
-    <loc>https://www.smallbizagent.ai/book/${biz.booking_slug}</loc>
+    <loc>${siteUrl}/book/${biz.booking_slug}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -4027,7 +4028,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (bodyTrimmed === 'HELP') {
         const twiml = new twilio.twiml.MessagingResponse();
         twiml.message(
-          `${business.name}: For support, contact us at ${business.phone || 'our business number'} or email Bark@smallbizagent.ai. ` +
+          `${business.name}: For support, contact us at ${business.phone || 'our business number'} or email ${process.env.SUPPORT_EMAIL || 'support@smallbizagent.ai'}. ` +
           `Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out.`
         );
         console.log(`[SMS] HELP keyword received from ${From} for business ${businessId}`);

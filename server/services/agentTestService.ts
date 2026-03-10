@@ -34,7 +34,7 @@ export async function sendAgentTest(
     businessName: business.name,
     businessPhone: business.phone || '',
     bookingLink: business.bookingSlug
-      ? `https://smallbizagent.ai/book/${business.bookingSlug}`
+      ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}`
       : '',
   };
 

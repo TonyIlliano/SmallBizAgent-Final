@@ -4449,7 +4449,7 @@ async function handleMakeReservation(
           hour: 'numeric', minute: '2-digit', hour12: true, timeZone: businessTimezone
         });
         const manageUrl = business.bookingSlug
-          ? `https://www.smallbizagent.ai/book/${business.bookingSlug}/manage-reservation/${manageToken}`
+          ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}/manage-reservation/${manageToken}`
           : null;
         const smsMessage = manageUrl
           ? `Your reservation for ${params.partySize} at ${business.name} is confirmed for ${friendlyDate} at ${friendlyTime}. Manage: ${manageUrl}`

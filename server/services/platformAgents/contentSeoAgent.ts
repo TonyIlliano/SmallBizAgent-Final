@@ -229,7 +229,7 @@ Setting up an AI receptionist for your ${formatted.toLowerCase()} business takes
 
 No contracts. No per-minute fees on the base plan. Just a phone that always gets answered.
 
-**Ready to stop missing calls?** [Try SmallBizAgent free](https://smallbizagent.com) and see the difference in your first week.`;
+**Ready to stop missing calls?** [Try SmallBizAgent free](${process.env.APP_URL || 'https://www.smallbizagent.ai'}) and see the difference in your first week.`;
 
   return {
     title,

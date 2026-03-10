@@ -165,7 +165,7 @@ export async function handleBookingConversation(
 
   // Turn limit — fall back to booking link
   if (bookingFlow.turnCount > 8) {
-    const link = business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '';
+    const link = business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '';
     const fallbackMsg = link
       ? `Looks like we're going back and forth! You can book directly here: ${link} or call us at ${business.phone || 'our office'}.`
       : `Looks like we're going back and forth! Give us a call at ${business.phone || 'our office'} to book.`;
@@ -233,7 +233,7 @@ export async function handleBookingConversation(
   } catch (err) {
     console.error('[ConversationalBooking] Error:', err);
     // OpenAI or other failure — fall back to booking link
-    const link = business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '';
+    const link = business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '';
     const fallbackMsg = link
       ? `Sorry about that! You can book online here: ${link}`
       : `Sorry about that! Give us a call at ${business.phone || 'our office'} to book.`;
@@ -639,7 +639,7 @@ async function handleConfirmingBooking(
 
     // Create the booking
     if (!customer?.id || !bookingFlow.preferences.date || !bookingFlow.preferences.time || !bookingFlow.preferences.serviceId) {
-      const link = business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '';
+      const link = business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '';
       await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
       return { replyMessage: link ? `Something went wrong. Book online here: ${link}` : `Something went wrong. Call us at ${business.phone || 'our office'} to book.` };
     }
@@ -709,7 +709,7 @@ async function handleConfirmingBooking(
     }
 
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
-    const link = business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '';
+    const link = business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '';
     return { replyMessage: link ? `Something went wrong. Book online here: ${link}` : `Something went wrong. Call us at ${business.phone || 'our office'}.` };
   }
 

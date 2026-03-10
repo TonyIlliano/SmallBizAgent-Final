@@ -645,7 +645,7 @@ export async function sendCallForwardingDeactivationEmail(
     `2. Dial *73\n` +
     `3. Wait for the confirmation tone\n\n` +
     `This will remove the forwarding and restore direct calls to your business number.\n\n` +
-    `Want to keep your AI receptionist? Visit https://www.smallbizagent.ai to subscribe.\n\n` +
+    `Want to keep your AI receptionist? Visit ${process.env.APP_URL || 'https://www.smallbizagent.ai'} to subscribe.\n\n` +
     `- SmallBizAgent Team`;
 
   const html = `
@@ -672,7 +672,7 @@ export async function sendCallForwardingDeactivationEmail(
       <p>This will remove the forwarding and restore direct calls to your business number.</p>
 
       <div style="margin: 24px 0; text-align: center;">
-        <a href="https://www.smallbizagent.ai" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+        <a href="${process.env.APP_URL || 'https://www.smallbizagent.ai'}" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
           Subscribe to Keep Your AI Receptionist
         </a>
       </div>
@@ -752,7 +752,7 @@ export async function sendTrialExpirationWarningEmail(
   const text = `Hi,\n\n` +
     `Your SmallBizAgent trial for ${businessName} expires in ${daysRemaining} day${daysRemaining > 1 ? 's' : ''}.` +
     callForwardingWarning +
-    `\n\nSubscribe now to keep your AI receptionist and all your business data: https://www.smallbizagent.ai\n\n` +
+    `\n\nSubscribe now to keep your AI receptionist and all your business data: ${process.env.APP_URL || 'https://www.smallbizagent.ai'}\n\n` +
     `- SmallBizAgent Team`;
 
   const callForwardingHtml = hasCallForwarding
@@ -783,7 +783,7 @@ export async function sendTrialExpirationWarningEmail(
       </ul>
 
       <div style="margin: 24px 0; text-align: center;">
-        <a href="https://www.smallbizagent.ai" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+        <a href="${process.env.APP_URL || 'https://www.smallbizagent.ai'}" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
           Subscribe Now
         </a>
       </div>
@@ -821,7 +821,7 @@ export async function sendPaymentFailedEmail(
     isLastAttempt ? `This was our final retry. Please update your payment method immediately.` : `No action needed — ${retryInfo}`,
     graceInfo,
     ``,
-    `Update your payment: https://www.smallbizagent.ai/settings?tab=subscription`,
+    `Update your payment: ${process.env.APP_URL || 'https://www.smallbizagent.ai'}/settings?tab=subscription`,
     ``,
     `- SmallBizAgent Team`,
   ].join('\n');
@@ -838,7 +838,7 @@ export async function sendPaymentFailedEmail(
     ${isLastAttempt ? `<div style="background: #fef2f2; border: 2px solid #ef4444; border-radius: 8px; padding: 16px; margin: 20px 0;"><p style="color: #dc2626; font-weight: bold; margin: 0;">Please update your payment method to prevent service interruption.</p></div>` : ''}
     ${graceInfo ? `<p style="color: #6b7280;">${graceInfo}</p>` : ''}
     <div style="margin: 24px 0; text-align: center;">
-      <a href="https://www.smallbizagent.ai/settings?tab=subscription" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">Update Payment Method</a>
+      <a href="${process.env.APP_URL || 'https://www.smallbizagent.ai'}/settings?tab=subscription" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">Update Payment Method</a>
     </div>
     <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
     <p style="color: #999; font-size: 12px;">SmallBizAgent Payment Notification</p>

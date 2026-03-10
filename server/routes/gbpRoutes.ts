@@ -129,7 +129,7 @@ router.post('/set-booking-link/:businessId', isAuthenticated, async (req, res) =
       });
     }
 
-    const bookingUrl = `https://www.smallbizagent.ai/book/${business.bookingSlug}`;
+    const bookingUrl = `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}`;
     const placeActionLink = await gbpService.createOrUpdateBookingLink(
       businessId, locationName, bookingUrl
     );

@@ -111,7 +111,7 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
         customerName: customer.firstName || 'there',
         businessName: business.name,
         businessPhone: business.phone || '',
-        bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
+        bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
         daysSinceVisit: String(daysSinceVisit),
         serviceName: lastServiceName,
       });
@@ -166,7 +166,7 @@ export async function handleRebookingReply(
     customerName: customer?.firstName || 'there',
     businessName: business.name,
     businessPhone: business.phone || '',
-    bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
+    bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
   };
 
   // Handle STOP requests — opt the customer out immediately (TCPA)

@@ -32,7 +32,8 @@ function buildSeoTags(business: any, services: any[], hours: any[]): string {
     business.description ||
     `Book an appointment with ${name}${location ? ` in ${location}` : ""}. Online scheduling powered by SmallBizAgent.`;
   const slug = business.bookingSlug || "";
-  const canonicalUrl = `https://www.smallbizagent.ai/book/${slug}`;
+  const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+  const canonicalUrl = `${appUrl}/book/${slug}`;
   const fullAddress = [business.address, business.city, business.state, business.zip]
     .filter(Boolean)
     .join(", ");
@@ -213,7 +214,7 @@ export async function injectBookingSeo(url: string, html: string): Promise<strin
 
     // Remove default canonical (we'll inject the correct one)
     modified = modified.replace(
-      /<link rel="canonical" href="https:\/\/www\.smallbizagent\.ai\/">/,
+      /<link rel="canonical" href="[^"]*">/,
       ""
     );
 
