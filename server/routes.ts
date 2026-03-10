@@ -3633,7 +3633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         {
           name: "AWS S3 (Storage)",
           key: "s3",
-          configured: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.AWS_S3_BUCKET),
+          configured: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && (process.env.S3_MEDIA_BUCKET || process.env.AWS_S3_BUCKET)),
           required: false,
           description: "File uploads, document storage",
         },

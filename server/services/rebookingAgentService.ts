@@ -2,6 +2,7 @@ import { storage } from '../storage';
 import { sendSms } from './twilioService';
 import { isAgentEnabled, getAgentConfig, fillTemplate } from './agentSettingsService';
 import { logAgentAction } from './agentActivityService';
+import { classifyReply } from './smsReplyParser';
 import type { SmsConversation, Customer } from '@shared/schema';
 
 export async function runRebookingCheck(): Promise<void> {
@@ -35,19 +36,37 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
 
   const defaultInterval = config.defaultIntervalDays ?? 42;
 
-  // Use the existing getInactiveCustomers-style query
-  // Find customers whose last activity was around the rebooking interval ago
+  // Load data ONCE for the entire business (not per-customer!)
+  // Previous version called getJobs() and getAppointments() inside the customer loop,
+  // causing 1,500+ DB queries for a business with 500 customers.
   const customers = await storage.getCustomers(businessId);
+  const allJobs = await storage.getJobs(businessId);
+  const allAppointments = await storage.getAppointments(businessId);
+  const recentLogs = await storage.getAgentActivityLogs(businessId, { agentType: 'rebooking', limit: 500 });
 
-  for (const customer of customers) {
+  // Pre-filter to completed only
+  const completedJobs = allJobs.filter(j => j.status === 'completed');
+  const completedAppts = allAppointments.filter(a => a.status === 'completed');
+
+  // Pre-index sent SMS by customer ID for O(1) dedup lookup
+  const sentByCustomerId = new Map<number, Date>();
+  for (const log of recentLogs) {
+    if (log.action !== 'sms_sent' || !log.customerId) continue;
+    const logDate = new Date(log.createdAt!);
+    const existing = sentByCustomerId.get(log.customerId);
+    if (!existing || logDate > existing) {
+      sentByCustomerId.set(log.customerId, logDate);
+    }
+  }
+
+  // Pre-filter to only SMS-eligible customers
+  const eligibleCustomers = customers.filter(c => c.phone && c.smsOptIn);
+
+  for (const customer of eligibleCustomers) {
     try {
-      if (!customer.phone || !customer.smsOptIn) continue;
-
-      // Find their last completed job or appointment
-      const jobs = await storage.getJobs(businessId);
-      const customerJobs = jobs.filter(j => j.customerId === customer.id && j.status === 'completed');
-      const appointments = await storage.getAppointments(businessId);
-      const customerAppts = appointments.filter(a => a.customerId === customer.id && a.status === 'completed');
+      // Find their last completed job or appointment (using pre-loaded data)
+      const customerJobs = completedJobs.filter(j => j.customerId === customer.id);
+      const customerAppts = completedAppts.filter(a => a.customerId === customer.id);
 
       // Find most recent activity
       let lastActivityDate: Date | null = null;
@@ -77,17 +96,15 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
 
       if (daysSinceVisit < interval || daysSinceVisit > interval + 3) continue;
 
-      // Check dedup: have we already sent a rebooking SMS to this customer recently?
-      const recentLogs = await storage.getAgentActivityLogs(businessId, { agentType: 'rebooking', limit: 200 });
-      const alreadySent = recentLogs.some(log => {
-        if (log.customerId !== customer.id || log.action !== 'sms_sent') return false;
-        const logAge = Date.now() - new Date(log.createdAt!).getTime();
-        return logAge < interval * 24 * 60 * 60 * 1000; // Don't re-send within the interval
-      });
-      if (alreadySent) continue;
+      // Check dedup using pre-indexed sent logs (O(1) instead of O(n))
+      const lastSentDate = sentByCustomerId.get(customer.id);
+      if (lastSentDate) {
+        const logAge = Date.now() - lastSentDate.getTime();
+        if (logAge < interval * 24 * 60 * 60 * 1000) continue;
+      }
 
       // Check no active conversation already exists
-      const activeConv = await storage.getActiveSmsConversation(customer.phone, businessId);
+      const activeConv = await storage.getActiveSmsConversation(customer.phone!, businessId);
       if (activeConv) continue;
 
       const message = fillTemplate(config.messageTemplate, {
@@ -143,12 +160,7 @@ export async function handleRebookingReply(
   const business = await storage.getBusiness(businessId);
   if (!business) return null;
 
-  const normalized = messageBody.trim().toUpperCase();
-  const positiveWords = ['YES', 'YEAH', 'YEP', 'SURE', 'BOOK', 'OK', 'OKAY', 'Y', 'PLEASE'];
-  const negativeWords = ['NO', 'NOPE', 'NAH', 'NOT', 'N', 'LATER', 'STOP'];
-
-  const isPositive = positiveWords.some(w => normalized.includes(w));
-  const isNegative = negativeWords.some(w => normalized.includes(w));
+  const intent = classifyReply(messageBody);
 
   const templateVars: Record<string, string> = {
     customerName: customer?.firstName || 'there',
@@ -157,7 +169,16 @@ export async function handleRebookingReply(
     bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
   };
 
-  if (isPositive && !isNegative) {
+  // Handle STOP requests — opt the customer out immediately (TCPA)
+  if (intent === 'stop') {
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    if (customer?.id) {
+      try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
+    }
+    return { replyMessage: `You've been unsubscribed from SMS messages. Reply START to re-subscribe. - ${business.name}` };
+  }
+
+  if (intent === 'positive') {
     // Try conversational booking flow (parse dates, check availability, book via SMS)
     try {
       const { canStartConversationalBooking, initializeBookingConversation } = await import('./conversationalBookingService');
@@ -173,7 +194,7 @@ export async function handleRebookingReply(
     return { replyMessage: reply };
   }
 
-  if (isNegative && !isPositive) {
+  if (intent === 'negative') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     const reply = fillTemplate(config.declineReplyTemplate, templateVars);
     return { replyMessage: reply };

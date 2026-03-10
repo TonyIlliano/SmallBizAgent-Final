@@ -4,6 +4,7 @@ import { logAgentAction } from './agentActivityService';
 import { createDateInTimezone, formatTimeWithTimezone } from '../utils/timezone';
 import { fireEvent } from './webhookService';
 import notificationService from './notificationService';
+import { classifyReply, isStopRequest } from './smsReplyParser';
 import crypto from 'crypto';
 import type { SmsConversation, Customer, Staff, Service, Business } from '@shared/schema';
 
@@ -605,14 +606,27 @@ async function handleConfirmingBooking(
   bookingFlow: BookingFlowContext,
   existingContext: Record<string, any>,
 ): Promise<{ replyMessage: string }> {
+  // Use centralized word-boundary-aware reply parser
+  const replyIntent = classifyReply(messageBody);
+
+  // Handle STOP during booking flow
+  if (replyIntent === 'stop') {
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    if (customer?.id) {
+      try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
+    }
+    return { replyMessage: `You've been unsubscribed from SMS messages. Reply START to re-subscribe. - ${business.name}` };
+  }
+
+  // Also check for change-of-mind words that don't map to negative
+  const changeWords = ['different', 'change', 'actually', 'wait'];
   const upperMsg = messageBody.trim().toUpperCase();
-  const positiveWords = ['YES', 'YEAH', 'YEP', 'SURE', 'BOOK', 'OK', 'OKAY', 'Y', 'PLEASE', 'CONFIRM', 'DO IT', 'PERFECT', 'GREAT', 'SOUNDS GOOD'];
-  const negativeWords = ['NO', 'NOPE', 'NAH', 'N', 'DIFFERENT', 'CHANGE', 'ACTUALLY', 'WAIT'];
+  const wantsChange = changeWords.some(w => {
+    const regex = new RegExp(`\\b${w}\\b`, 'i');
+    return regex.test(messageBody);
+  });
 
-  const isPositive = positiveWords.some(w => upperMsg.includes(w));
-  const isNegative = negativeWords.some(w => upperMsg.includes(w));
-
-  if (isPositive && !isNegative) {
+  if (replyIntent === 'positive' && !wantsChange) {
     // Test mode — skip real booking creation
     if (existingContext?.isTest === true) {
       await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
@@ -699,7 +713,7 @@ async function handleConfirmingBooking(
     return { replyMessage: link ? `Something went wrong. Book online here: ${link}` : `Something went wrong. Call us at ${business.phone || 'our office'}.` };
   }
 
-  if (isNegative && !isPositive) {
+  if (replyIntent === 'negative' || wantsChange) {
     bookingFlow.step = 'asking_preferences';
     bookingFlow.preferences.date = undefined;
     bookingFlow.preferences.time = undefined;
@@ -807,14 +821,13 @@ Rules:
 }
 
 function fallbackIntentParse(message: string): BookingIntent {
-  const upper = message.trim().toUpperCase();
-  const positiveWords = ['YES', 'YEAH', 'YEP', 'SURE', 'BOOK', 'OK', 'OKAY', 'Y', 'PLEASE', 'CONFIRM'];
-  const negativeWords = ['NO', 'NOPE', 'NAH', 'N', 'CANCEL', 'STOP', 'NEVERMIND'];
+  // Use centralized word-boundary-aware parser
+  const intent = classifyReply(message);
 
-  if (negativeWords.some(w => upper === w || upper === w + '.')) {
+  if (intent === 'stop' || intent === 'negative') {
     return { type: 'decline' };
   }
-  if (positiveWords.some(w => upper === w || upper === w + '.')) {
+  if (intent === 'positive') {
     return { type: 'confirmation', confirmed: true };
   }
 

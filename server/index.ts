@@ -48,10 +48,10 @@ function validateEnvironment() {
   ];
 
   // In production, BASE_URL is critical for webhooks, password reset links, etc.
-  if (process.env.NODE_ENV === 'production' && !process.env.BASE_URL) {
+  if (process.env.NODE_ENV === 'production' && !process.env.BASE_URL && !process.env.APP_URL) {
     console.error('⚠️  CRITICAL WARNING: BASE_URL not set in production!');
     console.error('   Password reset, invoice sharing, Twilio webhooks will NOT work.');
-    console.error('   Set BASE_URL to your Railway URL (e.g., https://web-production-76c5e.up.railway.app)');
+    console.error('   Set BASE_URL to your public URL (e.g., https://your-app.railway.app)');
   }
 
   const missing = required.filter(key => !process.env[key]);

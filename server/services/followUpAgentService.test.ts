@@ -1,14 +1,16 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mocks ──
 
 const { mockStorage, mockSendSms, mockLogAgentAction } = vi.hoisted(() => ({
   mockStorage: {
     getBusiness: vi.fn(),
+    getAllBusinesses: vi.fn(),
     getAppointment: vi.fn(),
     getJob: vi.fn(),
     getCustomer: vi.fn(),
     getAgentSettings: vi.fn(),
+    getAgentActivityLogs: vi.fn(),
   },
   mockSendSms: vi.fn(),
   mockLogAgentAction: vi.fn(),
@@ -30,7 +32,7 @@ vi.mock('./agentSettingsService', () => ({
   }),
 }));
 
-import { triggerFollowUp } from './followUpAgentService';
+import { triggerFollowUp, runFollowUpCheck } from './followUpAgentService';
 import { isAgentEnabled, getAgentConfig } from './agentSettingsService';
 
 // ── Test Data ──
@@ -51,168 +53,196 @@ const DEFAULT_CONFIG = {
 describe('followUpAgentService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  describe('triggerFollowUp (queueing)', () => {
+    it('does nothing when agent is disabled', async () => {
+      (isAgentEnabled as any).mockResolvedValue(false);
+
+      await triggerFollowUp('appointment', 100, 1);
+
+      expect(mockLogAgentAction).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when business not found', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getBusiness.mockResolvedValue(null);
+
+      await triggerFollowUp('appointment', 100, 1);
+
+      expect(mockLogAgentAction).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when appointment is not completed', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getAppointment.mockResolvedValue({ ...COMPLETED_APPOINTMENT, status: 'scheduled' });
+
+      await triggerFollowUp('appointment', 100, 1);
+
+      expect(mockLogAgentAction).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when customer has no phone', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
+      mockStorage.getCustomer.mockResolvedValue({ ...CUSTOMER, phone: null });
+
+      await triggerFollowUp('appointment', 100, 1);
+
+      expect(mockLogAgentAction).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when customer has not opted into SMS', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
+      mockStorage.getCustomer.mockResolvedValue({ ...CUSTOMER, smsOptIn: false });
+
+      await triggerFollowUp('appointment', 100, 1);
+
+      expect(mockLogAgentAction).not.toHaveBeenCalled();
+    });
+
+    it('queues follow-up for completed appointment', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockStorage.getAgentActivityLogs.mockResolvedValue([]);
+      mockLogAgentAction.mockResolvedValue(undefined);
+
+      await triggerFollowUp('appointment', 100, 1);
+
+      expect(mockLogAgentAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentType: 'follow_up',
+          action: 'follow_up_queued',
+          referenceType: 'appointment',
+          referenceId: 100,
+        }),
+      );
+    });
+
+    it('handles job entity type correctly', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getJob.mockResolvedValue(COMPLETED_JOB);
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockStorage.getAgentActivityLogs.mockResolvedValue([]);
+      mockLogAgentAction.mockResolvedValue(undefined);
+
+      await triggerFollowUp('job', 200, 1);
+
+      expect(mockLogAgentAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          referenceType: 'job',
+          referenceId: 200,
+        }),
+      );
+    });
+
+    it('prevents duplicate queueing (idempotency)', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockStorage.getAgentActivityLogs.mockResolvedValue([
+        { referenceType: 'appointment', referenceId: 100, action: 'follow_up_queued' },
+      ]);
+
+      await triggerFollowUp('appointment', 100, 1);
+
+      // Should NOT log another queued action
+      expect(mockLogAgentAction).not.toHaveBeenCalled();
+    });
   });
 
-  it('does nothing when agent is disabled', async () => {
-    (isAgentEnabled as any).mockResolvedValue(false);
+  describe('runFollowUpCheck (scheduler)', () => {
+    it('sends thank-you for queued items past delay', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getAllBusinesses.mockResolvedValue([BUSINESS]);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockSendSms.mockResolvedValue(undefined);
+      mockLogAgentAction.mockResolvedValue(undefined);
 
-    await triggerFollowUp('appointment', 100, 1);
+      // Queued item from 1 minute ago (delay is 0, so it should fire)
+      mockStorage.getAgentActivityLogs.mockResolvedValue([
+        {
+          action: 'follow_up_queued',
+          referenceType: 'appointment',
+          referenceId: 100,
+          customerId: 10,
+          createdAt: new Date(Date.now() - 60 * 1000).toISOString(),
+        },
+      ]);
 
-    expect(mockSendSms).not.toHaveBeenCalled();
-  });
+      await runFollowUpCheck();
 
-  it('does nothing when business not found', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
-    mockStorage.getBusiness.mockResolvedValue(null);
+      expect(mockSendSms).toHaveBeenCalledWith(
+        CUSTOMER.phone,
+        expect.stringContaining('Jane'),
+        undefined,
+        BUSINESS.id,
+      );
+    });
 
-    await triggerFollowUp('appointment', 100, 1);
+    it('skips disabled businesses', async () => {
+      (isAgentEnabled as any).mockResolvedValue(false);
+      mockStorage.getAllBusinesses.mockResolvedValue([BUSINESS]);
 
-    expect(mockSendSms).not.toHaveBeenCalled();
-  });
+      await runFollowUpCheck();
 
-  it('does nothing when appointment is not completed', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
-    mockStorage.getBusiness.mockResolvedValue(BUSINESS);
-    mockStorage.getAppointment.mockResolvedValue({ ...COMPLETED_APPOINTMENT, status: 'scheduled' });
+      expect(mockSendSms).not.toHaveBeenCalled();
+    });
 
-    await triggerFollowUp('appointment', 100, 1);
+    it('skips items already sent', async () => {
+      (isAgentEnabled as any).mockResolvedValue(true);
+      (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
+      mockStorage.getAllBusinesses.mockResolvedValue([BUSINESS]);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
 
-    expect(mockSendSms).not.toHaveBeenCalled();
-  });
+      // Both queued AND already sent
+      mockStorage.getAgentActivityLogs.mockResolvedValue([
+        {
+          action: 'follow_up_queued',
+          referenceType: 'appointment',
+          referenceId: 100,
+          customerId: 10,
+          createdAt: new Date(Date.now() - 60 * 1000).toISOString(),
+        },
+        {
+          action: 'sms_sent',
+          referenceType: 'appointment',
+          referenceId: 100,
+          customerId: 10,
+          createdAt: new Date().toISOString(),
+          details: { messageType: 'thank_you' },
+        },
+        {
+          action: 'sms_sent',
+          referenceType: 'appointment',
+          referenceId: 100,
+          customerId: 10,
+          createdAt: new Date().toISOString(),
+          details: { messageType: 'upsell' },
+        },
+      ]);
 
-  it('does nothing when customer has no phone', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
-    mockStorage.getBusiness.mockResolvedValue(BUSINESS);
-    mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
-    mockStorage.getCustomer.mockResolvedValue({ ...CUSTOMER, phone: null });
+      await runFollowUpCheck();
 
-    await triggerFollowUp('appointment', 100, 1);
-
-    expect(mockSendSms).not.toHaveBeenCalled();
-  });
-
-  it('does nothing when customer has not opted into SMS', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
-    mockStorage.getBusiness.mockResolvedValue(BUSINESS);
-    mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
-    mockStorage.getCustomer.mockResolvedValue({ ...CUSTOMER, smsOptIn: false });
-
-    await triggerFollowUp('appointment', 100, 1);
-
-    expect(mockSendSms).not.toHaveBeenCalled();
-  });
-
-  it('schedules thank-you SMS for completed appointment', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
-    mockStorage.getBusiness.mockResolvedValue(BUSINESS);
-    mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
-    mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
-    mockSendSms.mockResolvedValue(undefined);
-    mockLogAgentAction.mockResolvedValue(undefined);
-
-    await triggerFollowUp('appointment', 100, 1);
-
-    // The SMS is scheduled via setTimeout — advance timers to fire it
-    await vi.advanceTimersByTimeAsync(1);
-
-    expect(mockSendSms).toHaveBeenCalledWith(
-      CUSTOMER.phone,
-      expect.stringContaining('Jane'),
-      undefined,
-      BUSINESS.id,
-    );
-    expect(mockLogAgentAction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentType: 'follow_up',
-        action: 'sms_sent',
-        details: expect.objectContaining({ messageType: 'thank_you' }),
-      }),
-    );
-  });
-
-  it('schedules upsell SMS for completed appointment', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
-    mockStorage.getBusiness.mockResolvedValue(BUSINESS);
-    mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
-    mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
-    mockSendSms.mockResolvedValue(undefined);
-    mockLogAgentAction.mockResolvedValue(undefined);
-
-    await triggerFollowUp('appointment', 100, 1);
-
-    // Advance past both timers
-    await vi.advanceTimersByTimeAsync(1);
-
-    // Should have sent both thank-you and upsell (both delay = 0)
-    expect(mockSendSms).toHaveBeenCalledTimes(2);
-    const upsellCall = mockSendSms.mock.calls[1];
-    expect(upsellCall[0]).toBe(CUSTOMER.phone);
-  });
-
-  it('handles job entity type correctly', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
-    mockStorage.getBusiness.mockResolvedValue(BUSINESS);
-    mockStorage.getJob.mockResolvedValue(COMPLETED_JOB);
-    mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
-    mockSendSms.mockResolvedValue(undefined);
-    mockLogAgentAction.mockResolvedValue(undefined);
-
-    await triggerFollowUp('job', 200, 1);
-
-    await vi.advanceTimersByTimeAsync(1);
-
-    expect(mockSendSms).toHaveBeenCalled();
-    expect(mockLogAgentAction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        referenceType: 'job',
-        referenceId: 200,
-      }),
-    );
-  });
-
-  it('skips upsell when enableUpsell is false', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue({ ...DEFAULT_CONFIG, enableUpsell: false });
-    mockStorage.getBusiness.mockResolvedValue(BUSINESS);
-    mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
-    mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
-    mockSendSms.mockResolvedValue(undefined);
-    mockLogAgentAction.mockResolvedValue(undefined);
-
-    await triggerFollowUp('appointment', 100, 1);
-
-    await vi.advanceTimersByTimeAsync(1);
-
-    // Only thank-you, not upsell
-    expect(mockSendSms).toHaveBeenCalledTimes(1);
-  });
-
-  it('skips thank-you when enableThankYou is false', async () => {
-    (isAgentEnabled as any).mockResolvedValue(true);
-    (getAgentConfig as any).mockResolvedValue({ ...DEFAULT_CONFIG, enableThankYou: false });
-    mockStorage.getBusiness.mockResolvedValue(BUSINESS);
-    mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
-    mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
-    mockSendSms.mockResolvedValue(undefined);
-    mockLogAgentAction.mockResolvedValue(undefined);
-
-    await triggerFollowUp('appointment', 100, 1);
-
-    await vi.advanceTimersByTimeAsync(1);
-
-    // Only upsell, not thank-you
-    expect(mockSendSms).toHaveBeenCalledTimes(1);
+      // Should NOT send again
+      expect(mockSendSms).not.toHaveBeenCalled();
+    });
   });
 });

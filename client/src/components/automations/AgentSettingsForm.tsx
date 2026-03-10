@@ -17,7 +17,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getAgentMeta } from "./AgentCard";
-import { Save, Loader2, RotateCcw } from "lucide-react";
+import { Save, Loader2, RotateCcw, Smartphone, Eye } from "lucide-react";
 
 interface AgentSettingsFormProps {
   agentType: string;
@@ -32,6 +32,56 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   rebooking: ["{customerName}", "{businessName}", "{daysSinceVisit}", "{serviceName}", "{bookingLink}", "{businessPhone}"],
   review_response: [],
 };
+
+// Sample data for live preview — shows owners what their customers will see
+const PREVIEW_VALUES: Record<string, string> = {
+  customerName: "Sarah",
+  businessName: "Your Business",
+  businessPhone: "(555) 123-4567",
+  bookingLink: "smallbizagent.ai/book/your-business",
+  appointmentTime: "2:00 PM",
+  quoteTotal: "$450.00",
+  daysSinceVisit: "42",
+  serviceName: "haircut",
+  validUntil: "March 15",
+};
+
+function fillPreview(template: string): string {
+  if (!template) return "";
+  let result = template;
+  for (const [key, value] of Object.entries(PREVIEW_VALUES)) {
+    result = result.replace(new RegExp(`\\{${key}\\}`, "g"), value);
+  }
+  return result;
+}
+
+/** Phone-shaped SMS preview bubble */
+function SmsPreview({ template, label }: { template: string; label?: string }) {
+  const preview = fillPreview(template);
+  if (!preview) return null;
+
+  return (
+    <div className="mt-2">
+      {label && (
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Eye className="h-3 w-3 text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        </div>
+      )}
+      <div className="bg-muted/50 rounded-xl p-3 border border-border">
+        <div className="flex items-start gap-2">
+          <Smartphone className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+          <div className="bg-blue-500 text-white text-sm rounded-2xl rounded-tl-sm px-3 py-2 max-w-[280px]">
+            {preview}
+          </div>
+        </div>
+        <div className="text-[10px] text-muted-foreground mt-1.5 ml-6">
+          {preview.length} characters {preview.length > 160 ? "(2 SMS segments)" : "(1 SMS segment)"}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSettingsFormProps) {
   const { toast } = useToast();
@@ -118,6 +168,7 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 placeholder="Hi {customerName}! Thank you for choosing {businessName}..."
                 rows={3}
               />
+              <SmsPreview template={config.thankYouTemplate ?? ""} label="Customer will see" />
             </div>
             <div className="space-y-2">
               <Label className="text-sm">Delay (minutes)</Label>
@@ -145,6 +196,7 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 placeholder="Hi {customerName}, ready to book your next visit..."
                 rows={3}
               />
+              <SmsPreview template={config.upsellTemplate ?? ""} label="Customer will see" />
             </div>
             <div className="space-y-2">
               <Label className="text-sm">Upsell Delay (hours)</Label>
@@ -171,6 +223,7 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 placeholder="Hey {customerName}, we missed you..."
                 rows={3}
               />
+              <SmsPreview template={config.messageTemplate ?? ""} label="Initial SMS to customer" />
             </div>
             <div className="space-y-2">
               <Label className="text-sm">Reschedule Reply Template</Label>
@@ -180,6 +233,7 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 placeholder="Great! Book online at {bookingLink}..."
                 rows={2}
               />
+              <SmsPreview template={config.rescheduleReplyTemplate ?? ""} label="If customer says YES" />
             </div>
             <div className="space-y-2">
               <Label className="text-sm">Decline Reply Template</Label>
@@ -189,6 +243,7 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 placeholder="No problem! We'll be here..."
                 rows={2}
               />
+              <SmsPreview template={config.declineReplyTemplate ?? ""} label="If customer says NO" />
             </div>
             <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
               When you mark an appointment as "No Show", the customer will automatically receive the SMS above offering to reschedule.
@@ -272,6 +327,7 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 placeholder="Hi {customerName}! It's been {daysSinceVisit} days..."
                 rows={3}
               />
+              <SmsPreview template={config.messageTemplate ?? ""} label="Initial SMS to customer" />
             </div>
             <div className="space-y-2">
               <Label className="text-sm">Booking Reply Template</Label>
@@ -281,6 +337,7 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 placeholder="Awesome! Book here: {bookingLink}..."
                 rows={2}
               />
+              <SmsPreview template={config.bookingReplyTemplate ?? ""} label="If customer says YES" />
             </div>
             <div className="space-y-2">
               <Label className="text-sm">Decline Reply Template</Label>
@@ -290,6 +347,7 @@ export function AgentSettingsForm({ agentType, currentConfig, enabled }: AgentSe
                 placeholder="No worries! We'll be here when you're ready."
                 rows={2}
               />
+              <SmsPreview template={config.declineReplyTemplate ?? ""} label="If customer says NO" />
             </div>
           </div>
         )}

@@ -8,6 +8,7 @@ const { mockStorage, mockSendSms, mockLogAgentAction } = vi.hoisted(() => ({
     getAllBusinesses: vi.fn(),
     getCustomers: vi.fn(),
     getCustomer: vi.fn(),
+    updateCustomer: vi.fn(),
     getJobs: vi.fn(),
     getAppointments: vi.fn(),
     getAgentSettings: vi.fn(),
@@ -107,8 +108,8 @@ describe('rebookingAgentService', () => {
       },
     );
 
-    it('recognizes negative variants: nope, nah, later, stop', async () => {
-      for (const reply of ['nope', 'NAH', 'later', 'STOP']) {
+    it('recognizes negative variants: nope, nah, later, not now', async () => {
+      for (const reply of ['nope', 'NAH', 'later', 'not now']) {
         vi.clearAllMocks();
         (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
         mockStorage.getBusiness.mockResolvedValue(BUSINESS);
@@ -117,6 +118,17 @@ describe('rebookingAgentService', () => {
         expect(result).not.toBeNull();
         expect(result!.replyMessage).toContain('No worries');
       }
+    });
+
+    it('handles STOP request by opting customer out (TCPA)', async () => {
+      mockStorage.updateCustomer.mockResolvedValue(undefined);
+
+      const result = await handleRebookingReply(conversation, 'STOP', CUSTOMER as any, 1);
+
+      expect(result).not.toBeNull();
+      expect(result!.replyMessage).toContain('unsubscribed');
+      expect(mockStorage.updateSmsConversation).toHaveBeenCalledWith(50, { state: 'resolved' });
+      expect(mockStorage.updateCustomer).toHaveBeenCalledWith(10, { smsOptIn: false });
     });
 
     it('asks for clarification on ambiguous reply', async () => {

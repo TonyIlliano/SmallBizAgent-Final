@@ -7,6 +7,7 @@ const { mockStorage, mockSendSms, mockLogAgentAction } = vi.hoisted(() => ({
     getBusiness: vi.fn(),
     getAppointment: vi.fn(),
     getCustomer: vi.fn(),
+    updateCustomer: vi.fn(),
     getAgentSettings: vi.fn(),
     getAgentActivityLogs: vi.fn(),
     createSmsConversation: vi.fn(),
@@ -264,7 +265,7 @@ describe('noShowAgentService', () => {
     });
 
     it('recognizes variations of negative responses', async () => {
-      for (const reply of ['nope', 'Nah', 'NEVERMIND', 'cancel']) {
+      for (const reply of ['nope', 'Nah', 'NEVERMIND', 'not now']) {
         vi.clearAllMocks();
         (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
         mockStorage.getBusiness.mockResolvedValue(BUSINESS);
@@ -289,6 +290,17 @@ describe('noShowAgentService', () => {
       const result = await handleNoShowReply(conversation, 'YES', CUSTOMER as any, 1);
 
       expect(result).toBeNull();
+    });
+
+    it('handles STOP request by opting customer out (TCPA)', async () => {
+      mockStorage.updateCustomer.mockResolvedValue(undefined);
+
+      const result = await handleNoShowReply(conversation, 'STOP', CUSTOMER as any, 1);
+
+      expect(result).not.toBeNull();
+      expect(result!.replyMessage).toContain('unsubscribed');
+      expect(mockStorage.updateSmsConversation).toHaveBeenCalledWith(50, { state: 'resolved' });
+      expect(mockStorage.updateCustomer).toHaveBeenCalledWith(10, { smsOptIn: false });
     });
   });
 

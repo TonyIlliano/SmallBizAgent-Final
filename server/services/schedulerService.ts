@@ -713,6 +713,28 @@ async function runAutoRefine(): Promise<void> {
   }
 }
 
+// ── Follow-Up Agent Scheduler (every 5 minutes) ──
+// Sends thank-you and upsell SMS for completed appointments/jobs.
+// Replaced the old setTimeout-based approach which lost pending sends on server restart.
+
+export function startFollowUpAgentScheduler(): void {
+  const jobKey = 'follow-up-agent';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 5 * 60 * 1000; // 5 minutes
+  const intervalId = setInterval(async () => {
+    try {
+      const { runFollowUpCheck } = await import('./followUpAgentService');
+      await runFollowUpCheck();
+    } catch (error) {
+      console.error('[FollowUpAgent] Scheduler error:', error);
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`Follow-up agent scheduler started (every 5 minutes)`);
+}
+
 // ── Estimate Follow-Up Agent Scheduler (every 6 hours) ──
 
 export function startEstimateFollowUpAgentScheduler(): void {
@@ -1063,6 +1085,7 @@ export async function startAllSchedulers(): Promise<void> {
     startAutoRefineScheduler();
 
     // Start SMS automation agent schedulers
+    startFollowUpAgentScheduler();
     startEstimateFollowUpAgentScheduler();
     startNoShowAgentScheduler();
     startRebookingAgentScheduler();
@@ -1131,6 +1154,7 @@ export default {
   startTrialExpirationScheduler,
   startDataRetentionScheduler,
   startAutoRefineScheduler,
+  startFollowUpAgentScheduler,
   startEstimateFollowUpAgentScheduler,
   startNoShowAgentScheduler,
   startRebookingAgentScheduler,

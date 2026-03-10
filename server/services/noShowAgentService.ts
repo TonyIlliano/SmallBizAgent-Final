@@ -2,6 +2,7 @@ import { storage } from '../storage';
 import { sendSms } from './twilioService';
 import { isAgentEnabled, getAgentConfig, fillTemplate } from './agentSettingsService';
 import { logAgentAction } from './agentActivityService';
+import { classifyReply } from './smsReplyParser';
 import type { SmsConversation, Customer } from '@shared/schema';
 
 /**
@@ -127,12 +128,7 @@ export async function handleNoShowReply(
   const business = await storage.getBusiness(businessId);
   if (!business) return null;
 
-  const normalized = messageBody.trim().toUpperCase();
-  const positiveWords = ['YES', 'YEAH', 'YEP', 'SURE', 'RESCHEDULE', 'OK', 'OKAY', 'Y', 'PLEASE'];
-  const negativeWords = ['NO', 'NOPE', 'NAH', 'NEVERMIND', 'NEVER', 'N', 'CANCEL'];
-
-  const isPositive = positiveWords.some(w => normalized.includes(w));
-  const isNegative = negativeWords.some(w => normalized.includes(w));
+  const intent = classifyReply(messageBody);
 
   const templateVars: Record<string, string> = {
     customerName: customer?.firstName || 'there',
@@ -141,7 +137,16 @@ export async function handleNoShowReply(
     bookingLink: business.bookingSlug ? `https://smallbizagent.ai/book/${business.bookingSlug}` : '',
   };
 
-  if (isPositive && !isNegative) {
+  // Handle STOP requests — opt the customer out immediately (TCPA)
+  if (intent === 'stop') {
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    if (customer?.id) {
+      try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
+    }
+    return { replyMessage: `You've been unsubscribed from SMS messages. Reply START to re-subscribe. - ${business.name}` };
+  }
+
+  if (intent === 'positive') {
     // Try conversational booking flow (parse dates, check availability, book via SMS)
     try {
       const { canStartConversationalBooking, initializeBookingConversation } = await import('./conversationalBookingService');
@@ -159,7 +164,7 @@ export async function handleNoShowReply(
     return { replyMessage: reply };
   }
 
-  if (isNegative && !isPositive) {
+  if (intent === 'negative') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     const reply = fillTemplate(config.declineReplyTemplate, templateVars);
     return { replyMessage: reply };
