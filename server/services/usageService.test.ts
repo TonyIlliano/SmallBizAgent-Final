@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock the db module ────────────────────────────────────────────────────
-const mockWhere = vi.fn();
-const mockSelectChain = {
-  from: vi.fn().mockReturnThis(),
-  where: mockWhere,
-};
-const mockSelect = vi.fn().mockReturnValue(mockSelectChain);
+const { mockWhere, mockSelectChain, mockSelect } = vi.hoisted(() => {
+  const mockWhere = vi.fn();
+  const mockSelectChain = {
+    from: vi.fn().mockReturnThis(),
+    where: mockWhere,
+  };
+  const mockSelect = vi.fn().mockReturnValue(mockSelectChain);
+  return { mockWhere, mockSelectChain, mockSelect };
+});
 
 vi.mock('../db', () => ({
   db: {

@@ -2,24 +2,44 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock the db module (Drizzle ORM) ──────────────────────────────────────
 // Replicate the chainable query-builder API that Drizzle exposes.
-const mockWhere = vi.fn();
-const mockLimit = vi.fn();
-const mockSet = vi.fn();
+const {
+  mockWhere, mockLimit, mockSet, mockSelectChain, mockUpdateChain, mockSelect, mockUpdate,
+  mockStripeSubscriptionsUpdate, mockStripeSubscriptionsRetrieve,
+  mockStripeBillingPortalSessionsCreate, mockStripeProductsList,
+  mockStripePricesList, mockStripePricesCreate,
+} = vi.hoisted(() => {
+  // Set env before any module loads
+  process.env.STRIPE_SECRET_KEY = 'sk_test_fake_key_for_unit_tests';
+  const mockWhere = vi.fn();
+  const mockLimit = vi.fn();
+  const mockSet = vi.fn();
 
-const mockSelectChain = {
-  from: vi.fn().mockReturnThis(),
-  where: mockWhere,
-};
-// where().limit() is used in most queries
-mockWhere.mockReturnValue({ limit: mockLimit });
+  const mockSelectChain = {
+    from: vi.fn().mockReturnThis(),
+    where: mockWhere,
+  };
+  mockWhere.mockReturnValue({ limit: mockLimit });
 
-const mockUpdateChain = {
-  set: mockSet,
-};
-mockSet.mockReturnValue({ where: vi.fn() });
+  const mockUpdateChain = { set: mockSet };
+  mockSet.mockReturnValue({ where: vi.fn() });
 
-const mockSelect = vi.fn().mockReturnValue(mockSelectChain);
-const mockUpdate = vi.fn().mockReturnValue(mockUpdateChain);
+  const mockSelect = vi.fn().mockReturnValue(mockSelectChain);
+  const mockUpdate = vi.fn().mockReturnValue(mockUpdateChain);
+
+  const mockStripeSubscriptionsUpdate = vi.fn();
+  const mockStripeSubscriptionsRetrieve = vi.fn();
+  const mockStripeBillingPortalSessionsCreate = vi.fn();
+  const mockStripeProductsList = vi.fn();
+  const mockStripePricesList = vi.fn();
+  const mockStripePricesCreate = vi.fn();
+
+  return {
+    mockWhere, mockLimit, mockSet, mockSelectChain, mockUpdateChain, mockSelect, mockUpdate,
+    mockStripeSubscriptionsUpdate, mockStripeSubscriptionsRetrieve,
+    mockStripeBillingPortalSessionsCreate, mockStripeProductsList,
+    mockStripePricesList, mockStripePricesCreate,
+  };
+});
 
 vi.mock('../db', () => ({
   db: {
@@ -30,32 +50,27 @@ vi.mock('../db', () => ({
 }));
 
 // ── Mock Stripe ───────────────────────────────────────────────────────────
-const mockStripeSubscriptionsUpdate = vi.fn();
-const mockStripeSubscriptionsRetrieve = vi.fn();
-const mockStripeBillingPortalSessionsCreate = vi.fn();
-const mockStripeProductsList = vi.fn();
-const mockStripePricesList = vi.fn();
-const mockStripePricesCreate = vi.fn();
-
 vi.mock('stripe', () => {
-  const StripeMock = vi.fn().mockImplementation(() => ({
-    subscriptions: {
-      update: mockStripeSubscriptionsUpdate,
-      retrieve: mockStripeSubscriptionsRetrieve,
-    },
-    billingPortal: {
-      sessions: {
-        create: mockStripeBillingPortalSessionsCreate,
+  function StripeMock() {
+    return {
+      subscriptions: {
+        update: mockStripeSubscriptionsUpdate,
+        retrieve: mockStripeSubscriptionsRetrieve,
       },
-    },
-    products: {
-      list: mockStripeProductsList,
-    },
-    prices: {
-      list: mockStripePricesList,
-      create: mockStripePricesCreate,
-    },
-  }));
+      billingPortal: {
+        sessions: {
+          create: mockStripeBillingPortalSessionsCreate,
+        },
+      },
+      products: {
+        list: mockStripeProductsList,
+      },
+      prices: {
+        list: mockStripePricesList,
+        create: mockStripePricesCreate,
+      },
+    };
+  }
   return { default: StripeMock };
 });
 
