@@ -119,11 +119,15 @@ app.use('/book', (_req, res, next) => {
 });
 
 // CORS - Configure allowed origins
-// In production, BASE_URL should be set to your Railway URL
+// In production, BASE_URL / APP_URL should be set to your Railway custom domain
 // localhost entries only used in development (see CORS handler below)
 const allowedOrigins = [
   process.env.BASE_URL,
+  process.env.APP_URL,
   process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null,
+  // Always allow both www and bare domain in production
+  'https://www.smallbizagent.ai',
+  'https://smallbizagent.ai',
   process.env.NODE_ENV !== 'production' ? 'http://localhost:5000' : null,
   process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : null,
 ].filter(Boolean) as string[];
@@ -220,12 +224,18 @@ app.use((req, res, next) => {
   // Skip CSRF check for safe methods and specific paths
   const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
   const exemptPaths = [
+    '/api/login',
+    '/api/register',
+    '/api/logout',
+    '/api/forgot-password',
+    '/api/reset-password',
     '/api/stripe-webhook',
     '/api/subscription/webhook',
     '/api/twilio/',
     '/api/vapi/',
     '/api/clover-webhook',
     '/api/square-webhook',
+    '/api/config/public',
     '/health',
   ];
 

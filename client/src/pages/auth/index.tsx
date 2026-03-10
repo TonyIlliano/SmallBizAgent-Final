@@ -139,9 +139,14 @@ export default function AuthPage() {
     setLoginError(null);
     setIsLoggingIn(true);
     try {
+      // Read CSRF token from cookie
+      const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
+
       const res = await fetch("/api/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ ...values, turnstileToken }),
         credentials: "include",
       });
@@ -150,7 +155,7 @@ export default function AuthPage() {
         let errorMessage = "Login failed";
         try {
           const errorData = await res.json();
-          if (errorData.error) errorMessage = errorData.error;
+          if (errorData.error || errorData.message) errorMessage = errorData.error || errorData.message;
         } catch { /* use default */ }
         if (res.status === 401) {
           setLoginError("Invalid username or password. Please try again.");

@@ -64,11 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
-      // Don't use apiRequest here because it throws on non-OK responses
-      // and we need to parse the error response ourselves
+      // Read CSRF token from cookie
+      const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
+
       const res = await fetch("/api/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(credentials),
         credentials: "include",
       });
@@ -77,8 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let errorMessage = "Login failed";
         try {
           const errorData = await res.json();
-          if (errorData.error) {
-            errorMessage = errorData.error;
+          if (errorData.error || errorData.message) {
+            errorMessage = errorData.error || errorData.message;
           }
         } catch {
           // JSON parsing failed, use default message
@@ -99,11 +102,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerMutation = useMutation({
     mutationFn: async (userData: RegisterData) => {
-      // Don't use apiRequest here because it throws on non-OK responses
-      // and we need to parse the error response ourselves
+      // Read CSRF token from cookie
+      const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
+
       const res = await fetch("/api/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(userData),
         credentials: "include",
       });
