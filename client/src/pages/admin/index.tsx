@@ -1686,7 +1686,15 @@ function ContentTab() {
   const [editMetaDescription, setEditMetaDescription] = useState("");
 
   const { data: posts, isLoading } = useQuery<BlogPost[]>({
-    queryKey: ["/api/admin/blog-posts", { status: statusFilter !== "all" ? statusFilter : undefined }],
+    queryKey: ["/api/admin/blog-posts", statusFilter],
+    queryFn: async () => {
+      const url = statusFilter !== "all"
+        ? `/api/admin/blog-posts?status=${statusFilter}`
+        : "/api/admin/blog-posts";
+      const res = await apiRequest("GET", url);
+      const data = await res.json();
+      return data.posts || [];
+    },
   });
 
   const generateMutation = useMutation({
