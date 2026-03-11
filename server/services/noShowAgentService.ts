@@ -140,7 +140,11 @@ export async function handleNoShowReply(
   // Handle STOP requests — opt the customer out immediately (TCPA)
   if (intent === 'stop') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    // Release engagement lock via orchestrator
     if (customer?.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
       try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
     }
     return { replyMessage: `You've been unsubscribed from SMS messages. Reply START to re-subscribe. - ${business.name}` };
@@ -160,12 +164,24 @@ export async function handleNoShowReply(
     }
     // Fallback: send booking link (original behavior)
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    // Release engagement lock via orchestrator
+    if (customer?.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
+    }
     const reply = fillTemplate(config.rescheduleReplyTemplate, templateVars);
     return { replyMessage: reply };
   }
 
   if (intent === 'negative') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    // Release engagement lock via orchestrator
+    if (customer?.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
+    }
     const reply = fillTemplate(config.declineReplyTemplate, templateVars);
     return { replyMessage: reply };
   }
@@ -179,6 +195,12 @@ export async function processExpiredConversations(): Promise<void> {
     const expired = await storage.getExpiredConversations();
     for (const conv of expired) {
       await storage.updateSmsConversation(conv.id, { state: 'expired' });
+      // Release engagement lock via orchestrator
+      if (conv.customerId) {
+        import('./orchestrationService').then(mod => {
+          mod.dispatchEvent('conversation.resolved', { businessId: conv.businessId, customerId: conv.customerId! }).catch(() => {});
+        }).catch(() => {});
+      }
       await logAgentAction({
         businessId: conv.businessId,
         agentType: conv.agentType,

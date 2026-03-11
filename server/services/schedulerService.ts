@@ -1100,6 +1100,15 @@ export async function startAllSchedulers(): Promise<void> {
     // Start daily digest email scheduler (morning summary for business owners)
     startDailyDigestScheduler();
 
+    // Start customer insights nightly recalculation
+    startCustomerInsightsScheduler();
+
+    // Start engagement lock cleanup (releases expired locks)
+    startEngagementLockCleanupScheduler();
+
+    // Start morning brief (AI-powered daily summary for business owners)
+    startMorningBriefScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -1134,6 +1143,69 @@ export function startDailyDigestScheduler(): void {
   console.log('Daily digest scheduler started (checks hourly, sends at 7 AM)');
 }
 
+// ── Customer Insights Nightly Recalculation (every 24h) ──
+
+export function startCustomerInsightsScheduler(): void {
+  const jobKey = 'customer-insights';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 24 * 60 * 60 * 1000; // 24 hours
+  const intervalId = setInterval(async () => {
+    try {
+      console.log(`[CustomerInsights] Running nightly batch at ${new Date().toISOString()}`);
+      const { runNightlyInsightsRecalculation } = await import('./customerInsightsService');
+      await runNightlyInsightsRecalculation();
+    } catch (error) {
+      console.error('[CustomerInsights] Scheduler error:', error);
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log('Customer insights scheduler started (every 24 hours)');
+}
+
+// ── Engagement Lock Cleanup (every 15 minutes) ──
+
+export function startEngagementLockCleanupScheduler(): void {
+  const jobKey = 'engagement-lock-cleanup';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 15 * 60 * 1000; // 15 minutes
+  const intervalId = setInterval(async () => {
+    try {
+      const released = await storage.releaseExpiredEngagementLocks();
+      if (released > 0) {
+        console.log(`[EngagementLock] Released ${released} expired locks`);
+      }
+    } catch (error) {
+      console.error('[EngagementLock] Cleanup error:', error);
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log('Engagement lock cleanup scheduler started (every 15 minutes)');
+}
+
+// ── Morning Brief (checks hourly, sends at 7am per business timezone) ──
+
+export function startMorningBriefScheduler(): void {
+  const jobKey = 'morning-brief';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 60 * 60 * 1000; // Check every hour
+  const intervalId = setInterval(async () => {
+    try {
+      const { sendMorningBriefs } = await import('./morningBriefService');
+      await sendMorningBriefs();
+    } catch (error) {
+      console.error('[MorningBrief] Scheduler error:', error);
+    }
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log('Morning brief scheduler started (checks hourly)');
+}
+
 export function stopAllSchedulers(): void {
   scheduledJobs.forEach((intervalId, jobKey) => {
     clearInterval(intervalId);
@@ -1162,6 +1234,9 @@ export default {
   startEmailDripScheduler,
   startPlatformAgentsScheduler,
   startDailyDigestScheduler,
+  startCustomerInsightsScheduler,
+  startEngagementLockCleanupScheduler,
+  startMorningBriefScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

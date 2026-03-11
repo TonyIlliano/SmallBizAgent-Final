@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, date, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, date, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -358,6 +358,117 @@ export const callLogs = pgTable("call_logs", {
   phoneNumberUsed: text("phone_number_used"), // Denormalized: the actual phone number string
   callTime: timestamp("call_time").defaultNow(),
 });
+
+// Call Intelligence - AI-extracted structured data from call transcripts
+export const callIntelligence = pgTable("call_intelligence", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  callLogId: integer("call_log_id").notNull(),
+  customerId: integer("customer_id"),
+
+  // Extracted intelligence
+  intent: text("intent"), // booking, question, complaint, pricing_inquiry, emergency, general_inquiry, cancellation, follow_up, order
+  outcome: text("outcome"), // booked, not_booked, voicemail, transferred, complaint_filed, information_provided, order_placed
+  sentiment: integer("sentiment"), // 1-5 scale (1=very negative, 5=very positive)
+  summary: text("summary"), // 1-2 sentence plain English summary
+  keyFacts: jsonb("key_facts"), // { servicesMentioned, objections, preferredTimes, staffPreference, priceDiscussed }
+  followUpNeeded: boolean("follow_up_needed").default(false),
+  followUpType: text("follow_up_type"), // callback, send_info, send_quote, reschedule, none
+  followUpNotes: text("follow_up_notes"),
+  isNewCaller: boolean("is_new_caller").default(false),
+
+  // Processing metadata
+  processingStatus: text("processing_status").default("pending"), // pending, processing, completed, failed
+  processingError: text("processing_error"),
+  modelUsed: text("model_used"),
+  tokenCount: integer("token_count"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  callLogUnique: unique("call_intelligence_call_log_unique").on(table.callLogId),
+  businessCreatedIdx: index("call_intelligence_business_created_idx").on(table.businessId, table.createdAt),
+  customerIdx: index("call_intelligence_customer_idx").on(table.customerId, table.businessId),
+}));
+
+// Customer Insights - aggregated intelligence across all interactions per customer
+export const customerInsights = pgTable("customer_insights", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+
+  // Financial metrics
+  lifetimeValue: real("lifetime_value").default(0),
+  totalInvoices: integer("total_invoices").default(0),
+  averageInvoiceAmount: real("average_invoice_amount").default(0),
+
+  // Visit metrics
+  totalVisits: integer("total_visits").default(0),
+  averageVisitFrequencyDays: real("average_visit_frequency_days"),
+  lastVisitDate: timestamp("last_visit_date"),
+  daysSinceLastVisit: integer("days_since_last_visit"),
+
+  // Preferences (aggregated from call intelligence)
+  preferredServices: jsonb("preferred_services"), // string[]
+  preferredStaff: text("preferred_staff"),
+  preferredDayOfWeek: text("preferred_day_of_week"), // monday, tuesday, etc.
+  preferredTimeOfDay: text("preferred_time_of_day"), // morning, afternoon, evening
+
+  // Communication patterns
+  communicationPreference: text("communication_preference"), // sms, phone, email
+  smsResponseRate: real("sms_response_rate"), // 0-1
+  averageSmsResponseTimeMinutes: real("average_sms_response_time_minutes"),
+  totalSmsSent: integer("total_sms_sent").default(0),
+  totalSmsReplied: integer("total_sms_replied").default(0),
+
+  // Call intelligence aggregates
+  totalCalls: integer("total_calls").default(0),
+  averageSentiment: real("average_sentiment"), // 1.0-5.0
+  sentimentTrend: text("sentiment_trend"), // improving, declining, stable
+  lastCallSentiment: integer("last_call_sentiment"),
+
+  // Reliability metrics
+  noShowCount: integer("no_show_count").default(0),
+  cancellationCount: integer("cancellation_count").default(0),
+  completedCount: integer("completed_count").default(0),
+  reliabilityScore: real("reliability_score"), // 0-1
+
+  // Risk assessment
+  riskLevel: text("risk_level").default("low"), // low, medium, high
+  riskFactors: jsonb("risk_factors"), // string[]
+  churnProbability: real("churn_probability"), // 0-1
+
+  // Auto-generated tags
+  autoTags: jsonb("auto_tags"), // string[]
+
+  // Accumulated facts from call intelligence
+  accumulatedFacts: jsonb("accumulated_facts"), // { objections, specialRequests, notes }
+
+  // Metadata
+  lastCalculatedAt: timestamp("last_calculated_at"),
+  calculationVersion: integer("calculation_version").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  customerBusinessUnique: unique("customer_insights_customer_business_unique").on(table.customerId, table.businessId),
+  riskLevelIdx: index("customer_insights_risk_level_idx").on(table.businessId, table.riskLevel),
+}));
+
+// Customer Engagement Lock - prevents multiple agents from messaging the same customer simultaneously
+export const customerEngagementLock = pgTable("customer_engagement_lock", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  customerPhone: text("customer_phone").notNull(),
+  lockedByAgent: text("locked_by_agent").notNull(),
+  lockedAt: timestamp("locked_at").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  conversationId: integer("conversation_id"),
+  status: text("status").default("active"), // active, released, expired
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  activeLockIdx: index("engagement_lock_active_idx").on(table.customerId, table.businessId, table.status),
+}));
 
 // Calendar Integrations
 export const calendarIntegrations = pgTable("calendar_integrations", {
@@ -1046,6 +1157,9 @@ export const insertBusinessGroupSchema = createInsertSchema(businessGroups).omit
 export const insertBusinessPhoneNumberSchema = createInsertSchema(businessPhoneNumbers).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertUserBusinessAccessSchema = createInsertSchema(userBusinessAccess).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
+export const insertCallIntelligenceSchema = createInsertSchema(callIntelligence).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCustomerInsightsSchema = createInsertSchema(customerInsights).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCustomerEngagementLockSchema = createInsertSchema(customerEngagementLock).omit({ id: true, createdAt: true });
 
 // SMS Suppression List - global TCPA compliance suppression (checked before every SMS send)
 export const smsSuppressionList = pgTable("sms_suppression_list", {
@@ -1231,6 +1345,15 @@ export type InsertSocialMediaPost = z.infer<typeof insertSocialMediaPostSchema>;
 
 export type SmsSuppression = typeof smsSuppressionList.$inferSelect;
 export type InsertSmsSuppression = z.infer<typeof insertSmsSuppressionSchema>;
+
+export type CallIntelligence = typeof callIntelligence.$inferSelect;
+export type InsertCallIntelligence = z.infer<typeof insertCallIntelligenceSchema>;
+
+export type CustomerInsightsRow = typeof customerInsights.$inferSelect;
+export type InsertCustomerInsights = z.infer<typeof insertCustomerInsightsSchema>;
+
+export type CustomerEngagementLock = typeof customerEngagementLock.$inferSelect;
+export type InsertCustomerEngagementLock = z.infer<typeof insertCustomerEngagementLockSchema>;
 
 // Blog Posts - AI-generated blog content for platform SEO
 export const blogPosts = pgTable("blog_posts", {

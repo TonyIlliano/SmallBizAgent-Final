@@ -44,6 +44,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | **SMS/Voice** | Twilio |
 | **AI Voice** | Vapi.ai |
 | **AI/LLM** | OpenAI (gpt-4o-mini) |
+| **AI Memory** | Mem0 (persistent conversational memory) |
+| **AI Orchestration** | LangGraph.js (state machine agent graph with PostgreSQL checkpointing) |
 | **Payments** | Stripe (Checkout, Connect, Billing Portal) |
 | **Calendar** | Google Calendar, Microsoft Graph, Apple iCal |
 | **POS** | Clover, Square, Heartland/Genius |
@@ -159,7 +161,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ---
 
-## Database Schema (57 Tables)
+## Database Schema (60 Tables)
 
 ### Core
 | Table | Purpose | Key Columns |
@@ -216,6 +218,13 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 |-------|---------|-------------|
 | `agent_settings` | Per-business agent config | businessId, agentType, enabled, config (jsonb) |
 | `agent_activity_log` | Agent execution history | businessId, agentType, action, details (jsonb) |
+
+### Intelligence & Orchestration
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `call_intelligence` | Post-call AI analysis | businessId, callLogId (unique), customerId, intent, outcome, sentiment (1-5), summary, keyFacts (jsonb), followUpNeeded, followUpType, isNewCaller, processingStatus, modelUsed, tokenCount |
+| `customer_insights` | Aggregated per-customer profile | customerId+businessId (unique), lifetimeValue, totalVisits, avgVisitFrequencyDays, preferredServices (jsonb), preferredStaff, sentimentTrend, riskLevel, riskFactors (jsonb), churnProbability, autoTags (jsonb), reliabilityScore |
+| `customer_engagement_lock` | Prevents agent message conflicts | customerId, businessId, lockedByAgent, lockedAt, expiresAt, status |
 
 ### Social Media & Marketing
 | Table | Purpose | Key Columns |
@@ -312,6 +321,12 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `webhookService` | Webhook delivery with retry logic |
 | `businessProvisioningService` | New business setup (Twilio + Vapi provisioning) |
 | `inventoryService` | POS inventory sync + low-stock alerts |
+| `callIntelligenceService` | Post-call GPT-4o-mini transcript analysis (intent, sentiment, key facts, follow-up needs). Fire-and-forget from `handleEndOfCall()`. ~$0.01/call |
+| `customerInsightsService` | Aggregates per-customer profile (LTV, preferences, risk, sentiment). Event-driven after intelligence extraction + nightly batch recalculation |
+| `orchestrationService` | Central event dispatcher. Routes `appointment.completed`, `appointment.no_show`, `job.completed`, `intelligence.ready`, `conversation.resolved` to appropriate agents with engagement lock checks |
+| `morningBriefService` | Daily 7am email digest per business timezone. Covers calls, bookings, revenue, agent activity, attention items. Skipped if zero activity |
+| `mem0Service` | Persistent AI memory layer via Mem0 cloud. Stores conversational context from calls/events per customer. Enriches recognizeCaller() with memory search. Multi-tenant scoped: `b{businessId}_c{customerId}`. Graceful degradation if API key missing |
+| `agentGraph` | LangGraph.js state machine orchestration. Replaces switch/case dispatcher with proper state graph: check_lock → load_context → route → action → log_result. PostgreSQL checkpointing. Falls back to switch/case if LangGraph unavailable |
 
 ---
 
@@ -347,6 +362,12 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `embedRoutes` | `/api/embed/*` | Embedded booking widget |
 
 **Note:** Many routes are also defined inline in `server/routes.ts` (~6000 lines), especially auth, call logs, invoices, jobs, Twilio/Vapi webhooks.
+
+**Intelligence & Insights API endpoints (inline in routes.ts):**
+- `GET /api/call-intelligence/:callLogId` — Intelligence for a specific call
+- `GET /api/call-intelligence/business/summary` — Aggregated call intelligence stats
+- `GET /api/customers/:id/insights` — Customer insights profile
+- `GET /api/customers/insights/high-risk` — High-risk customers for the business
 
 ---
 
@@ -399,6 +420,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `ENCRYPTION_KEY` | 64-char hex key for DB-stored credentials |
 | `SENTRY_DSN` | Error tracking |
 | `OPENWEATHER_API_KEY` | Weather-aware reminders |
+| `MEM0_API_KEY` | Mem0 cloud persistent memory (format: `m0-...`). Optional — system degrades gracefully without it |
 
 ---
 
@@ -470,6 +492,9 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
   - Daily digest emails
   - Data retention purge
   - Platform agents
+  - **Customer insights nightly recalculation** (24h interval)
+  - **Engagement lock cleanup** (15 min interval)
+  - **Morning brief** (hourly check, sends at 7am per business timezone)
 
 ---
 
@@ -493,6 +518,72 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - BRAND_URL constant for consistent video branding
 - Social media page: fixed response shape bugs, added video status polling
 
+### Intelligence Layer (uncommitted — Sprint 1-3):
+**New files created:**
+- `server/services/callIntelligenceService.ts` — Post-call GPT-4o-mini transcript analysis
+- `server/services/customerInsightsService.ts` — Per-customer aggregated insights
+- `server/services/orchestrationService.ts` — Event-driven agent coordination
+- `server/services/morningBriefService.ts` — Daily owner email digest
+
+**Schema changes (3 new tables):**
+- `call_intelligence` — Stores extracted intent, sentiment, summary, keyFacts per call
+- `customer_insights` — Aggregated customer profile (LTV, preferences, risk, sentiment)
+- `customer_engagement_lock` — Prevents multiple agents messaging same customer
+
+**Modified files:**
+- `shared/schema.ts` — 3 new tables + insert schemas + type exports
+- `server/storage.ts` — ~16 new methods (CRUD for intelligence, insights, locks + getBusinessOwner)
+- `server/services/vapiWebhookHandler.ts` — handleEndOfCall() fires intelligence extraction; recognizeCaller() returns intelligence + insights
+- `server/routes.ts` — 4 new API endpoints; 3 direct agent triggers replaced with orchestrator dispatches
+- `server/services/schedulerService.ts` — 3 new schedulers (nightly insights, lock cleanup, morning brief)
+- `server/services/noShowAgentService.ts` — Conversation resolution dispatches to orchestrator
+- `server/services/rebookingAgentService.ts` — Conversation resolution dispatches to orchestrator
+
+**Key architecture:**
+- Orchestrator events: `intelligence.ready`, `appointment.completed`, `appointment.no_show`, `job.completed`, `conversation.resolved`
+- Engagement locks auto-expire, cleaned every 15 minutes
+- Morning brief sent at 7am per business timezone, skipped if zero activity
+- Risk scoring: inactive 90d (+2), declining sentiment (+2), last sentiment ≤2 (+1), 2+ no-shows (+1), 3+ cancellations (+1)
+- Auto-tags: High-Value, Frequent, New, At-Risk, No-Show-History, Happy, Reliable
+- **Requires `npm run db:push` to create new tables**
+
+### Mem0 Integration (uncommitted — Sprint 4):
+**New files created:**
+- `server/services/mem0Service.ts` — Persistent AI memory layer via Mem0 cloud
+
+**Modified files:**
+- `server/services/callIntelligenceService.ts` — Writes call summary/intent/sentiment to Mem0 after GPT extraction
+- `server/services/vapiWebhookHandler.ts` — recognizeCaller() searches Mem0 for conversational context (2s timeout, parallel with intelligence+insights)
+- `server/services/orchestrationService.ts` — Writes event memories (appointment completed/cancelled, no-show, conversation resolved)
+- `server/index.ts` — Initializes Mem0 client on startup
+- `package.json` — Added `mem0ai` dependency
+
+**Key architecture:**
+- Multi-tenant scoping: Mem0 user_id = `b{businessId}_c{customerId}` — never cross-contaminates
+- Fire-and-forget writes: Mem0 adds never block the call webhook response or orchestrator
+- 2-second timeout on reads: Mem0 search in recognizeCaller() has hard timeout via Promise.race
+- Graceful degradation: If MEM0_API_KEY not set, all functions return safely (empty string/array)
+- Parallel fetch: recognizeCaller() uses Promise.allSettled for intelligence + insights + Mem0 context
+- New env var: `MEM0_API_KEY` (optional, format: `m0-...`)
+
+### LangGraph.js Integration (uncommitted — Sprint 5):
+**New files created:**
+- `server/services/agentGraph.ts` — LangGraph.js state machine with 10 nodes, conditional routing, PostgreSQL checkpointing
+
+**Modified files:**
+- `server/services/orchestrationService.ts` — dispatchEvent() tries LangGraph first, falls back to switch/case on failure
+- `server/index.ts` — Initializes LangGraph agent graph on startup (async, non-blocking)
+- `package.json` — Added `@langchain/langgraph`, `@langchain/langgraph-checkpoint-postgres`, `@langchain/core`, `@langchain/openai`
+
+**Key architecture:**
+- State graph flow: START → check_lock → load_context → route → {action} → log_result → END
+- 10 nodes: check_lock, load_context, acquire_lock, follow_up, no_show_recovery, recalculate_insights, release_lock, handle_intelligence, log_result, skip_locked
+- Conditional routing at 3 decision points: after lock check, after context load, after lock acquisition
+- PostgreSQL checkpointing via `@langchain/langgraph-checkpoint-postgres` (PostgresSaver)
+- Falls back gracefully to existing switch/case handlers if LangGraph fails or is not initialized
+- Each invocation gets a unique thread_id: `evt_{event}_{businessId}_{customerId}_{timestamp}`
+- Mem0 memory writes integrated directly in action nodes (follow_up, no_show_recovery, recalculate_insights, release_lock)
+
 ---
 
 ## File Quick Reference
@@ -512,6 +603,12 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Video templates | `server/services/videoGenerationService.ts` |
 | Vapi AI receptionist | `server/services/vapiService.ts` |
 | Subscription billing | `server/services/subscriptionService.ts` |
+| Post-call intelligence | `server/services/callIntelligenceService.ts` |
+| Customer insights/memory | `server/services/customerInsightsService.ts` |
+| Agent orchestration | `server/services/orchestrationService.ts` |
+| Morning brief email | `server/services/morningBriefService.ts` |
+| Mem0 persistent memory | `server/services/mem0Service.ts` |
+| LangGraph agent graph | `server/services/agentGraph.ts` |
 | Env vars reference | `.env.example` |
 | Package scripts | `package.json` |
 
@@ -563,4 +660,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 2026. 228 tests passing. TypeScript strict mode.*
+*Last updated: March 2026. 228 tests passing. TypeScript strict mode. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5) added.*

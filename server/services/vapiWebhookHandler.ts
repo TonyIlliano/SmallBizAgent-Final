@@ -3142,6 +3142,40 @@ async function recognizeCaller(
     context = 'returning_customer';
   }
 
+  // Fetch call intelligence, customer insights, and Mem0 conversational context in parallel
+  // All non-blocking — failures don't affect recognition
+  let intelligence: any = null;
+  let insights: any = null;
+  let conversationalContext: string = '';
+
+  const [intelligenceResult, insightsResult, mem0Result] = await Promise.allSettled([
+    import('./callIntelligenceService').then(({ getLatestCustomerIntelligence }) =>
+      getLatestCustomerIntelligence(customer.id, businessId)
+    ),
+    storage.getCustomerInsights(customer.id, businessId),
+    import('./mem0Service').then(({ searchMemory }) =>
+      searchMemory(businessId, customer.id, 'customer preferences history concerns', 5, 2000)
+    ),
+  ]);
+
+  if (intelligenceResult.status === 'fulfilled') {
+    intelligence = intelligenceResult.value;
+  } else {
+    console.error('[recognizeCaller] Error fetching call intelligence:', intelligenceResult.reason);
+  }
+
+  if (insightsResult.status === 'fulfilled') {
+    insights = insightsResult.value;
+  } else {
+    console.error('[recognizeCaller] Error fetching customer insights:', insightsResult.reason);
+  }
+
+  if (mem0Result.status === 'fulfilled') {
+    conversationalContext = mem0Result.value || '';
+  } else {
+    console.error('[recognizeCaller] Error fetching Mem0 context:', mem0Result.reason);
+  }
+
   return {
     result: {
       recognized: true,
@@ -3152,7 +3186,30 @@ async function recognizeCaller(
       recentAppointments: recent.length,
       context,
       greeting,
-      message: `${greeting} How can I help you today?`
+      message: `${greeting} How can I help you today?`,
+      // Call intelligence (from recent calls)
+      ...(intelligence ? {
+        lastCallSummary: intelligence.lastCallSummary,
+        lastCallSentiment: intelligence.lastCallSentiment,
+        preferredServices: intelligence.preferredServices,
+        staffPreference: intelligence.staffPreference,
+        pendingFollowUp: intelligence.pendingFollowUp,
+        totalCallsAnalyzed: intelligence.totalCalls,
+      } : {}),
+      // Customer insights (aggregated profile)
+      ...(insights ? {
+        lifetimeValue: insights.lifetimeValue,
+        totalVisits: insights.totalVisits,
+        riskLevel: insights.riskLevel,
+        averageSentiment: insights.averageSentiment,
+        autoTags: insights.autoTags,
+        daysSinceLastVisit: insights.daysSinceLastVisit,
+        reliabilityScore: insights.reliabilityScore,
+        preferredDayOfWeek: insights.preferredDayOfWeek,
+        preferredTimeOfDay: insights.preferredTimeOfDay,
+      } : {}),
+      // Mem0 conversational context (rich customer memory from past interactions)
+      ...(conversationalContext ? { conversationalContext } : {}),
     }
   };
 }
@@ -3688,6 +3745,12 @@ async function handleEndOfCall(
         analyzeTranscriptForUnansweredQuestions(businessId, callLogId!, message.transcript, callerPhone || undefined)
           .catch(err => console.error('Error analyzing transcript for unanswered questions:', err));
       }).catch(err => console.error('Error importing unanswered question service:', err));
+
+      // Extract structured intelligence from transcript (fire-and-forget — doesn't delay webhook response)
+      import('./callIntelligenceService').then(({ analyzeCallIntelligence }) => {
+        analyzeCallIntelligence(businessId, callLogId!, message.transcript, callerPhone || undefined)
+          .catch(err => console.error('Error analyzing call intelligence:', err));
+      }).catch(err => console.error('Error importing call intelligence service:', err));
     }
 
     // Missed call text-back: If the call was very short or ended abnormally, send an SMS

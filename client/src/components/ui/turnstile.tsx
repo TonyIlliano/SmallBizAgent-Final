@@ -65,15 +65,25 @@ export function Turnstile({ onVerify, onExpire, siteKey }: TurnstileProps) {
         widgetIdRef.current = null;
       }
 
-      widgetIdRef.current = window.turnstile.render(containerRef.current, {
-        sitekey: resolvedKey,
-        callback: (token: string) => onVerifyRef.current(token),
-        'expired-callback': () => onExpireRef.current?.(),
-        theme: 'dark',
-        size: 'flexible',
-        retry: 'auto',
-        'retry-interval': 5000,
-      });
+      try {
+        widgetIdRef.current = window.turnstile.render(containerRef.current, {
+          sitekey: resolvedKey,
+          callback: (token: string) => onVerifyRef.current(token),
+          'expired-callback': () => onExpireRef.current?.(),
+          'error-callback': (errorCode: string) => {
+            console.warn(`[Turnstile] Widget error: ${errorCode}`);
+            // Don't block the user — allow form submission without CAPTCHA
+            // Backend will skip verification if no token is provided
+            onExpireRef.current?.();
+          },
+          theme: 'dark',
+          size: 'flexible',
+          retry: 'auto',
+          'retry-interval': 5000,
+        });
+      } catch (err) {
+        console.warn('[Turnstile] Failed to render widget:', err);
+      }
     };
 
     if (window.turnstile) {

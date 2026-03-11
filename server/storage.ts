@@ -38,7 +38,10 @@ import {
   RestaurantReservation, InsertRestaurantReservation, restaurantReservations,
   BusinessPhoneNumber, InsertBusinessPhoneNumber, businessPhoneNumbers,
   BusinessGroup, InsertBusinessGroup, businessGroups,
-  UserBusinessAccess, InsertUserBusinessAccess, userBusinessAccess
+  UserBusinessAccess, InsertUserBusinessAccess, userBusinessAccess,
+  CallIntelligence, InsertCallIntelligence, callIntelligence,
+  CustomerInsightsRow, InsertCustomerInsights, customerInsights,
+  CustomerEngagementLock, InsertCustomerEngagementLock, customerEngagementLock
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -80,6 +83,7 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getBusinessOwner(businessId: number): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, user: Partial<User>): Promise<User>;
   updateUserLastLogin(id: number): Promise<User>;
@@ -206,6 +210,35 @@ export interface IStorage {
   getCallLog(id: number): Promise<CallLog | undefined>;
   createCallLog(log: InsertCallLog): Promise<CallLog>;
   updateCallLog(id: number, log: Partial<CallLog>): Promise<CallLog>;
+
+  // Call Intelligence
+  getCallIntelligence(callLogId: number): Promise<CallIntelligence | undefined>;
+  getCallIntelligenceByCustomer(customerId: number, businessId: number, limit?: number): Promise<CallIntelligence[]>;
+  getCallIntelligenceByBusiness(businessId: number, params?: {
+    startDate?: Date;
+    endDate?: Date;
+    intent?: string;
+    followUpNeeded?: boolean;
+    limit?: number;
+  }): Promise<CallIntelligence[]>;
+  createCallIntelligence(entry: InsertCallIntelligence): Promise<CallIntelligence>;
+  updateCallIntelligence(id: number, data: Partial<CallIntelligence>): Promise<CallIntelligence>;
+
+  // Customer Insights
+  getCustomerInsights(customerId: number, businessId: number): Promise<CustomerInsightsRow | undefined>;
+  getCustomerInsightsByBusiness(businessId: number, params?: {
+    riskLevel?: string;
+    minLifetimeValue?: number;
+    limit?: number;
+  }): Promise<CustomerInsightsRow[]>;
+  upsertCustomerInsights(customerId: number, businessId: number, data: Partial<CustomerInsightsRow>): Promise<CustomerInsightsRow>;
+  getHighRiskCustomers(businessId: number): Promise<CustomerInsightsRow[]>;
+
+  // Customer Engagement Lock
+  acquireEngagementLock(businessId: number, customerId: number, customerPhone: string, agentType: string, durationMinutes: number): Promise<{ acquired: boolean; existingLock?: CustomerEngagementLock }>;
+  releaseEngagementLock(customerId: number, businessId: number): Promise<void>;
+  getEngagementLock(customerId: number, businessId: number): Promise<CustomerEngagementLock | undefined>;
+  releaseExpiredEngagementLocks(): Promise<number>;
 
   // Quotes
   getAllQuotes(businessId: number, filters?: {
@@ -450,6 +483,13 @@ export class DatabaseStorage implements IStorage {
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(ilike(users.email, email));
+    return user ? this.decryptUserFields(user) : undefined;
+  }
+
+  async getBusinessOwner(businessId: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users)
+      .where(and(eq(users.businessId, businessId), eq(users.role, 'user')))
+      .limit(1);
     return user ? this.decryptUserFields(user) : undefined;
   }
 
@@ -1213,6 +1253,176 @@ export class DatabaseStorage implements IStorage {
       .where(eq(callLogs.id, id))
       .returning();
     return updatedLog;
+  }
+
+  // Call Intelligence
+  async getCallIntelligence(callLogId: number): Promise<CallIntelligence | undefined> {
+    const [result] = await db.select().from(callIntelligence)
+      .where(eq(callIntelligence.callLogId, callLogId));
+    return result;
+  }
+
+  async getCallIntelligenceByCustomer(customerId: number, businessId: number, limit = 10): Promise<CallIntelligence[]> {
+    return db.select().from(callIntelligence)
+      .where(and(
+        eq(callIntelligence.customerId, customerId),
+        eq(callIntelligence.businessId, businessId)
+      ))
+      .orderBy(desc(callIntelligence.createdAt))
+      .limit(limit);
+  }
+
+  async getCallIntelligenceByBusiness(businessId: number, params?: {
+    startDate?: Date; endDate?: Date; intent?: string;
+    followUpNeeded?: boolean; limit?: number;
+  }): Promise<CallIntelligence[]> {
+    const conditions = [eq(callIntelligence.businessId, businessId)];
+    if (params?.startDate) conditions.push(gte(callIntelligence.createdAt, params.startDate));
+    if (params?.endDate) conditions.push(lte(callIntelligence.createdAt, params.endDate));
+    if (params?.intent) conditions.push(eq(callIntelligence.intent, params.intent));
+    if (params?.followUpNeeded !== undefined) conditions.push(eq(callIntelligence.followUpNeeded, params.followUpNeeded));
+
+    return db.select().from(callIntelligence)
+      .where(and(...conditions))
+      .orderBy(desc(callIntelligence.createdAt))
+      .limit(params?.limit ?? 100);
+  }
+
+  async createCallIntelligence(entry: InsertCallIntelligence): Promise<CallIntelligence> {
+    const [result] = await db.insert(callIntelligence).values(entry).returning();
+    return result;
+  }
+
+  async updateCallIntelligence(id: number, data: Partial<CallIntelligence>): Promise<CallIntelligence> {
+    const [result] = await db.update(callIntelligence)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(callIntelligence.id, id))
+      .returning();
+    return result;
+  }
+
+  // Customer Insights
+  async getCustomerInsights(customerId: number, businessId: number): Promise<CustomerInsightsRow | undefined> {
+    const [result] = await db.select().from(customerInsights)
+      .where(and(
+        eq(customerInsights.customerId, customerId),
+        eq(customerInsights.businessId, businessId)
+      ));
+    return result;
+  }
+
+  async getCustomerInsightsByBusiness(businessId: number, params?: {
+    riskLevel?: string; minLifetimeValue?: number; limit?: number;
+  }): Promise<CustomerInsightsRow[]> {
+    const conditions: any[] = [eq(customerInsights.businessId, businessId)];
+    if (params?.riskLevel) conditions.push(eq(customerInsights.riskLevel, params.riskLevel));
+    if (params?.minLifetimeValue) conditions.push(gte(customerInsights.lifetimeValue, params.minLifetimeValue));
+
+    return db.select().from(customerInsights)
+      .where(and(...conditions))
+      .orderBy(desc(customerInsights.lifetimeValue))
+      .limit(params?.limit ?? 100);
+  }
+
+  async upsertCustomerInsights(customerId: number, businessId: number, data: Partial<CustomerInsightsRow>): Promise<CustomerInsightsRow> {
+    // Use a transaction to prevent race conditions on concurrent inserts
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(customerInsights)
+        .where(and(
+          eq(customerInsights.customerId, customerId),
+          eq(customerInsights.businessId, businessId),
+        ));
+      if (existing) {
+        const [result] = await tx.update(customerInsights)
+          .set({ ...data, updatedAt: new Date() })
+          .where(eq(customerInsights.id, existing.id))
+          .returning();
+        return result;
+      }
+      const [result] = await tx.insert(customerInsights)
+        .values({ customerId, businessId, ...data } as InsertCustomerInsights)
+        .returning();
+      return result;
+    });
+  }
+
+  async getHighRiskCustomers(businessId: number): Promise<CustomerInsightsRow[]> {
+    return db.select().from(customerInsights)
+      .where(and(
+        eq(customerInsights.businessId, businessId),
+        eq(customerInsights.riskLevel, 'high')
+      ))
+      .orderBy(desc(customerInsights.churnProbability))
+      .limit(50);
+  }
+
+  // Customer Engagement Lock
+  async acquireEngagementLock(
+    businessId: number, customerId: number, customerPhone: string,
+    agentType: string, durationMinutes: number
+  ): Promise<{ acquired: boolean; existingLock?: CustomerEngagementLock }> {
+    // Use a transaction to prevent race conditions (TOCTOU) between check and insert
+    return await db.transaction(async (tx) => {
+      // Check for active, non-expired lock
+      const [existing] = await tx.select().from(customerEngagementLock)
+        .where(and(
+          eq(customerEngagementLock.customerId, customerId),
+          eq(customerEngagementLock.businessId, businessId),
+          eq(customerEngagementLock.status, 'active'),
+          gte(customerEngagementLock.expiresAt, new Date()),
+        ));
+
+      if (existing) {
+        return { acquired: false, existingLock: existing };
+      }
+
+      // Expire any stale locks for this customer
+      await tx.update(customerEngagementLock)
+        .set({ status: 'expired' })
+        .where(and(
+          eq(customerEngagementLock.customerId, customerId),
+          eq(customerEngagementLock.businessId, businessId),
+          eq(customerEngagementLock.status, 'active'),
+          lte(customerEngagementLock.expiresAt, new Date()),
+        ));
+
+      const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000);
+      await tx.insert(customerEngagementLock)
+        .values({ businessId, customerId, customerPhone: customerPhone || '', lockedByAgent: agentType, lockedAt: new Date(), expiresAt, status: 'active' });
+      return { acquired: true };
+    });
+  }
+
+  async releaseEngagementLock(customerId: number, businessId: number): Promise<void> {
+    await db.update(customerEngagementLock)
+      .set({ status: 'released' })
+      .where(and(
+        eq(customerEngagementLock.customerId, customerId),
+        eq(customerEngagementLock.businessId, businessId),
+        eq(customerEngagementLock.status, 'active'),
+      ));
+  }
+
+  async getEngagementLock(customerId: number, businessId: number): Promise<CustomerEngagementLock | undefined> {
+    const [result] = await db.select().from(customerEngagementLock)
+      .where(and(
+        eq(customerEngagementLock.customerId, customerId),
+        eq(customerEngagementLock.businessId, businessId),
+        eq(customerEngagementLock.status, 'active'),
+        gte(customerEngagementLock.expiresAt, new Date()),
+      ));
+    return result;
+  }
+
+  async releaseExpiredEngagementLocks(): Promise<number> {
+    const result = await db.update(customerEngagementLock)
+      .set({ status: 'expired' })
+      .where(and(
+        eq(customerEngagementLock.status, 'active'),
+        lte(customerEngagementLock.expiresAt, new Date()),
+      ))
+      .returning();
+    return result.length;
   }
 
   // Quotes

@@ -172,7 +172,11 @@ export async function handleRebookingReply(
   // Handle STOP requests — opt the customer out immediately (TCPA)
   if (intent === 'stop') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    // Release engagement lock via orchestrator
     if (customer?.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
       try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
     }
     return { replyMessage: `You've been unsubscribed from SMS messages. Reply START to re-subscribe. - ${business.name}` };
@@ -190,12 +194,24 @@ export async function handleRebookingReply(
     }
     // Fallback: send booking link (original behavior)
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    // Release engagement lock via orchestrator
+    if (customer?.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
+    }
     const reply = fillTemplate(config.bookingReplyTemplate, templateVars);
     return { replyMessage: reply };
   }
 
   if (intent === 'negative') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    // Release engagement lock via orchestrator
+    if (customer?.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
+    }
     const reply = fillTemplate(config.declineReplyTemplate, templateVars);
     return { replyMessage: reply };
   }

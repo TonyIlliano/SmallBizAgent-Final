@@ -297,6 +297,22 @@ app.use((req, res, next) => {
     // Seed the database with initial data
     await seed();
 
+    // Initialize Mem0 persistent memory (optional — graceful if API key not set)
+    try {
+      const { initMem0 } = await import('./services/mem0Service');
+      initMem0();
+    } catch (err) {
+      console.warn('[Mem0] Init failed (non-fatal):', err);
+    }
+
+    // Initialize LangGraph agent state machine (optional — falls back to switch/case orchestration)
+    try {
+      const { initAgentGraph } = await import('./services/agentGraph');
+      await initAgentGraph();
+    } catch (err) {
+      console.warn('[AgentGraph] Init failed (non-fatal) — orchestrator will use fallback:', err);
+    }
+
     // Health check endpoints (before auth middleware)
     app.get('/health', async (_req, res) => {
       try {

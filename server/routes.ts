@@ -1758,26 +1758,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }).catch(err => console.error('[Review] Error checking review settings:', err));
         }).catch(err => console.error('[Review] Error importing review service:', err));
 
-        // Follow-Up Agent: send thank-you + upsell SMS (fire-and-forget)
-        import('./services/followUpAgentService').then(mod => {
-          mod.triggerFollowUp('appointment', appointment.id, existing.businessId)
-            .catch(err => console.error('[FollowUpAgent] Error:', err));
-        }).catch(err => console.error('[FollowUpAgent] Import error:', err));
+        // Orchestrator: route appointment.completed to appropriate agents (follow-up, review, etc.)
+        import('./services/orchestrationService').then(mod => {
+          mod.dispatchEvent('appointment.completed', {
+            businessId: existing.businessId,
+            customerId: appointment.customerId || undefined,
+            referenceType: 'appointment',
+            referenceId: appointment.id,
+          }).catch(err => console.error('[Orchestrator] Error dispatching appointment.completed:', err));
+        }).catch(err => console.error('[Orchestrator] Import error:', err));
       }
 
-      // No-Show Agent: send reschedule SMS when staff marks appointment as no_show (fire-and-forget)
+      // Orchestrator: route appointment.no_show to no-show recovery agent (fire-and-forget)
       if (validatedData.status === 'no_show' && existing.status !== 'no_show') {
-        import('./services/noShowAgentService').then(mod => {
-          mod.triggerNoShowSms(appointment.id, existing.businessId)
-            .then(result => {
-              if (result.sent) {
-                console.log(`[NoShowAgent] Sent reschedule SMS for appointment ${appointment.id}`);
-              } else {
-                console.log(`[NoShowAgent] Skipped SMS for appointment ${appointment.id}: ${result.reason}`);
-              }
-            })
-            .catch(err => console.error('[NoShowAgent] Error:', err));
-        }).catch(err => console.error('[NoShowAgent] Import error:', err));
+        import('./services/orchestrationService').then(mod => {
+          mod.dispatchEvent('appointment.no_show', {
+            businessId: existing.businessId,
+            customerId: appointment.customerId || undefined,
+            referenceType: 'appointment',
+            referenceId: appointment.id,
+          }).catch(err => console.error('[Orchestrator] Error dispatching appointment.no_show:', err));
+        }).catch(err => console.error('[Orchestrator] Import error:', err));
+      }
+
+      // Orchestrator: route appointment.cancelled to recalculate insights (fire-and-forget)
+      if (validatedData.status === 'cancelled' && existing.status !== 'cancelled') {
+        import('./services/orchestrationService').then(mod => {
+          mod.dispatchEvent('appointment.cancelled', {
+            businessId: existing.businessId,
+            customerId: appointment.customerId || undefined,
+            referenceType: 'appointment',
+            referenceId: appointment.id,
+          }).catch(err => console.error('[Orchestrator] Error dispatching appointment.cancelled:', err));
+        }).catch(err => console.error('[Orchestrator] Import error:', err));
       }
 
       res.json(appointment);
@@ -2056,11 +2069,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }).catch(err => console.error('[Review] Error checking review settings:', err));
         }).catch(err => console.error('[Review] Error importing review service:', err));
 
-        // Follow-Up Agent: send thank-you + upsell SMS (fire-and-forget)
-        import('./services/followUpAgentService').then(mod => {
-          mod.triggerFollowUp('job', job.id, existing.businessId)
-            .catch(err => console.error('[FollowUpAgent] Error:', err));
-        }).catch(err => console.error('[FollowUpAgent] Import error:', err));
+        // Orchestrator: route job.completed to appropriate agents (follow-up, review, etc.)
+        import('./services/orchestrationService').then(mod => {
+          mod.dispatchEvent('job.completed', {
+            businessId: existing.businessId,
+            customerId: job.customerId || undefined,
+            referenceType: 'job',
+            referenceId: job.id,
+          }).catch(err => console.error('[Orchestrator] Error dispatching job.completed:', err));
+        }).catch(err => console.error('[Orchestrator] Import error:', err));
       }
 
       // Sync linked appointment when job changes
@@ -2407,6 +2424,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Fire webhook event for invoice paid (fire-and-forget)
         fireEvent(existing.businessId, 'invoice.paid', { invoice })
           .catch(err => console.error('Webhook fire error:', err));
+
+        // Orchestrator: route invoice.paid to recalculate customer insights (fire-and-forget)
+        import('./services/orchestrationService').then(mod => {
+          mod.dispatchEvent('invoice.paid', {
+            businessId: existing.businessId,
+            customerId: existing.customerId || undefined,
+          }).catch(err => console.error('[Orchestrator] Error dispatching invoice.paid:', err));
+        }).catch(err => console.error('[Orchestrator] Import error:', err));
       }
 
       res.json(invoice);
@@ -3104,6 +3129,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ errors: error.format() });
       }
       res.status(500).json({ message: "Error updating call log" });
+    }
+  });
+
+  // =================== CALL INTELLIGENCE API ===================
+
+  app.get("/api/call-intelligence/:callLogId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const callLogId = parseInt(req.params.callLogId);
+      const intelligence = await storage.getCallIntelligence(callLogId);
+      if (!intelligence) {
+        return res.status(404).json({ error: 'Intelligence not found for this call' });
+      }
+      const businessId = getBusinessId(req);
+      if (intelligence.businessId !== businessId && req.user!.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      res.json(intelligence);
+    } catch (error) {
+      console.error('Error fetching call intelligence:', error);
+      res.status(500).json({ error: 'Failed to fetch call intelligence' });
+    }
+  });
+
+  app.get("/api/call-intelligence/business/summary", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { startDate, endDate } = req.query;
+
+      const intelligence = await storage.getCallIntelligenceByBusiness(businessId, {
+        startDate: startDate ? new Date(startDate as string) : undefined,
+        endDate: endDate ? new Date(endDate as string) : undefined,
+        limit: 100,
+      });
+
+      const totalCalls = intelligence.length;
+      const avgSentiment = intelligence.reduce((sum, r) => sum + (r.sentiment || 3), 0) / (totalCalls || 1);
+      const intentBreakdown = intelligence.reduce((acc, r) => {
+        if (r.intent) acc[r.intent] = (acc[r.intent] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      const followUpsNeeded = intelligence.filter(r => r.followUpNeeded).length;
+
+      res.json({
+        totalAnalyzed: totalCalls,
+        averageSentiment: Math.round(avgSentiment * 10) / 10,
+        intentBreakdown,
+        followUpsNeeded,
+        recentIntelligence: intelligence.slice(0, 20),
+      });
+    } catch (error) {
+      console.error('Error fetching intelligence summary:', error);
+      res.status(500).json({ error: 'Failed to fetch intelligence summary' });
+    }
+  });
+
+  // =================== CUSTOMER INSIGHTS API ===================
+
+  app.get("/api/customers/:id/insights", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const customerId = parseInt(req.params.id);
+      const businessId = getBusinessId(req);
+      const insights = await storage.getCustomerInsights(customerId, businessId);
+      if (!insights) {
+        return res.json({ message: 'No insights calculated yet', insights: null });
+      }
+      res.json(insights);
+    } catch (error) {
+      console.error('Error fetching customer insights:', error);
+      res.status(500).json({ error: 'Failed to fetch customer insights' });
+    }
+  });
+
+  app.get("/api/customers/insights/high-risk", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const highRisk = await storage.getHighRiskCustomers(businessId);
+      res.json(highRisk);
+    } catch (error) {
+      console.error('Error fetching high-risk customers:', error);
+      res.status(500).json({ error: 'Failed to fetch high-risk customers' });
     }
   });
 
@@ -3876,6 +3981,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 mod.notifyOwnerPaymentReceived(invoiceId, paidInvoice.businessId, paymentIntent.amount / 100)
                   .catch(err => console.error('[OwnerNotify] Payment alert error:', err));
               }).catch(err => console.error('[OwnerNotify] Import error:', err));
+
+              // Orchestrator: route invoice.paid to recalculate customer insights (fire-and-forget)
+              import('./services/orchestrationService').then(mod => {
+                mod.dispatchEvent('invoice.paid', {
+                  businessId: paidInvoice.businessId,
+                  customerId: paidInvoice.customerId || undefined,
+                }).catch(err => console.error('[Orchestrator] Error dispatching invoice.paid:', err));
+              }).catch(err => console.error('[Orchestrator] Import error:', err));
             }
           } catch (error) {
             console.error('Error updating invoice status:', error);
