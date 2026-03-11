@@ -245,7 +245,7 @@ function PostManagementSection() {
       queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
       toast({
         title: "Content generated!",
-        description: `Created ${data.result?.draftsGenerated || 0} new draft posts.`,
+        description: `Created ${data.draftsGenerated || 0} new draft posts.`,
       });
     },
     onError: (err: Error) => {
@@ -301,7 +301,7 @@ function PostsTable({ status }: { status: string }) {
   const [editContent, setEditContent] = useState("");
   const [viewingPost, setViewingPost] = useState<SocialPost | null>(null);
 
-  const { data, isLoading } = useQuery<{ posts: SocialPost[] }>({
+  const { data, isLoading } = useQuery<SocialPost[]>({
     queryKey: ["/api/social-media/posts", status],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/social-media/posts?status=${status}`);
@@ -398,7 +398,7 @@ function PostsTable({ status }: { status: string }) {
     );
   }
 
-  const posts = data?.posts || [];
+  const posts: SocialPost[] = Array.isArray(data) ? data : [];
 
   if (posts.length === 0) {
     return (
