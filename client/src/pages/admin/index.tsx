@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { Redirect } from "wouter";
+import { Link, Redirect } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PageLayout } from "@/components/layout/PageLayout";
@@ -1674,6 +1674,84 @@ interface BlogPost {
   updatedAt: string;
 }
 
+// ── Social Media Summary Card (links to /admin/social-media) ─────────
+
+interface SocialConnectionStatus { connected: boolean; connectedAt?: string }
+interface SocialPostSummary { id: number; status: string; platform: string }
+
+const SOCIAL_PLATFORMS = [
+  { id: "twitter", label: "Twitter" },
+  { id: "facebook", label: "Facebook" },
+  { id: "instagram", label: "Instagram" },
+  { id: "linkedin", label: "LinkedIn" },
+];
+
+function SocialMediaSummaryCard() {
+  const { data: socialPosts } = useQuery<SocialPostSummary[]>({
+    queryKey: ["/api/social-media/posts"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/social-media/posts");
+      return res.json();
+    },
+  });
+
+  const { data: connectionStatuses } = useQuery<Record<string, SocialConnectionStatus>>({
+    queryKey: ["/api/social-media/status"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/social-media/status");
+      return res.json();
+    },
+  });
+
+  const drafts = socialPosts?.filter(p => p.status === "draft").length || 0;
+  const approved = socialPosts?.filter(p => p.status === "approved").length || 0;
+  const published = socialPosts?.filter(p => p.status === "published").length || 0;
+  const connectedCount = connectionStatuses
+    ? Object.values(connectionStatuses).filter(s => s.connected).length
+    : 0;
+
+  return (
+    <Card className="border-dashed">
+      <CardContent className="py-4 px-5">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Share2 className="h-5 w-5 mt-0.5 text-pink-500 flex-shrink-0" />
+            <div>
+              <h3 className="font-semibold text-sm">Social Media Posts</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {drafts} drafts · {approved} approved · {published} published
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                {SOCIAL_PLATFORMS.map(p => {
+                  const connected = connectionStatuses?.[p.id]?.connected;
+                  return (
+                    <span
+                      key={p.id}
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        connected
+                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                          : "bg-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500"
+                      }`}
+                    >
+                      {p.label} {connected ? "✓" : "✗"}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <Link href="/admin/social-media">
+            <Button variant="outline" size="sm" className="flex-shrink-0">
+              <Share2 className="h-3.5 w-3.5 mr-2" />
+              Manage Social Media
+            </Button>
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ContentTab() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1801,6 +1879,9 @@ function ContentTab() {
           Generate Content
         </Button>
       </div>
+
+      {/* Social Media Quick Access */}
+      <SocialMediaSummaryCard />
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
