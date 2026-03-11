@@ -18,41 +18,39 @@
  * PostgreSQL checkpointing via @langchain/langgraph-checkpoint-postgres.
  * Falls back gracefully if LangGraph is unavailable — orchestrationService
  * keeps its existing switch/case as backup.
+ *
+ * IMPORTANT: All @langchain/* imports are DYNAMIC (inside initAgentGraph).
+ * This prevents the server from crashing if LangGraph's zod/v4 peer dependency
+ * is incompatible with the project's zod version.
  */
 
-import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
-import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
 import { storage } from '../storage';
 
 // ============================================================
-// State Schema
+// Module-level state (set by initAgentGraph)
 // ============================================================
 
-const AgentState = Annotation.Root({
-  // Input fields (set by caller)
-  event: Annotation<string>,
-  businessId: Annotation<number>,
-  customerId: Annotation<number | undefined>,
-  referenceType: Annotation<string | undefined>,
-  referenceId: Annotation<number | undefined>,
-  callLogId: Annotation<number | undefined>,
-  metadata: Annotation<Record<string, any> | undefined>,
-
-  // Context fields (set by nodes)
-  isLocked: Annotation<boolean>,
-  customerInsights: Annotation<any>,
-  agentEnabled: Annotation<Record<string, boolean>>,
-
-  // Result (set by action nodes)
-  result: Annotation<string>,
-  action: Annotation<string>,
-});
-
-type AgentStateType = typeof AgentState.State;
+let compiledGraph: any = null;
+let graphReady = false;
 
 // ============================================================
-// Graph Nodes
+// Graph Node Functions
 // ============================================================
+
+interface AgentStateType {
+  event: string;
+  businessId: number;
+  customerId?: number;
+  referenceType?: string;
+  referenceId?: number;
+  callLogId?: number;
+  metadata?: Record<string, any>;
+  isLocked: boolean;
+  customerInsights: any;
+  agentEnabled: Record<string, boolean>;
+  result: string;
+  action: string;
+}
 
 /**
  * Check if the customer has an active engagement lock.
@@ -254,7 +252,7 @@ async function releaseLock(state: AgentStateType): Promise<Partial<AgentStateTyp
  * Handle intelligence.ready — urgent follow-up for negative sentiment calls.
  */
 async function handleIntelligence(state: AgentStateType): Promise<Partial<AgentStateType>> {
-  const { businessId, callLogId, customerId, agentEnabled } = state;
+  const { callLogId } = state;
 
   if (!callLogId) {
     return { action: 'intelligence_skipped', result: 'No call log ID' };
@@ -363,18 +361,42 @@ function routeAfterLock(state: AgentStateType): string {
 }
 
 // ============================================================
-// Graph Construction
+// Graph Construction (fully dynamic imports)
 // ============================================================
-
-let compiledGraph: any = null;
-let graphReady = false;
 
 /**
  * Build and compile the agent graph.
  * Must be called once on server startup.
+ *
+ * All @langchain/* imports are dynamic to prevent crashes if the
+ * zod/v4 peer dependency is incompatible at runtime.
  */
 export async function initAgentGraph(): Promise<void> {
   try {
+    // Dynamic import — if this fails (e.g., zod/v4 missing), we catch it
+    // and the orchestrator falls back to its switch/case handlers.
+    const { Annotation, StateGraph, START, END } = await import('@langchain/langgraph');
+
+    const AgentState = Annotation.Root({
+      // Input fields (set by caller)
+      event: Annotation<string>,
+      businessId: Annotation<number>,
+      customerId: Annotation<number | undefined>,
+      referenceType: Annotation<string | undefined>,
+      referenceId: Annotation<number | undefined>,
+      callLogId: Annotation<number | undefined>,
+      metadata: Annotation<Record<string, any> | undefined>,
+
+      // Context fields (set by nodes)
+      isLocked: Annotation<boolean>,
+      customerInsights: Annotation<any>,
+      agentEnabled: Annotation<Record<string, boolean>>,
+
+      // Result (set by action nodes)
+      result: Annotation<string>,
+      action: Annotation<string>,
+    });
+
     const graph = new StateGraph(AgentState)
       // Add all nodes
       .addNode('check_lock', checkLock)
@@ -413,6 +435,7 @@ export async function initAgentGraph(): Promise<void> {
     const databaseUrl = process.env.DATABASE_URL;
     if (databaseUrl) {
       try {
+        const { PostgresSaver } = await import('@langchain/langgraph-checkpoint-postgres');
         const checkpointer = PostgresSaver.fromConnString(databaseUrl);
         await checkpointer.setup();
         compiledGraph = graph.compile({ checkpointer });
@@ -430,7 +453,7 @@ export async function initAgentGraph(): Promise<void> {
     graphReady = true;
     console.log('[AgentGraph] Agent graph initialized successfully');
   } catch (err) {
-    console.error('[AgentGraph] Failed to initialize:', err);
+    console.error('[AgentGraph] Failed to initialize (LangGraph unavailable — orchestrator will use fallback):', (err as Error).message);
     graphReady = false;
   }
 }
