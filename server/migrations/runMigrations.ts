@@ -1087,6 +1087,77 @@ async function fixExistingTables() {
     );
   `);
 
+  // === Intelligence Layer tables (Sprint 1-5) ===
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS call_intelligence (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      call_log_id INTEGER NOT NULL UNIQUE,
+      customer_id INTEGER,
+      intent TEXT,
+      outcome TEXT,
+      sentiment INTEGER,
+      summary TEXT,
+      key_facts JSONB,
+      follow_up_needed BOOLEAN DEFAULT false,
+      follow_up_type TEXT DEFAULT 'none',
+      follow_up_notes TEXT DEFAULT '',
+      is_new_caller BOOLEAN DEFAULT false,
+      processing_status TEXT DEFAULT 'pending',
+      processing_error TEXT,
+      model_used TEXT,
+      token_count INTEGER,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS customer_insights (
+      id SERIAL PRIMARY KEY,
+      customer_id INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      lifetime_value REAL DEFAULT 0,
+      total_visits INTEGER DEFAULT 0,
+      avg_visit_frequency_days REAL,
+      preferred_services JSONB,
+      preferred_staff TEXT,
+      sentiment_trend TEXT DEFAULT 'stable',
+      risk_level TEXT DEFAULT 'low',
+      risk_factors JSONB,
+      churn_probability REAL DEFAULT 0,
+      auto_tags JSONB,
+      no_show_count INTEGER DEFAULT 0,
+      cancellation_count INTEGER DEFAULT 0,
+      reliability_score REAL DEFAULT 100,
+      last_visit_date TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT customer_insights_unique UNIQUE (customer_id, business_id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS customer_engagement_lock (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      customer_phone TEXT NOT NULL,
+      locked_by_agent TEXT NOT NULL,
+      locked_at TIMESTAMP NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      conversation_id INTEGER,
+      status TEXT DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Index for fast lock lookups
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS engagement_lock_active_idx
+    ON customer_engagement_lock (customer_id, business_id, status);
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 
