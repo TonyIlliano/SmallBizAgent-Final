@@ -16,6 +16,43 @@ import { uploadUrlToS3, isS3Configured } from "../utils/s3Upload";
 const SHOTSTACK_API_KEY = process.env.SHOTSTACK_API_KEY || "";
 const SHOTSTACK_ENV = process.env.SHOTSTACK_ENV || "v1"; // "v1" for production, "stage" for sandbox
 const SHOTSTACK_BASE = `https://api.shotstack.io/${SHOTSTACK_ENV}`;
+const BRAND_URL = (process.env.APP_URL || "https://www.smallbizagent.ai").replace(/^https?:\/\/(www\.)?/, "");
+
+// Live platform stats used by templates
+interface LiveStats {
+  totalBusinesses: number;
+  totalCalls: number;
+  callsThisMonth: number;
+  activeSubscriptions: number;
+}
+
+/**
+ * Fetch real platform stats from the database for use in video templates.
+ * Falls back to safe defaults if the query fails.
+ */
+async function fetchLiveStats(): Promise<LiveStats> {
+  try {
+    const { getPlatformStats } = await import("./adminService");
+    const stats = await getPlatformStats();
+    return {
+      totalBusinesses: stats.totalBusinesses || 0,
+      totalCalls: stats.totalCalls || 0,
+      callsThisMonth: stats.callsThisMonth || 0,
+      activeSubscriptions: stats.activeSubscriptions || 0,
+    };
+  } catch (err) {
+    console.error("[VideoGen] Failed to fetch live stats, using defaults:", err);
+    return { totalBusinesses: 0, totalCalls: 0, callsThisMonth: 0, activeSubscriptions: 0 };
+  }
+}
+
+/**
+ * Format a number for display in video templates (e.g. 1500 → "1,500+").
+ */
+function formatStat(n: number, suffix: string = "+"): string {
+  if (n === 0) return "—";
+  return n.toLocaleString("en-US") + suffix;
+}
 
 type SocialPlatform = "twitter" | "facebook" | "instagram" | "linkedin";
 type TemplateType = "feature_highlight" | "customer_stats" | "before_after" | "testimonial_quote" | "platform_demo";
@@ -73,8 +110,12 @@ export async function generateMarketingVideo(
 
     console.log(`[VideoGen] Generating ${template} video for ${platform} (${industry})...`);
 
+    // Fetch real platform stats for templates
+    const liveStats = await fetchLiveStats();
+    console.log(`[VideoGen] Live stats: ${liveStats.totalBusinesses} businesses, ${liveStats.totalCalls} calls`);
+
     // Build Shotstack timeline
-    const timeline = buildTimeline(platform, industry, content, template);
+    const timeline = buildTimeline(platform, industry, content, template, liveStats);
 
     // Submit render
     const renderId = await submitRender(timeline);
@@ -227,7 +268,8 @@ function buildTimeline(
   platform: SocialPlatform,
   industry: string,
   content: string,
-  template: TemplateType
+  template: TemplateType,
+  stats: LiveStats
 ): any {
   const { width, height } = getPlatformDimensions(platform);
   const isVertical = height > width;
@@ -238,10 +280,10 @@ function buildTimeline(
 
   switch (template) {
     case "feature_highlight":
-      ({ tracks, duration } = buildFeatureHighlight(industry, content, isVertical));
+      ({ tracks, duration } = buildFeatureHighlight(industry, content, isVertical, stats));
       break;
     case "customer_stats":
-      ({ tracks, duration } = buildCustomerStats(industry, isVertical));
+      ({ tracks, duration } = buildCustomerStats(industry, isVertical, stats));
       break;
     case "before_after":
       ({ tracks, duration } = buildBeforeAfter(industry, isVertical));
@@ -250,10 +292,10 @@ function buildTimeline(
       ({ tracks, duration } = buildTestimonialQuote(content, industry, isVertical));
       break;
     case "platform_demo":
-      ({ tracks, duration } = buildPlatformDemo(industry, isVertical));
+      ({ tracks, duration } = buildPlatformDemo(industry, isVertical, stats));
       break;
     default:
-      ({ tracks, duration } = buildFeatureHighlight(industry, content, isVertical));
+      ({ tracks, duration } = buildFeatureHighlight(industry, content, isVertical, stats));
   }
 
   return {
@@ -276,13 +318,18 @@ function buildTimeline(
 
 // ── Template 1: Feature Highlight ────────────────────────────────────────
 
-function buildFeatureHighlight(industry: string, content: string, isVertical: boolean) {
+function buildFeatureHighlight(industry: string, content: string, isVertical: boolean, stats: LiveStats) {
   const duration = 25;
   const fontSize = isVertical ? 48 : 60;
   const bodyFontSize = isVertical ? 32 : 40;
 
   // Extract first sentence of content for the headline
   const headline = content.split(/[.!?]/)[0].trim().substring(0, 60);
+
+  // Use real stats in the subtitle when available
+  const subtitle = stats.totalBusinesses > 0
+    ? `Trusted by ${formatStat(stats.totalBusinesses, "")} ${industry} businesses`
+    : `Perfect for ${industry} businesses`;
 
   const features = [
     "AI Receptionist answers every call",
@@ -297,7 +344,7 @@ function buildFeatureHighlight(industry: string, content: string, isVertical: bo
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white"><p style="font-size:${bodyFontSize}px;font-weight:bold">Try SmallBizAgent Free</p><p style="font-size:${bodyFontSize - 8}px;opacity:0.8">${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\/(www\.)?/, '')}</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white"><p style="font-size:${bodyFontSize}px;font-weight:bold">Try SmallBizAgent Free</p><p style="font-size:${bodyFontSize - 8}px;opacity:0.8">${BRAND_URL}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 1920 : 1080,
           },
@@ -331,7 +378,7 @@ function buildFeatureHighlight(industry: string, content: string, isVertical: bo
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white"><h1 style="font-size:${fontSize}px;font-weight:bold;line-height:1.3">${headline || 'Never Miss Another Call'}</h1><p style="font-size:${bodyFontSize - 4}px;opacity:0.8;margin-top:20px">Perfect for ${industry} businesses</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white"><h1 style="font-size:${fontSize}px;font-weight:bold;line-height:1.3">${headline || 'Never Miss Another Call'}</h1><p style="font-size:${bodyFontSize - 4}px;opacity:0.8;margin-top:20px">${subtitle}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 600 : 400,
           },
@@ -365,16 +412,26 @@ function buildFeatureHighlight(industry: string, content: string, isVertical: bo
 
 // ── Template 2: Customer Stats ───────────────────────────────────────────
 
-function buildCustomerStats(industry: string, isVertical: boolean) {
+function buildCustomerStats(industry: string, isVertical: boolean, liveStats: LiveStats) {
   const duration = 20;
   const titleFontSize = isVertical ? 44 : 56;
   const statFontSize = isVertical ? 52 : 64;
   const labelFontSize = isVertical ? 24 : 28;
 
+  // Use real platform stats when available, with honest fallbacks
   const stats = [
-    { value: "500+", label: "Businesses Trust Us" },
-    { value: "10,000+", label: "Calls Answered" },
-    { value: "40%", label: "Fewer No-Shows" },
+    {
+      value: liveStats.totalBusinesses > 0 ? formatStat(liveStats.totalBusinesses) : "24/7",
+      label: liveStats.totalBusinesses > 0 ? "Businesses on the Platform" : "Always Available",
+    },
+    {
+      value: liveStats.totalCalls > 0 ? formatStat(liveStats.totalCalls) : "0",
+      label: liveStats.totalCalls > 0 ? "Calls Handled by AI" : "Missed Calls with AI",
+    },
+    {
+      value: liveStats.callsThisMonth > 0 ? formatStat(liveStats.callsThisMonth) : "Auto",
+      label: liveStats.callsThisMonth > 0 ? "Calls This Month" : "Appointment Booking",
+    },
   ];
 
   const tracks = [
@@ -471,7 +528,7 @@ function buildBeforeAfter(industry: string, isVertical: boolean) {
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white;background:linear-gradient(135deg,#059669,#2563eb)"><p style="font-size:${headerFont}px;font-weight:bold">Upgrade Your ${industry} Business</p><p style="font-size:${bodyFont - 4}px;margin-top:20px;opacity:0.9">${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\/(www\.)?/, '')}</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white;background:linear-gradient(135deg,#059669,#2563eb)"><p style="font-size:${headerFont}px;font-weight:bold">Upgrade Your ${industry} Business</p><p style="font-size:${bodyFont - 4}px;margin-top:20px;opacity:0.9">${BRAND_URL}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 1920 : 1080,
           },
@@ -572,7 +629,7 @@ function buildTestimonialQuote(content: string, industry: string, isVertical: bo
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:40px;color:white"><p style="font-size:${creditFont + 4}px;font-weight:bold">See why ${industry} businesses choose us</p><p style="font-size:${creditFont}px;opacity:0.8;margin-top:10px">${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\/(www\.)?/, '')}</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:40px;color:white"><p style="font-size:${creditFont + 4}px;font-weight:bold">See why ${industry} businesses choose us</p><p style="font-size:${creditFont}px;opacity:0.8;margin-top:10px">${BRAND_URL}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 400 : 250,
           },
@@ -660,14 +717,19 @@ function buildTestimonialQuote(content: string, industry: string, isVertical: bo
 
 // ── Template 5: Platform Demo ────────────────────────────────────────────
 
-function buildPlatformDemo(industry: string, isVertical: boolean) {
+function buildPlatformDemo(industry: string, isVertical: boolean, stats: LiveStats) {
   const duration = 30;
   const headerFont = isVertical ? 40 : 48;
   const stepFont = isVertical ? 32 : 38;
   const captionFont = isVertical ? 24 : 28;
 
+  // Use real call count in step caption when available
+  const callCaption = stats.totalCalls > 0
+    ? `Already handled ${formatStat(stats.totalCalls)} calls`
+    : "Your AI receptionist answers instantly";
+
   const steps = [
-    { icon: "📞", title: "Customer Calls", caption: "Your AI receptionist answers instantly" },
+    { icon: "📞", title: "Customer Calls", caption: callCaption },
     { icon: "🤖", title: "AI Converses", caption: "Natural conversation, books appointments" },
     { icon: "📅", title: "Appointment Booked", caption: "Synced to your calendar in real-time" },
     { icon: "💬", title: "Follow-Up Sent", caption: "Automatic SMS confirmation + reminders" },
@@ -680,7 +742,7 @@ function buildPlatformDemo(industry: string, isVertical: boolean) {
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white;background:linear-gradient(135deg,#2563eb,#7c3aed)"><p style="font-size:${headerFont}px;font-weight:bold">Ready to automate your ${industry} business?</p><p style="font-size:${captionFont + 4}px;margin-top:20px;opacity:0.9">Start your free trial → ${(process.env.APP_URL || 'https://www.smallbizagent.ai').replace(/^https?:\/\/(www\.)?/, '')}</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:60px;color:white;background:linear-gradient(135deg,#2563eb,#7c3aed)"><p style="font-size:${headerFont}px;font-weight:bold">Ready to automate your ${industry} business?</p><p style="font-size:${captionFont + 4}px;margin-top:20px;opacity:0.9">Start your free trial → ${BRAND_URL}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 1920 : 1080,
           },
@@ -730,7 +792,7 @@ function buildPlatformDemo(industry: string, isVertical: boolean) {
         {
           asset: {
             type: "html",
-            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:40px;color:white"><h1 style="font-size:${headerFont}px;font-weight:bold">How SmallBizAgent Works</h1><p style="font-size:${captionFont}px;opacity:0.7;margin-top:10px">For ${industry} businesses</p></div>`,
+            html: `<div style="font-family:Arial,sans-serif;text-align:center;padding:40px;color:white"><h1 style="font-size:${headerFont}px;font-weight:bold">How SmallBizAgent Works</h1><p style="font-size:${captionFont}px;opacity:0.7;margin-top:10px">${stats.totalBusinesses > 0 ? `Join ${formatStat(stats.totalBusinesses)} businesses` : `For ${industry} businesses`}</p></div>`,
             width: isVertical ? 1080 : 1920,
             height: isVertical ? 400 : 250,
           },

@@ -1,0 +1,545 @@
+# SmallBizAgent — Complete Project Reference
+
+> **Read this file first.** This is the single source of truth for any AI agent working on this codebase. It covers architecture, tech stack, database schema, services, routes, integrations, and known patterns.
+
+## What Is This?
+
+SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (salons, restaurants, HVAC, plumbing, dental, auto shops, etc.). It provides:
+
+- **AI Voice Receptionist** (Vapi.ai) — answers calls 24/7, books appointments, takes orders
+- **Appointment & Job Management** — scheduling, calendar sync, job tracking
+- **Invoicing & Payments** — Stripe payments, invoice sharing, payment links
+- **Customer CRM** — auto-built from calls/bookings, SMS conversations, tags
+- **Automated SMS Agents** — follow-ups, no-show recovery, rebooking, review requests
+- **Marketing & Social Media** — blog generation, social post drafts, Shotstack video rendering
+- **Multi-location & Staff** — business groups, staff scheduling, role-based access
+- **POS Integrations** — Clover, Square, Heartland for restaurant ordering
+- **Admin Dashboard** — platform-wide analytics, user management, agent controls
+
+**Owner:** Tony Illiano
+**Domain:** smallbizagent.ai
+**Deployment:** Railway (PostgreSQL on Neon)
+**Repo root:** `/Users/tonyilliano/Downloads/ZipFileExplorer 6/`
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | React 18 + TypeScript, Vite, Tailwind CSS, Radix UI (shadcn/ui) |
+| **Routing** | wouter (lightweight) |
+| **State** | TanStack React Query + Context API |
+| **Forms** | React Hook Form + Zod validation |
+| **Charts** | Recharts |
+| **Backend** | Express.js + TypeScript |
+| **Database** | PostgreSQL (Neon serverless) |
+| **ORM** | Drizzle ORM |
+| **Auth** | Passport.js local strategy, express-session, connect-pg-simple |
+| **Security** | CSRF tokens, Helmet, rate limiting, 2FA (TOTP), Turnstile CAPTCHA |
+| **Mobile** | Capacitor (iOS + Android wrappers) |
+| **Email** | SendGrid or Resend |
+| **SMS/Voice** | Twilio |
+| **AI Voice** | Vapi.ai |
+| **AI/LLM** | OpenAI (gpt-4o-mini) |
+| **Payments** | Stripe (Checkout, Connect, Billing Portal) |
+| **Calendar** | Google Calendar, Microsoft Graph, Apple iCal |
+| **POS** | Clover, Square, Heartland/Genius |
+| **Accounting** | QuickBooks Online |
+| **Video** | Shotstack Edit API |
+| **Storage** | AWS S3 |
+| **Error Tracking** | Sentry |
+
+---
+
+## Directory Structure
+
+```
+.
+├── client/                    # React frontend
+│   └── src/
+│       ├── components/        # UI components (60+ shadcn/ui + custom)
+│       │   ├── ui/            # Base shadcn/ui components
+│       │   ├── dashboard/     # Dashboard widgets
+│       │   ├── receptionist/  # AI receptionist config
+│       │   ├── automations/   # Agent cards, feeds, settings
+│       │   ├── settings/      # Settings panels
+│       │   ├── restaurant/    # Restaurant-specific
+│       │   └── ...
+│       ├── hooks/             # use-auth, use-toast, use-mobile, use-debounce, use-onboarding-progress
+│       ├── context/           # SidebarContext
+│       ├── lib/               # queryClient.ts, api.ts, utils.ts
+│       └── pages/             # All page components (see Routes below)
+├── server/
+│   ├── index.ts               # Express server entry point
+│   ├── routes.ts              # Main route registration (huge file, ~6000 lines)
+│   ├── routes/                # Feature-specific route files
+│   ├── services/              # Business logic services (50+ files)
+│   │   └── platformAgents/    # AI platform agents (10 files)
+│   ├── middleware/             # Auth middleware
+│   ├── utils/                 # s3Upload, encryption, etc.
+│   └── storage.ts             # Data access layer
+├── shared/
+│   └── schema.ts              # Drizzle ORM schema (57 tables)
+├── migrations/                # SQL migration files
+├── public/                    # Static assets, icons, templates
+├── android/ / ios/            # Capacitor native projects
+└── scripts/                   # Build/deployment scripts
+```
+
+---
+
+## Routes (All Pages)
+
+### Public (no auth)
+| Route | Page | Purpose |
+|-------|------|---------|
+| `/` | HomePage | Landing page (logged out) or dashboard (logged in) |
+| `/welcome` | LandingPage | Marketing landing page |
+| `/auth` | AuthPage | Login / Register with 2FA + Turnstile |
+| `/verify-email` | VerifyEmailPage | 6-digit OTP verification |
+| `/reset-password` | ResetPasswordPage | Password reset with token |
+| `/book/:slug` | PublicBooking | Customer-facing booking calendar |
+| `/book/:slug/manage/:token` | ManageAppointment | Reschedule/cancel via link |
+| `/book/:slug/manage-reservation/:token` | ManageReservation | Reservation management |
+| `/portal` | CustomerPortal | Customer invoice lookup |
+| `/portal/invoice/:token` | PortalInvoice | Public invoice view/pay |
+| `/portal/quote/:token` | PortalQuote | Public quote view |
+| `/invoices/pay/:invoiceId` | InvoicePayment | Payment link |
+| `/staff/join/:code` | StaffJoin | Staff onboarding via invite |
+| `/privacy` | PrivacyPolicy | Privacy policy |
+| `/terms` | TermsOfService | Terms of service |
+| `/sms-terms` | SmsTerms | SMS/TCPA opt-in terms |
+| `/support` | SupportPage | Help resources |
+| `/contact` | ContactPage | Contact form |
+
+### Protected (auth + email verified)
+| Route | Page | Purpose |
+|-------|------|---------|
+| `/dashboard` | Dashboard | Main business dashboard with stats, setup checklist |
+| `/customers` | Customers | Customer list with search, export |
+| `/customers/:id` | CustomerDetail | Individual customer profile + history |
+| `/appointments` | Appointments | Calendar view (week/day/month) |
+| `/appointments/fullscreen` | FullscreenSchedule | Kiosk/display calendar |
+| `/appointments/:id` | AppointmentDetail | Single appointment view |
+| `/jobs` | Jobs | Job list with status filtering |
+| `/jobs/:id` | JobDetail | Job details, line items, timeline |
+| `/invoices` | Invoices | Invoice list, payment links |
+| `/invoices/create` | CreateInvoice | Invoice creation form |
+| `/invoices/:id` | InvoiceDetail | Invoice view |
+| `/invoices/:id/edit` | EditInvoice | Edit invoice |
+| `/invoices/:id/print` | PrintInvoice | Print-friendly layout |
+| `/quotes` | Quotes | Quote list |
+| `/quotes/create` | CreateQuote | Quote creation |
+| `/quotes/:id` | QuoteDetail | Quote view |
+| `/quotes/:id/edit` | EditQuote | Edit quote |
+| `/quotes/:id/print` | PrintQuote | Print-friendly layout |
+| `/receptionist` | Receptionist | AI receptionist config, call logs, knowledge base |
+| `/analytics` | Analytics | Revenue, calls, jobs, appointments charts |
+| `/marketing` | Marketing | Reviews, campaigns, social media |
+| `/ai-agents` | Automations | SMS agent dashboard, activity feed, conversations |
+| `/recurring` | RecurringSchedules | Recurring job/invoice templates |
+| `/settings` | Settings | All business settings (multi-tab) |
+| `/settings/calendar` | CalendarSettings | Google/Microsoft/Apple calendar |
+| `/settings/pwa-installation` | PWAInstall | Mobile install guide |
+| `/onboarding` | OnboardingFlow | Multi-step setup wizard |
+| `/onboarding/subscription` | SubscriptionSelection | Plan selection |
+| `/payment` | Payment | Payment processing |
+| `/subscription-success` | SubscriptionSuccess | Post-payment confirmation |
+| `/staff/dashboard` | StaffDashboard | Staff-only view |
+
+### Admin (admin role only)
+| Route | Page | Purpose |
+|-------|------|---------|
+| `/admin` | AdminDashboard | Platform stats, users, businesses, revenue, agents, webhooks, content |
+| `/admin/phone-management` | PhoneManagement | Twilio number provisioning |
+| `/admin/social-media` | SocialMediaAdmin | Social post queue, OAuth connections, video generation |
+
+---
+
+## Database Schema (57 Tables)
+
+### Core
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `users` | User accounts | username, email, password, role (user/staff/admin), businessId, emailVerified, twoFactorEnabled |
+| `businesses` | Business profiles | name, industry, type, phone, timezone, bookingSlug, twilioPhoneNumber, vapiAssistantId, subscriptionStatus, stripeCustomerId, all POS tokens |
+| `business_hours` | Operating hours | businessId, day, open, close, isClosed |
+| `business_groups` | Multi-location groups | ownerUserId, stripeSubscriptionId, multiLocationDiscountPercent |
+| `business_phone_numbers` | Multiple Twilio numbers | businessId, twilioPhoneNumber, twilioPhoneNumberSid, vapiPhoneNumberId, isPrimary |
+| `user_business_access` | Multi-business access | userId, businessId, role |
+
+### Customers & Communication
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `customers` | Customer contacts | businessId, firstName, lastName, phone, email, smsOptIn, marketingOptIn, birthday, tags |
+| `sms_conversations` | SMS threads | businessId, customerId, customerPhone, agentType, state, context (jsonb), expiresAt |
+| `sms_suppression_list` | TCPA opt-outs | phoneNumber, businessId, reason |
+| `call_logs` | Call records | businessId, callerId, transcript, intentDetected, callDuration, recordingUrl, status |
+| `notification_log` | Sent notifications | businessId, type, channel (sms/email), recipient, status |
+| `notification_settings` | Per-business notification prefs | All boolean toggles for SMS/email per event type |
+
+### Scheduling & Jobs
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `services` | Services offered | businessId, name, price, duration |
+| `staff` | Staff members | businessId, userId, firstName, lastName, specialty |
+| `staff_hours` | Staff schedules | staffId, day, startTime, endTime, isOff |
+| `staff_services` | Staff-service assignments | staffId, serviceId |
+| `staff_invites` | Staff invitation codes | businessId, staffId, email, inviteCode, status |
+| `appointments` | Scheduled appointments | businessId, customerId, staffId, serviceId, startDate, endDate, status, googleCalendarEventId |
+| `jobs` | Service jobs | businessId, customerId, title, status (pending/in_progress/waiting_parts/completed) |
+| `job_line_items` | Job line items | jobId, type, description, quantity, unitPrice |
+| `recurring_schedules` | Recurring templates | businessId, frequency, interval, nextRunDate, autoCreateInvoice |
+
+### Invoicing & Quotes
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `invoices` | Customer invoices | businessId, customerId, invoiceNumber, amount, total, status, stripePaymentIntentId, accessToken |
+| `invoice_items` | Invoice line items | invoiceId, description, quantity, unitPrice |
+| `quotes` | Service quotes | businessId, customerId, quoteNumber, total, status, convertedToInvoiceId, accessToken |
+| `quote_items` | Quote line items | quoteId, description, quantity, unitPrice |
+| `quote_follow_ups` | Follow-up tracking | quoteId, attemptNumber, channel, sentAt |
+
+### AI & Receptionist
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `receptionist_config` | AI receptionist settings | businessId, greeting, voiceId, assistantName, callRecordingEnabled, customInstructions |
+| `business_knowledge` | Knowledge base Q&A | businessId, question, answer, category, source, isApproved |
+| `unanswered_questions` | Qs AI couldn't answer | businessId, callLogId, question, status, ownerAnswer |
+| `ai_suggestions` | Weekly AI suggestions | businessId, type, title, description, riskLevel, status |
+
+### Agents & Automation
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `agent_settings` | Per-business agent config | businessId, agentType, enabled, config (jsonb) |
+| `agent_activity_log` | Agent execution history | businessId, agentType, action, details (jsonb) |
+
+### Social Media & Marketing
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `social_media_posts` | Generated social posts | platform, content, mediaUrl, mediaType, status (draft/approved/published/rejected), industry, details (jsonb) |
+| `blog_posts` | Generated blog articles | title, slug, body, industry, targetKeywords, status, generatedVia (openai/template) |
+| `marketing_campaigns` | Email/SMS campaigns | businessId, type, channel, template, status |
+
+### Reviews
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `review_settings` | Review request config | businessId, googleReviewUrl, autoSendAfterJobCompletion, reviewCooldownDays |
+| `review_requests` | Sent review requests | businessId, customerId, sentVia, platform, status |
+| `review_responses` | AI-drafted review replies | businessId, reviewSource, reviewText, aiDraftResponse, status |
+
+### Calendar & Integrations
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `calendar_integrations` | OAuth tokens | businessId, provider, accessToken, refreshToken, expiresAt |
+
+### POS (Clover, Square, Heartland)
+| Table | Purpose |
+|-------|---------|
+| `clover_menu_cache` | Cached Clover menu |
+| `clover_order_log` | Clover order history |
+| `square_menu_cache` | Cached Square catalog |
+| `square_order_log` | Square order history |
+| `heartland_menu_cache` | Cached Heartland menu |
+| `heartland_order_log` | Heartland order history |
+| `inventory_items` | Stock tracking with low-stock alerts |
+| `restaurant_reservations` | Table reservations |
+
+### Billing & Admin
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `subscription_plans` | Available plans | name, price, interval, maxCallMinutes, overageRatePerMinute, stripePriceId |
+| `overage_charges` | Call minute overage billing | businessId, minutesUsed, overageAmount, stripeInvoiceId |
+| `webhooks` | Webhook subscriptions | businessId, url, events (jsonb), secret |
+| `webhook_deliveries` | Delivery log | webhookId, event, payload, status, attempts |
+| `audit_logs` | Security audit trail | userId, action, resource, ipAddress |
+| `api_keys` | Business API keys | businessId, name, keyHash, keyPrefix |
+| `password_reset_tokens` | Password reset flow | userId, token, expiresAt, used |
+| `website_scrape_cache` | Scraped website content for knowledge | businessId, url, structuredKnowledge |
+
+---
+
+## Server Services
+
+### Business Agents (server/services/)
+| Service | Purpose | External APIs |
+|---------|---------|---------------|
+| `followUpAgentService` | Thank-you + upsell SMS after completed jobs | Twilio |
+| `noShowAgentService` | No-show SMS with conversational rescheduling | Twilio, OpenAI |
+| `estimateFollowUpAgentService` | Quote follow-up SMS (3 attempts) | Twilio |
+| `rebookingAgentService` | Win-back SMS for inactive customers (30+ days) | Twilio, OpenAI |
+| `reviewResponseAgentService` | AI-drafted Google review responses | OpenAI, Google Business Profile |
+| `conversationalBookingService` | Multi-turn SMS booking via AI | OpenAI |
+
+### Platform Agents (server/services/platformAgents/)
+| Agent | Purpose | Runs |
+|-------|---------|------|
+| `contentSeoAgent` | Blog post generation (GPT or templates) | Every 7 days |
+| `socialMediaAgent` | Social post drafts for Twitter/FB/IG/LinkedIn | Daily |
+| `churnPredictionAgent` | Predict at-risk businesses | Periodic |
+| `competitiveIntelAgent` | Competitive landscape analysis | Periodic |
+| `healthScoreAgent` | Business health scoring | Periodic |
+| `leadScoringAgent` | Score & rank leads | Periodic |
+| `onboardingCoachAgent` | Guide users through setup | Event-driven |
+| `revenueOptimizationAgent` | Revenue improvement suggestions | Periodic |
+| `supportTriageAgent` | Triage support issues | Event-driven |
+| `testimonialAgent` | Generate testimonials/case studies | Periodic |
+
+### Core Services
+| Service | Purpose |
+|---------|---------|
+| `vapiService` | Vapi.ai voice receptionist (system prompts for 15+ industries, multi-language) |
+| `vapiWebhookHandler` | Handle Vapi call webhooks (transcripts, function calls) |
+| `twilioService` | SMS/voice via Twilio (TCPA compliant, A2P 10DLC) |
+| `notificationService` | Unified email+SMS notifications for all events |
+| `emailService` | Email via SendGrid or Resend |
+| `appointmentService` | Availability checking, conflict prevention, booking |
+| `calendarService` | Google/Microsoft/Apple calendar sync |
+| `stripeService` | Payment intents, customers, invoices |
+| `subscriptionService` | Full subscription lifecycle (create, cancel, prorate, dunning) |
+| `overageBillingService` | Call minute overage billing |
+| `analyticsService` | Revenue, call, job, appointment, customer analytics |
+| `adminService` | Platform-wide stats (`getPlatformStats()` — no businessId needed) |
+| `videoGenerationService` | Shotstack video rendering (5 templates, live platform stats) |
+| `socialMediaService` | OAuth + publishing to Twitter, Facebook, Instagram, LinkedIn |
+| `autoRefineService` | Weekly AI analysis of call transcripts for receptionist improvement |
+| `schedulerService` | Cron-like scheduler for all periodic tasks |
+| `dataRetentionService` | Auto-purge old recordings (90d) and transcripts (365d) |
+| `auditService` | Security event audit logging |
+| `webhookService` | Webhook delivery with retry logic |
+| `businessProvisioningService` | New business setup (Twilio + Vapi provisioning) |
+| `inventoryService` | POS inventory sync + low-stock alerts |
+
+---
+
+## API Route Files (server/routes/)
+
+| File | Mount Point | Purpose |
+|------|-------------|---------|
+| `adminRoutes` | `/api/admin/*` | Platform admin CRUD, stats, blog posts |
+| `analyticsRoutes` | `/api/analytics/*` | Business analytics queries |
+| `appointmentRoutes` | `/api/appointments/*` | Appointment CRUD |
+| `automationRoutes` | `/api/automations/*` | Agent config, activity logs |
+| `bookingRoutes` | `/api/booking/*` | Public booking, availability |
+| `calendarRoutes` | `/api/calendar/*` | Calendar OAuth callbacks |
+| `customerRoutes` | `/api/customers/*` | Customer CRUD |
+| `cloverRoutes` | `/api/clover/*` | Clover POS OAuth, menu, orders |
+| `squareRoutes` | `/api/square/*` | Square POS integration |
+| `heartlandRoutes` | `/api/heartland/*` | Heartland POS integration |
+| `socialMediaRoutes` | `/api/social-media/*` | Social posts, video gen, OAuth, publishing |
+| `subscriptionRoutes` | `/api/subscriptions/*` | Plans, billing portal, promo codes |
+| `stripeConnectRoutes` | `/api/stripe-connect/*` | Stripe Connect for payments |
+| `phoneRoutes` | `/api/phone/*` | Twilio number provisioning |
+| `marketingRoutes` | `/api/marketing/*` | Campaigns, drip emails |
+| `quoteRoutes` | `/api/quotes/*` | Quote CRUD |
+| `quickbooksRoutes` | `/api/quickbooks/*` | QuickBooks sync |
+| `webhookRoutes` | `/api/webhooks/*` | Webhook management |
+| `zapierRoutes` | `/api/zapier/*` | Zapier integration |
+| `exportRoutes` | `/api/export/*` | CSV data export |
+| `gbpRoutes` | `/api/gbp/*` | Google Business Profile |
+| `inventoryRoutes` | `/api/inventory/*` | Inventory management |
+| `locationRoutes` | `/api/locations/*` | Multi-location |
+| `recurring` | `/api/recurring/*` | Recurring schedules |
+| `import` | `/api/import/*` | Data import |
+| `embedRoutes` | `/api/embed/*` | Embedded booking widget |
+
+**Note:** Many routes are also defined inline in `server/routes.ts` (~6000 lines), especially auth, call logs, invoices, jobs, Twilio/Vapi webhooks.
+
+---
+
+## Environment Variables
+
+### Required
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | PostgreSQL connection (Neon) |
+| `SESSION_SECRET` | Express session encryption |
+| `APP_URL` | Public URL (customer links, video branding, SMS links, CORS) |
+
+### Communication
+| Variable | Purpose |
+|----------|---------|
+| `TWILIO_ACCOUNT_SID` | Twilio account |
+| `TWILIO_AUTH_TOKEN` | Twilio auth |
+| `TWILIO_PHONE_NUMBER` | Default Twilio number |
+| `VAPI_API_KEY` | Vapi.ai API key |
+| `VAPI_WEBHOOK_SECRET` | Vapi webhook verification |
+
+### Payments
+| Variable | Purpose |
+|----------|---------|
+| `STRIPE_SECRET_KEY` | Stripe payments |
+| `STRIPE_PUBLIC_KEY` | Stripe client-side |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook verification |
+
+### AI & Content
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | GPT-4o-mini for agents, content, booking |
+| `SHOTSTACK_API_KEY` | Video rendering |
+| `SHOTSTACK_ENV` | `v1` (production) or `stage` (sandbox) |
+
+### Calendar
+| Variable | Purpose |
+|----------|---------|
+| `GOOGLE_CLIENT_ID` | Google Calendar OAuth |
+| `GOOGLE_CLIENT_SECRET` | Google Calendar OAuth |
+
+### Optional
+| Variable | Purpose |
+|----------|---------|
+| `SENDGRID_API_KEY` | Email (or use RESEND_API_KEY) |
+| `RESEND_API_KEY` | Email (alternative to SendGrid) |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_MEDIA_BUCKET` | S3 file storage |
+| `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | QuickBooks |
+| `TURNSTILE_SECRET_KEY`, `VITE_TURNSTILE_SITE_KEY` | Cloudflare CAPTCHA |
+| `ENCRYPTION_KEY` | 64-char hex key for DB-stored credentials |
+| `SENTRY_DSN` | Error tracking |
+| `OPENWEATHER_API_KEY` | Weather-aware reminders |
+
+---
+
+## Authentication System
+
+- **Type:** Session-based (express-session + connect-pg-simple)
+- **Strategy:** Passport.js local (username + password)
+- **CSRF:** Token in HTTP-only cookie, validated via `X-CSRF-Token` header
+- **2FA:** Optional TOTP with backup codes
+- **Email verification:** 6-digit OTP, required before full access
+- **Roles:** `user` (business owner), `staff` (limited access), `admin` (platform-wide)
+- **Password rules:** 12+ chars, uppercase, lowercase, number, special char
+- **CAPTCHA:** Cloudflare Turnstile on login/register
+
+---
+
+## Key Patterns & Gotchas
+
+### API Response Shapes
+**This has been a recurring bug source.** Always verify the response shape:
+- `GET /api/admin/blog-posts` returns `{ posts: [...] }` (wrapped)
+- `GET /api/social-media/posts` returns `[...]` (raw array)
+- `POST /api/social-media/generate` returns `{ draftsGenerated: N, ... }` (not `{ result: { draftsGenerated } }`)
+
+### React Query
+- Default `queryFn` uses `getQueryFn({ on401: "throw" })` from `queryClient.ts`
+- Always provide explicit `queryFn` when the default won't work (e.g., POST endpoints, custom params)
+- `staleTime: Infinity` by default — data doesn't auto-refetch
+
+### Multi-tenancy
+- All data scoped by `businessId`
+- Platform agents use `businessId: 0` for platform-level actions
+- Admin routes check `user.role === "admin"`
+
+### TCPA/SMS Compliance
+- SMS only sent to customers with `smsOptIn: true`
+- `sms_suppression_list` checked before every send
+- A2P 10DLC via Twilio Messaging Service SID
+- STOP keyword handling with auto-suppression
+
+### Video Generation (Shotstack)
+- 5 templates: `feature_highlight`, `customer_stats`, `before_after`, `testimonial_quote`, `platform_demo`
+- All HTML/CSS rendered into MP4 — no external media files
+- Fetches live platform stats from `getPlatformStats()` before each render
+- Instagram: 9:16, others: 16:9
+- Renders take 30-120 seconds, UI polls every 10s
+- Videos stored as URLs (Shotstack CDN or S3)
+
+### Social Media Agent
+- Generates posts for Twitter/Facebook/Instagram/LinkedIn
+- 3-day deduplication per industry+platform
+- Max 20 pending drafts cap
+- Posts require admin approval before publishing
+- Publishing uses real OAuth tokens for each platform
+
+### Content SEO Agent
+- Generates blog posts (full articles via GPT or templates)
+- Cap: 5 articles per industry
+- Stored in `blog_posts` table, visible in admin Content tab
+- Content formats rotate: how_to, listicle, case_study, comparison, tips
+
+### Scheduler
+- `schedulerService` runs periodic checks:
+  - Appointment reminders
+  - Follow-up agent
+  - No-show detection
+  - Rebooking check
+  - Estimate follow-ups
+  - Daily digest emails
+  - Data retention purge
+  - Platform agents
+
+---
+
+## Recent Work (Commits)
+
+| Commit | Change |
+|--------|--------|
+| `f6c6127` | Fix social media posts not showing (API returns array, not {posts}) |
+| `7862056` | Add Social Media summary card to Content tab with link to /admin/social-media |
+| `b42f7f4` | Fix Content tab crash (add queryFn to unwrap API response) |
+| `de6a7ca` | 15 security/reliability fixes across 6 files |
+| `d5fc22b` | Add Blog Content Management tab to Admin Dashboard |
+| `2a18a60` | Add /sms-terms page for Twilio A2P 10DLC approval |
+| `3c447f6` | Replace hardcoded URLs with APP_URL env var across 17 files |
+| `7c3334e` | Fix login (exempt auth from CSRF, add www redirect) |
+| `e291cb2` | Test coverage for SMS agents, auth, payments (228 tests) |
+
+### Uncommitted changes (current session):
+- Video generation polling fix (10s → continuous polling until ready)
+- Fake stats replaced with real platform data from DB
+- BRAND_URL constant for consistent video branding
+- Social media page: fixed response shape bugs, added video status polling
+
+---
+
+## File Quick Reference
+
+| What you need | Where to look |
+|---------------|---------------|
+| Database schema | `shared/schema.ts` |
+| Main route registration | `server/routes.ts` (~6000 lines) |
+| Feature routes | `server/routes/*.ts` |
+| All services | `server/services/*.ts` |
+| Platform agents | `server/services/platformAgents/*.ts` |
+| Data access layer | `server/storage.ts` |
+| React Query config | `client/src/lib/queryClient.ts` |
+| Auth hook | `client/src/hooks/use-auth.tsx` |
+| Admin dashboard | `client/src/pages/admin/index.tsx` |
+| Social media page | `client/src/pages/admin/social-media.tsx` |
+| Video templates | `server/services/videoGenerationService.ts` |
+| Vapi AI receptionist | `server/services/vapiService.ts` |
+| Subscription billing | `server/services/subscriptionService.ts` |
+| Env vars reference | `.env.example` |
+| Package scripts | `package.json` |
+
+---
+
+## Build & Run
+
+```bash
+# Install
+npm install
+
+# Dev (starts both client + server)
+npm run dev
+
+# Type check
+npx tsc --noEmit
+
+# Tests
+npm test
+
+# Build for production
+npm run build
+
+# Push DB schema
+npm run db:push
+
+# Open Drizzle Studio
+npm run db:studio
+```
+
+---
+
+*Last updated: March 2026. 228 tests passing. TypeScript strict mode.*

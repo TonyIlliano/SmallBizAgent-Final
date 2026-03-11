@@ -322,11 +322,31 @@ function PostsTable({ status }: { status: string }) {
       const res = await apiRequest("POST", `/api/social-media/posts/${postId}/generate-video`);
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Video generation started", description: "The video is being rendered. Refresh to see when it's ready." });
-      // Poll for updates after a delay
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
+    onSuccess: (_data, postId) => {
+      toast({ title: "Video generation started", description: "Rendering in progress — this page will update automatically when the video is ready (~30-60 seconds)." });
+      // Poll every 10s for up to 5 minutes until the post has a video
+      let attempts = 0;
+      const maxAttempts = 30; // 30 × 10s = 5 minutes
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const res = await apiRequest("GET", `/api/social-media/posts/${postId}/video-status`);
+          const statusData = await res.json();
+          if (statusData.mediaType === 'video' && statusData.mediaUrl) {
+            clearInterval(pollInterval);
+            queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
+            toast({ title: "Video ready! 🎬", description: "Your video has been generated. Click the eye icon to preview it." });
+          } else if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
+            toast({ title: "Video may still be processing", description: "Refresh the page to check status.", variant: "destructive" });
+          }
+        } catch {
+          // Silently retry — the server might be busy
+          if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+          }
+        }
       }, 10000);
     },
     onError: () => {
