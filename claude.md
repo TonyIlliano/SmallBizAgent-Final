@@ -2,6 +2,8 @@
 
 > **Read this file first.** This is the single source of truth for any AI agent working on this codebase. It covers architecture, tech stack, database schema, services, routes, integrations, and known patterns.
 
+> ⚠️ **MANDATORY: Keep This File Up To Date.** Every time you make changes to this project — new files, new services, new routes, schema changes, new integrations, config changes, bug fixes, or any other meaningful update — you **MUST** update this `claude.md` file to reflect those changes before finishing your work. This ensures the next agent (or the next conversation) has accurate, current context. **No exceptions.** If you added it, changed it, or removed it, document it here.
+
 ## What Is This?
 
 SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (salons, restaurants, HVAC, plumbing, dental, auto shops, etc.). It provides:
@@ -539,6 +541,25 @@ npm run db:push
 # Open Drizzle Studio
 npm run db:studio
 ```
+
+---
+
+---
+
+## ⚠️ Maintenance Rule
+
+**Every AI agent working on this project MUST update this file after making changes.** This includes but is not limited to:
+
+- Adding or removing **files, pages, components, or services**
+- Adding or modifying **API routes**
+- Changing the **database schema** (new tables, new columns, dropped columns)
+- Adding **new integrations** or external service connections
+- Changing **environment variables**
+- Significant **bug fixes** or behavioral changes
+- Adding or updating **platform agents**
+- Changes to the **build process, deployment, or infrastructure**
+
+Update the relevant section(s) above and bump the "Last updated" date below. If a new section is needed, add it. **This file is only useful if it's accurate.**
 
 ---
 
