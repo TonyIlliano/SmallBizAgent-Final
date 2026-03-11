@@ -357,8 +357,12 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
 
       // Start the reminder scheduler after server is running
-      schedulerService.startAllSchedulers();
-      log('Reminder schedulers started');
+      try {
+        schedulerService.startAllSchedulers();
+        log('Reminder schedulers started');
+      } catch (schedulerErr) {
+        console.error('Failed to start schedulers (non-fatal):', schedulerErr);
+      }
     });
     // Graceful shutdown
     const shutdown = async (signal: string) => {
@@ -376,6 +380,7 @@ app.use((req, res, next) => {
         console.log('Database pool closed');
       } catch (err) {
         console.error('Error closing database pool:', err);
+        process.exit(1);
       }
 
       // Force exit after 10 seconds

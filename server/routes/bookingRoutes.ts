@@ -284,7 +284,7 @@ router.post("/book/:slug", async (req, res) => {
         firstName: z.string().min(1, "First name is required"),
         lastName: z.string().min(1, "Last name is required"),
         email: z.string().email("Valid email is required"),
-        phone: z.string().min(1, "Phone number is required"),
+        phone: z.string().min(1, "Phone number is required").regex(/^\+?1?\d{10,15}$/, "Please enter a valid phone number"),
         smsOptIn: z.boolean().optional(),
       }),
       notes: z.string().optional(),
@@ -409,11 +409,16 @@ router.post("/book/:slug", async (req, res) => {
       }
     }
 
-    // Re-verify time slot is still available (prevent race condition double-booking)
+    // Re-fetch appointments to prevent race condition double-booking
+    // (the original fetch may be stale if another request booked in between)
     if (staffId) {
+      const freshAppointments = await storage.getAppointments(business.id, {
+        startDate: dayStart,
+        endDate: dayEnd,
+      });
       const bufferMinutes = business.bookingBufferMinutes || 15;
       const slotEnd = new Date(startDate.getTime() + (service.duration || 60) * 60 * 1000);
-      const dayAppointments = existingAppointments.filter(apt =>
+      const dayAppointments = freshAppointments.filter(apt =>
         apt.staffId === staffId &&
         apt.status !== 'cancelled'
       );
@@ -860,7 +865,7 @@ router.post("/book/:slug/reserve", async (req, res) => {
         firstName: z.string().min(1, "First name is required"),
         lastName: z.string().min(1, "Last name is required"),
         email: z.string().email("Valid email is required"),
-        phone: z.string().min(1, "Phone number is required"),
+        phone: z.string().min(1, "Phone number is required").regex(/^\+?1?\d{10,15}$/, "Please enter a valid phone number"),
         smsOptIn: z.boolean().optional(),
       }),
       specialRequests: z.string().optional(),

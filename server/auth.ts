@@ -2,6 +2,7 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
+import rateLimit from "express-rate-limit";
 import { scrypt, randomBytes, timingSafeEqual, randomInt, createHash } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
@@ -307,8 +308,17 @@ export function setupAuth(app: Express) {
     }
   });
 
+  // Rate limiter for email verification (prevent brute-force of 6-digit codes)
+  const verifyEmailLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 attempts per IP per 15 minutes
+    message: { error: 'Too many verification attempts, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
   // Verify email with 6-digit code
-  app.post("/api/verify-email", async (req, res) => {
+  app.post("/api/verify-email", verifyEmailLimiter, async (req, res) => {
     try {
       const { email, code } = req.body;
       if (!email || !code) {
@@ -923,6 +933,11 @@ export function setupAuth(app: Express) {
 
       if (!resetToken) {
         return res.status(400).json({ error: "Invalid or expired reset token" });
+      }
+
+      // Prevent token reuse (race condition protection)
+      if (resetToken.used) {
+        return res.status(400).json({ error: "This reset token has already been used. Please request a new one." });
       }
 
       // Check if token is expired

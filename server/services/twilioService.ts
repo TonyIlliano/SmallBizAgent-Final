@@ -92,8 +92,9 @@ export async function sendSms(to: string, body: string, from?: string, businessI
           return { sid: 'suppressed', status: 'suppressed' };
         }
       } catch (suppressionErr) {
-        // Don't block sends if suppression check fails — log and continue
-        console.error('[SMS] Suppression list check failed:', suppressionErr);
+        // TCPA compliance: Block sends if suppression check fails — don't risk sending to opted-out numbers
+        console.error('[SMS] Suppression list check failed — blocking send for TCPA safety:', suppressionErr);
+        return { sid: 'suppression_check_failed', status: 'blocked' };
       }
     }
     // Prefer Messaging Service SID (A2P 10DLC compliant) over individual from numbers

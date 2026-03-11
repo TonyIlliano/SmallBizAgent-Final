@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
@@ -2583,16 +2584,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Public endpoint - Get customer's invoice history by email (for returning customers)
-  app.post("/api/portal/lookup", async (req: Request, res: Response) => {
+  // Rate limiter for portal lookup (prevent enumeration attacks)
+  const portalLookupLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 attempts per IP per 15 minutes
+    message: { message: 'Too many lookup attempts, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // Public endpoint - Get customer's invoice history by email AND phone (for returning customers)
+  app.post("/api/portal/lookup", portalLookupLimiter, async (req: Request, res: Response) => {
     try {
       const { email, phone } = req.body;
 
-      if (!email && !phone) {
-        return res.status(400).json({ message: "Email or phone required" });
+      // Require BOTH email and phone to prevent enumeration
+      if (!email || !phone) {
+        return res.status(400).json({ message: "Both email and phone are required" });
       }
 
-      // Find customer by email or phone
+      // Find customer by email AND phone — both must match
       // For security, we only return invoices that have access tokens
       const invoices = await storage.getInvoicesWithAccessToken(email, phone);
 
@@ -2639,9 +2650,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/invoice-items", async (req: Request, res: Response) => {
+  app.post("/api/invoice-items", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const validatedData = insertInvoiceItemSchema.parse(req.body);
+      // Verify the invoice belongs to the user's business
+      const invoice = await storage.getInvoice(validatedData.invoiceId);
+      if (!invoice || !verifyBusinessOwnership(invoice, req)) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
       const item = await storage.createInvoiceItem(validatedData);
       res.status(201).json(item);
     } catch (error) {
@@ -2652,10 +2668,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/invoice-items/:id", async (req: Request, res: Response) => {
+  app.put("/api/invoice-items/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const validatedData = insertInvoiceItemSchema.partial().parse(req.body);
+      // Verify via invoiceId in request body or existing item
+      const invoiceId = validatedData.invoiceId || req.body.invoiceId;
+      if (!invoiceId) {
+        return res.status(400).json({ message: "Invoice ID is required" });
+      }
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice || !verifyBusinessOwnership(invoice, req)) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
       const item = await storage.updateInvoiceItem(id, validatedData);
       res.json(item);
     } catch (error) {
@@ -2666,7 +2691,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/invoice-items/:id", async (req: Request, res: Response) => {
+  app.delete("/api/invoice-items/:invoiceId/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const invoiceId = parseInt(req.params.invoiceId);
+      const id = parseInt(req.params.id);
+      // Verify the invoice belongs to the user's business
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice || !verifyBusinessOwnership(invoice, req)) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      await storage.deleteInvoiceItem(id);
+      res.status(204).end();
+    } catch (error) {
+      res.status(500).json({ message: "Error deleting invoice item" });
+    }
+  });
+
+  // Keep backward-compatible delete route (authenticated)
+  app.delete("/api/invoice-items/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteInvoiceItem(id);
@@ -3813,14 +3855,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
       console.error('Stripe webhook signature verification failed:', err);
-      return res.status(400).send(`Webhook Error: ${err}`);
+      return res.status(400).json({ error: 'Webhook signature verification failed' });
     }
-    
+
     // Handle the event
     switch (event.type) {
-      case 'payment_intent.succeeded':
+      case 'payment_intent.succeeded': {
         const paymentIntent = event.data.object;
-        const invoiceId = parseInt(paymentIntent.metadata.invoiceId);
+        const invoiceId = parseInt(paymentIntent.metadata?.invoiceId);
 
         // Update invoice status to paid
         if (invoiceId) {
@@ -3840,8 +3882,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         break;
+      }
 
-      case 'account.updated':
+      case 'payment_intent.payment_failed': {
+        const failedPayment = event.data.object;
+        const failedInvoiceId = parseInt(failedPayment.metadata?.invoiceId);
+        if (failedInvoiceId) {
+          console.warn(`[Stripe] Payment failed for invoice ${failedInvoiceId}: ${failedPayment.last_payment_error?.message || 'Unknown reason'}`);
+        }
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const deletedSub = event.data.object;
+        console.warn(`[Stripe] Subscription deleted: ${deletedSub.id} — customer: ${deletedSub.customer}`);
+        // Note: subscription lifecycle is also handled by subscriptionRoutes webhook
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const failedInvoice = event.data.object as any;
+        console.warn(`[Stripe] Invoice payment failed: ${failedInvoice.id} — subscription: ${failedInvoice.subscription || 'N/A'}`);
+        break;
+      }
+
+      case 'account.updated': {
         // Stripe Connect: sync connected account status when it changes
         try {
           const account = event.data.object;
@@ -3850,11 +3915,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error('Error handling account.updated webhook:', error);
         }
         break;
+      }
 
       default:
-        console.log(`Unhandled event type ${event.type}`);
+        // Log unhandled events for monitoring (not an error, just informational)
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[Stripe] Unhandled event type: ${event.type}`);
+        }
     }
-    
+
     // Return a response to acknowledge receipt of the event
     res.json({received: true});
   });

@@ -43,16 +43,28 @@ function formatCurrency(amount: number): string {
 
 // Helper to format date in the business timezone (defaults to UTC if not set)
 function formatDate(date: Date, timezone?: string): string {
-  const opts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
-  if (timezone) opts.timeZone = timezone;
-  return date.toLocaleDateString('en-US', opts);
+  try {
+    const opts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
+    if (timezone) opts.timeZone = timezone;
+    return date.toLocaleDateString('en-US', opts);
+  } catch (err) {
+    // Invalid timezone — fall back to UTC to avoid crashing the notification
+    console.warn(`[Notification] Invalid timezone "${timezone}", falling back to UTC:`, err);
+    return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  }
 }
 
 // Helper to format time in the business timezone (defaults to UTC if not set)
 function formatTime(date: Date, timezone?: string): string {
-  const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
-  if (timezone) opts.timeZone = timezone;
-  return date.toLocaleTimeString('en-US', opts);
+  try {
+    const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
+    if (timezone) opts.timeZone = timezone;
+    return date.toLocaleTimeString('en-US', opts);
+  } catch (err) {
+    // Invalid timezone — fall back to UTC to avoid crashing the notification
+    console.warn(`[Notification] Invalid timezone "${timezone}", falling back to UTC:`, err);
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  }
 }
 
 /**
@@ -244,7 +256,7 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
     }
 
     // Send SMS
-    if (sendSmsPref && customer.phone) {
+    if (sendSmsPref && canSendSms(customer)) {
       try {
         const industry = (business.industry || '').toLowerCase();
         const isFieldService = industry.includes('landscap') || industry.includes('lawn') || industry.includes('plumb') || industry.includes('hvac') || industry.includes('electric') || industry.includes('clean');
@@ -288,6 +300,17 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
         });
       } catch (err) {
         console.error('Failed to send appointment reminder SMS:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'appointment_reminder',
+          channel: 'sms',
+          recipient: customer.phone,
+          status: 'failed',
+          referenceType: 'appointment',
+          referenceId: appointmentId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }).catch(logErr => console.error('Failed to log SMS failure:', logErr));
       }
     }
   } catch (error) {
@@ -349,7 +372,7 @@ export async function sendInvoiceCreatedNotification(invoiceId: number, business
     }
 
     // Send SMS
-    if (sendSmsPref && customer.phone) {
+    if (sendSmsPref && canSendSms(customer)) {
       try {
         const message = `Hi ${customer.firstName}! You have a new invoice #${invoice.invoiceNumber} for ${amount} from ${business.name}. Due: ${dueDate}. Call ${business.phone} for questions.`;
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
@@ -366,6 +389,17 @@ export async function sendInvoiceCreatedNotification(invoiceId: number, business
         });
       } catch (err) {
         console.error('Failed to send invoice SMS:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'invoice_created',
+          channel: 'sms',
+          recipient: customer.phone,
+          status: 'failed',
+          referenceType: 'invoice',
+          referenceId: invoiceId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }).catch(logErr => console.error('Failed to log SMS failure:', logErr));
       }
     }
   } catch (error) {
@@ -450,7 +484,7 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
     }
 
     // Send SMS with payment link
-    if (sendSmsPref && customer.phone) {
+    if (sendSmsPref && canSendSms(customer)) {
       try {
         const contactInfo = business.phone ? `Call ${business.phone} to pay.` : `Contact ${business.name} to pay.`;
         const message = payUrl
@@ -470,6 +504,17 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
         });
       } catch (err) {
         console.error('Failed to send invoice reminder SMS:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'invoice_reminder',
+          channel: 'sms',
+          recipient: customer.phone,
+          status: 'failed',
+          referenceType: 'invoice',
+          referenceId: invoiceId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }).catch(logErr => console.error('Failed to log SMS failure:', logErr));
       }
     }
   } catch (error) {
@@ -572,7 +617,7 @@ export async function sendJobCompletedNotification(jobId: number, businessId: nu
     }
 
     // Send SMS
-    if (sendSmsPref && customer.phone) {
+    if (sendSmsPref && canSendSms(customer)) {
       try {
         const message = `Hi ${customer.firstName}! "${job.title}" has been completed. Questions? Call ${business.phone}. Thank you for choosing ${business.name}!`;
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
@@ -589,6 +634,17 @@ export async function sendJobCompletedNotification(jobId: number, businessId: nu
         });
       } catch (err) {
         console.error('Failed to send job completed SMS:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'job_completed',
+          channel: 'sms',
+          recipient: customer.phone,
+          status: 'failed',
+          referenceType: 'job',
+          referenceId: jobId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }).catch(logErr => console.error('Failed to log SMS failure:', logErr));
       }
     }
   } catch (error) {
@@ -666,6 +722,17 @@ export async function sendQuoteSentNotification(
         console.log(`Quote #${quote.quoteNumber} SMS sent to ${customer.phone}`);
       } catch (err) {
         console.error('Failed to send quote SMS:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'quote_sent',
+          channel: 'sms',
+          recipient: customer.phone,
+          status: 'failed',
+          referenceType: 'quote',
+          referenceId: quoteId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }).catch(logErr => console.error('Failed to log SMS failure:', logErr));
       }
     }
   } catch (error) {
@@ -742,6 +809,17 @@ export async function sendInvoiceSentNotification(
         console.log(`Invoice #${invoice.invoiceNumber} SMS sent to ${customer.phone}`);
       } catch (err) {
         console.error('Failed to send invoice SMS:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'invoice_sent',
+          channel: 'sms',
+          recipient: customer.phone,
+          status: 'failed',
+          referenceType: 'invoice',
+          referenceId: invoiceId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }).catch(logErr => console.error('Failed to log SMS failure:', logErr));
       }
     }
   } catch (error) {
@@ -816,6 +894,17 @@ export async function sendQuoteConvertedNotification(
         });
       } catch (err) {
         console.error('Failed to send quote conversion SMS:', err);
+        await storage.createNotificationLog({
+          businessId,
+          customerId: customer.id,
+          type: 'quote_converted',
+          channel: 'sms',
+          recipient: customer.phone,
+          status: 'failed',
+          referenceType: 'invoice',
+          referenceId: invoiceId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }).catch(logErr => console.error('Failed to log SMS failure:', logErr));
       }
     }
   } catch (error) {
