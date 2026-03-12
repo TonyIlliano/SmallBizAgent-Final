@@ -1118,24 +1118,67 @@ async function fixExistingTables() {
       customer_id INTEGER NOT NULL,
       business_id INTEGER NOT NULL,
       lifetime_value REAL DEFAULT 0,
+      total_invoices INTEGER DEFAULT 0,
+      average_invoice_amount REAL DEFAULT 0,
       total_visits INTEGER DEFAULT 0,
       avg_visit_frequency_days REAL,
+      last_visit_date TIMESTAMP,
+      days_since_last_visit INTEGER,
       preferred_services JSONB,
       preferred_staff TEXT,
+      preferred_day_of_week TEXT,
+      preferred_time_of_day TEXT,
+      communication_preference TEXT,
+      sms_response_rate REAL,
+      average_sms_response_time_minutes REAL,
+      total_sms_sent INTEGER DEFAULT 0,
+      total_sms_replied INTEGER DEFAULT 0,
+      total_calls INTEGER DEFAULT 0,
+      average_sentiment REAL,
       sentiment_trend TEXT DEFAULT 'stable',
-      risk_level TEXT DEFAULT 'low',
-      risk_factors JSONB,
-      churn_probability REAL DEFAULT 0,
-      auto_tags JSONB,
+      last_call_sentiment INTEGER,
       no_show_count INTEGER DEFAULT 0,
       cancellation_count INTEGER DEFAULT 0,
-      reliability_score REAL DEFAULT 100,
-      last_visit_date TIMESTAMP,
+      completed_count INTEGER DEFAULT 0,
+      reliability_score REAL,
+      risk_level TEXT DEFAULT 'low',
+      risk_factors JSONB,
+      churn_probability REAL,
+      auto_tags JSONB,
+      accumulated_facts JSONB,
+      last_calculated_at TIMESTAMP,
+      calculation_version INTEGER DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT customer_insights_unique UNIQUE (customer_id, business_id)
     );
   `);
+
+  // Add any missing columns to customer_insights if the table already existed
+  // (ALTER TABLE ADD COLUMN IF NOT EXISTS is idempotent and safe)
+  const insightsColumns = [
+    `total_invoices INTEGER DEFAULT 0`,
+    `average_invoice_amount REAL DEFAULT 0`,
+    `days_since_last_visit INTEGER`,
+    `preferred_day_of_week TEXT`,
+    `preferred_time_of_day TEXT`,
+    `communication_preference TEXT`,
+    `sms_response_rate REAL`,
+    `average_sms_response_time_minutes REAL`,
+    `total_sms_sent INTEGER DEFAULT 0`,
+    `total_sms_replied INTEGER DEFAULT 0`,
+    `total_calls INTEGER DEFAULT 0`,
+    `average_sentiment REAL`,
+    `last_call_sentiment INTEGER`,
+    `completed_count INTEGER DEFAULT 0`,
+    `accumulated_facts JSONB`,
+    `last_calculated_at TIMESTAMP`,
+    `calculation_version INTEGER DEFAULT 1`,
+  ];
+  for (const col of insightsColumns) {
+    const colName = col.split(' ')[0];
+    await pool.query(`ALTER TABLE customer_insights ADD COLUMN IF NOT EXISTS ${col}`).catch(() => {});
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS customer_engagement_lock (
