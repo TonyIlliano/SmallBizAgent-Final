@@ -564,6 +564,14 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `client/src/pages/quotes/index.tsx` — Added `staleTime: 30000, refetchOnWindowFocus: true` to prevent stale data after mutations
 - `client/src/pages/auth/verify-email.tsx` — Extracted `getCsrfHeaders()` helper to eliminate CSRF token code duplication
 
+#### Scalability: Connection Pool, Scheduler Guards, Engagement Lock, Cache Fixes
+- `server/db.ts` — Connection pool increased from 10 → 25 to prevent connection starvation at 50+ businesses
+- `server/services/schedulerService.ts` — All 26+ scheduler jobs now wrapped with `withReentryGuard()` (in-memory Set) to prevent overlapping execution. Critical financial/communication jobs (overage-billing, trial-expiration, customer-insights, morning-brief) additionally wrapped with `withAdvisoryLock()` using PostgreSQL `pg_try_advisory_lock` for cross-instance safety
+- `server/storage.ts` — `acquireEngagementLock()` rewritten with raw SQL `SELECT ... FOR UPDATE` to prevent race condition where two agents could simultaneously acquire a lock on the same customer
+- `server/services/vapiWebhookHandler.ts` — `BusinessDataCache` now has MAX_SIZE (500 entries) with LRU eviction, `invalidate(businessId)` method, `cleanup()` method, and 15-minute periodic expired entry cleanup
+- `server/routes.ts` — Cache invalidation (`dataCache.invalidate()`) added to all business hours, services, staff, staff hours, and appointment mutation endpoints (~20 locations)
+- `server/services/socialMediaService.ts` — OAuth `pendingStates` Map now has 15-minute periodic cleanup of expired entries
+
 ---
 
 ## File Quick Reference
@@ -640,4 +648,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 12, 2026. 228 tests passing. Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes.*
+*Last updated: March 12, 2026. 228 tests passing. Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations.*

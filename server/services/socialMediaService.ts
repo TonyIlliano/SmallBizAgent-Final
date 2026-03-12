@@ -40,6 +40,19 @@ const PLATFORM_CONFIG: Record<SocialPlatform, { name: string; scopes: string[] }
 const STATE_TTL_MS = 10 * 60 * 1000;
 const pendingStates = new Map<string, { platform: SocialPlatform; createdAt: number; codeVerifier?: string }>();
 
+// Clean up expired OAuth states every 15 minutes to prevent memory leaks from failed flows
+setInterval(() => {
+  const now = Date.now();
+  let removed = 0;
+  for (const [state, data] of Array.from(pendingStates.entries())) {
+    if (now - data.createdAt > STATE_TTL_MS) {
+      pendingStates.delete(state);
+      removed++;
+    }
+  }
+  if (removed > 0) console.log(`[SocialMedia] Cleaned ${removed} expired OAuth states`);
+}, 15 * 60 * 1000);
+
 /**
  * Generate a cryptographically random PKCE code verifier (43-128 chars, URL-safe)
  */

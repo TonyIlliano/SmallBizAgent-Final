@@ -17,7 +17,7 @@ const isLocalDB = process.env.DATABASE_URL.includes('localhost') ||
 // Pool configuration
 const poolConfig: any = {
   connectionString: process.env.DATABASE_URL,
-  max: 10,
+  max: 25,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
 };

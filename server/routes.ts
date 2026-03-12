@@ -981,6 +981,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Invalidate services cache after bulk creation
+      dataCache.invalidate(businessId, 'services');
+
       res.status(201).json({
         message: `Created ${createdServices.length} services`,
         services: createdServices
@@ -1374,6 +1377,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedHours = await storage.updateStaffHoursForDay(staffId, day, req.body);
+
+      // Invalidate staff hours cache
+      dataCache.invalidate(staffMember.businessId, 'staffHours');
+
       res.json(updatedHours);
     } catch (error) {
       console.error('Error updating staff hours:', error);
@@ -2113,6 +2120,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateJob(job.id, { appointmentId: appointment.id });
           job.appointmentId = appointment.id;
 
+          // Invalidate appointments cache after auto-creation
+          dataCache.invalidate(businessId, 'appointments');
+
           console.log(`Auto-created appointment ${appointment.id} for job ${job.id}`);
         } catch (aptErr: any) {
           console.error('Failed to auto-create appointment for job:', aptErr.message);
@@ -2218,6 +2228,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             if (Object.keys(appointmentUpdates).length > 0) {
               await storage.updateAppointment(job.appointmentId, appointmentUpdates);
+              // Invalidate appointments cache after syncing job changes
+              dataCache.invalidate(existing.businessId, 'appointments');
               console.log(`Synced appointment ${job.appointmentId} with job ${job.id} changes`);
             }
           }

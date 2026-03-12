@@ -33,6 +33,7 @@ class BusinessDataCache {
   private cache = new Map<string, CacheEntry<any>>();
   private readonly DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
   private readonly SHORT_TTL = 2 * 60 * 1000;   // 2 minutes for appointments
+  private readonly MAX_SIZE = 500; // Maximum cache entries to prevent unbounded growth
 
   private getCacheKey(type: string, businessId: number, extra?: string): string {
     return `${type}:${businessId}${extra ? `:${extra}` : ''}`;
@@ -61,18 +62,56 @@ class BusinessDataCache {
       timestamp: Date.now(),
       ttl: customTtl || this.DEFAULT_TTL
     });
+
+    // Evict oldest 10% of entries if cache exceeds MAX_SIZE
+    if (this.cache.size > this.MAX_SIZE) {
+      const entriesToEvict = Math.ceil(this.MAX_SIZE * 0.1);
+      const iterator = this.cache.keys();
+      for (let i = 0; i < entriesToEvict; i++) {
+        const oldest = iterator.next();
+        if (!oldest.done) {
+          this.cache.delete(oldest.value);
+        }
+      }
+      console.log(`[BusinessDataCache] Evicted ${entriesToEvict} oldest entries (size was ${this.cache.size + entriesToEvict})`);
+    }
   }
 
   // Invalidate cache for a business (call after writes)
+  // Keys are formatted as "type:businessId" or "type:businessId:extra"
   invalidate(businessId: number, type?: string): void {
-    const prefix = type ? `${type}:${businessId}` : `:${businessId}`;
-    const keysToDelete: string[] = [];
-    this.cache.forEach((_, key) => {
-      if (key.includes(prefix)) {
-        keysToDelete.push(key);
+    if (type) {
+      // Specific type: match "type:businessId" and "type:businessId:*"
+      const prefix = `${type}:${businessId}`;
+      for (const key of Array.from(this.cache.keys())) {
+        if (key === prefix || key.startsWith(prefix + ':')) {
+          this.cache.delete(key);
+        }
       }
-    });
-    keysToDelete.forEach(key => this.cache.delete(key));
+    } else {
+      // All types: match any key containing ":businessId" as the businessId segment
+      for (const key of Array.from(this.cache.keys())) {
+        // Key format: "type:businessId" or "type:businessId:extra"
+        const parts = key.split(':');
+        if (parts.length >= 2 && parts[1] === String(businessId)) {
+          this.cache.delete(key);
+        }
+      }
+    }
+  }
+
+  // Remove all expired entries from cache
+  cleanup(): void {
+    let removed = 0;
+    for (const [key, entry] of Array.from(this.cache.entries())) {
+      if (this.isExpired(entry)) {
+        this.cache.delete(key);
+        removed++;
+      }
+    }
+    if (removed > 0) {
+      console.log(`[BusinessDataCache] Cleanup removed ${removed} expired entries`);
+    }
   }
 
   // Clear all cache (useful for testing)
@@ -91,6 +130,11 @@ class BusinessDataCache {
 
 // Singleton cache instance
 const dataCache = new BusinessDataCache();
+
+// Periodic cleanup of expired cache entries every 15 minutes
+setInterval(() => {
+  dataCache.cleanup();
+}, 15 * 60 * 1000);
 
 /**
  * Cached data fetchers - wrap storage calls with caching

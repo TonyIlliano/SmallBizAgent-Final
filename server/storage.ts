@@ -1362,36 +1362,54 @@ export class DatabaseStorage implements IStorage {
     businessId: number, customerId: number, customerPhone: string,
     agentType: string, durationMinutes: number
   ): Promise<{ acquired: boolean; existingLock?: CustomerEngagementLock }> {
-    // Use a transaction to prevent race conditions (TOCTOU) between check and insert
-    return await db.transaction(async (tx) => {
-      // Check for active, non-expired lock
-      const [existing] = await tx.select().from(customerEngagementLock)
-        .where(and(
-          eq(customerEngagementLock.customerId, customerId),
-          eq(customerEngagementLock.businessId, businessId),
-          eq(customerEngagementLock.status, 'active'),
-          gte(customerEngagementLock.expiresAt, new Date()),
-        ));
+    // Use raw SQL with SELECT ... FOR UPDATE to prevent race conditions.
+    // A Drizzle transaction with default isolation allows two concurrent SELECT checks
+    // to both see no lock before either INSERT completes (TOCTOU race).
+    // FOR UPDATE acquires a row-level lock, so concurrent transactions block on the
+    // SELECT until the first transaction commits or rolls back.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-      if (existing) {
-        return { acquired: false, existingLock: existing };
+      // Check for existing active lock with row-level lock.
+      // FOR UPDATE blocks any concurrent transaction from reading/modifying these rows
+      // until this transaction completes, preventing the TOCTOU race.
+      const existing = await client.query(
+        `SELECT * FROM customer_engagement_lock
+         WHERE customer_id = $1 AND business_id = $2 AND status = 'active' AND expires_at > NOW()
+         FOR UPDATE`,
+        [customerId, businessId]
+      );
+
+      if (existing.rows.length > 0) {
+        await client.query('COMMIT');
+        return { acquired: false, existingLock: existing.rows[0] };
       }
 
-      // Expire any stale locks for this customer
-      await tx.update(customerEngagementLock)
-        .set({ status: 'expired' })
-        .where(and(
-          eq(customerEngagementLock.customerId, customerId),
-          eq(customerEngagementLock.businessId, businessId),
-          eq(customerEngagementLock.status, 'active'),
-          lte(customerEngagementLock.expiresAt, new Date()),
-        ));
+      // Expire any stale locks for this customer (already locked by FOR UPDATE above if they exist)
+      await client.query(
+        `UPDATE customer_engagement_lock SET status = 'expired'
+         WHERE customer_id = $1 AND business_id = $2 AND status = 'active' AND expires_at <= NOW()`,
+        [customerId, businessId]
+      );
 
+      // No active lock exists — safe to insert
       const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000);
-      await tx.insert(customerEngagementLock)
-        .values({ businessId, customerId, customerPhone: customerPhone || '', lockedByAgent: agentType, lockedAt: new Date(), expiresAt, status: 'active' });
+      await client.query(
+        `INSERT INTO customer_engagement_lock (customer_id, business_id, customer_phone, locked_by_agent, locked_at, expires_at, status)
+         VALUES ($1, $2, $3, $4, NOW(), $5, 'active')`,
+        [customerId, businessId, customerPhone || '', agentType, expiresAt]
+      );
+
+      await client.query('COMMIT');
       return { acquired: true };
-    });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('[EngagementLock] Error acquiring lock:', err);
+      return { acquired: false };
+    } finally {
+      client.release();
+    }
   }
 
   async releaseEngagementLock(customerId: number, businessId: number): Promise<void> {
