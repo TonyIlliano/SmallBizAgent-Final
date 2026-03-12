@@ -93,6 +93,8 @@ export default function Invoices() {
   // Fetch invoices
   const { data: invoices = [], isLoading, isError, error: queryError, refetch } = useQuery<any[]>({
     queryKey: ['/api/invoices', queryParams],
+    staleTime: 30000,
+    refetchOnWindowFocus: true,
   });
   
   // Status badge component

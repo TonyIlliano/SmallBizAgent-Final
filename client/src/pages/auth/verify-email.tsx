@@ -53,18 +53,21 @@ export default function VerifyEmailPage() {
     return <Redirect to={user.businessId ? "/" : "/onboarding/subscription"} />;
   }
 
+  function getCsrfHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
+    if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
+    return headers;
+  }
+
   async function handleVerify(verificationCode: string) {
     setError(null);
     setVerifying(true);
 
     try {
-      const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
-
       const res = await fetch("/api/verify-email", {
         method: "POST",
-        headers,
+        headers: getCsrfHeaders(),
         credentials: "include",
         body: JSON.stringify({ email: user!.email, code: verificationCode.trim() }),
       });
@@ -100,13 +103,9 @@ export default function VerifyEmailPage() {
     setResending(true);
 
     try {
-      const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
-
       const res = await fetch("/api/resend-verification", {
         method: "POST",
-        headers,
+        headers: getCsrfHeaders(),
         credentials: "include",
         body: JSON.stringify({ email: user!.email }),
       });

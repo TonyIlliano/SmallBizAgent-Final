@@ -359,7 +359,7 @@ router.delete("/customers/:id", async (req, res) => {
     }
 
     // Delete the customer
-    await storage.deleteCustomer(customerId);
+    await storage.deleteCustomer(customerId, businessId);
 
     res.json({ success: true });
   } catch (error) {

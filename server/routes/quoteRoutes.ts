@@ -489,7 +489,7 @@ router.delete("/quotes/:id", async (req, res) => {
     await storage.deleteQuoteItems(quoteId);
     
     // Delete the quote
-    await storage.deleteQuote(quoteId);
+    await storage.deleteQuote(quoteId, businessId);
 
     res.json({ success: true });
   } catch (error) {

@@ -64,6 +64,8 @@ export default function Quotes() {
       if (!res.ok) throw new Error("Failed to fetch quotes");
       return res.json();
     },
+    staleTime: 30000,
+    refetchOnWindowFocus: true,
   });
 
   // Filter quotes based on search term and status filter

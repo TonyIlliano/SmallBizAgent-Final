@@ -17,6 +17,9 @@ const gbpService = new GoogleBusinessProfileService();
 router.get('/status/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
     const connected = await gbpService.isConnected(businessId);
     const data = connected ? await gbpService.getStoredData(businessId) : null;
     res.json({ connected, data });
@@ -29,6 +32,9 @@ router.get('/status/:businessId', isAuthenticated, async (req, res) => {
 router.get('/auth-url/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
     const url = gbpService.generateAuthUrl(businessId);
     if (!url) {
       return res.status(500).json({ error: 'Could not generate auth URL. Check Google credentials.' });
@@ -88,6 +94,9 @@ router.get('/google/callback', async (req, res) => {
 router.get('/accounts/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
     const accounts = await gbpService.listAccounts(businessId);
     res.json(accounts);
   } catch (error: any) {
@@ -99,6 +108,9 @@ router.get('/accounts/:businessId', isAuthenticated, async (req, res) => {
 router.get('/locations/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
     const accountName = req.query.account as string;
     if (!accountName) {
       return res.status(400).json({ error: 'account query parameter required' });
@@ -114,6 +126,9 @@ router.get('/locations/:businessId', isAuthenticated, async (req, res) => {
 router.post('/set-booking-link/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
     const { locationName, account, location } = req.body;
 
     if (!locationName || !account || !location) {
@@ -147,6 +162,9 @@ router.post('/set-booking-link/:businessId', isAuthenticated, async (req, res) =
 router.get('/phone-numbers/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
     const storedData = await gbpService.getStoredData(businessId);
 
     if (!storedData?.selectedLocation?.name) {
@@ -168,6 +186,9 @@ router.get('/phone-numbers/:businessId', isAuthenticated, async (req, res) => {
 router.post('/set-ai-phone/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
 
     // Get the business's provisioned Twilio phone number
     const business = await storage.getBusiness(businessId);
@@ -204,6 +225,9 @@ router.post('/set-ai-phone/:businessId', isAuthenticated, async (req, res) => {
 router.post('/restore-phone/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
     const storedData = await gbpService.getStoredData(businessId);
 
     if (!storedData?.selectedLocation?.name) {
@@ -226,6 +250,9 @@ router.post('/restore-phone/:businessId', isAuthenticated, async (req, res) => {
 router.delete('/booking-link/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
     const storedData = await gbpService.getStoredData(businessId);
 
     if (!storedData?.bookingLinkName) {
@@ -254,6 +281,9 @@ router.delete('/booking-link/:businessId', isAuthenticated, async (req, res) => 
 router.delete('/:businessId', isAuthenticated, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
 
     // Try to remove the booking link first
     const storedData = await gbpService.getStoredData(businessId);

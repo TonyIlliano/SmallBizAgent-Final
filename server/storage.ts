@@ -106,7 +106,7 @@ export interface IStorage {
   getService(id: number): Promise<Service | undefined>;
   createService(service: InsertService): Promise<Service>;
   updateService(id: number, service: Partial<Service>): Promise<Service>;
-  deleteService(id: number): Promise<void>;
+  deleteService(id: number, businessId: number): Promise<void>;
   
   // Customers
   getCustomers(businessId: number): Promise<Customer[]>;
@@ -114,7 +114,7 @@ export interface IStorage {
   getCustomerByPhone(phone: string, businessId: number): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: number, customer: Partial<Customer>): Promise<Customer>;
-  deleteCustomer(id: number): Promise<void>;
+  deleteCustomer(id: number, businessId: number): Promise<void>;
   
   // Staff
   getStaff(businessId: number): Promise<Staff[]>;
@@ -156,7 +156,7 @@ export interface IStorage {
   getAppointmentsByCustomerId(customerId: number): Promise<Appointment[]>;
   createAppointment(appointment: InsertAppointment): Promise<Appointment>;
   updateAppointment(id: number, appointment: Partial<Appointment>): Promise<Appointment>;
-  deleteAppointment(id: number): Promise<void>;
+  deleteAppointment(id: number, businessId: number): Promise<void>;
 
   // Jobs
   getJobs(businessId: number, params?: {
@@ -168,7 +168,7 @@ export interface IStorage {
   getJobByAppointmentId(appointmentId: number): Promise<Job | undefined>;
   createJob(job: InsertJob): Promise<Job>;
   updateJob(id: number, job: Partial<Job>): Promise<Job>;
-  deleteJob(id: number): Promise<void>;
+  deleteJob(id: number, businessId: number): Promise<void>;
 
   // Job Line Items
   getJobLineItems(jobId: number): Promise<JobLineItem[]>;
@@ -187,7 +187,7 @@ export interface IStorage {
   getInvoicesWithAccessToken(email?: string, phone?: string): Promise<Invoice[]>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: number, invoice: Partial<Invoice>): Promise<Invoice>;
-  deleteInvoice(id: number): Promise<void>;
+  deleteInvoice(id: number, businessId: number): Promise<void>;
   
   // Invoice Items
   getInvoiceItems(invoiceId: number): Promise<InvoiceItem[]>;
@@ -254,7 +254,7 @@ export interface IStorage {
   createQuote(quote: InsertQuote): Promise<Quote>;
   updateQuote(id: number, quote: Partial<Quote>): Promise<Quote>;
   updateQuoteStatus(id: number, status: string): Promise<Quote>;
-  deleteQuote(id: number): Promise<void>;
+  deleteQuote(id: number, businessId: number): Promise<void>;
   
   // Quote Items
   getQuoteItems(quoteId: number): Promise<QuoteItem[]>;
@@ -330,7 +330,7 @@ export interface IStorage {
   getBusinessKnowledgeEntry(id: number): Promise<BusinessKnowledge | undefined>;
   createBusinessKnowledge(entry: InsertBusinessKnowledge): Promise<BusinessKnowledge>;
   updateBusinessKnowledge(id: number, data: Partial<BusinessKnowledge>): Promise<BusinessKnowledge>;
-  deleteBusinessKnowledge(id: number): Promise<void>;
+  deleteBusinessKnowledge(id: number, businessId: number): Promise<void>;
   deleteBusinessKnowledgeBySource(businessId: number, source: string): Promise<void>;
 
   // Unanswered Questions
@@ -338,7 +338,7 @@ export interface IStorage {
   getUnansweredQuestion(id: number): Promise<UnansweredQuestion | undefined>;
   createUnansweredQuestion(question: InsertUnansweredQuestion): Promise<UnansweredQuestion>;
   updateUnansweredQuestion(id: number, data: Partial<UnansweredQuestion>): Promise<UnansweredQuestion>;
-  deleteUnansweredQuestion(id: number): Promise<void>;
+  deleteUnansweredQuestion(id: number, businessId: number): Promise<void>;
   getUnansweredQuestionCount(businessId: number): Promise<number>;
 
   // AI Suggestions (Auto-Refine Pipeline)
@@ -402,7 +402,7 @@ export interface IStorage {
   getPhoneNumber(id: number): Promise<BusinessPhoneNumber | undefined>;
   createPhoneNumber(data: InsertBusinessPhoneNumber): Promise<BusinessPhoneNumber>;
   updatePhoneNumber(id: number, data: Partial<BusinessPhoneNumber>): Promise<BusinessPhoneNumber>;
-  deletePhoneNumber(id: number): Promise<void>;
+  deletePhoneNumber(id: number, businessId: number): Promise<void>;
   getPhoneNumberByTwilioNumber(phoneNumber: string): Promise<BusinessPhoneNumber | undefined>;
 
   // Business Groups
@@ -648,8 +648,8 @@ export class DatabaseStorage implements IStorage {
     return updatedService;
   }
 
-  async deleteService(id: number): Promise<void> {
-    await db.delete(services).where(eq(services.id, id));
+  async deleteService(id: number, businessId: number): Promise<void> {
+    await db.delete(services).where(and(eq(services.id, id), eq(services.businessId, businessId)));
   }
 
   // Customers
@@ -712,8 +712,8 @@ export class DatabaseStorage implements IStorage {
     return updatedCustomer;
   }
 
-  async deleteCustomer(id: number): Promise<void> {
-    await db.delete(customers).where(eq(customers.id, id));
+  async deleteCustomer(id: number, businessId: number): Promise<void> {
+    await db.delete(customers).where(and(eq(customers.id, id), eq(customers.businessId, businessId)));
   }
 
   // Staff
@@ -974,8 +974,8 @@ export class DatabaseStorage implements IStorage {
     return updatedAppointment;
   }
 
-  async deleteAppointment(id: number): Promise<void> {
-    await db.delete(appointments).where(eq(appointments.id, id));
+  async deleteAppointment(id: number, businessId: number): Promise<void> {
+    await db.delete(appointments).where(and(eq(appointments.id, id), eq(appointments.businessId, businessId)));
   }
 
   // Helper methods for Vapi integration
@@ -1038,8 +1038,8 @@ export class DatabaseStorage implements IStorage {
     return updatedJob;
   }
 
-  async deleteJob(id: number): Promise<void> {
-    await db.delete(jobs).where(eq(jobs.id, id));
+  async deleteJob(id: number, businessId: number): Promise<void> {
+    await db.delete(jobs).where(and(eq(jobs.id, id), eq(jobs.businessId, businessId)));
   }
 
   // Job Line Items
@@ -1131,7 +1131,8 @@ export class DatabaseStorage implements IStorage {
           sql`${invoices.accessToken} IS NOT NULL`
         )
       )
-      .orderBy(desc(invoices.createdAt));
+      .orderBy(desc(invoices.createdAt))
+      .limit(50);
 
     return allInvoices;
   }
@@ -1156,8 +1157,8 @@ export class DatabaseStorage implements IStorage {
     return updatedInvoice;
   }
 
-  async deleteInvoice(id: number): Promise<void> {
-    await db.delete(invoices).where(eq(invoices.id, id));
+  async deleteInvoice(id: number, businessId: number): Promise<void> {
+    await db.delete(invoices).where(and(eq(invoices.id, id), eq(invoices.businessId, businessId)));
   }
 
   // Invoice Items
@@ -1595,11 +1596,11 @@ export class DatabaseStorage implements IStorage {
     return updatedQuote;
   }
 
-  async deleteQuote(id: number): Promise<void> {
+  async deleteQuote(id: number, businessId: number): Promise<void> {
     // First delete all quote items
     await this.deleteQuoteItems(id);
     // Then delete the quote
-    await db.delete(quotes).where(eq(quotes.id, id));
+    await db.delete(quotes).where(and(eq(quotes.id, id), eq(quotes.businessId, businessId)));
   }
 
   // Quote Items
@@ -1971,8 +1972,8 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async deleteBusinessKnowledge(id: number): Promise<void> {
-    await db.delete(businessKnowledge).where(eq(businessKnowledge.id, id));
+  async deleteBusinessKnowledge(id: number, businessId: number): Promise<void> {
+    await db.delete(businessKnowledge).where(and(eq(businessKnowledge.id, id), eq(businessKnowledge.businessId, businessId)));
   }
 
   async deleteBusinessKnowledgeBySource(businessId: number, source: string): Promise<void> {
@@ -2014,8 +2015,8 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async deleteUnansweredQuestion(id: number): Promise<void> {
-    await db.delete(unansweredQuestions).where(eq(unansweredQuestions.id, id));
+  async deleteUnansweredQuestion(id: number, businessId: number): Promise<void> {
+    await db.delete(unansweredQuestions).where(and(eq(unansweredQuestions.id, id), eq(unansweredQuestions.businessId, businessId)));
   }
 
   async getUnansweredQuestionCount(businessId: number): Promise<number> {
@@ -2375,8 +2376,8 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async deletePhoneNumber(id: number): Promise<void> {
-    await db.delete(businessPhoneNumbers).where(eq(businessPhoneNumbers.id, id));
+  async deletePhoneNumber(id: number, businessId: number): Promise<void> {
+    await db.delete(businessPhoneNumbers).where(and(eq(businessPhoneNumbers.id, id), eq(businessPhoneNumbers.businessId, businessId)));
   }
 
   async getPhoneNumberByTwilioNumber(phoneNumber: string): Promise<BusinessPhoneNumber | undefined> {

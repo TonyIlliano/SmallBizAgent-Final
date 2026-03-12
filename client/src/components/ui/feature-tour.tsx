@@ -3,6 +3,15 @@ import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { X, ChevronRight, ChevronLeft, MapPin } from 'lucide-react';
 
+function safeJsonParse<T>(key: string, fallback: T): T {
+  try {
+    const val = localStorage.getItem(key);
+    return val ? JSON.parse(val) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export interface TourStep {
   target: string;
   title: string;
@@ -27,7 +36,7 @@ export function FeatureTour({ tourId, steps, onComplete, autoStart = false }: Fe
   // Check if this tour has been completed
   useEffect(() => {
     // Check if tour has been completed
-    const completedTours = JSON.parse(localStorage.getItem('completedTours') || '{}');
+    const completedTours = safeJsonParse('completedTours', {} as Record<string, boolean>);
     if (completedTours[tourId]) {
       setIsOpen(false);
       return;
@@ -129,7 +138,7 @@ export function FeatureTour({ tourId, steps, onComplete, autoStart = false }: Fe
     setIsOpen(false);
     
     // Save completed tour in localStorage
-    const completedTours = JSON.parse(localStorage.getItem('completedTours') || '{}');
+    const completedTours = safeJsonParse('completedTours', {} as Record<string, boolean>);
     completedTours[tourId] = true;
     localStorage.setItem('completedTours', JSON.stringify(completedTours));
     

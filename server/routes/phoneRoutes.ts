@@ -174,7 +174,7 @@ router.delete(
       } catch (twilioError: any) {
         console.warn("[Phone] Twilio release warning (proceeding with local delete):", twilioError.message);
         // If Twilio release fails, still delete locally
-        await storage.deletePhoneNumber(phoneId);
+        await storage.deletePhoneNumber(phoneId, businessId);
       }
 
       res.json({ success: true, message: "Phone number released successfully" });

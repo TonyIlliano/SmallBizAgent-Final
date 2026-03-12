@@ -1012,7 +1012,7 @@ function AgentCard({ agent, isExpanded, onToggle, onRun, isRunning }: {
 }
 
 function AgentDetailView({ details, action, businessId }: { details: any; action: string; businessId: number }) {
-  const d = typeof details === 'string' ? JSON.parse(details) : details;
+  const d = typeof details === 'string' ? (() => { try { return JSON.parse(details); } catch { return {}; } })() : details;
   if (!d) return <p className="text-muted-foreground">No details available.</p>;
 
   // Content draft (blog or social)

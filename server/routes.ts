@@ -433,6 +433,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/business/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
 
       // Authorization: user must be admin or belong to this business
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, id)) {
@@ -486,6 +489,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/business/:id/provisioning-status", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
         return res.status(403).json({ message: "Not authorized" });
@@ -513,6 +519,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/business/:id/audit-log", isAuthenticated, belongsToBusiness, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
       const page = parseInt(req.query.page as string) || 1;
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
       const offset = (page - 1) * limit;
@@ -681,13 +690,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/business/:id/provision", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
-      
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
+
       // Check if business exists
       const business = await storage.getBusiness(businessId);
       if (!business) {
         return res.status(404).json({ message: "Business not found" });
       }
-      
+
       // Check if user is authorized to access this business
       // Admin users can provision any business
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
@@ -724,6 +736,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/business/:businessId/hours", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
 
       // Authorization: user must be admin or belong to this business
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
@@ -782,6 +797,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/business-hours/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid ID" });
+      }
 
       // Authorization: if businessId is in the body, verify user belongs to that business
       // Otherwise, the update is scoped by the hours record ID (which was created under their business)
@@ -838,6 +856,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/services/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid service ID" });
+      }
       const service = await storage.getService(id);
       if (!service || !verifyBusinessOwnership(service, req)) {
         return res.status(404).json({ message: "Service not found" });
@@ -976,6 +997,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/services/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid service ID" });
+      }
       // Verify ownership before update
       const existing = await storage.getService(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
@@ -1002,13 +1026,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/services/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid service ID" });
+      }
       // Verify ownership before delete
       const existing = await storage.getService(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Service not found" });
       }
       const businessId = existing.businessId;
-      await storage.deleteService(id);
+      await storage.deleteService(id, businessId);
 
       // Invalidate services cache
       dataCache.invalidate(businessId, 'services');
@@ -1039,6 +1066,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/customers/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
       const customer = await storage.getCustomer(id);
       if (!customer || !verifyBusinessOwnership(customer, req)) {
         return res.status(404).json({ message: "Customer not found" });
@@ -1071,6 +1101,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/customers/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
       const existing = await storage.getCustomer(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Customer not found" });
@@ -1094,11 +1127,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/customers/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
       const existing = await storage.getCustomer(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Customer not found" });
       }
-      await storage.deleteCustomer(id);
+      await storage.deleteCustomer(id, existing.businessId);
       res.status(204).end();
     } catch (error) {
       res.status(500).json({ message: "Error deleting customer" });
@@ -1191,6 +1227,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/staff/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       const staffMember = await storage.getStaffMember(id);
       if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
         return res.status(404).json({ message: "Staff member not found" });
@@ -1225,6 +1264,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/staff/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       const existing = await storage.getStaffMember(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Staff member not found" });
@@ -1247,6 +1289,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/staff/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       const existing = await storage.getStaffMember(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Staff member not found" });
@@ -1269,6 +1314,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/staff/:id/hours", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const staffId = parseInt(req.params.id);
+      if (isNaN(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       const staffMember = await storage.getStaffMember(staffId);
 
       if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
@@ -1286,6 +1334,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/staff/:id/hours", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const staffId = parseInt(req.params.id);
+      if (isNaN(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       console.log('Setting staff hours for staffId:', staffId, 'body:', JSON.stringify(req.body));
       const staffMember = await storage.getStaffMember(staffId);
 
@@ -1312,6 +1363,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/staff/:id/hours/:day", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const staffId = parseInt(req.params.id);
+      if (isNaN(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       const day = req.params.day.toLowerCase();
       const staffMember = await storage.getStaffMember(staffId);
 
@@ -1353,6 +1407,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/staff/:id/services", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const staffId = parseInt(req.params.id);
+      if (isNaN(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       const staffMember = await storage.getStaffMember(staffId);
       if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
         return res.status(404).json({ message: "Staff member not found" });
@@ -1369,6 +1426,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/staff/:id/services", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const staffId = parseInt(req.params.id);
+      if (isNaN(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       const staffMember = await storage.getStaffMember(staffId);
       if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
         return res.status(404).json({ message: "Staff member not found" });
@@ -1391,6 +1451,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/staff/:id/invite", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const staffId = parseInt(req.params.id);
+      if (isNaN(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
       const staffMember = await storage.getStaffMember(staffId);
       if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
         return res.status(404).json({ message: "Staff member not found" });
@@ -1595,11 +1658,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (req.query.customerId) {
-        params.customerId = parseInt(req.query.customerId as string);
+        const customerId = parseInt(req.query.customerId as string);
+        if (isNaN(customerId)) {
+          return res.status(400).json({ message: "Invalid customer ID" });
+        }
+        params.customerId = customerId;
       }
 
       if (req.query.staffId) {
-        params.staffId = parseInt(req.query.staffId as string);
+        const staffId = parseInt(req.query.staffId as string);
+        if (isNaN(staffId)) {
+          return res.status(400).json({ message: "Invalid staff ID" });
+        }
+        params.staffId = staffId;
       }
 
       const appointments = await storage.getAppointments(businessId, params);
@@ -1629,6 +1700,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/appointments/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid appointment ID" });
+      }
       const appointment = await storage.getAppointment(id);
       if (!appointment || !verifyBusinessOwnership(appointment, req)) {
         return res.status(404).json({ message: "Appointment not found" });
@@ -1699,6 +1773,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/appointments/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid appointment ID" });
+      }
       console.log('Updating appointment:', id, 'body:', JSON.stringify(req.body));
       const existing = await storage.getAppointment(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
@@ -1807,6 +1884,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/appointments/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid appointment ID" });
+      }
       const existing = await storage.getAppointment(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Appointment not found" });
@@ -1822,7 +1902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
-      await storage.deleteAppointment(id);
+      await storage.deleteAppointment(id, businessId);
 
       // Invalidate appointments cache
       dataCache.invalidate(businessId, 'appointments');
@@ -1859,7 +1939,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         params.status = req.query.status as string;
       }
       if (req.query.customerId) {
-        params.customerId = parseInt(req.query.customerId as string);
+        const customerId = parseInt(req.query.customerId as string);
+        if (isNaN(customerId)) {
+          return res.status(400).json({ message: "Invalid customer ID" });
+        }
+        params.customerId = customerId;
       }
 
       const reservations = await storage.getRestaurantReservations(businessId, params);
@@ -1881,6 +1965,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/restaurant-reservations/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid reservation ID" });
+      }
       const reservation = await storage.getRestaurantReservation(id);
       if (!reservation || !verifyBusinessOwnership(reservation, req)) {
         return res.status(404).json({ message: "Reservation not found" });
@@ -1895,6 +1982,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/restaurant-reservations/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid reservation ID" });
+      }
       const existing = await storage.getRestaurantReservation(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Reservation not found" });
@@ -1928,11 +2018,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (req.query.customerId) {
-        params.customerId = parseInt(req.query.customerId as string);
+        const customerId = parseInt(req.query.customerId as string);
+        if (isNaN(customerId)) {
+          return res.status(400).json({ message: "Invalid customer ID" });
+        }
+        params.customerId = customerId;
       }
 
       if (req.query.staffId) {
-        params.staffId = parseInt(req.query.staffId as string);
+        const staffId = parseInt(req.query.staffId as string);
+        if (isNaN(staffId)) {
+          return res.status(400).json({ message: "Invalid staff ID" });
+        }
+        params.staffId = staffId;
       }
 
       const jobs = await storage.getJobs(businessId, params);
@@ -1960,6 +2058,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/jobs/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       const job = await storage.getJob(id);
       if (!job || !verifyBusinessOwnership(job, req)) {
         return res.status(404).json({ message: "Job not found" });
@@ -2031,6 +2132,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/jobs/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       const existing = await storage.getJob(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Job not found" });
@@ -2134,11 +2238,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/jobs/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       const existing = await storage.getJob(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Job not found" });
       }
-      await storage.deleteJob(id);
+      await storage.deleteJob(id, existing.businessId);
       res.status(204).end();
     } catch (error) {
       res.status(500).json({ message: "Error deleting job" });
@@ -2149,6 +2256,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/jobs/:jobId/line-items", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const jobId = parseInt(req.params.jobId);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       // Verify job belongs to user's business
       const job = await storage.getJob(jobId);
       if (!job || !verifyBusinessOwnership(job, req)) {
@@ -2164,6 +2274,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/jobs/:jobId/line-items", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const jobId = parseInt(req.params.jobId);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       // Verify job belongs to user's business
       const job = await storage.getJob(jobId);
       if (!job || !verifyBusinessOwnership(job, req)) {
@@ -2191,12 +2304,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/jobs/:jobId/line-items/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const jobId = parseInt(req.params.jobId);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       // Verify job belongs to user's business
       const job = await storage.getJob(jobId);
       if (!job || !verifyBusinessOwnership(job, req)) {
         return res.status(404).json({ message: "Job not found" });
       }
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid line item ID" });
+      }
       const { type, description, quantity, unitPrice, taxable } = req.body;
 
       const amount = (quantity || 1) * unitPrice;
@@ -2217,12 +2336,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/jobs/:jobId/line-items/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const jobId = parseInt(req.params.jobId);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       // Verify job belongs to user's business
       const job = await storage.getJob(jobId);
       if (!job || !verifyBusinessOwnership(job, req)) {
         return res.status(404).json({ message: "Job not found" });
       }
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid line item ID" });
+      }
       await storage.deleteJobLineItem(id);
       res.status(204).end();
     } catch (error) {
@@ -2234,6 +2359,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/jobs/:jobId/generate-invoice", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const jobId = parseInt(req.params.jobId);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
 
       // Get the job and verify ownership
       const job = await storage.getJob(jobId);
@@ -2315,7 +2443,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (req.query.customerId) {
-        params.customerId = parseInt(req.query.customerId as string);
+        const customerId = parseInt(req.query.customerId as string);
+        if (isNaN(customerId)) {
+          return res.status(400).json({ message: "Invalid customer ID" });
+        }
+        params.customerId = customerId;
       }
 
       let allInvoices = await storage.getInvoices(businessId, params);
@@ -2351,6 +2483,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/invoices/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid invoice ID" });
+      }
       const invoice = await storage.getInvoice(id);
       if (!invoice || !verifyBusinessOwnership(invoice, req)) {
         return res.status(404).json({ message: "Invoice not found" });
@@ -2408,6 +2543,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/invoices/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid invoice ID" });
+      }
       const existing = await storage.getInvoice(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Invoice not found" });
@@ -2446,6 +2584,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/invoices/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid invoice ID" });
+      }
       const existing = await storage.getInvoice(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Invoice not found" });
@@ -2458,7 +2599,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Then delete the invoice
-      await storage.deleteInvoice(id);
+      await storage.deleteInvoice(id, existing.businessId);
       res.status(204).end();
     } catch (error) {
       res.status(500).json({ message: "Error deleting invoice" });
@@ -2470,6 +2611,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/invoices/:id/generate-link", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid invoice ID" });
+      }
       const existing = await storage.getInvoice(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Invoice not found" });
@@ -2609,6 +2753,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Rate limiter for notification/SMS-sending endpoints (prevent abuse)
+  const notificationLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 10, // 10 notifications per hour per user
+    message: { message: 'Too many notification requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
   // Rate limiter for portal lookup (prevent enumeration attacks)
   const portalLookupLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -2663,6 +2816,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/invoice-items/:invoiceId", async (req: Request, res: Response) => {
     try {
       const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) {
+        return res.status(400).json({ message: "Invalid invoice ID" });
+      }
       // Verify invoice belongs to user's business
       const invoice = await storage.getInvoice(invoiceId);
       if (!invoice || !verifyBusinessOwnership(invoice, req)) {
@@ -2696,6 +2852,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/invoice-items/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid invoice item ID" });
+      }
       const validatedData = insertInvoiceItemSchema.partial().parse(req.body);
       // Verify via invoiceId in request body or existing item
       const invoiceId = validatedData.invoiceId || req.body.invoiceId;
@@ -2719,7 +2878,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/invoice-items/:invoiceId/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) {
+        return res.status(400).json({ message: "Invalid invoice ID" });
+      }
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid invoice item ID" });
+      }
       // Verify the invoice belongs to the user's business
       const invoice = await storage.getInvoice(invoiceId);
       if (!invoice || !verifyBusinessOwnership(invoice, req)) {
@@ -2736,6 +2901,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/invoice-items/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid invoice item ID" });
+      }
       await storage.deleteInvoiceItem(id);
       res.status(204).end();
     } catch (error) {
@@ -2809,6 +2977,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/jobs/:id/request-review", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const jobId = parseInt(req.params.id);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       const businessId = getBusinessId(req);
 
       // Verify job belongs to business
@@ -2862,6 +3033,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/review-track/:requestId", async (req: Request, res: Response) => {
     try {
       const requestId = parseInt(req.params.requestId);
+      if (isNaN(requestId)) {
+        return res.redirect(req.query.url as string || '/');
+      }
       const reviewService = await import('./services/reviewService');
       await reviewService.markReviewClicked(requestId);
 
@@ -2993,6 +3167,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/receptionist-config/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const requestedBusinessId = parseInt(req.params.businessId);
+      if (isNaN(requestedBusinessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
       const userBusinessId = getBusinessId(req);
       // Only allow access to own business config
       if (requestedBusinessId !== userBusinessId) {
@@ -3029,6 +3206,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/receptionist-config/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid receptionist config ID" });
+      }
       // Verify ownership: look up config by the user's businessId (NOT by the URL param id)
       // because getReceptionistConfig queries by businessId, not by config record id
       const userBusinessId = getBusinessId(req);
@@ -3090,6 +3270,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/call-logs/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid call log ID" });
+      }
       const log = await storage.getCallLog(id);
       if (!log || !verifyBusinessOwnership(log, req)) {
         return res.status(404).json({ message: "Call log not found" });
@@ -3117,6 +3300,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/call-logs/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid call log ID" });
+      }
       const existing = await storage.getCallLog(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Call log not found" });
@@ -3137,6 +3323,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/call-intelligence/:callLogId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const callLogId = parseInt(req.params.callLogId);
+      if (isNaN(callLogId)) {
+        return res.status(400).json({ error: "Invalid call log ID" });
+      }
       const intelligence = await storage.getCallIntelligence(callLogId);
       if (!intelligence) {
         return res.status(404).json({ error: 'Intelligence not found for this call' });
@@ -3189,6 +3378,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/customers/:id/insights", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const customerId = parseInt(req.params.id);
+      if (isNaN(customerId)) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
       const businessId = getBusinessId(req);
       const insights = await storage.getCustomerInsights(customerId, businessId);
       if (!insights) {
@@ -3306,6 +3498,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/knowledge/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid knowledge entry ID" });
+      }
       const existing = await storage.getBusinessKnowledgeEntry(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Knowledge entry not found" });
@@ -3335,11 +3530,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/knowledge/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid knowledge entry ID" });
+      }
       const existing = await storage.getBusinessKnowledgeEntry(id);
       if (!existing || !verifyBusinessOwnership(existing, req)) {
         return res.status(404).json({ message: "Knowledge entry not found" });
       }
-      await storage.deleteBusinessKnowledge(id);
+      await storage.deleteBusinessKnowledge(id, existing.businessId);
 
       // Trigger Vapi update
       try {
@@ -3381,6 +3579,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/unanswered-questions/:id/answer", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid question ID" });
+      }
       const { answer } = req.body;
       if (!answer) {
         return res.status(400).json({ message: "Answer is required" });
@@ -3408,6 +3609,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/unanswered-questions/:id/dismiss", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid question ID" });
+      }
       const question = await storage.getUnansweredQuestion(id);
       if (!question || !verifyBusinessOwnership(question, req)) {
         return res.status(404).json({ message: "Question not found" });
@@ -3423,11 +3627,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/unanswered-questions/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid question ID" });
+      }
       const question = await storage.getUnansweredQuestion(id);
       if (!question || !verifyBusinessOwnership(question, req)) {
         return res.status(404).json({ message: "Question not found" });
       }
-      await storage.deleteUnansweredQuestion(id);
+      await storage.deleteUnansweredQuestion(id, question.businessId);
       res.json({ message: "Question deleted" });
     } catch (error) {
       res.status(500).json({ message: "Error deleting question" });
@@ -3465,6 +3672,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/receptionist/suggestions/:id/accept", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid suggestion ID" });
+      }
       const suggestion = await storage.getAiSuggestion(id);
       if (!suggestion || !verifyBusinessOwnership(suggestion, req)) {
         return res.status(404).json({ message: "Suggestion not found" });
@@ -3485,6 +3695,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/receptionist/suggestions/:id/dismiss", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid suggestion ID" });
+      }
       const suggestion = await storage.getAiSuggestion(id);
       if (!suggestion || !verifyBusinessOwnership(suggestion, req)) {
         return res.status(404).json({ message: "Suggestion not found" });
@@ -3500,6 +3713,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/receptionist/suggestions/:id/edit", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid suggestion ID" });
+      }
       const { editedValue } = req.body;
       if (!editedValue) {
         return res.status(400).json({ message: "editedValue is required" });
@@ -3534,9 +3750,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // =================== REMINDERS API ===================
   // Send appointment reminder manually
-  app.post("/api/appointments/:id/send-reminder", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/appointments/:id/send-reminder", isAuthenticated, notificationLimiter, async (req: Request, res: Response) => {
     try {
       const appointmentId = parseInt(req.params.id);
+      if (isNaN(appointmentId)) {
+        return res.status(400).json({ message: "Invalid appointment ID" });
+      }
       const businessId = getBusinessId(req);
 
       // Verify appointment belongs to this business
@@ -3561,9 +3780,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Send invoice payment reminder manually
-  app.post("/api/invoices/:id/send-reminder", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/invoices/:id/send-reminder", isAuthenticated, notificationLimiter, async (req: Request, res: Response) => {
     try {
       const invoiceId = parseInt(req.params.id);
+      if (isNaN(invoiceId)) {
+        return res.status(400).json({ message: "Invalid invoice ID" });
+      }
       const businessId = getBusinessId(req);
 
       // Verify invoice belongs to this business
@@ -3586,9 +3808,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Send job follow-up / review request manually
-  app.post("/api/jobs/:id/send-followup", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/jobs/:id/send-followup", isAuthenticated, notificationLimiter, async (req: Request, res: Response) => {
     try {
       const jobId = parseInt(req.params.id);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ message: "Invalid job ID" });
+      }
       const businessId = getBusinessId(req);
       const { reviewLink } = req.body;
 
@@ -3826,7 +4051,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Send a test notification (email or SMS)
-  app.post("/api/notification-settings/test", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/notification-settings/test", isAuthenticated, notificationLimiter, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const { channel, recipient } = req.body; // channel: 'email' or 'sms'
@@ -5001,6 +5226,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/vapi/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
         return res.status(403).json({ message: "Not authorized" });
@@ -5070,6 +5298,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/vapi/diagnostic/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
         return res.status(403).json({ message: "Not authorized" });
@@ -5133,6 +5364,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/vapi/refresh/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
 
       // Authorization: user must be admin or belong to this business
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
@@ -5310,6 +5544,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/vapi/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ error: "Invalid business ID" });
+      }
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
         return res.status(403).json({ error: 'Not authorized' });
@@ -5353,6 +5590,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/business/:id/receptionist/toggle", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
       const { enabled } = req.body;
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
@@ -5384,6 +5624,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/business/:id/receptionist/deprovision", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
         return res.status(403).json({ error: 'Not authorized' });
@@ -5428,6 +5671,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/business/:id/available-numbers", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
         return res.status(403).json({ error: 'Not authorized' });
@@ -5461,6 +5707,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/business/:id/receptionist/provision", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
+      if (isNaN(businessId)) {
+        return res.status(400).json({ message: "Invalid business ID" });
+      }
       const { areaCode, phoneNumber } = req.body;
 
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
@@ -5595,7 +5844,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/admin/phone-numbers/:businessId", isAdmin, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
-      
+      if (isNaN(businessId)) {
+        return res.status(400).json({ error: "Invalid business ID" });
+      }
+
       // Get business to confirm it exists
       const business = await storage.getBusiness(businessId);
       if (!business) {
