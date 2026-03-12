@@ -542,6 +542,28 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/services/stripeService.ts` — Removed hardcoded `'whsec_test_example'` webhook secret fallback (now throws if not set), added payment amount positive validation
 - `server/services/businessProvisioningService.ts` — Fixed always-success bug: `results.success` now recalculated from actual provisioning outcomes
 
+#### Defense-in-Depth: Storage Layer Multi-Tenant Scoping
+- `server/storage.ts` — 9 delete methods (`deleteService`, `deleteCustomer`, `deleteAppointment`, `deleteJob`, `deleteInvoice`, `deleteBusinessKnowledge`, `deleteUnansweredQuestion`, `deletePhoneNumber`, `deleteQuote`) now require `businessId` parameter and use `and()` in WHERE clauses as a second layer of protection
+- `server/storage.ts` — `getInvoicesWithAccessToken` query capped at `.limit(50)` to prevent unbounded cross-tenant results
+- `server/routes.ts` — All 7 inline delete callers updated to pass `businessId`
+- `server/routes/customerRoutes.ts` — `deleteCustomer` caller updated
+- `server/routes/phoneRoutes.ts` — `deletePhoneNumber` caller updated
+- `server/routes/quoteRoutes.ts` — `deleteQuote` caller updated
+
+#### Input Validation: parseInt NaN Checks
+- `server/routes.ts` — ~75 `parseInt()` calls now have `isNaN()` guards returning 400 on invalid IDs
+- `server/routes/gbpRoutes.ts` — 10 `parseInt()` calls now have `isNaN()` guards
+
+#### Rate Limiting: SMS/Notification Endpoints
+- `server/routes.ts` — Added `notificationLimiter` (10 requests/hour): applied to appointment send-reminder, invoice send-reminder, job send-followup, test notifications
+
+#### Frontend Reliability Fixes
+- `client/src/components/ui/feature-tour.tsx` — Added `safeJsonParse()` helper to prevent crashes on corrupted localStorage
+- `client/src/pages/admin/index.tsx` — Wrapped `JSON.parse(details)` in try-catch for agent activity log
+- `client/src/pages/invoices/index.tsx` — Added `staleTime: 30000, refetchOnWindowFocus: true` to prevent stale data after mutations
+- `client/src/pages/quotes/index.tsx` — Added `staleTime: 30000, refetchOnWindowFocus: true` to prevent stale data after mutations
+- `client/src/pages/auth/verify-email.tsx` — Extracted `getCsrfHeaders()` helper to eliminate CSRF token code duplication
+
 ---
 
 ## File Quick Reference
@@ -618,4 +640,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 12, 2026. 228 tests passing. Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied.*
+*Last updated: March 12, 2026. 228 tests passing. Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes.*
