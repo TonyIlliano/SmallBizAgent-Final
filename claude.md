@@ -430,7 +430,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - **Strategy:** Passport.js local (username + password)
 - **CSRF:** Token in HTTP-only cookie, validated via `X-CSRF-Token` header
 - **2FA:** Optional TOTP with backup codes
-- **Email verification:** 6-digit OTP, required before full access
+- **Email verification:** 6-digit OTP (30-min expiry), required before full access, CSRF-exempt endpoints
 - **Roles:** `user` (business owner), `staff` (limited access), `admin` (platform-wide)
 - **Password rules:** 12+ chars, uppercase, lowercase, number, special char
 - **CAPTCHA:** Cloudflare Turnstile on login/register
@@ -502,6 +502,13 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 | Commit | Change |
 |--------|--------|
+| `842052c` | Industry-aware morning brief + full schema sync + query optimization |
+| `87c4b43` | Upgrade zod 3.24.2 → 3.25.76 to enable LangGraph at runtime |
+| `4e247d1` | Fix production crash: convert LangGraph to dynamic imports |
+| `60a590f` | Add intelligence layer tables to auto-migration |
+| `baf550c` | Add .npmrc with legacy-peer-deps for LangGraph zod compatibility |
+| `df7bc7f` | Add intelligence layer: Mem0 memory, LangGraph orchestration, call intelligence, customer insights, morning briefs |
+| `cb62ae9` | Video generation: live stats, auto-polling, BRAND_URL fix + add claude.md |
 | `f6c6127` | Fix social media posts not showing (API returns array, not {posts}) |
 | `7862056` | Add Social Media summary card to Content tab with link to /admin/social-media |
 | `b42f7f4` | Fix Content tab crash (add queryFn to unwrap API response) |
@@ -512,77 +519,28 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `7c3334e` | Fix login (exempt auth from CSRF, add www redirect) |
 | `e291cb2` | Test coverage for SMS agents, auth, payments (228 tests) |
 
-### Uncommitted changes (current session):
-- Video generation polling fix (10s → continuous polling until ready)
-- Fake stats replaced with real platform data from DB
-- BRAND_URL constant for consistent video branding
-- Social media page: fixed response shape bugs, added video status polling
+### Uncommitted changes (current session — Security Audit & Bug Fixes):
 
-### Intelligence Layer (uncommitted — Sprint 1-3):
-**New files created:**
-- `server/services/callIntelligenceService.ts` — Post-call GPT-4o-mini transcript analysis
-- `server/services/customerInsightsService.ts` — Per-customer aggregated insights
-- `server/services/orchestrationService.ts` — Event-driven agent coordination
-- `server/services/morningBriefService.ts` — Daily owner email digest
+#### Email Verification Flow (Production Bug Fix)
+- **Root cause**: `/api/verify-email` and `/api/resend-verification` were blocked by CSRF middleware
+- `server/index.ts` — Added `/api/verify-email`, `/api/resend-verification`, `/api/2fa/validate`, `/api/book/`, `/api/booking/` to CSRF exempt paths
+- `server/auth.ts` — Fixed code comparison with `String(code).trim()`, increased verification expiry from 10 → 30 minutes
+- `client/src/pages/auth/verify-email.tsx` — Added CSRF token headers to fetch calls, added resend success message, added "check spam" tip
+- `server/emailService.ts` — Improved verification email: better subject line (reduces spam score), added `Reply-To` header, `X-Entity-Ref-ID` header, professional HTML template
 
-**Schema changes (3 new tables):**
-- `call_intelligence` — Stores extracted intent, sentiment, summary, keyFacts per call
-- `customer_insights` — Aggregated customer profile (LTV, preferences, risk, sentiment)
-- `customer_engagement_lock` — Prevents multiple agents messaging same customer
+#### Security Audit Fixes (CRITICAL)
+- `server/routes/calendarRoutes.ts` — Fixed 4 IDOR vulnerabilities (URL param → session businessId), fixed 3 appointment IDOR (added ownership verification), HTML-escaped XSS in OAuth error pages, fixed postMessage wildcard to use APP_URL
+- `server/routes/recurring.ts` — Fixed IDOR on pause/resume/run/history endpoints (added session businessId + ownership checks)
+- `server/routes/adminRoutes.ts` — Fixed bulk subscription update: requires non-empty businessIds array (was dangerous: empty array updated ALL businesses)
+- `client/src/pages/book/[slug].tsx` — Fixed postMessage data leak: reduced payload to `{ type: "sba-booking-success", booked: true }` instead of full appointment PII
 
-**Modified files:**
-- `shared/schema.ts` — 3 new tables + insert schemas + type exports
-- `server/storage.ts` — ~16 new methods (CRUD for intelligence, insights, locks + getBusinessOwner)
-- `server/services/vapiWebhookHandler.ts` — handleEndOfCall() fires intelligence extraction; recognizeCaller() returns intelligence + insights
-- `server/routes.ts` — 4 new API endpoints; 3 direct agent triggers replaced with orchestrator dispatches
-- `server/services/schedulerService.ts` — 3 new schedulers (nightly insights, lock cleanup, morning brief)
-- `server/services/noShowAgentService.ts` — Conversation resolution dispatches to orchestrator
-- `server/services/rebookingAgentService.ts` — Conversation resolution dispatches to orchestrator
-
-**Key architecture:**
-- Orchestrator events: `intelligence.ready`, `appointment.completed`, `appointment.no_show`, `job.completed`, `conversation.resolved`
-- Engagement locks auto-expire, cleaned every 15 minutes
-- Morning brief sent at 7am per business timezone, skipped if zero activity
-- Risk scoring: inactive 90d (+2), declining sentiment (+2), last sentiment ≤2 (+1), 2+ no-shows (+1), 3+ cancellations (+1)
-- Auto-tags: High-Value, Frequent, New, At-Risk, No-Show-History, Happy, Reliable
-- **Requires `npm run db:push` to create new tables**
-
-### Mem0 Integration (uncommitted — Sprint 4):
-**New files created:**
-- `server/services/mem0Service.ts` — Persistent AI memory layer via Mem0 cloud
-
-**Modified files:**
-- `server/services/callIntelligenceService.ts` — Writes call summary/intent/sentiment to Mem0 after GPT extraction
-- `server/services/vapiWebhookHandler.ts` — recognizeCaller() searches Mem0 for conversational context (2s timeout, parallel with intelligence+insights)
-- `server/services/orchestrationService.ts` — Writes event memories (appointment completed/cancelled, no-show, conversation resolved)
-- `server/index.ts` — Initializes Mem0 client on startup
-- `package.json` — Added `mem0ai` dependency
-
-**Key architecture:**
-- Multi-tenant scoping: Mem0 user_id = `b{businessId}_c{customerId}` — never cross-contaminates
-- Fire-and-forget writes: Mem0 adds never block the call webhook response or orchestrator
-- 2-second timeout on reads: Mem0 search in recognizeCaller() has hard timeout via Promise.race
-- Graceful degradation: If MEM0_API_KEY not set, all functions return safely (empty string/array)
-- Parallel fetch: recognizeCaller() uses Promise.allSettled for intelligence + insights + Mem0 context
-- New env var: `MEM0_API_KEY` (optional, format: `m0-...`)
-
-### LangGraph.js Integration (uncommitted — Sprint 5):
-**New files created:**
-- `server/services/agentGraph.ts` — LangGraph.js state machine with 10 nodes, conditional routing, PostgreSQL checkpointing
-
-**Modified files:**
-- `server/services/orchestrationService.ts` — dispatchEvent() tries LangGraph first, falls back to switch/case on failure
-- `server/index.ts` — Initializes LangGraph agent graph on startup (async, non-blocking)
-- `package.json` — Added `@langchain/langgraph`, `@langchain/langgraph-checkpoint-postgres`, `@langchain/core`, `@langchain/openai`
-
-**Key architecture:**
-- State graph flow: START → check_lock → load_context → route → {action} → log_result → END
-- 10 nodes: check_lock, load_context, acquire_lock, follow_up, no_show_recovery, recalculate_insights, release_lock, handle_intelligence, log_result, skip_locked
-- Conditional routing at 3 decision points: after lock check, after context load, after lock acquisition
-- PostgreSQL checkpointing via `@langchain/langgraph-checkpoint-postgres` (PostgresSaver)
-- Falls back gracefully to existing switch/case handlers if LangGraph fails or is not initialized
-- Each invocation gets a unique thread_id: `evt_{event}_{businessId}_{customerId}_{timestamp}`
-- Mem0 memory writes integrated directly in action nodes (follow_up, no_show_recovery, recalculate_insights, release_lock)
+#### Security Audit Fixes (HIGH)
+- `server/routes/socialMediaRoutes.ts` — Fixed host header injection (2 locations): use `process.env.APP_URL` instead of `req.get('host')`
+- `server/routes/quoteRoutes.ts` — Changed `BASE_URL` to `APP_URL` for quote URL generation
+- `server/routes/subscriptionRoutes.ts` — Fixed open redirect: removed client-supplied `returnUrl`, server-constructs from `APP_URL`
+- `server/services/notificationService.ts` — Changed `BASE_URL` to `APP_URL` for quote follow-up URLs
+- `server/services/stripeService.ts` — Removed hardcoded `'whsec_test_example'` webhook secret fallback (now throws if not set), added payment amount positive validation
+- `server/services/businessProvisioningService.ts` — Fixed always-success bug: `results.success` now recalculated from actual provisioning outcomes
 
 ---
 
@@ -660,4 +618,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 2026. 228 tests passing. TypeScript strict mode. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5) added.*
+*Last updated: March 12, 2026. 228 tests passing. Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied.*
