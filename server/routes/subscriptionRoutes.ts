@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
 import { z } from 'zod';
 import { getUsageInfo } from '../services/usageService';
+import { isAuthenticated, checkBelongsToBusinessAsync } from '../middleware/auth';
 
 // Create subscription router
 const router = Router();
@@ -35,20 +36,11 @@ function requireStripe(req: Request, res: Response, next: Function) {
 
 // Define schemas for validation
 const createSubscriptionSchema = z.object({
-  businessId: z.number(),
   planId: z.number(),
   promoCode: z.string().optional(),
 });
 
-// Middleware for checking authentication
-const isAuthenticated = (req: Request, res: Response, next: Function) => {
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  res.status(401).json({ error: 'Not authenticated' });
-};
-
-// Get all subscription plans (requires Stripe)
+// Get all subscription plans (requires Stripe) — public endpoint, plans are not sensitive
 router.get('/plans', requireStripe, async (req: Request, res: Response) => {
   try {
     const plans = await subscriptionService.getPlans();
@@ -59,10 +51,15 @@ router.get('/plans', requireStripe, async (req: Request, res: Response) => {
   }
 });
 
-// Get subscription status for a business (requires Stripe)
+// Get subscription status for the authenticated user's business (requires Stripe)
 router.get('/status/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    // Verify ownership (supports multi-location + admin access)
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this business' });
+    }
     const status = await subscriptionService.getSubscriptionStatus(businessId);
     res.json(status);
   } catch (error: any) {
@@ -71,7 +68,7 @@ router.get('/status/:businessId', isAuthenticated, requireStripe, async (req: Re
   }
 });
 
-// Create a subscription (requires Stripe)
+// Create a subscription (requires Stripe) — uses session businessId
 router.post('/create-subscription', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const validationResult = createSubscriptionSchema.safeParse(req.body);
@@ -79,7 +76,12 @@ router.post('/create-subscription', isAuthenticated, requireStripe, async (req: 
       return res.status(400).json({ error: validationResult.error });
     }
 
-    const { businessId, planId, promoCode } = validationResult.data;
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
+    }
+
+    const { planId, promoCode } = validationResult.data;
     const subscription = await subscriptionService.createSubscription(businessId, planId, promoCode);
     res.json(subscription);
   } catch (error: any) {
@@ -88,7 +90,7 @@ router.post('/create-subscription', isAuthenticated, requireStripe, async (req: 
   }
 });
 
-// Validate promo code
+// Validate promo code — public endpoint (promo codes are not sensitive, needed pre-auth)
 router.post('/validate-promo', requireStripe, async (req: Request, res: Response) => {
   try {
     const { code } = req.body;
@@ -105,6 +107,11 @@ router.post('/validate-promo', requireStripe, async (req: Request, res: Response
 router.post('/apply-promo/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this business' });
+    }
+
     const { code } = req.body;
     if (!code) return res.status(400).json({ success: false, error: 'Promo code required' });
 
@@ -123,6 +130,11 @@ router.post('/apply-promo/:businessId', isAuthenticated, requireStripe, async (r
 router.post('/cancel/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this business' });
+    }
+
     const result = await subscriptionService.cancelSubscription(businessId);
     res.json(result);
   } catch (error: any) {
@@ -135,6 +147,11 @@ router.post('/cancel/:businessId', isAuthenticated, requireStripe, async (req: R
 router.post('/resume/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this business' });
+    }
+
     const result = await subscriptionService.resumeSubscription(businessId);
     res.json(result);
   } catch (error: any) {
@@ -147,6 +164,11 @@ router.post('/resume/:businessId', isAuthenticated, requireStripe, async (req: R
 router.get('/usage/:businessId', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this business' });
+    }
+
     const usage = await getUsageInfo(businessId);
     res.json(usage);
   } catch (error: any) {
@@ -159,7 +181,13 @@ router.get('/usage/:businessId', isAuthenticated, async (req: Request, res: Resp
 router.post('/billing-portal/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
-    const returnUrl = req.body.returnUrl || `${req.protocol}://${req.get('host')}/settings?tab=subscription`;
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this business' });
+    }
+
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const returnUrl = `${appUrl}/settings?tab=subscription`;
     const result = await subscriptionService.createBillingPortalSession(businessId, returnUrl);
     res.json(result);
   } catch (error: any) {
@@ -172,6 +200,11 @@ router.post('/billing-portal/:businessId', isAuthenticated, requireStripe, async
 router.post('/change-plan/:businessId', isAuthenticated, requireStripe, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this business' });
+    }
+
     const { planId } = req.body;
     if (!planId) return res.status(400).json({ error: 'planId is required' });
     const result = await subscriptionService.changePlan(businessId, planId);
@@ -186,6 +219,11 @@ router.post('/change-plan/:businessId', isAuthenticated, requireStripe, async (r
 router.get('/overage-history/:businessId', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = parseInt(req.params.businessId);
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this business' });
+    }
+
     const { getOverageHistory } = await import('../services/overageBillingService.js');
     const charges = await getOverageHistory(businessId);
     res.json({ charges });

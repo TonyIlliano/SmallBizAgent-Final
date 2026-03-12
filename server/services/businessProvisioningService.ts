@@ -222,6 +222,9 @@ export async function provisionBusiness(
       console.error(`[Provisioning] Business ${businessId}: Failed to enable default agents:`, agentErr);
     }
 
+    // Determine actual success based on provisioning outcomes
+    results.success = results.twilioProvisioned && results.vapiProvisioned;
+
     // Store provisioning results in database
     const finalStatus = results.success ? 'completed' : 'failed';
     await storage.updateBusiness(businessId, {

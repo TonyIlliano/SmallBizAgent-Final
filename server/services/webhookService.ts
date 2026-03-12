@@ -200,7 +200,8 @@ export async function sendTestEvent(webhookId: number, businessId: number): Prom
       businessId,
     };
 
-    await deliverWebhook(webhookId, businessId, 'test', testPayload, webhook.url, webhook.secret);
+    const decryptedSecret = decryptField(webhook.secret) || webhook.secret;
+    await deliverWebhook(webhookId, businessId, 'test', testPayload, webhook.url, decryptedSecret);
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };

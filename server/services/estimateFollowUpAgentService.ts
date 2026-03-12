@@ -70,13 +70,9 @@ async function processBusinessEstimates(businessId: number): Promise<void> {
 
       if (quoteAgeHours < nextAttemptThreshold) continue;
 
-      // Check we haven't already sent this attempt
-      // (prevent double-send if scheduler runs while quote is still in the same interval window)
-      if (attemptCount > 0) {
-        // Ensure enough time has passed since last follow-up
-        const followUps = await storage.getQuoteFollowUpCount(quote.id);
-        if (followUps >= attemptCount + 1) continue; // Already sent this attempt
-      }
+      // Note: attemptCount from the query above is reused here to avoid a duplicate DB call.
+      // The previous code called getQuoteFollowUpCount a second time, but it returns
+      // the same value within the same loop iteration.
 
       const customer = await storage.getCustomer(quote.customerId);
       if (!customer?.phone || !customer.smsOptIn) continue;

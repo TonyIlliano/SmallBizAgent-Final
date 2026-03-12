@@ -99,12 +99,7 @@ export default function AuthPage() {
     },
   });
 
-  // Redirect if user is already logged in - moved after hook declarations
-  if (user) {
-    return <Redirect to="/" />;
-  }
-
-  // 2FA validation mutation
+  // 2FA validation mutation — must be declared before any conditional returns (Rules of Hooks)
   const twoFactorMutation = useMutation({
     mutationFn: async (token: string) => {
       const res = await fetch("/api/2fa/validate", {
@@ -134,6 +129,11 @@ export default function AuthPage() {
       setTwoFactorError(error.message);
     },
   });
+
+  // Redirect if user is already logged in — AFTER all hook declarations
+  if (user) {
+    return <Redirect to="/" />;
+  }
 
   const onLoginSubmit = async (values: LoginFormValues) => {
     setLoginError(null);

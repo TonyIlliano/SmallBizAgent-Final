@@ -38,7 +38,23 @@ const PLATFORM_CONFIG: Record<SocialPlatform, { name: string; scopes: string[] }
 
 // In-memory CSRF state store with TTL (10 minutes)
 const STATE_TTL_MS = 10 * 60 * 1000;
-const pendingStates = new Map<string, { platform: SocialPlatform; createdAt: number }>();
+const pendingStates = new Map<string, { platform: SocialPlatform; createdAt: number; codeVerifier?: string }>();
+
+/**
+ * Generate a cryptographically random PKCE code verifier (43-128 chars, URL-safe)
+ */
+function generateCodeVerifier(): string {
+  const { randomBytes } = require('crypto');
+  return randomBytes(32).toString('base64url');
+}
+
+/**
+ * Generate PKCE code challenge from verifier using S256 method
+ */
+function generateCodeChallenge(verifier: string): string {
+  const { createHash } = require('crypto');
+  return createHash('sha256').update(verifier).digest('base64url');
+}
 
 /**
  * Periodically clean up expired CSRF states to prevent memory leaks.
@@ -244,8 +260,9 @@ class SocialMediaService {
     // Clean up expired states on each call
     cleanExpiredStates();
 
+    const codeVerifier = generateCodeVerifier();
     const state = `${platform}:${Date.now()}`;
-    pendingStates.set(state, { platform, createdAt: Date.now() });
+    pendingStates.set(state, { platform, createdAt: Date.now(), codeVerifier });
 
     const redirectUri = `${baseUrl}/api/social-media/callback/${platform}`;
     const config = PLATFORM_CONFIG[platform];
@@ -257,8 +274,8 @@ class SocialMediaService {
           console.error("[SocialMedia] TWITTER_CLIENT_ID is not set");
           return "";
         }
-        // Twitter OAuth 2.0 with PKCE (using plain challenge for simplicity)
-        const codeChallenge = "challenge"; // In production, generate a proper PKCE code_verifier/challenge pair
+        // Twitter OAuth 2.0 with PKCE (S256 challenge)
+        const codeChallenge = generateCodeChallenge(codeVerifier);
         const params = new URLSearchParams({
           response_type: "code",
           client_id: clientId,
@@ -266,7 +283,7 @@ class SocialMediaService {
           scope: config.scopes.join(" "),
           state,
           code_challenge: codeChallenge,
-          code_challenge_method: "plain",
+          code_challenge_method: "S256",
         });
         return `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
       }
@@ -347,13 +364,14 @@ class SocialMediaService {
       pendingStates.delete(state);
       throw new Error(`[SocialMedia] OAuth state expired for ${platform}`);
     }
+    const codeVerifier = pendingState.codeVerifier;
     pendingStates.delete(state);
 
     const redirectUri = `${baseUrl}/api/social-media/callback/${platform}`;
 
     switch (platform) {
       case "twitter":
-        await this.exchangeTwitterToken(code, redirectUri);
+        await this.exchangeTwitterToken(code, redirectUri, codeVerifier);
         break;
       case "facebook":
         await this.exchangeFacebookToken(code, redirectUri);
@@ -374,7 +392,7 @@ class SocialMediaService {
   /**
    * Exchange authorization code for Twitter OAuth 2.0 tokens.
    */
-  private async exchangeTwitterToken(code: string, redirectUri: string): Promise<void> {
+  private async exchangeTwitterToken(code: string, redirectUri: string, codeVerifier?: string): Promise<void> {
     const clientId = process.env.TWITTER_CLIENT_ID;
     const clientSecret = process.env.TWITTER_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
@@ -393,7 +411,7 @@ class SocialMediaService {
         grant_type: "authorization_code",
         code,
         redirect_uri: redirectUri,
-        code_verifier: "challenge", // Must match the code_challenge used in getAuthUrl
+        code_verifier: codeVerifier || "challenge", // PKCE verifier from getAuthUrl
       }),
     });
 

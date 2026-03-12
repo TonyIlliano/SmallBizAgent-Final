@@ -224,18 +224,14 @@ router.post("/api/admin/businesses/bulk-subscription-status", isAdmin, async (re
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
 
-    let result;
-    if (businessIds && businessIds.length > 0) {
-      result = await db.update(businesses)
-        .set({ subscriptionStatus: status, updatedAt: new Date() })
-        .where(inArray(businesses.id, businessIds))
-        .returning();
-    } else {
-      // Update ALL businesses
-      result = await db.update(businesses)
-        .set({ subscriptionStatus: status, updatedAt: new Date() })
-        .returning();
+    if (!businessIds || !Array.isArray(businessIds) || businessIds.length === 0) {
+      return res.status(400).json({ error: 'businessIds must be a non-empty array' });
     }
+
+    const result = await db.update(businesses)
+      .set({ subscriptionStatus: status, updatedAt: new Date() })
+      .where(inArray(businesses.id, businessIds))
+      .returning();
 
     res.json({
       success: true,

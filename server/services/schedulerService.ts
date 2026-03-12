@@ -858,12 +858,13 @@ export function startPlatformAgentsScheduler(): void {
   const churnKey = 'platform-churn-prediction';
   if (!scheduledJobs.has(churnKey)) {
     // Run after 5 min delay on startup (let the DB warm up)
-    setTimeout(async () => {
+    const churnStartupTimer = setTimeout(async () => {
       try {
         const { runChurnPrediction } = await import('./platformAgents/churnPredictionAgent');
         await runChurnPrediction();
       } catch (err) { console.error('[PlatformAgent:ChurnPrediction] Startup error:', err); }
     }, 5 * 60 * 1000);
+    scheduledJobs.set(`${churnKey}-startup`, churnStartupTimer);
     const id = setInterval(async () => {
       try {
         const { runChurnPrediction } = await import('./platformAgents/churnPredictionAgent');
@@ -877,12 +878,13 @@ export function startPlatformAgentsScheduler(): void {
   // Onboarding Coach — every 6 hours
   const onboardKey = 'platform-onboarding-coach';
   if (!scheduledJobs.has(onboardKey)) {
-    setTimeout(async () => {
+    const onboardStartupTimer = setTimeout(async () => {
       try {
         const { runOnboardingCoach } = await import('./platformAgents/onboardingCoachAgent');
         await runOnboardingCoach();
       } catch (err) { console.error('[PlatformAgent:OnboardingCoach] Startup error:', err); }
     }, 6 * 60 * 1000);
+    scheduledJobs.set(`${onboardKey}-startup`, onboardStartupTimer);
     const id = setInterval(async () => {
       try {
         const { runOnboardingCoach } = await import('./platformAgents/onboardingCoachAgent');
@@ -896,12 +898,13 @@ export function startPlatformAgentsScheduler(): void {
   // Lead Scoring — every 12 hours
   const leadKey = 'platform-lead-scoring';
   if (!scheduledJobs.has(leadKey)) {
-    setTimeout(async () => {
+    const leadStartupTimer = setTimeout(async () => {
       try {
         const { runLeadScoring } = await import('./platformAgents/leadScoringAgent');
         await runLeadScoring();
       } catch (err) { console.error('[PlatformAgent:LeadScoring] Startup error:', err); }
     }, 7 * 60 * 1000);
+    scheduledJobs.set(`${leadKey}-startup`, leadStartupTimer);
     const id = setInterval(async () => {
       try {
         const { runLeadScoring } = await import('./platformAgents/leadScoringAgent');
@@ -915,12 +918,13 @@ export function startPlatformAgentsScheduler(): void {
   // Health Score — every 24 hours
   const healthKey = 'platform-health-score';
   if (!scheduledJobs.has(healthKey)) {
-    setTimeout(async () => {
+    const healthStartupTimer = setTimeout(async () => {
       try {
         const { runHealthScoring } = await import('./platformAgents/healthScoreAgent');
         await runHealthScoring();
       } catch (err) { console.error('[PlatformAgent:HealthScore] Startup error:', err); }
     }, 8 * 60 * 1000);
+    scheduledJobs.set(`${healthKey}-startup`, healthStartupTimer);
     const id = setInterval(async () => {
       try {
         const { runHealthScoring } = await import('./platformAgents/healthScoreAgent');
@@ -934,12 +938,13 @@ export function startPlatformAgentsScheduler(): void {
   // Support Triage — every 6 hours
   const supportKey = 'platform-support-triage';
   if (!scheduledJobs.has(supportKey)) {
-    setTimeout(async () => {
+    const supportStartupTimer = setTimeout(async () => {
       try {
         const { runSupportTriage } = await import('./platformAgents/supportTriageAgent');
         await runSupportTriage();
       } catch (err) { console.error('[PlatformAgent:SupportTriage] Startup error:', err); }
     }, 9 * 60 * 1000);
+    scheduledJobs.set(`${supportKey}-startup`, supportStartupTimer);
     const id = setInterval(async () => {
       try {
         const { runSupportTriage } = await import('./platformAgents/supportTriageAgent');
@@ -953,12 +958,13 @@ export function startPlatformAgentsScheduler(): void {
   // Revenue Optimization — every 24 hours
   const revenueKey = 'platform-revenue-optimization';
   if (!scheduledJobs.has(revenueKey)) {
-    setTimeout(async () => {
+    const revenueStartupTimer = setTimeout(async () => {
       try {
         const { runRevenueOptimization } = await import('./platformAgents/revenueOptimizationAgent');
         await runRevenueOptimization();
       } catch (err) { console.error('[PlatformAgent:RevenueOptimization] Startup error:', err); }
     }, 10 * 60 * 1000);
+    scheduledJobs.set(`${revenueKey}-startup`, revenueStartupTimer);
     const id = setInterval(async () => {
       try {
         const { runRevenueOptimization } = await import('./platformAgents/revenueOptimizationAgent');
@@ -1011,12 +1017,13 @@ export function startPlatformAgentsScheduler(): void {
   // Social Media Content — every 24 hours (generates drafts)
   const socialMediaKey = 'platform-social-media';
   if (!scheduledJobs.has(socialMediaKey)) {
-    setTimeout(async () => {
+    const socialStartupTimer = setTimeout(async () => {
       try {
         const { runSocialMediaAgent } = await import('./platformAgents/socialMediaAgent');
         await runSocialMediaAgent();
       } catch (err) { console.error('[PlatformAgent:SocialMedia] Startup error:', err); }
     }, 11 * 60 * 1000);
+    scheduledJobs.set(`${socialMediaKey}-startup`, socialStartupTimer);
     const id = setInterval(async () => {
       try {
         const { runSocialMediaAgent } = await import('./platformAgents/socialMediaAgent');
@@ -1120,27 +1127,50 @@ export async function startAllSchedulers(): Promise<void> {
  */
 // ── Daily Digest Email (runs once daily at ~7 AM) ──
 
+/**
+ * Get the current hour in a given IANA timezone (0-23).
+ * Falls back to UTC if the timezone string is invalid.
+ */
+function getLocalHour(timezone: string): number {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: timezone });
+    return parseInt(formatter.format(new Date()), 10);
+  } catch {
+    return new Date().getUTCHours(); // fallback to UTC
+  }
+}
+
 export function startDailyDigestScheduler(): void {
   const jobKey = 'daily-digest';
   if (scheduledJobs.has(jobKey)) return;
 
-  // Check every hour if it's time to send digests (7 AM local)
+  // Check every hour; for each business, send digest when it's 7 AM in their timezone
   const intervalMs = 60 * 60 * 1000; // 1 hour
   const intervalId = setInterval(async () => {
-    const hour = new Date().getHours();
-    if (hour === 7) {
-      try {
-        console.log(`[DailyDigest] Running daily digest at ${new Date().toISOString()}`);
-        const { processDailyDigests } = await import('./dailyDigestService');
-        await processDailyDigests();
-      } catch (error) {
-        console.error('[DailyDigest] Scheduler error:', error);
+    try {
+      const allBusinesses = await storage.getAllBusinesses();
+      const eligibleIds: number[] = [];
+
+      for (const business of allBusinesses) {
+        const tz = (business as any).timezone || 'America/New_York';
+        const localHour = getLocalHour(tz);
+        if (localHour === 7) {
+          eligibleIds.push(business.id);
+        }
       }
+
+      if (eligibleIds.length > 0) {
+        console.log(`[DailyDigest] Running daily digest for ${eligibleIds.length} businesses at ${new Date().toISOString()}`);
+        const { processDailyDigests } = await import('./dailyDigestService');
+        await processDailyDigests(eligibleIds);
+      }
+    } catch (error) {
+      console.error('[DailyDigest] Scheduler error:', error);
     }
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
-  console.log('Daily digest scheduler started (checks hourly, sends at 7 AM)');
+  console.log('Daily digest scheduler started (checks hourly, sends at 7 AM per business timezone)');
 }
 
 // ── Customer Insights Nightly Recalculation (every 24h) ──

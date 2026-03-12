@@ -4,14 +4,20 @@ import { eq } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { sendPaymentFailedEmail } from '../emailService';
 
-// Initialize Stripe
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing required environment variable: STRIPE_SECRET_KEY');
-}
+// Initialize Stripe lazily — don't crash at module load if env var is missing
+let stripe: Stripe | null = null;
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2025-03-31.basil',
-});
+function getStripe(): Stripe {
+  if (!stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error('STRIPE_SECRET_KEY is not set — cannot perform Stripe operations');
+    }
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2025-03-31.basil',
+    });
+  }
+  return stripe;
+}
 
 export class SubscriptionService {
   /**
@@ -54,7 +60,7 @@ export class SubscriptionService {
       
       // Fetch live subscription data from Stripe
       try {
-        const subscription = await stripe.subscriptions.retrieve(businessRecord.stripeSubscriptionId);
+        const subscription = await getStripe().subscriptions.retrieve(businessRecord.stripeSubscriptionId);
 
         // Check if subscription is active
         const isActive = subscription.status === 'active' || subscription.status === 'trialing';
@@ -117,7 +123,7 @@ export class SubscriptionService {
       let stripeProduct;
       try {
         // Check if product already exists
-        const products = await stripe.products.list({
+        const products = await getStripe().products.list({
           ids: [planRecord.id.toString()]
         });
         
@@ -125,7 +131,7 @@ export class SubscriptionService {
           stripeProduct = products.data[0];
         } else {
           // Create new product
-          stripeProduct = await stripe.products.create({
+          stripeProduct = await getStripe().products.create({
             id: planRecord.id.toString(),
             name: planRecord.name,
             description: planRecord.description || undefined,
@@ -142,7 +148,7 @@ export class SubscriptionService {
       const unitAmount = Math.round(planRecord.price * 100); // Convert to cents
       try {
         // Look for an existing price that matches this exact amount and interval
-        const prices = await stripe.prices.list({
+        const prices = await getStripe().prices.list({
           product: stripeProduct.id,
           active: true,
         });
@@ -155,7 +161,7 @@ export class SubscriptionService {
           stripePrice = matchingPrice;
         } else {
           // Create new price for this amount and interval
-          stripePrice = await stripe.prices.create({
+          stripePrice = await getStripe().prices.create({
             product: stripeProduct.id,
             unit_amount: unitAmount,
             currency: 'usd',
@@ -173,9 +179,9 @@ export class SubscriptionService {
       let stripeCustomer;
       try {
         if (businessRecord.stripeCustomerId) {
-          stripeCustomer = await stripe.customers.retrieve(businessRecord.stripeCustomerId);
+          stripeCustomer = await getStripe().customers.retrieve(businessRecord.stripeCustomerId);
         } else {
-          stripeCustomer = await stripe.customers.create({
+          stripeCustomer = await getStripe().customers.create({
             email: businessRecord.email,
             name: businessRecord.name,
             metadata: {
@@ -199,7 +205,7 @@ export class SubscriptionService {
       // Create a subscription
       let subscription;
       try {
-        subscription = await stripe.subscriptions.create({
+        subscription = await getStripe().subscriptions.create({
           customer: stripeCustomer.id,
           items: [
             { price: stripePrice.id }
@@ -255,7 +261,7 @@ export class SubscriptionService {
       }
       
       // Cancel the subscription at period end
-      const subscription = await stripe.subscriptions.update(
+      const subscription = await getStripe().subscriptions.update(
         businessRecord.stripeSubscriptionId,
         { cancel_at_period_end: true }
       );
@@ -299,7 +305,7 @@ export class SubscriptionService {
       }
       
       // Resume the subscription by canceling the cancellation
-      const subscription = await stripe.subscriptions.update(
+      const subscription = await getStripe().subscriptions.update(
         businessRecord.stripeSubscriptionId,
         { cancel_at_period_end: false }
       );
@@ -462,7 +468,7 @@ export class SubscriptionService {
       // Update the subscription status in our database
       const subscriptionId = (invoice as any).subscription;
       if (subscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId as string);
+        const subscription = await getStripe().subscriptions.retrieve(subscriptionId as string);
         await this.updateSubscriptionStatus(subscription);
 
         console.log(`Subscription payment succeeded for subscription ${subscriptionId}`);
@@ -482,7 +488,7 @@ export class SubscriptionService {
       // Update the subscription status in our database
       const subscriptionId = (invoice as any).subscription;
       if (subscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId as string);
+        const subscription = await getStripe().subscriptions.retrieve(subscriptionId as string);
         await this.updateSubscriptionStatus(subscription);
 
         console.log(`Subscription payment failed for subscription ${subscriptionId}`);
@@ -554,7 +560,7 @@ export class SubscriptionService {
       // Create or get Stripe customer for the group
       let customerId = group.stripeCustomerId;
       if (!customerId) {
-        const customer = await stripe.customers.create({
+        const customer = await getStripe().customers.create({
           email: group.billingEmail || undefined,
           name: group.name,
           metadata: { businessGroupId: group.id.toString() },
@@ -571,19 +577,19 @@ export class SubscriptionService {
 
       let stripeProduct;
       try {
-        const products = await stripe.products.list({ ids: [plan.id.toString()] });
+        const products = await getStripe().products.list({ ids: [plan.id.toString()] });
         stripeProduct = products.data.length > 0
           ? products.data[0]
-          : await stripe.products.create({ id: plan.id.toString(), name: plan.name });
+          : await getStripe().products.create({ id: plan.id.toString(), name: plan.name });
       } catch {
-        stripeProduct = await stripe.products.create({ name: plan.name });
+        stripeProduct = await getStripe().products.create({ name: plan.name });
       }
 
       // Find or create price
-      const prices = await stripe.prices.list({ product: stripeProduct.id, active: true });
+      const prices = await getStripe().prices.list({ product: stripeProduct.id, active: true });
       let stripePrice = prices.data.find(p => p.unit_amount === unitAmount && p.recurring?.interval === stripeInterval);
       if (!stripePrice) {
-        stripePrice = await stripe.prices.create({
+        stripePrice = await getStripe().prices.create({
           product: stripeProduct.id,
           unit_amount: unitAmount,
           currency: 'usd',
@@ -597,9 +603,9 @@ export class SubscriptionService {
       if (locationCount >= 2) {
         const discountPercent = group.multiLocationDiscountPercent || 20;
         try {
-          coupon = await stripe.coupons.retrieve(`multi_loc_${discountPercent}`);
+          coupon = await getStripe().coupons.retrieve(`multi_loc_${discountPercent}`);
         } catch {
-          coupon = await stripe.coupons.create({
+          coupon = await getStripe().coupons.create({
             id: `multi_loc_${discountPercent}`,
             percent_off: discountPercent,
             duration: 'forever',
@@ -620,7 +626,7 @@ export class SubscriptionService {
         subscriptionParams.discounts = [{ coupon: coupon.id }];
       }
 
-      const subscription = await stripe.subscriptions.create(subscriptionParams);
+      const subscription = await getStripe().subscriptions.create(subscriptionParams);
 
       // Update group with subscription info
       await db.update(businessGroups)
@@ -661,13 +667,13 @@ export class SubscriptionService {
       const activeCount = locations.filter(l => l.isActive !== false).length;
 
       // Get the subscription
-      const subscription = await stripe.subscriptions.retrieve(group.stripeSubscriptionId);
+      const subscription = await getStripe().subscriptions.retrieve(group.stripeSubscriptionId);
       const itemId = subscription.items.data[0]?.id;
 
       if (!itemId) throw new Error('No subscription item found');
 
       // Update quantity
-      await stripe.subscriptions.update(group.stripeSubscriptionId, {
+      await getStripe().subscriptions.update(group.stripeSubscriptionId, {
         items: [{ id: itemId, quantity: activeCount }],
       });
 
@@ -677,16 +683,16 @@ export class SubscriptionService {
       if (activeCount >= 2 && !hasDiscount) {
         let coupon;
         try {
-          coupon = await stripe.coupons.retrieve(`multi_loc_${discountPercent}`);
+          coupon = await getStripe().coupons.retrieve(`multi_loc_${discountPercent}`);
         } catch {
-          coupon = await stripe.coupons.create({
+          coupon = await getStripe().coupons.create({
             id: `multi_loc_${discountPercent}`,
             percent_off: discountPercent,
             duration: 'forever',
             name: `Multi-Location ${discountPercent}% Discount`,
           });
         }
-        await stripe.subscriptions.update(group.stripeSubscriptionId, {
+        await getStripe().subscriptions.update(group.stripeSubscriptionId, {
           discounts: [{ coupon: coupon.id }],
         });
       }
@@ -715,7 +721,7 @@ export class SubscriptionService {
       let subscriptionDetails = null;
       if (group.stripeSubscriptionId) {
         try {
-          const subscription = await stripe.subscriptions.retrieve(group.stripeSubscriptionId);
+          const subscription = await getStripe().subscriptions.retrieve(group.stripeSubscriptionId);
           subscriptionDetails = {
             id: subscription.id,
             status: subscription.status,
@@ -761,7 +767,7 @@ export class SubscriptionService {
   async validatePromoCode(code: string): Promise<{ valid: boolean; description?: string; message?: string; trialDays?: number; percentOff?: number; error?: string }> {
     try {
       // Check Stripe for the coupon/promotion code
-      const promotionCodes = await stripe.promotionCodes.list({
+      const promotionCodes = await getStripe().promotionCodes.list({
         code,
         active: true,
         limit: 1,
@@ -812,7 +818,7 @@ export class SubscriptionService {
       }
 
       // Look up the promotion code in Stripe
-      const promotionCodes = await stripe.promotionCodes.list({
+      const promotionCodes = await getStripe().promotionCodes.list({
         code,
         active: true,
         limit: 1,
@@ -826,7 +832,7 @@ export class SubscriptionService {
       const coupon = promoCode.coupon;
 
       // Apply the coupon to the existing subscription
-      await stripe.subscriptions.update(business.stripeSubscriptionId, {
+      await getStripe().subscriptions.update(business.stripeSubscriptionId, {
         discounts: [{ coupon: coupon.id }],
       });
 
@@ -864,7 +870,7 @@ export class SubscriptionService {
       if (!business) throw new Error('Business not found');
       if (!business.stripeCustomerId) throw new Error('No Stripe customer found. Please subscribe first.');
 
-      const session = await stripe.billingPortal.sessions.create({
+      const session = await getStripe().billingPortal.sessions.create({
         customer: business.stripeCustomerId,
         return_url: returnUrl,
       });
@@ -893,7 +899,7 @@ export class SubscriptionService {
       if (!newPlan) throw new Error('Plan not found');
 
       // Get current subscription from Stripe
-      const subscription = await stripe.subscriptions.retrieve(business.stripeSubscriptionId);
+      const subscription = await getStripe().subscriptions.retrieve(business.stripeSubscriptionId);
       const currentItemId = subscription.items.data[0]?.id;
       if (!currentItemId) throw new Error('No subscription item found');
 
@@ -904,19 +910,19 @@ export class SubscriptionService {
       // Get or create product
       let stripeProduct;
       try {
-        const products = await stripe.products.list({ ids: [newPlan.id.toString()] });
+        const products = await getStripe().products.list({ ids: [newPlan.id.toString()] });
         stripeProduct = products.data.length > 0
           ? products.data[0]
-          : await stripe.products.create({ id: newPlan.id.toString(), name: newPlan.name });
+          : await getStripe().products.create({ id: newPlan.id.toString(), name: newPlan.name });
       } catch {
-        stripeProduct = await stripe.products.create({ name: newPlan.name });
+        stripeProduct = await getStripe().products.create({ name: newPlan.name });
       }
 
       // Find or create price
-      const prices = await stripe.prices.list({ product: stripeProduct.id, active: true });
+      const prices = await getStripe().prices.list({ product: stripeProduct.id, active: true });
       let stripePrice = prices.data.find(p => p.unit_amount === unitAmount && p.recurring?.interval === stripeInterval);
       if (!stripePrice) {
-        stripePrice = await stripe.prices.create({
+        stripePrice = await getStripe().prices.create({
           product: stripeProduct.id,
           unit_amount: unitAmount,
           currency: 'usd',
@@ -925,7 +931,7 @@ export class SubscriptionService {
       }
 
       // Update the subscription — Stripe prorates automatically
-      const updatedSubscription = await stripe.subscriptions.update(business.stripeSubscriptionId, {
+      const updatedSubscription = await getStripe().subscriptions.update(business.stripeSubscriptionId, {
         items: [{ id: currentItemId, price: stripePrice.id }],
         proration_behavior: 'create_prorations',
       });
@@ -968,7 +974,7 @@ export class SubscriptionService {
       if (!subscriptionId) return;
 
       // Update subscription status in DB
-      const subscription = await stripe.subscriptions.retrieve(subscriptionId as string);
+      const subscription = await getStripe().subscriptions.retrieve(subscriptionId as string);
       await this.updateSubscriptionStatus(subscription);
 
       // Find the business

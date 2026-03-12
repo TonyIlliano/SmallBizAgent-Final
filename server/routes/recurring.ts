@@ -48,9 +48,10 @@ const createRecurringScheduleSchema = z.object({
 // Get all recurring schedules for a business
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const businessId = parseInt(req.query.businessId as string);
+    // Use session-derived businessId to prevent IDOR
+    const businessId = (req.user as any)?.businessId;
     if (!businessId) {
-      return res.status(400).json({ error: "businessId is required" });
+      return res.status(400).json({ error: "No business associated with your account" });
     }
 
     const schedules = await db
@@ -101,6 +102,10 @@ router.get("/", async (req: Request, res: Response) => {
 // Get a single recurring schedule
 router.get("/:id", async (req: Request, res: Response) => {
   try {
+    const sessionBusinessId = (req.user as any)?.businessId;
+    if (!sessionBusinessId) {
+      return res.status(400).json({ error: "No business associated with your account" });
+    }
     const id = parseInt(req.params.id);
 
     const [schedule] = await db
@@ -111,6 +116,11 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     if (!schedule) {
       return res.status(404).json({ error: "Recurring schedule not found" });
+    }
+
+    // Verify ownership
+    if (schedule.businessId !== sessionBusinessId) {
+      return res.status(403).json({ error: "Access denied" });
     }
 
     const [customer] = await db
@@ -156,8 +166,14 @@ router.get("/:id", async (req: Request, res: Response) => {
 // Create a new recurring schedule
 router.post("/", async (req: Request, res: Response) => {
   try {
+    const sessionBusinessId = (req.user as any)?.businessId;
+    if (!sessionBusinessId) {
+      return res.status(400).json({ error: "No business associated with your account" });
+    }
     const data = createRecurringScheduleSchema.parse(req.body);
     const { items, ...scheduleData } = data;
+    // Override with session-derived businessId to prevent IDOR
+    scheduleData.businessId = sessionBusinessId;
 
     // Calculate next run date
     const nextRunDate = calculateNextRunDate(
@@ -199,8 +215,14 @@ router.post("/", async (req: Request, res: Response) => {
 // Update a recurring schedule
 router.patch("/:id", async (req: Request, res: Response) => {
   try {
+    const sessionBusinessId = (req.user as any)?.businessId;
+    if (!sessionBusinessId) {
+      return res.status(400).json({ error: "No business associated with your account" });
+    }
     const id = parseInt(req.params.id);
     const { items, ...updateData } = req.body;
+    // Prevent IDOR — don't allow changing businessId
+    delete updateData.businessId;
 
     // Recalculate next run date if schedule parameters changed
     if (updateData.frequency || updateData.interval || updateData.dayOfWeek || updateData.dayOfMonth) {
@@ -227,7 +249,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
         ...updateData,
         updatedAt: new Date(),
       })
-      .where(eq(recurringSchedules.id, id))
+      .where(and(eq(recurringSchedules.id, id), eq(recurringSchedules.businessId, sessionBusinessId)))
       .returning();
 
     if (!schedule) {
@@ -262,7 +284,21 @@ router.patch("/:id", async (req: Request, res: Response) => {
 // Delete a recurring schedule
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
+    const sessionBusinessId = (req.user as any)?.businessId;
+    if (!sessionBusinessId) {
+      return res.status(400).json({ error: "No business associated with your account" });
+    }
     const id = parseInt(req.params.id);
+
+    // Verify ownership before deleting
+    const [existing] = await db
+      .select()
+      .from(recurringSchedules)
+      .where(and(eq(recurringSchedules.id, id), eq(recurringSchedules.businessId, sessionBusinessId)))
+      .limit(1);
+    if (!existing) {
+      return res.status(404).json({ error: "Recurring schedule not found" });
+    }
 
     // Delete line items first
     await db
@@ -294,6 +330,10 @@ router.delete("/:id", async (req: Request, res: Response) => {
 // Pause a recurring schedule
 router.post("/:id/pause", async (req: Request, res: Response) => {
   try {
+    const sessionBusinessId = (req.user as any)?.businessId;
+    if (!sessionBusinessId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
     const id = parseInt(req.params.id);
 
     const [schedule] = await db
@@ -302,8 +342,8 @@ router.post("/:id/pause", async (req: Request, res: Response) => {
       .where(eq(recurringSchedules.id, id))
       .returning();
 
-    if (!schedule) {
-      return res.status(404).json({ error: "Recurring schedule not found" });
+    if (!schedule || schedule.businessId !== sessionBusinessId) {
+      return res.status(403).json({ error: "Not authorized" });
     }
 
     res.json(schedule);
@@ -316,6 +356,10 @@ router.post("/:id/pause", async (req: Request, res: Response) => {
 // Resume a recurring schedule
 router.post("/:id/resume", async (req: Request, res: Response) => {
   try {
+    const sessionBusinessId = (req.user as any)?.businessId;
+    if (!sessionBusinessId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
     const id = parseInt(req.params.id);
 
     // Get current schedule to recalculate next run date
@@ -325,8 +369,8 @@ router.post("/:id/resume", async (req: Request, res: Response) => {
       .where(eq(recurringSchedules.id, id))
       .limit(1);
 
-    if (!existingSchedule) {
-      return res.status(404).json({ error: "Recurring schedule not found" });
+    if (!existingSchedule || existingSchedule.businessId !== sessionBusinessId) {
+      return res.status(403).json({ error: "Not authorized" });
     }
 
     // Calculate next run date from today
@@ -358,7 +402,22 @@ router.post("/:id/resume", async (req: Request, res: Response) => {
 // Manually run a recurring schedule (create job/invoice now)
 router.post("/:id/run", async (req: Request, res: Response) => {
   try {
+    const sessionBusinessId = (req.user as any)?.businessId;
+    if (!sessionBusinessId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
     const id = parseInt(req.params.id);
+
+    // Verify ownership before executing
+    const [schedule] = await db
+      .select()
+      .from(recurringSchedules)
+      .where(eq(recurringSchedules.id, id));
+
+    if (!schedule || schedule.businessId !== sessionBusinessId) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
     const result = await executeRecurringSchedule(id);
     res.json(result);
   } catch (error) {
@@ -370,7 +429,21 @@ router.post("/:id/run", async (req: Request, res: Response) => {
 // Get history for a recurring schedule
 router.get("/:id/history", async (req: Request, res: Response) => {
   try {
+    const sessionBusinessId = (req.user as any)?.businessId;
+    if (!sessionBusinessId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
     const id = parseInt(req.params.id);
+
+    // Verify ownership before returning history
+    const [schedule] = await db
+      .select()
+      .from(recurringSchedules)
+      .where(eq(recurringSchedules.id, id));
+
+    if (!schedule || schedule.businessId !== sessionBusinessId) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
 
     const history = await db
       .select()

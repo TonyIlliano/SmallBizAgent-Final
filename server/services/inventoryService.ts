@@ -493,10 +493,10 @@ export async function checkAndSendLowStockAlerts(
     try {
       const subject = `⚠️ Low Stock Alert — ${lowStockItems.length} items need restock`;
       const itemList = lowStockItems
-        .map((item: any) => `• ${item.name}: ${item.currentStock} remaining (threshold: ${item.lowStockThreshold})`)
+        .map((item) => `• ${item.name}: ${item.quantity} remaining (threshold: ${item.threshold})`)
         .join('\n');
       const htmlItemList = lowStockItems
-        .map((item: any) => `<li><strong>${item.name}</strong>: ${item.currentStock} remaining (threshold: ${item.lowStockThreshold})</li>`)
+        .map((item) => `<li><strong>${item.name}</strong>: ${item.quantity} remaining (threshold: ${item.threshold})</li>`)
         .join('');
 
       const { sendEmail } = await import("../emailService");

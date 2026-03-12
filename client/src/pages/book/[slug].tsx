@@ -205,9 +205,10 @@ export default function PublicBooking() {
   // Embed: notify parent on booking success
   useEffect(() => {
     if (isEmbed && bookingConfirmed && confirmationData) {
+      // Only send non-sensitive confirmation data to parent (any origin can embed)
       window.parent.postMessage({
         type: "sba-booking-success",
-        appointment: confirmationData.appointment,
+        booked: true,
       }, "*");
     }
   }, [isEmbed, bookingConfirmed, confirmationData]);

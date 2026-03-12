@@ -185,7 +185,12 @@ export async function findAvailableTimeSlots(
 }
 
 /**
- * Validates and creates a new appointment with double booking prevention
+ * Validates and creates a new appointment with double booking prevention.
+ *
+ * Uses a database transaction with row-level locking (SELECT ... FOR UPDATE)
+ * to eliminate the TOCTOU race condition where two concurrent requests could
+ * both see a slot as available and both create appointments.
+ *
  * @param appointmentData The appointment data to create
  * @returns Promise resolving to object with success status and appointment or error
  */
@@ -195,33 +200,51 @@ export async function createAppointmentSafely(appointmentData: InsertAppointment
   error?: string;
 }> {
   try {
-    // Check if the time slot is available
-    const isAvailable = await isTimeSlotAvailable(
-      appointmentData.businessId,
-      appointmentData.startDate,
-      appointmentData.endDate,
-      appointmentData.staffId
-    );
+    const result = await db.transaction(async (tx) => {
+      // Check for conflicting appointments inside the transaction using FOR UPDATE
+      // to lock matching rows and prevent concurrent inserts for the same slot.
+      const conditions: any[] = [
+        eq(appointments.businessId, appointmentData.businessId),
+        eq(appointments.status, 'scheduled'),
+        sql`${appointments.startDate} < ${appointmentData.endDate}`,
+        sql`${appointments.endDate} > ${appointmentData.startDate}`,
+      ];
 
-    if (!isAvailable) {
+      if (appointmentData.staffId) {
+        conditions.push(eq(appointments.staffId, appointmentData.staffId));
+      }
+
+      const conflicting = await tx.select({ id: appointments.id })
+        .from(appointments)
+        .where(and(...conditions))
+        .for('update');
+
+      if (conflicting.length > 0) {
+        return {
+          success: false as const,
+          error: 'The requested time slot is not available. Please select another time.',
+        };
+      }
+
+      // No conflicts — create the appointment within the same transaction
+      const [newAppointment] = await tx.insert(appointments).values({
+        ...appointmentData,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }).returning();
+
       return {
-        success: false,
-        error: 'The requested time slot is not available. Please select another time.'
+        success: true as const,
+        appointment: newAppointment,
       };
-    }
+    });
 
-    // If available, create the appointment
-    const appointment = await storage.createAppointment(appointmentData);
-
-    return {
-      success: true,
-      appointment
-    };
+    return result;
   } catch (error) {
     console.error('Error creating appointment:', error);
     return {
       success: false,
-      error: 'An error occurred while scheduling the appointment.'
+      error: 'An error occurred while scheduling the appointment.',
     };
   }
 }

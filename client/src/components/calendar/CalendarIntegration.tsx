@@ -26,6 +26,7 @@ export function CalendarIntegration({ businessId }: { businessId: number }) {
   // Listen for OAuth callback messages from popup windows
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'calendar-connected') {
         queryClient.invalidateQueries({ queryKey: ['/api/calendar/status', businessId] });
         toast({

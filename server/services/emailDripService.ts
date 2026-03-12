@@ -25,9 +25,15 @@ const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || "bark@smallbizagent.ai";
 /** Milliseconds in one day */
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Build one-click unsubscribe URL for a business */
+/** Build HMAC-signed one-click unsubscribe URL for a business */
 function unsubscribeUrl(businessId: number): string {
-  return `${APP_URL}/api/email/unsubscribe?bid=${businessId}`;
+  const crypto = require('crypto');
+  const secret = process.env.SESSION_SECRET || process.env.ENCRYPTION_KEY || 'unsubscribe-secret';
+  const token = crypto.createHmac('sha256', secret)
+    .update(`unsubscribe:${businessId}`)
+    .digest('hex')
+    .substring(0, 32);
+  return `${APP_URL}/api/email/unsubscribe?bid=${businessId}&token=${token}`;
 }
 
 /** Shared HTML footer with unsubscribe link for all drip emails */

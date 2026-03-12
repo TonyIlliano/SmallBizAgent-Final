@@ -527,7 +527,7 @@ router.post("/quotes/:id/generate-link", async (req, res) => {
     await storage.updateQuote(quoteId, { accessToken });
 
     // Generate the URL
-    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
     const quoteUrl = `${baseUrl}/portal/quote/${accessToken}`;
 
     // Send quote email and SMS to customer (fire-and-forget)

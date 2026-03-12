@@ -16,12 +16,21 @@ import { sendEmail } from "../emailService";
 const APP_URL = process.env.APP_URL || "https://www.smallbizagent.ai";
 
 /**
- * Process daily digest for all active businesses.
+ * Process daily digest for active businesses.
+ * @param businessIds — optional list of business IDs to send to (timezone-filtered by scheduler).
+ *                      If omitted, sends to all active businesses (legacy behavior).
  */
-export async function processDailyDigests(): Promise<void> {
+export async function processDailyDigests(businessIds?: number[]): Promise<void> {
   try {
     console.log(`[DailyDigest] Starting at ${new Date().toISOString()}`);
-    const businesses = await storage.getAllBusinesses();
+    let businesses = await storage.getAllBusinesses();
+
+    // If caller supplied a filtered list of IDs, only process those
+    if (businessIds && businessIds.length > 0) {
+      const idSet = new Set(businessIds);
+      businesses = businesses.filter((b) => idSet.has(b.id));
+    }
+
     let sent = 0;
 
     for (const business of businesses) {

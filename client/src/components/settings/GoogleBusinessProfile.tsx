@@ -64,6 +64,7 @@ export function GoogleBusinessProfile({ businessId, bookingEnabled, bookingSlug,
   // Listen for OAuth callback messages from popup
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'gbp-connected') {
         queryClient.invalidateQueries({ queryKey: ['/api/gbp/status', businessId] });
         toast({

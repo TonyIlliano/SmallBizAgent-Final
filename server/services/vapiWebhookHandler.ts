@@ -3766,6 +3766,12 @@ async function handleEndOfCall(
     if (isMissedCall && callerPhone && callerPhone !== 'Unknown') {
       const business = await storage.getBusiness(businessId);
       if (business && business.twilioPhoneNumber) {
+        // TCPA compliance: Only send missed-call text-back if the caller is a known customer with SMS opt-in
+        const existingCustomer = await storage.getCustomerByPhone(callerPhone, businessId);
+        if (!existingCustomer || !existingCustomer.smsOptIn) {
+          console.log(`[MissedCallTextBack] Skipping — caller ${callerPhone} has no SMS opt-in`);
+        } else {
+
         const businessName = business.name || 'Our business';
         const industry = (business.industry || '').toLowerCase();
 
@@ -3799,6 +3805,7 @@ async function handleEndOfCall(
             console.error(`[MissedCallTextBack] Failed to send text to ${callerPhone}:`, err);
           });
 
+        } // end smsOptIn check
       }
     }
   }

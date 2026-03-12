@@ -3,6 +3,9 @@
  *
  * Handles OAuth connection, menu syncing, and connection management
  * for restaurants using Square POS.
+ *
+ * Security: All authenticated endpoints enforce business ownership via
+ * session-derived businessId to prevent IDOR attacks.
  */
 
 import { Router } from 'express';
@@ -21,14 +24,13 @@ const router = Router();
 
 /**
  * GET /api/square/status
- * Check Square connection status for a business
+ * Check Square connection status for the authenticated user's business
  */
 router.get('/status', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const status = await getSquareStatus(businessId);
@@ -43,7 +45,7 @@ router.get('/status', isAuthenticated, async (req, res) => {
  * GET /api/square/check-config
  * Check if Square API credentials are configured in environment
  */
-router.get('/check-config', async (req, res) => {
+router.get('/check-config', isAuthenticated, async (req, res) => {
   try {
     const configured = !!(process.env.SQUARE_APP_ID && process.env.SQUARE_APP_SECRET);
     res.json({
@@ -59,16 +61,16 @@ router.get('/check-config', async (req, res) => {
 
 /**
  * GET /api/square/auth-url
- * Generate the Square OAuth authorization URL
+ * Generate the Square OAuth authorization URL for the authenticated user's business
  */
 router.get('/auth-url', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-    const environment = (req.query.environment as string) || 'sandbox';
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
+
+    const environment = (req.query.environment as string) || 'sandbox';
 
     if (!process.env.SQUARE_APP_ID || !process.env.SQUARE_APP_SECRET) {
       return res.status(400).json({
@@ -89,6 +91,7 @@ router.get('/auth-url', isAuthenticated, async (req, res) => {
  * GET /api/square/callback
  * OAuth callback handler — exchanges code for tokens and connects the business
  * This is called by Square after the merchant approves the connection
+ * Note: OAuth callbacks can't require session auth — state param validates the request
  */
 router.get('/callback', async (req, res) => {
   try {
@@ -121,14 +124,13 @@ router.get('/callback', async (req, res) => {
 
 /**
  * POST /api/square/sync-menu
- * Trigger a manual menu sync from Square
+ * Trigger a manual menu sync from Square for the authenticated user's business
  */
 router.post('/sync-menu', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.body.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const menu = await syncMenu(businessId);
@@ -156,14 +158,13 @@ router.post('/sync-menu', isAuthenticated, async (req, res) => {
 
 /**
  * GET /api/square/menu
- * Get the cached menu for a business (for display/debugging)
+ * Get the cached menu for the authenticated user's business
  */
 router.get('/menu', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const menu = await getCachedMenu(businessId);
@@ -180,14 +181,13 @@ router.get('/menu', isAuthenticated, async (req, res) => {
 
 /**
  * POST /api/square/disconnect
- * Disconnect a business from Square
+ * Disconnect the authenticated user's business from Square
  */
 router.post('/disconnect', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.body.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     await disconnectSquare(businessId);

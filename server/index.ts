@@ -166,7 +166,7 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => {
     // Skip rate limiting for webhooks (they have their own validation)
-    return req.path.includes('/webhook') || req.path.includes('/twilio');
+    return req.path.startsWith('/webhook') || req.path.startsWith('/twilio') || req.path.startsWith('/vapi');
   },
 });
 
@@ -231,6 +231,11 @@ app.use((req, res, next) => {
     '/api/logout',
     '/api/forgot-password',
     '/api/reset-password',
+    '/api/verify-email',
+    '/api/resend-verification',
+    '/api/2fa/validate',
+    '/api/book/',
+    '/api/booking/',
     '/api/stripe-webhook',
     '/api/subscription/webhook',
     '/api/twilio/',
@@ -373,38 +378,48 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
 
       // Start the reminder scheduler after server is running
-      try {
-        schedulerService.startAllSchedulers();
-        log('Reminder schedulers started');
-      } catch (schedulerErr) {
-        console.error('Failed to start schedulers (non-fatal):', schedulerErr);
-      }
+      (async () => {
+        try {
+          await schedulerService.startAllSchedulers();
+          log('Reminder schedulers started');
+        } catch (schedulerErr) {
+          console.error('Failed to start schedulers (non-fatal):', schedulerErr);
+        }
+      })();
     });
-    // Graceful shutdown
+    // Graceful shutdown — wait for server.close() before exiting
+    let isShuttingDown = false;
     const shutdown = async (signal: string) => {
+      if (isShuttingDown) return; // Prevent double-shutdown
+      isShuttingDown = true;
       console.log(`${signal} received. Starting graceful shutdown...`);
 
-      server.close(() => {
-        console.log('HTTP server closed');
-      });
+      // Force exit after 10 seconds if graceful shutdown stalls
+      const forceTimer = setTimeout(() => {
+        console.error('Forced shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+      forceTimer.unref(); // Don't keep process alive just for this timer
 
       schedulerService.stopAllSchedulers();
       console.log('Schedulers stopped');
+
+      // Wait for HTTP server to finish in-flight requests
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          console.log('HTTP server closed');
+          resolve();
+        });
+      });
 
       try {
         await pool.end();
         console.log('Database pool closed');
       } catch (err) {
         console.error('Error closing database pool:', err);
-        process.exit(1);
       }
 
-      // Force exit after 10 seconds
-      setTimeout(() => {
-        console.error('Forced shutdown after timeout');
-        process.exit(1);
-      }, 10000);
-
+      console.log('Graceful shutdown complete');
       process.exit(0);
     };
 

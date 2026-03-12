@@ -107,6 +107,13 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
       const activeConv = await storage.getActiveSmsConversation(customer.phone!, businessId);
       if (activeConv) continue;
 
+      // Re-check smsOptIn right before sending (customer may have opted out during loop iteration)
+      const freshCustomer = await storage.getCustomer(customer.id);
+      if (!freshCustomer?.phone || !freshCustomer.smsOptIn) {
+        console.log(`[RebookingAgent] Skipping SMS — customer ${customer.id} has not opted in (re-check)`);
+        continue;
+      }
+
       const message = fillTemplate(config.messageTemplate, {
         customerName: customer.firstName || 'there',
         businessName: business.name,

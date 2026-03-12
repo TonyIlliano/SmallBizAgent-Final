@@ -274,7 +274,7 @@ export function setupAuth(app: Express) {
 
       // Generate 6-digit verification code
       const verificationCode = randomInt(100000, 999999).toString();
-      const verificationExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      const verificationExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes (gives time for spam folder checks)
 
       // Save verification code to user record
       await storage.updateUser(user.id, {
@@ -342,7 +342,7 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ error: "Verification code has expired. Please request a new one." });
       }
 
-      if (user.emailVerificationCode !== code) {
+      if (user.emailVerificationCode !== String(code).trim()) {
         return res.status(400).json({ error: "Invalid verification code" });
       }
 
@@ -379,7 +379,7 @@ export function setupAuth(app: Express) {
 
       // Generate new code
       const verificationCode = randomInt(100000, 999999).toString();
-      const verificationExpiry = new Date(Date.now() + 10 * 60 * 1000);
+      const verificationExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
 
       await storage.updateUser(user.id, {
         emailVerificationCode: verificationCode,

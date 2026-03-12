@@ -233,42 +233,49 @@ export async function sendVerificationCodeEmail(
   username: string,
   code: string
 ): Promise<{ messageId: string; previewUrl?: string }> {
-  const subject = `Your verification code: ${code} - SmallBizAgent`;
+  const subject = `SmallBizAgent - Verify your email address`;
+  const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
   const text = `
 Hello ${username},
 
-Your SmallBizAgent verification code is: ${code}
+Welcome to SmallBizAgent! To complete your account setup, please enter the following verification code:
 
-Enter this code to verify your email address and complete your account setup.
+${code}
 
-This code expires in 10 minutes.
+This code expires in 30 minutes.
 
-If you did not create a SmallBizAgent account, please ignore this email.
+If you did not create a SmallBizAgent account, you can safely ignore this email.
 
-Thank you,
-SmallBizAgent Team
+Best regards,
+The SmallBizAgent Team
+${appUrl}
   `.trim();
 
   const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h2 style="color: #333;">Verify your email</h2>
-      <p>Hello ${username},</p>
-      <p>Your verification code is:</p>
-
-      <div style="margin: 30px 0; text-align: center;">
-        <span style="display: inline-block; background-color: #f4f4f5; color: #000; padding: 16px 32px; font-size: 32px; font-weight: 700; letter-spacing: 8px; border-radius: 8px; font-family: monospace;">
-          ${code}
-        </span>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #111827; font-size: 24px; font-weight: 700; margin: 0;">SmallBizAgent</h1>
       </div>
 
-      <p>Enter this code to verify your email address and complete your account setup.</p>
+      <h2 style="color: #111827; font-size: 20px; margin-bottom: 16px;">Verify your email address</h2>
+      <p style="color: #374151; font-size: 16px; line-height: 1.5;">Hello ${username},</p>
+      <p style="color: #374151; font-size: 16px; line-height: 1.5;">Welcome to SmallBizAgent! Please enter the following code to verify your email address and complete your account setup:</p>
 
-      <p style="color: #666; font-size: 14px;">This code expires in 10 minutes.</p>
+      <div style="margin: 32px 0; text-align: center;">
+        <div style="display: inline-block; background-color: #f3f4f6; color: #111827; padding: 20px 40px; font-size: 36px; font-weight: 700; letter-spacing: 10px; border-radius: 12px; font-family: 'SF Mono', 'Courier New', monospace; border: 1px solid #e5e7eb;">
+          ${code}
+        </div>
+      </div>
 
-      <p style="color: #666; font-size: 14px;">If you did not create a SmallBizAgent account, please ignore this email.</p>
+      <p style="color: #374151; font-size: 16px; line-height: 1.5;">This code expires in <strong>10 minutes</strong>.</p>
 
-      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-      <p style="color: #999; font-size: 12px;">Thank you,<br>SmallBizAgent Team</p>
+      <p style="color: #6b7280; font-size: 14px; line-height: 1.5; margin-top: 24px;">If you did not create a SmallBizAgent account, you can safely ignore this email — no action is needed.</p>
+
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 32px 0;" />
+      <p style="color: #9ca3af; font-size: 12px; line-height: 1.5; text-align: center;">
+        SmallBizAgent &mdash; AI-Powered Business Management<br>
+        <a href="${appUrl}" style="color: #6b7280; text-decoration: underline;">${appUrl}</a>
+      </p>
     </div>
   `;
 
@@ -276,7 +283,11 @@ SmallBizAgent Team
     to: email,
     subject,
     text,
-    html
+    html,
+    replyTo: 'support@smallbizagent.ai',
+    headers: {
+      'X-Entity-Ref-ID': `verify-${Date.now()}`,
+    },
   });
 }
 

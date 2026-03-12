@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, date, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, doublePrecision, date, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -143,7 +143,13 @@ export const businesses = pgTable("businesses", {
   trialEndsAt: timestamp("trial_ends_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  // bookingSlug must be unique across all businesses for public booking URLs
+  bookingSlugUnique: unique("businesses_booking_slug_unique").on(table.bookingSlug),
+  // Indexes for frequently queried columns
+  twilioPhoneIdx: index("businesses_twilio_phone_idx").on(table.twilioPhoneNumber),
+  stripeCustomerIdx: index("businesses_stripe_customer_idx").on(table.stripeCustomerId),
+}));
 
 // Business Hours
 export const businessHours = pgTable("business_hours", {
@@ -161,7 +167,7 @@ export const services = pgTable("services", {
   businessId: integer("business_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
-  price: real("price"),
+  price: doublePrecision("price"),
   duration: integer("duration"), // in minutes
   active: boolean("active").default(true),
 });
@@ -189,7 +195,14 @@ export const customers = pgTable("customers", {
   tags: text("tags"), // JSON array of string tags, e.g. '["VIP","Residential","Repeat"]'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  // Index on phone for caller recognition lookups
+  phoneIdx: index("customers_phone_idx").on(table.phone),
+  // Index on businessId for all business-scoped queries
+  businessIdIdx: index("customers_business_id_idx").on(table.businessId),
+  // Unique phone per business (prevent duplicate customer records)
+  businessPhoneUnique: unique("customers_business_phone_unique").on(table.businessId, table.phone),
+}));
 
 // Staff/Technicians
 export const staff = pgTable("staff", {
@@ -261,7 +274,12 @@ export const appointments = pgTable("appointments", {
   lastSyncedAt: timestamp("last_synced_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  // Index for business-scoped queries and date range lookups
+  businessDateIdx: index("appointments_business_date_idx").on(table.businessId, table.startDate),
+  // Index for staff scheduling queries
+  staffDateIdx: index("appointments_staff_date_idx").on(table.staffId, table.startDate),
+}));
 
 // Jobs
 export const jobs = pgTable("jobs", {
@@ -287,8 +305,8 @@ export const jobLineItems = pgTable("job_line_items", {
   type: text("type").notNull(), // labor, parts, materials, service
   description: text("description").notNull(),
   quantity: real("quantity").default(1),
-  unitPrice: real("unit_price").notNull(),
-  amount: real("amount").notNull(), // quantity * unitPrice
+  unitPrice: doublePrecision("unit_price").notNull(),
+  amount: doublePrecision("amount").notNull(), // quantity * unitPrice
   taxable: boolean("taxable").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -300,9 +318,9 @@ export const invoices = pgTable("invoices", {
   customerId: integer("customer_id").notNull(),
   jobId: integer("job_id"),
   invoiceNumber: text("invoice_number").notNull(),
-  amount: real("amount").notNull(),
-  tax: real("tax"),
-  total: real("total").notNull(),
+  amount: doublePrecision("amount").notNull(),
+  tax: doublePrecision("tax"),
+  total: doublePrecision("total").notNull(),
   dueDate: date("due_date"),
   status: text("status").default("pending"), // pending, paid, overdue
   notes: text("notes"),
@@ -311,7 +329,14 @@ export const invoices = pgTable("invoices", {
   accessToken: text("access_token"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  // Invoice number must be unique per business
+  businessInvoiceNumberUnique: unique("invoices_business_invoice_number_unique").on(table.businessId, table.invoiceNumber),
+  // Index for business-scoped queries
+  businessIdIdx: index("invoices_business_id_idx").on(table.businessId),
+  // Index for payment intent lookups (Stripe webhooks)
+  stripePaymentIntentIdx: index("invoices_stripe_payment_intent_idx").on(table.stripePaymentIntentId),
+}));
 
 // Invoice items
 export const invoiceItems = pgTable("invoice_items", {
@@ -319,8 +344,8 @@ export const invoiceItems = pgTable("invoice_items", {
   invoiceId: integer("invoice_id").notNull(),
   description: text("description").notNull(),
   quantity: integer("quantity").default(1),
-  unitPrice: real("unit_price").notNull(),
-  amount: real("amount").notNull(),
+  unitPrice: doublePrecision("unit_price").notNull(),
+  amount: doublePrecision("amount").notNull(),
 });
 
 // Virtual Receptionist Configuration
@@ -357,7 +382,12 @@ export const callLogs = pgTable("call_logs", {
   phoneNumberId: integer("phone_number_id"), // FK -> business_phone_numbers.id (which line received the call)
   phoneNumberUsed: text("phone_number_used"), // Denormalized: the actual phone number string
   callTime: timestamp("call_time").defaultNow(),
-});
+}, (table) => ({
+  // Index for business-scoped call queries
+  businessCallTimeIdx: index("call_logs_business_call_time_idx").on(table.businessId, table.callTime),
+  // Index for caller recognition by phone number
+  callerIdIdx: index("call_logs_caller_id_idx").on(table.callerId),
+}));
 
 // Call Intelligence - AI-extracted structured data from call transcripts
 export const callIntelligence = pgTable("call_intelligence", {
@@ -494,9 +524,9 @@ export const quotes = pgTable("quotes", {
   customerId: integer("customer_id").notNull(),
   jobId: integer("job_id"),
   quoteNumber: text("quote_number").notNull(),
-  amount: real("amount").notNull(),
-  tax: real("tax"),
-  total: real("total").notNull(),
+  amount: doublePrecision("amount").notNull(),
+  tax: doublePrecision("tax"),
+  total: doublePrecision("total").notNull(),
   validUntil: text("valid_until"), // Store date as string in YYYY-MM-DD format
   status: text("status").default("pending"), // pending, accepted, declined, expired, converted
   notes: text("notes"),
@@ -512,8 +542,8 @@ export const quoteItems = pgTable("quote_items", {
   quoteId: integer("quote_id").notNull(),
   description: text("description").notNull(),
   quantity: integer("quantity").default(1),
-  unitPrice: real("unit_price").notNull(),
-  amount: real("amount").notNull(),
+  unitPrice: doublePrecision("unit_price").notNull(),
+  amount: doublePrecision("amount").notNull(),
 });
 
 // Review Settings (business review link configuration)
@@ -573,8 +603,8 @@ export const recurringSchedules = pgTable("recurring_schedules", {
   estimatedDuration: integer("estimated_duration"), // in minutes
   // Invoice configuration
   autoCreateInvoice: boolean("auto_create_invoice").default(true),
-  invoiceAmount: real("invoice_amount"),
-  invoiceTax: real("invoice_tax"),
+  invoiceAmount: doublePrecision("invoice_amount"),
+  invoiceTax: doublePrecision("invoice_tax"),
   invoiceNotes: text("invoice_notes"),
   // Status
   status: text("status").default("active"), // active, paused, completed, cancelled
@@ -590,8 +620,8 @@ export const recurringScheduleItems = pgTable("recurring_schedule_items", {
   scheduleId: integer("schedule_id").notNull(),
   description: text("description").notNull(),
   quantity: integer("quantity").default(1),
-  unitPrice: real("unit_price").notNull(),
-  amount: real("amount").notNull(),
+  unitPrice: doublePrecision("unit_price").notNull(),
+  amount: doublePrecision("amount").notNull(),
 });
 
 // Recurring Job History (tracks generated jobs)
@@ -627,7 +657,10 @@ export const notificationSettings = pgTable("notification_settings", {
   weatherAlertsEnabled: boolean("weather_alerts_enabled").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  // Each business should have at most one notification_settings row
+  businessIdUnique: unique("notification_settings_business_id_unique").on(table.businessId),
+}));
 
 // Notification Log (tracks all sent notifications)
 export const notificationLog = pgTable("notification_log", {
@@ -929,11 +962,11 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   name: text("name").notNull(),
   description: text("description"),
   planTier: text("plan_tier"), // starter, professional, business, enterprise
-  price: real("price").notNull(),
+  price: doublePrecision("price").notNull(),
   interval: text("interval").notNull(), // monthly, yearly
   features: jsonb("features"), // Array of features included in this plan
   maxCallMinutes: integer("max_call_minutes"), // included AI call minutes per month
-  overageRatePerMinute: real("overage_rate_per_minute"), // $/min after limit (in cents)
+  overageRatePerMinute: doublePrecision("overage_rate_per_minute"), // $/min after limit (in cents)
   maxStaff: integer("max_staff"), // max staff members
   stripeProductId: text("stripe_product_id"),
   stripePriceId: text("stripe_price_id"),
@@ -952,8 +985,8 @@ export const overageCharges = pgTable("overage_charges", {
   minutesUsed: integer("minutes_used").notNull(),
   minutesIncluded: integer("minutes_included").notNull(),
   overageMinutes: integer("overage_minutes").notNull(),
-  overageRate: real("overage_rate").notNull(),
-  overageAmount: real("overage_amount").notNull(),
+  overageRate: doublePrecision("overage_rate").notNull(),
+  overageAmount: doublePrecision("overage_amount").notNull(),
   stripeInvoiceId: text("stripe_invoice_id"),
   stripeInvoiceUrl: text("stripe_invoice_url"),
   status: text("status").default("pending"), // pending, invoiced, paid, failed, no_overage

@@ -107,6 +107,31 @@ export function registerWebhookRoutes(app: any) {
       const webhookId = parseInt(req.params.id);
       const { url, events, active, description } = req.body;
 
+      // Validate URL format and block internal/private addresses (SSRF protection)
+      if (url) {
+        try {
+          const urlObj = new URL(url);
+          const hostname = urlObj.hostname.toLowerCase();
+
+          const blockedHostnames = ['localhost', '127.0.0.1', '0.0.0.0', '::1', 'metadata.google.internal'];
+          if (blockedHostnames.includes(hostname)) {
+            return res.status(400).json({ message: 'Internal/localhost URLs are not allowed' });
+          }
+
+          const privateIpPatterns = [
+            /^10\./,
+            /^172\.(1[6-9]|2\d|3[01])\./,
+            /^192\.168\./,
+            /^169\.254\./,
+          ];
+          if (privateIpPatterns.some(pattern => pattern.test(hostname))) {
+            return res.status(400).json({ message: 'Private IP addresses are not allowed' });
+          }
+        } catch {
+          return res.status(400).json({ message: 'Invalid URL format' });
+        }
+      }
+
       // Validate events if provided
       if (events) {
         const invalidEvents = events.filter((e: string) => !webhookService.WEBHOOK_EVENTS.includes(e as any));

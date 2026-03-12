@@ -3,29 +3,28 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { customers, invoices } from '@shared/schema';
-import { 
-  getAuthorizationUrl, 
-  processCallback, 
-  getQuickBooksStatus, 
+import {
+  getAuthorizationUrl,
+  processCallback,
+  getQuickBooksStatus,
   disconnectQuickBooks,
   isQuickBooksConfigured,
   createInvoice,
   recordPayment,
   createOrUpdateCustomer
 } from '../services/quickbooksService';
-import { isAuthenticated } from '../middleware/auth';
+import { isAuthenticated, checkBelongsToBusinessAsync } from '../middleware/auth';
 
 const router = Router();
 
-// Check QuickBooks connection status
-router.get('/status', async (req, res) => {
+// Check QuickBooks connection status — requires auth + ownership
+router.get('/status', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-    
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
-    
+
     const status = await getQuickBooksStatus(businessId);
     res.json(status);
   } catch (error) {
@@ -35,10 +34,10 @@ router.get('/status', async (req, res) => {
 });
 
 // Check if QuickBooks is configured in the environment
-router.get('/check-config', async (req, res) => {
+router.get('/check-config', isAuthenticated, async (req, res) => {
   try {
     const configured = isQuickBooksConfigured();
-    res.json({ 
+    res.json({
       configured,
       clientIdExists: !!process.env.QUICKBOOKS_CLIENT_ID,
       clientSecretExists: !!process.env.QUICKBOOKS_CLIENT_SECRET
@@ -49,33 +48,32 @@ router.get('/check-config', async (req, res) => {
   }
 });
 
-// Generate authorization URL
+// Generate authorization URL — uses session businessId
 router.get('/authorize', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-    
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
-    
+
     // Check if QuickBooks API is configured
     if (!isQuickBooksConfigured()) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'QuickBooks API is not configured',
         success: false
       });
     }
-    
+
     // Generate authorization URL
     const authUrl = getAuthorizationUrl(businessId);
-    
-    res.json({ 
+
+    res.json({
       success: true,
-      authUrl 
+      authUrl
     });
   } catch (error) {
     console.error('Error generating QuickBooks authorization URL:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to generate QuickBooks authorization URL',
       success: false
     });
@@ -83,14 +81,15 @@ router.get('/authorize', isAuthenticated, async (req, res) => {
 });
 
 // OAuth callback to exchange code for tokens
+// Note: OAuth callbacks can't require session auth — state param validates the request
 router.get('/callback', async (req, res) => {
   try {
     // Get the full callback URL
     const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-    
+
     // Process the callback
     const result = await processCallback(fullUrl, req);
-    
+
     if (result.success) {
       // Redirect to success page
       res.redirect('/settings?tab=integrations&success=quickbooks');
@@ -104,17 +103,16 @@ router.get('/callback', async (req, res) => {
   }
 });
 
-// Disconnect QuickBooks
+// Disconnect QuickBooks — uses session businessId
 router.post('/disconnect', isAuthenticated, async (req, res) => {
   try {
-    const businessId = req.body.businessId;
-    
+    const businessId = (req.user as any)?.businessId;
     if (!businessId) {
-      return res.status(400).json({ error: 'Business ID is required' });
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
-    
+
     await disconnectQuickBooks(businessId);
-    
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error disconnecting QuickBooks:', error);
@@ -122,28 +120,36 @@ router.post('/disconnect', isAuthenticated, async (req, res) => {
   }
 });
 
-// Sync customer to QuickBooks
+// Sync customer to QuickBooks — verify ownership of both business and customer
 router.post('/sync-customer', isAuthenticated, async (req, res) => {
   try {
-    const businessId = req.body.businessId;
-    const customerId = req.body.customerId;
-    
-    if (!businessId || !customerId) {
-      return res.status(400).json({ error: 'Business ID and customer ID are required' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
-    
-    // Get customer from database
+
+    const customerId = req.body.customerId;
+    if (!customerId) {
+      return res.status(400).json({ error: 'Customer ID is required' });
+    }
+
+    // Get customer from database and verify it belongs to the user's business
     const customer = await db.query.customers.findFirst({
       where: eq(customers.id, customerId)
     });
-    
+
     if (!customer) {
       return res.status(404).json({ error: 'Customer not found' });
     }
-    
+
+    // Verify customer belongs to the user's business
+    if (customer.businessId !== businessId) {
+      return res.status(403).json({ error: 'Access denied to this customer' });
+    }
+
     // Sync customer to QuickBooks
     const result = await createOrUpdateCustomer(businessId, customer);
-    
+
     res.json({ success: true, result });
   } catch (error) {
     console.error('Error syncing customer to QuickBooks:', error);
@@ -151,16 +157,19 @@ router.post('/sync-customer', isAuthenticated, async (req, res) => {
   }
 });
 
-// Sync invoice to QuickBooks
+// Sync invoice to QuickBooks — verify ownership
 router.post('/sync-invoice', isAuthenticated, async (req, res) => {
   try {
-    const businessId = req.body.businessId;
-    const invoiceId = req.body.invoiceId;
-    
-    if (!businessId || !invoiceId) {
-      return res.status(400).json({ error: 'Business ID and invoice ID are required' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
-    
+
+    const invoiceId = req.body.invoiceId;
+    if (!invoiceId) {
+      return res.status(400).json({ error: 'Invoice ID is required' });
+    }
+
     // Get invoice from database
     const invoice = await db.query.invoices.findFirst({
       where: eq(invoices.id, invoiceId),
@@ -169,14 +178,19 @@ router.post('/sync-invoice', isAuthenticated, async (req, res) => {
         items: true
       }
     });
-    
+
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
-    
+
+    // Verify invoice belongs to the user's business
+    if (invoice.businessId !== businessId) {
+      return res.status(403).json({ error: 'Access denied to this invoice' });
+    }
+
     // Sync invoice to QuickBooks
     const result = await createInvoice(businessId, invoice);
-    
+
     res.json({ success: true, result });
   } catch (error) {
     console.error('Error syncing invoice to QuickBooks:', error);
@@ -184,27 +198,39 @@ router.post('/sync-invoice', isAuthenticated, async (req, res) => {
   }
 });
 
-// Record payment in QuickBooks
+// Record payment in QuickBooks — verify ownership
 router.post('/record-payment', isAuthenticated, async (req, res) => {
   try {
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
+    }
+
     const schema = z.object({
-      businessId: z.number(),
       invoiceId: z.number(),
       amount: z.number(),
       customerId: z.number(),
       paymentMethod: z.string().optional(),
     });
-    
+
     const data = schema.parse(req.body);
-    
+
+    // Verify the invoice belongs to the user's business
+    const invoice = await db.query.invoices.findFirst({
+      where: eq(invoices.id, data.invoiceId)
+    });
+    if (!invoice || invoice.businessId !== businessId) {
+      return res.status(403).json({ error: 'Access denied to this invoice' });
+    }
+
     // Record payment in QuickBooks
-    const result = await recordPayment(data.businessId, {
+    const result = await recordPayment(businessId, {
       invoiceId: data.invoiceId,
       amount: data.amount,
       customerId: data.customerId,
       paymentMethod: data.paymentMethod || 'CreditCard',
     });
-    
+
     res.json({ success: true, result });
   } catch (error) {
     console.error('Error recording payment in QuickBooks:', error);

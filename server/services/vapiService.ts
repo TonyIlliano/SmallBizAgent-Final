@@ -12,13 +12,9 @@ import { getCachedMenu as getHeartlandCachedMenu } from './heartlandService';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
-const BASE_URL = process.env.BASE_URL || '';
-
-// Warn if BASE_URL is not set - Vapi needs the full URL for webhooks
+const BASE_URL = process.env.APP_URL || '';
 if (!BASE_URL) {
-  console.warn('WARNING: BASE_URL environment variable is not set!');
-  console.warn('Vapi webhooks will not work without a publicly accessible URL.');
-  console.warn('Set BASE_URL to your public domain (e.g., https://your-app.railway.app)');
+  console.warn('⚠️ APP_URL not set — webhook URLs will be relative paths');
 }
 
 /** Curated ElevenLabs voices available for VAPI assistants */

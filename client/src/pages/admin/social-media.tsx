@@ -5,7 +5,7 @@
  * Platform-level only (admin).
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Redirect } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -119,6 +119,7 @@ function ConnectedAccountsSection() {
   // Listen for OAuth popup callback
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === "social-connected") {
         queryClient.invalidateQueries({ queryKey: ["/api/social-media/status"] });
         toast({
@@ -300,6 +301,16 @@ function PostsTable({ status }: { status: string }) {
   const [editingPost, setEditingPost] = useState<SocialPost | null>(null);
   const [editContent, setEditContent] = useState("");
   const [viewingPost, setViewingPost] = useState<SocialPost | null>(null);
+  const videoPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clean up video polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (videoPollIntervalRef.current) {
+        clearInterval(videoPollIntervalRef.current);
+      }
+    };
+  }, []);
 
   const { data, isLoading } = useQuery<SocialPost[]>({
     queryKey: ["/api/social-media/posts", status],
@@ -324,27 +335,34 @@ function PostsTable({ status }: { status: string }) {
     },
     onSuccess: (_data, postId) => {
       toast({ title: "Video generation started", description: "Rendering in progress — this page will update automatically when the video is ready (~30-60 seconds)." });
+      // Clear any existing poll before starting a new one
+      if (videoPollIntervalRef.current) {
+        clearInterval(videoPollIntervalRef.current);
+      }
       // Poll every 10s for up to 5 minutes until the post has a video
       let attempts = 0;
       const maxAttempts = 30; // 30 × 10s = 5 minutes
-      const pollInterval = setInterval(async () => {
+      videoPollIntervalRef.current = setInterval(async () => {
         attempts++;
         try {
           const res = await apiRequest("GET", `/api/social-media/posts/${postId}/video-status`);
           const statusData = await res.json();
           if (statusData.mediaType === 'video' && statusData.mediaUrl) {
-            clearInterval(pollInterval);
+            clearInterval(videoPollIntervalRef.current!);
+            videoPollIntervalRef.current = null;
             queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
             toast({ title: "Video ready! 🎬", description: "Your video has been generated. Click the eye icon to preview it." });
           } else if (attempts >= maxAttempts) {
-            clearInterval(pollInterval);
+            clearInterval(videoPollIntervalRef.current!);
+            videoPollIntervalRef.current = null;
             queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
             toast({ title: "Video may still be processing", description: "Refresh the page to check status.", variant: "destructive" });
           }
         } catch {
           // Silently retry — the server might be busy
           if (attempts >= maxAttempts) {
-            clearInterval(pollInterval);
+            clearInterval(videoPollIntervalRef.current!);
+            videoPollIntervalRef.current = null;
           }
         }
       }, 10000);

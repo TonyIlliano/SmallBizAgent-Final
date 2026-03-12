@@ -151,8 +151,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logoutMutation = useMutation({
     mutationFn: async () => {
       try {
+        // Read CSRF token from cookie
+        const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
+        const headers: Record<string, string> = {};
+        if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
+
         const res = await fetch("/api/logout", {
           method: "POST",
+          headers,
           credentials: "include",
         });
         if (!res.ok) {

@@ -121,19 +121,12 @@ export default function InvoicePayment() {
         amount: invoice.total,
         invoiceId: parseInt(invoiceId)
       })
-        .then((res) => {
-          if (!res.ok) {
-            return res.json().then((data: any) => {
-              if (data.code === 'PAYMENT_BLOCKED') {
-                setPaymentBlocked(true);
-                return null;
-              }
-              throw new Error(data.message || 'Failed to create payment');
-            });
-          }
-          return res.json();
-        })
         .then((data) => {
+          // apiRequest from api.ts already returns parsed JSON
+          if (data?.code === 'PAYMENT_BLOCKED') {
+            setPaymentBlocked(true);
+            return;
+          }
           if (data?.clientSecret) {
             setClientSecret(data.clientSecret);
           }

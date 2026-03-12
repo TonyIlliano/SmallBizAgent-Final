@@ -128,6 +128,34 @@ router.get("/customers/enriched", async (req, res) => {
   }
 });
 
+// Get all unique tags for a business — MUST be before /customers/:id to avoid route collision
+router.get("/customers/tags", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = req.user.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+
+    const allCustomers = await storage.getCustomers(businessId);
+    const tagSet = new Set<string>();
+    for (const c of allCustomers) {
+      if ((c as any).tags) {
+        try {
+          const parsed = JSON.parse((c as any).tags);
+          if (Array.isArray(parsed)) parsed.forEach((t: string) => tagSet.add(t));
+        } catch {}
+      }
+    }
+    res.json(Array.from(tagSet).sort());
+  } catch (error) {
+    console.error("Error fetching tags:", error);
+    res.status(500).json({ error: "Failed to fetch tags" });
+  }
+});
+
 // Get a specific customer by ID
 router.get("/customers/:id", async (req, res) => {
   try {
@@ -341,34 +369,6 @@ router.delete("/customers/:id", async (req, res) => {
 });
 
 // ── Customer Tags ──
-
-// Get all unique tags for a business
-router.get("/customers/tags", async (req, res) => {
-  try {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-    const businessId = req.user.businessId;
-    if (!businessId) {
-      return res.status(400).json({ error: "No business associated with user" });
-    }
-
-    const allCustomers = await storage.getCustomers(businessId);
-    const tagSet = new Set<string>();
-    for (const c of allCustomers) {
-      if ((c as any).tags) {
-        try {
-          const parsed = JSON.parse((c as any).tags);
-          if (Array.isArray(parsed)) parsed.forEach((t: string) => tagSet.add(t));
-        } catch {}
-      }
-    }
-    res.json(Array.from(tagSet).sort());
-  } catch (error) {
-    console.error("Error fetching tags:", error);
-    res.status(500).json({ error: "Failed to fetch tags" });
-  }
-});
 
 // Add tags to a customer
 router.post("/customers/:id/tags", async (req, res) => {

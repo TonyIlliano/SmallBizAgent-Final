@@ -4,6 +4,9 @@
  * Handles API key connection, menu syncing, and connection management
  * for restaurants using Heartland POS. Unlike Clover/Square which use
  * OAuth, Heartland uses simple API key authentication.
+ *
+ * Security: All authenticated endpoints enforce business ownership via
+ * session-derived businessId to prevent IDOR attacks.
  */
 
 import { Router } from 'express';
@@ -22,14 +25,13 @@ const router = Router();
 
 /**
  * GET /api/heartland/status
- * Check Heartland connection status for a business
+ * Check Heartland connection status for the authenticated user's business
  */
 router.get('/status', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const status = await getHeartlandStatus(businessId);
@@ -44,7 +46,7 @@ router.get('/status', isAuthenticated, async (req, res) => {
  * GET /api/heartland/check-config
  * Check if Heartland partner key is configured in environment
  */
-router.get('/check-config', async (req, res) => {
+router.get('/check-config', isAuthenticated, async (req, res) => {
   try {
     const configured = !!process.env.HEARTLAND_PARTNER_KEY;
     res.json({
@@ -59,16 +61,16 @@ router.get('/check-config', async (req, res) => {
 
 /**
  * POST /api/heartland/connect
- * Connect a business to Heartland by validating and saving their API key
+ * Connect the authenticated user's business to Heartland by validating and saving their API key
  */
 router.post('/connect', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.body.businessId as string, 10);
-    const apiKey = req.body.apiKey as string;
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
+
+    const apiKey = req.body.apiKey as string;
 
     if (!apiKey || !apiKey.trim()) {
       return res.status(400).json({ error: 'API key is required' });
@@ -93,14 +95,13 @@ router.post('/connect', isAuthenticated, async (req, res) => {
 
 /**
  * POST /api/heartland/sync-menu
- * Trigger a manual menu sync from Heartland
+ * Trigger a manual menu sync from Heartland for the authenticated user's business
  */
 router.post('/sync-menu', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.body.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const menu = await syncMenu(businessId);
@@ -128,14 +129,13 @@ router.post('/sync-menu', isAuthenticated, async (req, res) => {
 
 /**
  * GET /api/heartland/menu
- * Get the cached menu for a business (for display/debugging)
+ * Get the cached menu for the authenticated user's business
  */
 router.get('/menu', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const menu = await getCachedMenu(businessId);
@@ -152,14 +152,13 @@ router.get('/menu', isAuthenticated, async (req, res) => {
 
 /**
  * POST /api/heartland/disconnect
- * Disconnect a business from Heartland
+ * Disconnect the authenticated user's business from Heartland
  */
 router.post('/disconnect', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.body.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     await disconnectHeartland(businessId);

@@ -46,7 +46,7 @@ router.get('/:platform/auth-url', isAdmin, async (req: Request, res: Response) =
     }
 
     const { socialMediaService } = await import("../services/socialMediaService");
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     const url = await socialMediaService.getAuthUrl(platform, baseUrl);
     res.json({ url });
   } catch (error: any) {
@@ -74,13 +74,14 @@ router.get('/:platform/callback', async (req: Request, res: Response) => {
     }
 
     const { socialMediaService } = await import("../services/socialMediaService");
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     await socialMediaService.handleCallback(platform, code, state, baseUrl);
 
     const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
 
+    const appOrigin = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     res.send(`<html><body><p>\u2713 ${platformName} Connected!</p><script>
-if(window.opener){window.opener.postMessage({type:'social-connected',platform:'${platform}'},'*');}
+if(window.opener){window.opener.postMessage({type:'social-connected',platform:'${platform}'},'${appOrigin}');}
 setTimeout(function(){window.close();},2000);
 </script></body></html>`);
   } catch (error: any) {

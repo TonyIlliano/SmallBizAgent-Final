@@ -9,11 +9,20 @@
 
 import Stripe from 'stripe';
 
-// Initialize Stripe with environment variables or default test values
-const apiKey = process.env.STRIPE_SECRET_KEY || 'sk_test_example';
-const stripe = new Stripe(apiKey, {
-  apiVersion: '2025-03-31.basil'
-});
+// Initialize Stripe lazily — no hardcoded fallback keys
+let stripe: Stripe | null = null;
+
+function getStripe(): Stripe {
+  if (!stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error('STRIPE_SECRET_KEY is not set — cannot perform Stripe operations');
+    }
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2025-03-31.basil',
+    });
+  }
+  return stripe;
+}
 
 /**
  * Create a payment intent for processing a payment
@@ -28,11 +37,15 @@ export async function createPaymentIntent(
   currency: string = 'usd',
   metadata: Record<string, string> = {}
 ) {
+  if (!amount || amount <= 0) {
+    throw new Error('Payment amount must be positive');
+  }
+
   try {
     // Convert dollar amount to cents
     const amountInCents = Math.round(amount * 100);
     
-    const paymentIntent = await stripe.paymentIntents.create({
+    const paymentIntent = await getStripe().paymentIntents.create({
       amount: amountInCents,
       currency,
       metadata
@@ -53,7 +66,7 @@ export async function createPaymentIntent(
  */
 export async function getPaymentIntent(paymentIntentId: string) {
   try {
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const paymentIntent = await getStripe().paymentIntents.retrieve(paymentIntentId);
     return paymentIntent;
   } catch (error) {
     console.error('Error retrieving payment intent:', error);
@@ -77,7 +90,7 @@ export async function createCustomer(
   metadata: Record<string, string> = {}
 ) {
   try {
-    const customer = await stripe.customers.create({
+    const customer = await getStripe().customers.create({
       email,
       name,
       phone,
@@ -108,7 +121,7 @@ export async function createInvoice(
 ) {
   try {
     // First create an invoice item
-    const invoiceItem = await stripe.invoiceItems.create({
+    const invoiceItem = await getStripe().invoiceItems.create({
       customer: customerId,
       amount: Math.round(amount * 100),
       currency: 'usd',
@@ -116,7 +129,7 @@ export async function createInvoice(
     });
     
     // Create the invoice with the item
-    const invoice = await stripe.invoices.create({
+    const invoice = await getStripe().invoices.create({
       customer: customerId,
       description,
       metadata,
@@ -141,15 +154,21 @@ export async function createInvoice(
 export function handleWebhookEvent(
   signature: string,
   payload: string | Buffer,
-  webhookSecret: string = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_test_example'
+  webhookSecret?: string
 ) {
+  if (!webhookSecret) {
+    const envSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!envSecret) throw new Error('STRIPE_WEBHOOK_SECRET not configured');
+    webhookSecret = envSecret;
+  }
+
   try {
-    const event = stripe.webhooks.constructEvent(
+    const event = getStripe().webhooks.constructEvent(
       payload,
       signature,
       webhookSecret
     );
-    
+
     return event;
   } catch (error) {
     console.error('Error processing webhook:', error);
@@ -157,8 +176,11 @@ export function handleWebhookEvent(
   }
 }
 
+export { getStripe };
+
 export default {
-  stripe,
+  get stripe() { return getStripe(); },
+  getStripe,
   createPaymentIntent,
   getPaymentIntent,
   createCustomer,

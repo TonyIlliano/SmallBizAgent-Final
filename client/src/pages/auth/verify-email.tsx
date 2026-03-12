@@ -18,6 +18,7 @@ export default function VerifyEmailPage() {
   const [verified, setVerified] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendSuccess, setResendSuccess] = useState(false);
 
   // Cooldown timer for resend button
   useEffect(() => {
@@ -57,16 +58,21 @@ export default function VerifyEmailPage() {
     setVerifying(true);
 
     try {
+      const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
+
       const res = await fetch("/api/verify-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: user!.email, code: verificationCode }),
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ email: user!.email, code: verificationCode.trim() }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Verification failed");
+        setError(data.error || data.message || "Verification failed. Please try again.");
         setCode("");
         setVerifying(false);
         return;
@@ -90,24 +96,32 @@ export default function VerifyEmailPage() {
 
   async function handleResend() {
     setError(null);
+    setResendSuccess(false);
     setResending(true);
 
     try {
+      const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
+
       const res = await fetch("/api/resend-verification", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
+        credentials: "include",
         body: JSON.stringify({ email: user!.email }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Failed to resend code");
+        setError(data.error || data.message || "Failed to resend code");
       } else {
         setResendCooldown(60);
+        setCode("");
+        setResendSuccess(true);
       }
     } catch (err) {
-      setError("Failed to resend code. Please try again.");
+      setError("Failed to resend code. Please try again later.");
     } finally {
       setResending(false);
     }
@@ -132,6 +146,11 @@ export default function VerifyEmailPage() {
               ? "Redirecting you to setup..."
               : `We sent a 6-digit code to ${user.email}`}
           </CardDescription>
+          {!verified && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Don't see it? Check your spam or junk folder.
+            </p>
+          )}
         </CardHeader>
 
         {!verified && (
@@ -140,6 +159,13 @@ export default function VerifyEmailPage() {
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {resendSuccess && !error && (
+              <Alert className="border-green-200 bg-green-50 text-green-800">
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                <AlertDescription>New code sent! Check your email (and spam folder).</AlertDescription>
               </Alert>
             )}
 

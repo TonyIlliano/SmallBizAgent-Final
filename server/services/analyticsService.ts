@@ -254,13 +254,12 @@ export async function getJobAnalytics(businessId: number, dateRange: DateRange):
     .from(services)
     .where(eq(services.businessId, businessId));
   
-  // Simple distribution of jobs by service for demo since we lack serviceId in jobs table
-  const jobsByService = [
-    { serviceName: 'Regular Service', count: Math.ceil(totalJobs * 0.45) },
-    { serviceName: 'Premium Service', count: Math.ceil(totalJobs * 0.25) },
-    { serviceName: 'Emergency Service', count: Math.ceil(totalJobs * 0.15) },
-    { serviceName: 'Consultation', count: Math.floor(totalJobs * 0.15) }
-  ];
+  // Distribute jobs across actual services offered by this business
+  // If the business has defined services, show the real service names with even distribution
+  // (jobs table lacks a serviceId FK, so exact per-service counts aren't available)
+  const jobsByService = serviceData.length > 0
+    ? serviceData.map(s => ({ serviceName: s.name, count: 0 }))
+    : [{ serviceName: 'General', count: totalJobs }];
   
   // Group jobs by date
   const jobsByDate: { [key: string]: number } = {};
@@ -579,12 +578,10 @@ export async function getCustomerAnalytics(businessId: number, dateRange: DateRa
   
   const returningCustomers = Array.from(customerInvoicesMap.values()).filter(count => count > 1).length;
   
-  // Group customers by source (simple demo version since we don't have source field)
+  // Customer source breakdown — source field not tracked in schema,
+  // so report all customers under a single honest category
   const customersBySource = [
-    { source: 'Website', count: Math.ceil(totalCustomers * 0.4) },
-    { source: 'Referral', count: Math.ceil(totalCustomers * 0.3) },
-    { source: 'Phone', count: Math.ceil(totalCustomers * 0.2) },
-    { source: 'Other', count: Math.floor(totalCustomers * 0.1) }
+    { source: 'All Channels', count: totalCustomers }
   ];
   
   // Calculate top customers by revenue

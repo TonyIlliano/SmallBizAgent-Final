@@ -170,6 +170,10 @@ export async function generateMarketingVideo(
  * Check the status of a Shotstack render.
  */
 export async function checkRenderStatus(renderId: string): Promise<RenderStatus> {
+  if (!SHOTSTACK_API_KEY) {
+    throw new Error("Shotstack is not configured — set SHOTSTACK_API_KEY");
+  }
+
   const response = await fetch(`${SHOTSTACK_BASE}/render/${renderId}`, {
     headers: { "x-api-key": SHOTSTACK_API_KEY },
   });

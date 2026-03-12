@@ -30,6 +30,10 @@ export async function runDataRetention(): Promise<void> {
       const recordingCutoff = new Date();
       recordingCutoff.setDate(recordingCutoff.getDate() - recordingRetention);
 
+      // TODO: Before nulling recordingUrl, delete the actual audio files from S3.
+      // Currently we only remove the database reference, leaving orphaned files
+      // in the S3 bucket. Implement S3 deletion using the AWS SDK
+      // (e.g., s3.deleteObject) for each recordingUrl before setting it to null.
       const recordingsResult = await db.update(callLogs)
         .set({ recordingUrl: null })
         .where(and(

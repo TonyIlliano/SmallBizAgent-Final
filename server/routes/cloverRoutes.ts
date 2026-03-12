@@ -3,10 +3,13 @@
  *
  * Handles OAuth connection, menu syncing, and connection management
  * for restaurants using Clover POS.
+ *
+ * Security: All authenticated endpoints enforce business ownership via
+ * checkBelongsToBusinessAsync to prevent IDOR attacks.
  */
 
 import { Router } from 'express';
-import { isAuthenticated } from '../middleware/auth';
+import { isAuthenticated, checkBelongsToBusinessAsync } from '../middleware/auth';
 import {
   getCloverAuthUrl,
   handleCloverOAuthCallback,
@@ -21,14 +24,13 @@ const router = Router();
 
 /**
  * GET /api/clover/status
- * Check Clover connection status for a business
+ * Check Clover connection status for the authenticated user's business
  */
 router.get('/status', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const status = await getCloverStatus(businessId);
@@ -42,8 +44,9 @@ router.get('/status', isAuthenticated, async (req, res) => {
 /**
  * GET /api/clover/check-config
  * Check if Clover API credentials are configured in environment
+ * Note: Only returns boolean flags about env config, no sensitive data — safe without auth
  */
-router.get('/check-config', async (req, res) => {
+router.get('/check-config', isAuthenticated, async (req, res) => {
   try {
     const configured = !!(process.env.CLOVER_APP_ID && process.env.CLOVER_APP_SECRET);
     res.json({
@@ -59,16 +62,16 @@ router.get('/check-config', async (req, res) => {
 
 /**
  * GET /api/clover/auth-url
- * Generate the Clover OAuth authorization URL
+ * Generate the Clover OAuth authorization URL for the authenticated user's business
  */
 router.get('/auth-url', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-    const environment = (req.query.environment as string) || 'sandbox';
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
+
+    const environment = (req.query.environment as string) || 'sandbox';
 
     if (!process.env.CLOVER_APP_ID || !process.env.CLOVER_APP_SECRET) {
       return res.status(400).json({
@@ -89,6 +92,7 @@ router.get('/auth-url', isAuthenticated, async (req, res) => {
  * GET /api/clover/callback
  * OAuth callback handler — exchanges code for tokens and connects the business
  * This is called by Clover after the merchant approves the connection
+ * Note: OAuth callbacks can't require session auth — state param validates the request
  */
 router.get('/callback', async (req, res) => {
   try {
@@ -122,14 +126,13 @@ router.get('/callback', async (req, res) => {
 
 /**
  * POST /api/clover/sync-menu
- * Trigger a manual menu sync from Clover
+ * Trigger a manual menu sync from Clover for the authenticated user's business
  */
 router.post('/sync-menu', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.body.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const menu = await syncMenu(businessId);
@@ -157,14 +160,13 @@ router.post('/sync-menu', isAuthenticated, async (req, res) => {
 
 /**
  * GET /api/clover/menu
- * Get the cached menu for a business (for display/debugging)
+ * Get the cached menu for the authenticated user's business
  */
 router.get('/menu', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.query.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     const menu = await getCachedMenu(businessId);
@@ -181,14 +183,13 @@ router.get('/menu', isAuthenticated, async (req, res) => {
 
 /**
  * POST /api/clover/disconnect
- * Disconnect a business from Clover
+ * Disconnect the authenticated user's business from Clover
  */
 router.post('/disconnect', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.body.businessId as string, 10);
-
-    if (isNaN(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: 'No business associated with your account' });
     }
 
     await disconnectClover(businessId);

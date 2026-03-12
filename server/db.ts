@@ -22,8 +22,8 @@ const poolConfig: any = {
   connectionTimeoutMillis: 10000,
 };
 
-// For production, we need SSL
-if (!isLocalDB && process.env.NODE_ENV === 'production') {
+// Enable SSL for all non-local databases (production, staging, preview on Railway, etc.)
+if (!isLocalDB) {
   poolConfig.ssl = { rejectUnauthorized: false };
 }
 

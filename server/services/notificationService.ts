@@ -936,7 +936,7 @@ export async function sendQuoteFollowUpNotification(quoteId: number, businessId:
       ? new Date(quote.validUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : 'Not specified';
 
-    const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
+    const baseUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
     const quoteUrl = quote.accessToken
       ? `${baseUrl}/quotes/view/${quote.accessToken}`
       : `${baseUrl}/quotes/${quote.id}`;

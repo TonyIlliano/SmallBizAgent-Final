@@ -41,8 +41,8 @@ export default function Invoices() {
   const generateLinkMutation = useMutation({
     mutationFn: (invoiceId: number) =>
       apiRequest("POST", `/api/invoices/${invoiceId}/generate-link`),
-    onSuccess: async (response: any, invoiceId: number) => {
-      const data = await response.json();
+    onSuccess: async (data: any, invoiceId: number) => {
+      // apiRequest from api.ts already returns parsed JSON
       // Copy to clipboard
       await navigator.clipboard.writeText(data.publicUrl);
       setCopiedId(invoiceId);

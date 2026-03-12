@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { CalendarService } from '../services/calendarService';
 import { isAuthenticated } from '../auth';
+import { storage } from '../storage';
 
 const router = Router();
 const calendarService = new CalendarService();
@@ -8,7 +9,8 @@ const calendarService = new CalendarService();
 // Get calendar integration statuses for a business
 router.get('/status/:businessId', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.params.businessId);
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) return res.status(401).json({ error: 'Not authenticated' });
     const status = await calendarService.getIntegrationStatus(businessId);
     res.json(status);
   } catch (error: any) {
@@ -19,7 +21,8 @@ router.get('/status/:businessId', isAuthenticated, async (req, res) => {
 // Get auth URLs for calendar integrations
 router.get('/auth-urls/:businessId', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.params.businessId);
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) return res.status(401).json({ error: 'Not authenticated' });
     const urls = calendarService.getAuthUrls(businessId);
     res.json(urls);
   } catch (error: any) {
@@ -49,7 +52,7 @@ router.get('/google/callback', async (req, res) => {
           </div>
           <script>
             if (window.opener) {
-              window.opener.postMessage({ type: 'calendar-connected', provider: 'google' }, '*');
+              window.opener.postMessage({ type: 'calendar-connected', provider: 'google' }, '${process.env.APP_URL || req.protocol + "://" + req.get("host")}');
             }
             setTimeout(function() { window.close(); }, 2000);
           </script>
@@ -57,11 +60,12 @@ router.get('/google/callback', async (req, res) => {
       </html>
     `);
   } catch (error: any) {
+    const safeMessage = (error.message || 'Unknown error').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     res.status(500).send(`
       <html>
         <body>
           <h1>Error Connecting Google Calendar</h1>
-          <p>There was an error connecting your Google Calendar: ${error.message}</p>
+          <p>There was an error connecting your Google Calendar: ${safeMessage}</p>
           <p>Please try again.</p>
         </body>
       </html>
@@ -91,7 +95,7 @@ router.get('/microsoft/callback', async (req, res) => {
           </div>
           <script>
             if (window.opener) {
-              window.opener.postMessage({ type: 'calendar-connected', provider: 'microsoft' }, '*');
+              window.opener.postMessage({ type: 'calendar-connected', provider: 'microsoft' }, '${process.env.APP_URL || req.protocol + "://" + req.get("host")}');
             }
             setTimeout(function() { window.close(); }, 2000);
           </script>
@@ -99,11 +103,12 @@ router.get('/microsoft/callback', async (req, res) => {
       </html>
     `);
   } catch (error: any) {
+    const safeMessage = (error.message || 'Unknown error').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     res.status(500).send(`
       <html>
         <body>
           <h1>Error Connecting Microsoft Calendar</h1>
-          <p>There was an error connecting your Microsoft Calendar: ${error.message}</p>
+          <p>There was an error connecting your Microsoft Calendar: ${safeMessage}</p>
           <p>Please try again.</p>
         </body>
       </html>
@@ -114,7 +119,8 @@ router.get('/microsoft/callback', async (req, res) => {
 // Get Apple Calendar subscription URL
 router.get('/apple/subscription/:businessId', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.params.businessId);
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) return res.status(401).json({ error: 'Not authenticated' });
     const url = await calendarService.getAppleCalendarUrl(businessId);
     
     if (!url) {
@@ -130,9 +136,15 @@ router.get('/apple/subscription/:businessId', isAuthenticated, async (req, res) 
 // Generate an .ics file for a specific appointment
 router.get('/appointment/:appointmentId/ics', isAuthenticated, async (req, res) => {
   try {
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) return res.status(401).json({ error: 'Not authenticated' });
     const appointmentId = parseInt(req.params.appointmentId);
+    const appointment = await storage.getAppointment(appointmentId);
+    if (!appointment || appointment.businessId !== businessId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const icsUrl = await calendarService.getAppointmentICS(appointmentId);
-    
+
     res.json({ icsUrl });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -142,9 +154,15 @@ router.get('/appointment/:appointmentId/ics', isAuthenticated, async (req, res) 
 // Sync an appointment with all connected calendars
 router.post('/appointment/:appointmentId/sync', isAuthenticated, async (req, res) => {
   try {
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) return res.status(401).json({ error: 'Not authenticated' });
     const appointmentId = parseInt(req.params.appointmentId);
+    const appointment = await storage.getAppointment(appointmentId);
+    if (!appointment || appointment.businessId !== businessId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const result = await calendarService.syncAppointment(appointmentId);
-    
+
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -154,9 +172,15 @@ router.post('/appointment/:appointmentId/sync', isAuthenticated, async (req, res
 // Delete an appointment from all connected calendars
 router.delete('/appointment/:appointmentId', isAuthenticated, async (req, res) => {
   try {
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) return res.status(401).json({ error: 'Not authenticated' });
     const appointmentId = parseInt(req.params.appointmentId);
+    const appointment = await storage.getAppointment(appointmentId);
+    if (!appointment || appointment.businessId !== businessId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const result = await calendarService.deleteAppointment(appointmentId);
-    
+
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -166,7 +190,8 @@ router.delete('/appointment/:appointmentId', isAuthenticated, async (req, res) =
 // Disconnect a calendar integration
 router.delete('/:businessId/:provider', isAuthenticated, async (req, res) => {
   try {
-    const businessId = parseInt(req.params.businessId);
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) return res.status(401).json({ error: 'Not authenticated' });
     const { provider } = req.params;
     
     // Validate provider

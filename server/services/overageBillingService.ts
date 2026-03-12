@@ -37,6 +37,22 @@ function isFounderAccount(business: any): boolean {
  * Get the previous completed billing period for a business.
  * The "previous period" is the one that just ended when the current period started.
  */
+/**
+ * Safely subtract one month from a date, clamping the day to the last day
+ * of the target month to avoid rollover (e.g., March 31 - 1 month = Feb 28/29,
+ * not March 3).
+ */
+function subtractOneMonth(date: Date): Date {
+  const targetMonth = date.getMonth() - 1;
+  const targetYear = date.getFullYear();
+  // Find the last day of the target month
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const clampedDay = Math.min(date.getDate(), lastDayOfTargetMonth);
+  const result = new Date(targetYear, targetMonth, clampedDay);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
 function getPreviousBillingPeriod(subscriptionStartDate?: Date | null): { periodStart: Date; periodEnd: Date } {
   const now = new Date();
 
@@ -44,15 +60,23 @@ function getPreviousBillingPeriod(subscriptionStartDate?: Date | null): { period
     const startDay = new Date(subscriptionStartDate).getDate();
 
     // Current period start: the most recent occurrence of startDay
-    const currentPeriodStart = new Date(now.getFullYear(), now.getMonth(), startDay);
+    // Clamp to last day of month if startDay exceeds it
+    const lastDayOfCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const clampedCurrentDay = Math.min(startDay, lastDayOfCurrentMonth);
+    const currentPeriodStart = new Date(now.getFullYear(), now.getMonth(), clampedCurrentDay);
     currentPeriodStart.setHours(0, 0, 0, 0);
     if (currentPeriodStart > now) {
-      currentPeriodStart.setMonth(currentPeriodStart.getMonth() - 1);
+      // Go to previous month, clamping the day appropriately
+      const prevMonth = now.getMonth() - 1;
+      const lastDayOfPrevMonth = new Date(now.getFullYear(), prevMonth + 1, 0).getDate();
+      const clampedPrevDay = Math.min(startDay, lastDayOfPrevMonth);
+      currentPeriodStart.setFullYear(now.getFullYear());
+      currentPeriodStart.setMonth(prevMonth);
+      currentPeriodStart.setDate(clampedPrevDay);
     }
 
-    // Previous period: one month before current period
-    const previousPeriodStart = new Date(currentPeriodStart);
-    previousPeriodStart.setMonth(previousPeriodStart.getMonth() - 1);
+    // Previous period: one month before current period (with day clamping)
+    const previousPeriodStart = subtractOneMonth(currentPeriodStart);
 
     return {
       periodStart: previousPeriodStart,
