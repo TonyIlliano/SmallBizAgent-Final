@@ -25,6 +25,36 @@ if (isTwilioConfigured) {
 // IMPORTANT: This must be set to your publicly accessible URL for Twilio webhooks to work
 const baseWebhookUrl = process.env.BASE_URL || '';
 
+// Messaging Service SID for A2P 10DLC compliance
+const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
+
+/**
+ * Add a phone number to the A2P Messaging Service sender pool.
+ * This is required for SMS delivery — numbers not in the sender pool
+ * will fail with error 21704.
+ */
+async function addToMessagingService(phoneNumberSid: string, phoneNumber: string): Promise<boolean> {
+  if (!client || !messagingServiceSid) {
+    console.warn(`[Provisioning] Cannot add ${phoneNumber} to Messaging Service — missing client or TWILIO_MESSAGING_SERVICE_SID`);
+    return false;
+  }
+  try {
+    await client.messaging.v1
+      .services(messagingServiceSid)
+      .phoneNumbers.create({ phoneNumberSid });
+    console.log(`[Provisioning] ✅ Added ${phoneNumber} to A2P Messaging Service ${messagingServiceSid}`);
+    return true;
+  } catch (error: any) {
+    // If already added, that's fine
+    if (error?.code === 21710 || error?.message?.includes('already associated')) {
+      console.log(`[Provisioning] ${phoneNumber} already in Messaging Service`);
+      return true;
+    }
+    console.error(`[Provisioning] ❌ Failed to add ${phoneNumber} to Messaging Service:`, error?.message || error);
+    return false;
+  }
+}
+
 function validateWebhookUrl(): void {
   if (!baseWebhookUrl) {
     console.warn('⚠️  BASE_URL environment variable is not set. Twilio webhooks will not work.');
@@ -98,6 +128,9 @@ export async function provisionPhoneNumber(business: Business, areaCode?: string
       .update({
         friendlyName: `${business.name} - ID: ${business.id} - SmallBizAgent`
       });
+
+    // Add to A2P Messaging Service for SMS delivery compliance
+    await addToMessagingService(phoneNumber.sid, phoneNumber.phoneNumber);
 
     // Dual-write: also insert into business_phone_numbers for multi-line support
     const existingNumbers = await db.select().from(businessPhoneNumbers)
@@ -340,6 +373,9 @@ export async function provisionSpecificPhoneNumber(businessId: number, phoneNumb
         friendlyName: `${business.name} - ID: ${business.id} - SmallBizAgent`
       });
 
+    // Add to A2P Messaging Service for SMS delivery compliance
+    await addToMessagingService(purchasedNumber.sid, purchasedNumber.phoneNumber);
+
     // Update the business record with the new phone number
     await db.db.update(businesses)
       .set({
@@ -445,6 +481,9 @@ export async function provisionAdditionalPhoneNumber(
       .update({
         friendlyName: `${business.name} - ID: ${businessId} - SmallBizAgent`
       });
+
+    // Add to A2P Messaging Service for SMS delivery compliance
+    await addToMessagingService(purchasedNumber.sid, purchasedNumber.phoneNumber);
 
     // Check if this is the first number for the business
     const existingNumbers = await db.select().from(businessPhoneNumbers)
