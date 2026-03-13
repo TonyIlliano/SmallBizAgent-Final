@@ -215,7 +215,7 @@ export default function OnboardingSubscription() {
           </Button>
 
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/welcome')}
             className="mt-3 text-sm text-neutral-500 hover:text-neutral-300 underline underline-offset-4"
           >
             Back to home
