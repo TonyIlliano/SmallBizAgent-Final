@@ -545,6 +545,11 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `3c447f6` | Replace hardcoded URLs with APP_URL env var across 17 files |
 | `7c3334e` | Fix login (exempt auth from CSRF, add www redirect) |
 | `e291cb2` | Test coverage for SMS agents, auth, payments (228 tests) |
+| `c94123a` | Fix Vapi AI receptionist: personalized greetings + recording disclosure |
+| `be413d5` | Fix Vapi hang-up: revert 'one moment' firstMessage, keep conversation flowing |
+| `fdbe727` | Fix critical webhook auth bug (isAuthenticated blocking all /api/* webhooks) + enhance Vapi AI receptionist |
+| `bbea37c` | Fix Vapi webhook auth: allow requests when Vapi has no server secret configured |
+| `3cbd1d5` | Fix staff schedule gaps (merge with business hours for uncovered days) + fix reschedule SMS not sending (customer phone extraction in tool-calls path) |
 
 ### Uncommitted changes (current session — Security Audit & Bug Fixes):
 
@@ -619,6 +624,13 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `client/src/pages/landing.tsx` — Updated pricing section text to "14-day free trial. No credit card required. Cancel anytime."
 - **Trial flow**: Register → Select plan (saved to `stripePlanId`) → Onboarding → Dashboard (no payment). Trial expires in 14 days → Settings > Subscription → real Stripe subscription created → payment page.
 - **Existing infrastructure** already handles: trial expiration scheduler (deprovisioning + warning emails), trial usage limits (25 free minutes), email drip campaigns, trial status tracking.
+
+#### Vapi AI Receptionist Fixes (Critical)
+- `server/routes.ts` — **BUG FIX**: Removed `isAuthenticated` from `app.use("/api", exportRoutes)` which was blocking ALL `/api/*` requests including Vapi webhooks with 401. Export routes check auth internally.
+- `server/routes.ts` — **BUG FIX**: Vapi webhook auth now allows requests when Vapi has no server secret configured (`isServerUrlSecretSet: false`). Previously, if `VAPI_WEBHOOK_SECRET` was set on Railway but Vapi wasn't sending it, all function calls were rejected.
+- `server/routes.ts` — **BUG FIX**: Tool-calls handler now extracts `message.customer` and injects into `callObj.customer` when missing. Vapi's `tool-calls` format may place customer info at message level instead of `message.call.customer`, causing `callerPhone` to be undefined and silently skipping SMS confirmations on reschedule/booking.
+- `server/services/vapiWebhookHandler.ts` — **BUG FIX**: `getStaffSchedule()` now merges with business hours for uncovered days. Previously, if a staff member had partial `staff_hours` entries (e.g., Mon-Thu only), days without rows (e.g., Friday) were invisible — not in workingDays or daysOff. Now iterates all 7 days and falls back to business hours for days without staff-specific entries.
+- `server/services/vapiService.ts` — Silence timeout increased from 15s to 30s to prevent premature hangups. Reverted "one moment" firstMessage. Added recording disclosure to first message. Added personalized greetings.
 
 ---
 
@@ -696,4 +708,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 13, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation. 14-day free trial: no credit card required during trial, plan selection saved to business record, Stripe subscription created only after trial ends. Rate limits: general 500/15min, auth 20/15min. Admin fixes: plan distribution filters active plans only. Agent Coordinator: cross-agent wiring (churn→intervention emails, hot leads→nudge emails, critical health→escalation), real platform stats fed into social media and content SEO agents, coordinator visible in admin AI Agents tab with intervention tracking, new email templates for churn intervention and hot lead nudges.*
+*Last updated: March 13, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation. 14-day free trial: no credit card required during trial, plan selection saved to business record, Stripe subscription created only after trial ends. Rate limits: general 500/15min, auth 20/15min. Admin fixes: plan distribution filters active plans only. Agent Coordinator: cross-agent wiring (churn→intervention emails, hot leads→nudge emails, critical health→escalation), real platform stats fed into social media and content SEO agents, coordinator visible in admin AI Agents tab with intervention tracking, new email templates for churn intervention and hot lead nudges. Vapi fixes: webhook auth (isAuthenticated blocking webhooks + permissive secret validation), staff schedule gaps (getStaffSchedule merges with business hours for uncovered days), reschedule SMS (customer phone extraction in tool-calls path), silence timeout 30s, recording disclosure, personalized greetings.*
