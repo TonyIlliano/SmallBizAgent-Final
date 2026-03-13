@@ -408,19 +408,45 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 |----------|---------|
 | `GOOGLE_CLIENT_ID` | Google Calendar OAuth |
 | `GOOGLE_CLIENT_SECRET` | Google Calendar OAuth |
+| `GOOGLE_REDIRECT_URI` | Google OAuth callback (e.g., `https://www.smallbizagent.ai/api/calendar/google/callback`) |
+| `MICROSOFT_CLIENT_ID` | Microsoft Calendar OAuth |
+| `MICROSOFT_CLIENT_SECRET` | Microsoft Calendar OAuth |
+| `MICROSOFT_REDIRECT_URI` | Microsoft OAuth callback |
+
+### Email
+| Variable | Purpose |
+|----------|---------|
+| `SENDGRID_API_KEY` | Email via SendGrid |
+| `SENDGRID_FROM_EMAIL` | SendGrid sender address |
+| `RESEND_API_KEY` | Email via Resend (alternative) |
+| `RESEND_FROM_EMAIL` | Resend sender address |
+
+### POS Integrations
+| Variable | Purpose |
+|----------|---------|
+| `CLOVER_APP_ID`, `CLOVER_APP_SECRET` | Clover POS |
+| `SQUARE_APP_ID`, `SQUARE_APP_SECRET` | Square POS |
+
+### Storage & Monitoring
+| Variable | Purpose |
+|----------|---------|
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_MEDIA_BUCKET` | S3 file storage |
+| `SENTRY_DSN`, `VITE_SENTRY_DSN` | Error tracking (server + client) |
 
 ### Optional
 | Variable | Purpose |
 |----------|---------|
-| `SENDGRID_API_KEY` | Email (or use RESEND_API_KEY) |
-| `RESEND_API_KEY` | Email (alternative to SendGrid) |
-| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_MEDIA_BUCKET` | S3 file storage |
-| `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | QuickBooks |
-| `TURNSTILE_SECRET_KEY`, `VITE_TURNSTILE_SITE_KEY` | Cloudflare CAPTCHA |
+| `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | QuickBooks accounting sync |
+| `TURNSTILE_SECRET_KEY` | Cloudflare CAPTCHA (server-side) |
 | `ENCRYPTION_KEY` | 64-char hex key for DB-stored credentials |
-| `SENTRY_DSN` | Error tracking |
 | `OPENWEATHER_API_KEY` | Weather-aware reminders |
 | `MEM0_API_KEY` | Mem0 cloud persistent memory (format: `m0-...`). Optional — system degrades gracefully without it |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Default admin account seeding |
+| `BASE_URL` | Legacy alias for APP_URL |
+| `RAILWAY_API_TOKEN` | Railway deployment API |
+| `VITE_GOOGLE_PLACES_API_KEY` | Google Places autocomplete (client) |
+| `VITE_STRIPE_PUBLIC_KEY` | Stripe publishable key (client) |
+| `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (client) |
 
 ---
 

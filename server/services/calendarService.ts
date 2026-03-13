@@ -90,6 +90,14 @@ export class CalendarService {
         return this.googleService.disconnect(businessId);
       case 'microsoft':
         return this.microsoftService.disconnect(businessId);
+      case 'apple':
+        // Remove integration record and subscription/event files
+        await db.delete(calendarIntegrations)
+          .where(and(
+            eq(calendarIntegrations.businessId, businessId),
+            eq(calendarIntegrations.provider, 'apple')
+          ));
+        return;
       default:
         throw new Error(`Unsupported calendar provider: ${provider}`);
     }
