@@ -500,6 +500,56 @@ router.post("/api/admin/platform-agents/:agentId/run", isAdmin, async (req: Requ
         result = await runSocialMediaAgent();
         break;
       }
+      case 'coordinator': {
+        // Coordinator doesn't have a traditional "run" cycle — it's triggered by other agents.
+        // Manual run generates a platform status report + recent cross-agent activity summary.
+        const { getPlatformStats, getContentFacts } = await import("../services/platformAgents/agentCoordinator");
+        const { logAgentAction } = await import("../services/agentActivityService");
+
+        const stats = await getPlatformStats();
+        const facts = await getContentFacts();
+
+        // Pull recent coordinator actions (last 7 days)
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const recentActions = await db.select({
+          action: agentActivityLog.action,
+          details: agentActivityLog.details,
+          createdAt: agentActivityLog.createdAt,
+        }).from(agentActivityLog)
+          .where(and(
+            eq(agentActivityLog.agentType, 'platform:coordinator'),
+            gte(agentActivityLog.createdAt, sevenDaysAgo)
+          ))
+          .orderBy(desc(agentActivityLog.createdAt))
+          .limit(20);
+
+        const summary = {
+          platformStats: stats,
+          contentFacts: facts,
+          recentCoordinatorActions: recentActions.length,
+          recentActions: recentActions.map(a => ({
+            action: a.action,
+            details: a.details,
+            timestamp: a.createdAt,
+          })),
+        };
+
+        await logAgentAction({
+          businessId: 0,
+          agentType: 'platform:coordinator',
+          action: 'manual_status_report',
+          details: {
+            totalBusinesses: stats.totalBusinesses,
+            activeBusinesses: stats.activeBusinesses,
+            totalCustomers: stats.totalCustomers,
+            recentActionsCount: recentActions.length,
+            contentFactsCount: facts.length,
+          },
+        });
+
+        result = summary;
+        break;
+      }
       default:
         return res.status(404).json({ error: `Unknown agent: ${agentId}` });
     }
