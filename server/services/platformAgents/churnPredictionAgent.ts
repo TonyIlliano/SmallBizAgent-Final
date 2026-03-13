@@ -253,6 +253,14 @@ export async function runChurnPrediction(): Promise<{ predictions: ChurnPredicti
   // Sort by score descending
   predictions.sort((a, b) => b.score - a.score);
 
+  // Feed results into the agent coordinator for cross-agent actions
+  try {
+    const { processChurnResults } = await import('./agentCoordinator');
+    await processChurnResults(predictions);
+  } catch (err) {
+    console.warn(`[ChurnPrediction] Coordinator processing failed (non-blocking):`, (err as Error).message);
+  }
+
   console.log(`[ChurnPrediction] Done — ${predictions.length} businesses scored, ${highRiskCount} high risk`);
   return { predictions, highRiskCount };
 }

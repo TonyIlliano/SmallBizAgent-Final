@@ -115,6 +115,7 @@ export async function runLeadScoring(): Promise<void> {
       .select({
         id: users.id,
         businessId: users.businessId,
+        email: users.email,
         emailVerified: users.emailVerified,
         onboardingComplete: users.onboardingComplete,
         setupChecklistDismissed: users.setupChecklistDismissed,
@@ -167,6 +168,7 @@ export async function runLeadScoring(): Promise<void> {
     let hot = 0;
     let warm = 0;
     let cold = 0;
+    const scoredLeads: Array<{ businessId: number; businessName: string; ownerEmail: string | null; score: number; tier: 'hot' | 'warm' | 'cold'; recommendedAction: string }> = [];
 
     for (const biz of leads) {
       try {
@@ -237,11 +239,30 @@ export async function runLeadScoring(): Promise<void> {
           details: { score, tier, factors, recommendedAction },
         });
 
-        if (tier === 'hot') hot++;
-        else if (tier === 'warm') warm++;
+        if (tier === 'hot') {
+          hot++;
+          scoredLeads.push({
+            businessId: biz.id,
+            businessName: biz.name,
+            ownerEmail: primaryOwner?.email || biz.email,
+            score,
+            tier,
+            recommendedAction,
+          });
+        } else if (tier === 'warm') warm++;
         else cold++;
       } catch (err) {
         console.error(`[LeadScoring] Error scoring business ${biz.id}:`, err);
+      }
+    }
+
+    // Feed hot leads into the agent coordinator for cross-agent outreach
+    if (scoredLeads.length > 0) {
+      try {
+        const { processLeadResults } = await import('./agentCoordinator');
+        await processLeadResults(scoredLeads);
+      } catch (err) {
+        console.warn(`[LeadScoring] Coordinator processing failed (non-blocking):`, (err as Error).message);
       }
     }
 

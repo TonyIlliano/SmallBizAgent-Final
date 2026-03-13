@@ -206,6 +206,7 @@ export async function runHealthScoring(): Promise<void> {
     let good = 0;
     let atRisk = 0;
     let critical = 0;
+    const criticalBusinesses: Array<{ businessId: number; businessName: string; score: number; tier: string; factors: Record<string, any> }> = [];
 
     for (const biz of activeBusinesses) {
       try {
@@ -299,10 +300,29 @@ export async function runHealthScoring(): Promise<void> {
           case 'excellent': excellent++; break;
           case 'good': good++; break;
           case 'at_risk': atRisk++; break;
-          case 'critical': critical++; break;
+          case 'critical':
+            critical++;
+            criticalBusinesses.push({
+              businessId: biz.id,
+              businessName: biz.name,
+              score,
+              tier,
+              factors: breakdown,
+            });
+            break;
         }
       } catch (err) {
         console.error(`[HealthScore] Error scoring business ${biz.id}:`, err);
+      }
+    }
+
+    // Feed critical health scores into the agent coordinator for escalation
+    if (criticalBusinesses.length > 0) {
+      try {
+        const { processHealthResults } = await import('./agentCoordinator');
+        await processHealthResults(criticalBusinesses);
+      } catch (err) {
+        console.warn(`[HealthScore] Coordinator processing failed (non-blocking):`, (err as Error).message);
       }
     }
 

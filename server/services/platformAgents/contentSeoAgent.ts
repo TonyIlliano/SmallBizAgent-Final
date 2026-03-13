@@ -105,6 +105,17 @@ async function generateBlogWithOpenAI(industry: string, format: typeof CONTENT_F
   const OpenAI = (await import('openai')).default;
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+  // Get real platform stats to enrich content
+  let platformFacts: string[] = [];
+  try {
+    const { getContentFacts } = await import('./agentCoordinator');
+    platformFacts = await getContentFacts();
+  } catch { /* graceful degradation */ }
+
+  const factsSection = platformFacts.length > 0
+    ? `\n- If relevant, naturally reference these real platform stats: ${platformFacts.slice(0, 3).join('; ')}`
+    : '';
+
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
@@ -118,7 +129,7 @@ Rules:
 - Naturally mention SmallBizAgent 2-3 times as a solution (NOT a hard sell)
 - Use markdown formatting: ## for sections, **bold** for emphasis, bullet points where useful
 - Target 800-1200 words
-- Include a compelling intro paragraph and a clear conclusion with CTA
+- Include a compelling intro paragraph and a clear conclusion with CTA${factsSection}
 
 Respond in JSON with fields:
 - title (string, max 70 chars, SEO-optimized)

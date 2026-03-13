@@ -117,12 +117,18 @@ function pickContentType(): typeof CONTENT_TYPES[number] {
 async function generateWithOpenAI(
   platform: SocialPlatform,
   industry: string,
-  contentType: typeof CONTENT_TYPES[number]
+  contentType: typeof CONTENT_TYPES[number],
+  platformFacts: string[] = []
 ): Promise<string> {
   const OpenAI = (await import('openai')).default;
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const constraints = PLATFORM_CONSTRAINTS[platform];
+
+  // Include real platform stats when available
+  const factsSection = platformFacts.length > 0
+    ? `\n\nReal platform stats you can reference (use sparingly and naturally):\n${platformFacts.map(f => `- ${f}`).join('\n')}`
+    : '';
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -139,6 +145,7 @@ Constraints:
 - Target audience: small business owners in the ${industry} industry
 - Highlight how AI receptionists, automated booking, and smart follow-ups help ${industry} businesses
 - Be genuine and helpful, not salesy
+- If platform stats are provided, weave them in naturally (don't list them robotically)${factsSection}
 
 Respond with ONLY the post text. No quotes, no labels, no explanation.`,
       },
@@ -286,7 +293,16 @@ export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
   const contentType = pickContentType();
   let draftsGenerated = 0;
 
-  console.log(`[${AGENT_TYPE}] Content type for today: ${contentType.type}`);
+  // Get real platform stats for data-driven posts
+  let platformFacts: string[] = [];
+  try {
+    const { getContentFacts } = await import('./agentCoordinator');
+    platformFacts = await getContentFacts();
+  } catch (err) {
+    console.warn(`[${AGENT_TYPE}] Could not get platform facts:`, (err as Error).message);
+  }
+
+  console.log(`[${AGENT_TYPE}] Content type for today: ${contentType.type}, ${platformFacts.length} platform facts available`);
 
   for (const platform of targetPlatforms) {
     // Get recent industries for this platform to avoid duplication
@@ -304,7 +320,7 @@ export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
 
         let content: string;
         if (useOpenAI) {
-          content = await generateWithOpenAI(platform, industry, contentType);
+          content = await generateWithOpenAI(platform, industry, contentType, platformFacts);
         } else {
           content = generateTemplatePost(platform, industry, contentType);
         }

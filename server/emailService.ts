@@ -858,3 +858,78 @@ export async function sendPaymentFailedEmail(
   return sendEmail({ to: ownerEmail, subject, text, html });
 }
 
+/**
+ * Send a churn intervention email to a business owner at risk of churning.
+ * Triggered by the agent coordinator when churn prediction flags high risk.
+ */
+export async function sendChurnInterventionEmail(
+  ownerEmail: string,
+  businessName: string,
+  interventionType: string,
+  message: string,
+  ctaUrl: string
+): Promise<{ messageId: string; previewUrl?: string } | null> {
+  if (!ownerEmail) return null;
+
+  const subject = interventionType === 'payment_recovery'
+    ? `${businessName} — Action needed on your account`
+    : `${businessName} — We're here to help`;
+
+  const text = `Hi,\n\n${message}\n\nVisit: ${ctaUrl}\n\nBest,\nThe SmallBizAgent Team`;
+
+  const html = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #2563eb, #7c3aed); padding: 20px; border-radius: 10px 10px 0 0; text-align: center;">
+      <h2 style="color: #fff; margin: 0;">SmallBizAgent</h2>
+    </div>
+    <div style="padding: 24px; background: #fff; border: 1px solid #eee; border-top: none; border-radius: 0 0 10px 10px;">
+      <p>Hi there,</p>
+      <p>${message}</p>
+      <div style="margin: 24px 0; text-align: center;">
+        <a href="${ctaUrl}" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">Get Started</a>
+      </div>
+      <p style="color: #6b7280; font-size: 14px;">Need help? Just reply to this email — we're real people and we'd love to help you succeed.</p>
+    </div>
+    <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">SmallBizAgent — AI-Powered Business Management</p>
+  </div>`;
+
+  return sendEmail({ to: ownerEmail, subject, text, html });
+}
+
+/**
+ * Send a nudge email to a hot lead (trial user likely to convert).
+ * Triggered by the agent coordinator when lead scoring identifies hot leads.
+ */
+export async function sendHotLeadNudgeEmail(
+  ownerEmail: string,
+  businessName: string,
+  recommendedAction: string
+): Promise<{ messageId: string; previewUrl?: string } | null> {
+  if (!ownerEmail) return null;
+
+  const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+  const subject = `${businessName} — Your free trial is off to a great start`;
+
+  const text = `Hi,\n\nWe noticed you've been setting up ${businessName} on SmallBizAgent — great progress!\n\nNext step: ${recommendedAction}\n\nVisit ${appUrl}/dashboard to continue.\n\nBest,\nThe SmallBizAgent Team`;
+
+  const html = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #059669, #2563eb); padding: 20px; border-radius: 10px 10px 0 0; text-align: center;">
+      <h2 style="color: #fff; margin: 0;">You're Making Great Progress! 🎉</h2>
+    </div>
+    <div style="padding: 24px; background: #fff; border: 1px solid #eee; border-top: none; border-radius: 0 0 10px 10px;">
+      <p>Hi there,</p>
+      <p>We noticed you've been setting up <strong>${businessName}</strong> on SmallBizAgent — great progress!</p>
+      <div style="background: #f0fdf4; border-left: 4px solid #059669; padding: 16px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+        <p style="margin: 0; font-weight: bold; color: #059669;">Recommended next step:</p>
+        <p style="margin: 8px 0 0 0;">${recommendedAction}</p>
+      </div>
+      <div style="margin: 24px 0; text-align: center;">
+        <a href="${appUrl}/dashboard" style="display: inline-block; background: #059669; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">Continue Setup</a>
+      </div>
+      <p style="color: #6b7280; font-size: 14px;">Questions? Reply to this email — we're here to help you get the most out of your free trial.</p>
+    </div>
+    <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">SmallBizAgent — AI-Powered Business Management</p>
+  </div>`;
+
+  return sendEmail({ to: ownerEmail, subject, text, html });
+}
+

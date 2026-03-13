@@ -286,16 +286,17 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 ### Platform Agents (server/services/platformAgents/)
 | Agent | Purpose | Runs |
 |-------|---------|------|
-| `contentSeoAgent` | Blog post generation (GPT or templates) | Every 7 days |
-| `socialMediaAgent` | Social post drafts for Twitter/FB/IG/LinkedIn | Daily |
-| `churnPredictionAgent` | Predict at-risk businesses | Periodic |
-| `competitiveIntelAgent` | Competitive landscape analysis | Periodic |
-| `healthScoreAgent` | Business health scoring | Periodic |
-| `leadScoringAgent` | Score & rank leads | Periodic |
-| `onboardingCoachAgent` | Guide users through setup | Event-driven |
-| `revenueOptimizationAgent` | Revenue improvement suggestions | Periodic |
-| `supportTriageAgent` | Triage support issues | Event-driven |
-| `testimonialAgent` | Generate testimonials/case studies | Periodic |
+| `agentCoordinator` | **Brain** — routes outputs between agents, sends intervention emails, provides real platform stats to content agents | Triggered by other agents |
+| `contentSeoAgent` | Blog post generation (GPT or templates), enriched with real platform stats | Every 7 days |
+| `socialMediaAgent` | Social post drafts for Twitter/FB/IG/LinkedIn, enriched with real platform stats | Daily |
+| `churnPredictionAgent` | Predict at-risk businesses → feeds into coordinator for intervention emails | Every 24 hours |
+| `competitiveIntelAgent` | Competitive landscape analysis (internal signals) | Every 7 days |
+| `healthScoreAgent` | Business health scoring → feeds critical scores into coordinator for escalation | Every 24 hours |
+| `leadScoringAgent` | Score & rank leads → feeds hot leads into coordinator for nudge emails | Every 12 hours |
+| `onboardingCoachAgent` | Guide users through setup with step-by-step nudge emails | Every 6 hours |
+| `revenueOptimizationAgent` | Revenue improvement suggestions (upgrade/downgrade/expansion) | Every 24 hours |
+| `supportTriageAgent` | Triage support issues (provisioning, calls, SMS, payments) | Every 6 hours |
+| `testimonialAgent` | Generate testimonials/case studies | Every 7 days |
 
 ### Core Services
 | Service | Purpose |
@@ -695,4 +696,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 12, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation. 14-day free trial: no credit card required during trial, plan selection saved to business record, Stripe subscription created only after trial ends.*
+*Last updated: March 13, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation. 14-day free trial: no credit card required during trial, plan selection saved to business record, Stripe subscription created only after trial ends. Rate limits: general 500/15min, auth 20/15min. Admin fixes: plan distribution filters active plans only. Agent Coordinator: cross-agent wiring (churn→intervention emails, hot leads→nudge emails, critical health→escalation), real platform stats fed into social media and content SEO agents, coordinator visible in admin AI Agents tab with intervention tracking, new email templates for churn intervention and hot lead nudges.*

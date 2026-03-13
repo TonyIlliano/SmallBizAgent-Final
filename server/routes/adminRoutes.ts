@@ -320,6 +320,13 @@ const PLATFORM_AGENTS = [
     schedule: 'Every 24 hours',
     category: 'marketing',
   },
+  {
+    id: 'coordinator',
+    name: 'Agent Coordinator',
+    description: 'Connects all agents — routes churn alerts to interventions, hot leads to nudges, critical health to escalation',
+    schedule: 'Triggered by other agents',
+    category: 'operations',
+  },
 ];
 
 /**

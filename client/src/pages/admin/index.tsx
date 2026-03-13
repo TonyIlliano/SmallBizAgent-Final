@@ -740,6 +740,7 @@ const AGENT_ICONS: Record<string, React.ReactNode> = {
   testimonial: <Star className="h-5 w-5 text-yellow-500" />,
   competitive_intel: <Search className="h-5 w-5 text-indigo-500" />,
   social_media: <Share2 className="h-5 w-5 text-sky-500" />,
+  coordinator: <Zap className="h-5 w-5 text-orange-500" />,
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -1014,6 +1015,62 @@ function AgentCard({ agent, isExpanded, onToggle, onRun, isRunning }: {
 function AgentDetailView({ details, action, businessId }: { details: any; action: string; businessId: number }) {
   const d = typeof details === 'string' ? (() => { try { return JSON.parse(details); } catch { return {}; } })() : details;
   if (!d) return <p className="text-muted-foreground">No details available.</p>;
+
+  // Churn risk score detail (from churn_prediction or coordinator)
+  if (d.churnScore !== undefined || (d.score !== undefined && d.riskLevel)) {
+    const score = d.churnScore || d.score;
+    const riskLevel = d.riskLevel || (score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low');
+    const riskColor = riskLevel === 'high' ? 'text-red-600' : riskLevel === 'medium' ? 'text-amber-600' : 'text-emerald-600';
+    const factors = d.factors || d.topFactors || [];
+    const recommendations = d.recommendations || [];
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-4">
+          <div className="text-center">
+            <p className={`text-4xl font-bold ${riskColor}`}>{score}</p>
+            <p className="text-xs text-muted-foreground">Churn Risk</p>
+          </div>
+          <div>
+            <Badge variant={riskLevel === 'high' ? 'destructive' : riskLevel === 'medium' ? 'secondary' : 'default'}>
+              {riskLevel} risk
+            </Badge>
+            {d.businessName && <p className="text-sm font-medium mt-1">{d.businessName}</p>}
+          </div>
+        </div>
+        {factors.length > 0 && (
+          <div>
+            <p className="text-sm font-medium mb-2">Risk Factors</p>
+            <ul className="space-y-1">
+              {factors.map((f: any, i: number) => (
+                <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                  <span className="text-red-400 mt-0.5">•</span>
+                  {typeof f === 'string' ? f : f.detail || f.factor}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {recommendations.length > 0 && (
+          <div>
+            <p className="text-sm font-medium mb-2">Recommended Actions</p>
+            <ul className="space-y-1">
+              {recommendations.map((r: string, i: number) => (
+                <li key={i} className="text-sm text-blue-700 flex items-start gap-2">
+                  <span className="mt-0.5">→</span> {r}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {d.interventionType && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+            <p className="text-sm text-emerald-800 font-medium">✓ Intervention sent: {d.interventionType.replace(/_/g, ' ')}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Content draft (blog or social)
   if (d.contentType === 'blog') {
