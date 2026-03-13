@@ -214,6 +214,13 @@ export default function OnboardingSubscription() {
             )}
           </Button>
 
+          <button
+            onClick={() => navigate('/onboarding')}
+            className="mt-3 text-sm text-neutral-500 hover:text-neutral-300 underline underline-offset-4"
+          >
+            Skip for now
+          </button>
+
           {/* Promo code */}
           <div className="mt-6">
             {!showPromoInput ? (
