@@ -274,7 +274,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/import/appointments", isAuthenticated, importAuthCheck, importAppointments);
 
   // Register data export routes
-  app.use("/api", isAuthenticated, exportRoutes);
+  // IMPORTANT: Do NOT use app.use("/api", isAuthenticated, router) — that applies
+  // isAuthenticated to ALL /api/* requests, blocking webhooks and public endpoints.
+  // Export routes already check auth internally via req.user?.businessId.
+  app.use("/api", exportRoutes);
   
   // Helper function to get businessId from authenticated user or API key
   // Returns 0 if no business is associated (caller must handle this)

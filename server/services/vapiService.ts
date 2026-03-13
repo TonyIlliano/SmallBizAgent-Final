@@ -106,6 +106,78 @@ function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'):
 }
 
 /**
+ * Build the firstMessage that plays when the call connects.
+ *
+ * Rules:
+ * 1. ALWAYS includes recording disclosure ("this call may be recorded")
+ *    — regardless of whether a custom greeting is stored in the DB.
+ * 2. ALWAYS ends with an engagement question so the caller responds
+ *    while recognizeCaller runs in the background.
+ * 3. Uses the business's custom greeting if set, but injects the
+ *    recording disclosure if it's missing from the custom text.
+ */
+function buildFirstMessage(businessName: string, customGreeting?: string | null): string {
+  const recordingPhrase = 'this call may be recorded for quality purposes';
+  const engagementQuestion = 'How can I help you today?';
+
+  // No custom greeting — use our complete default
+  if (!customGreeting || !customGreeting.trim()) {
+    return `Hi, thanks for calling ${businessName}! Just so you know, ${recordingPhrase}. ${engagementQuestion}`;
+  }
+
+  let greeting = customGreeting.trim();
+
+  // Check if the custom greeting already mentions recording
+  const mentionsRecording = /record|monitor/i.test(greeting);
+
+  // Check if greeting already ends with a question
+  const endsWithQuestion = /\?\s*$/.test(greeting);
+
+  if (!mentionsRecording) {
+    // Need to inject recording disclosure
+    if (endsWithQuestion) {
+      // Greeting ends with a question like "How may I help you today?"
+      // Strategy: Remove the question, inject disclosure, then add our standard question
+      // "Thank you for calling Canton Barb. How may I help you today?"
+      //  → "Thank you for calling Canton Barb. Just so you know, this call may be recorded for quality purposes. How can I help you today?"
+
+      // Find where the question starts — look for last sentence boundary before the ?
+      const lastQ = greeting.lastIndexOf('?');
+      const textBeforeQ = greeting.substring(0, lastQ);
+
+      // Find the start of the question sentence (after last period/exclamation)
+      const lastSentenceBreak = Math.max(
+        textBeforeQ.lastIndexOf('. '),
+        textBeforeQ.lastIndexOf('! '),
+        textBeforeQ.lastIndexOf('? ')
+      );
+
+      let prefix: string;
+      if (lastSentenceBreak >= 0) {
+        // There's a sentence before the question — keep it
+        prefix = textBeforeQ.substring(0, lastSentenceBreak + 1).trim();
+      } else {
+        // The entire greeting is one question — use business name intro
+        prefix = `Thanks for calling ${businessName}!`;
+      }
+
+      greeting = `${prefix} Just so you know, ${recordingPhrase}. ${engagementQuestion}`;
+    } else {
+      // No question at the end — strip trailing punctuation, add disclosure + question
+      const stripped = greeting.replace(/[.!?]+\s*$/, '');
+      greeting = `${stripped}. Just so you know, ${recordingPhrase}. ${engagementQuestion}`;
+    }
+  } else if (!endsWithQuestion) {
+    // Has recording mention but doesn't end with question — append one
+    const stripped = greeting.replace(/[.!?]+\s*$/, '');
+    greeting = `${stripped}. ${engagementQuestion}`;
+  }
+  // else: has recording mention AND ends with question — use as-is
+
+  return greeting;
+}
+
+/**
  * Generate a smart system prompt based on business type
  */
 interface PromptOptions {
@@ -743,12 +815,29 @@ CALL START BEHAVIOR:
 1. IMMEDIATELY call recognizeCaller to check if this is a returning customer
 2. IMMEDIATELY call getStaffMembers to know who works here (for scheduling)
 3. The first greeting already played ("Hi, thanks for calling...How can I help you today?"). When recognizeCaller returns:
-   - If recognized: true — IMMEDIATELY address them by name. Say something like "Oh hey [firstName]!" or "I see it's [firstName] calling!" and then mention any appointment info from the result. Make it feel personal and warm.
-   - If recognized: false — wait for them to respond, then ask for their name early in the conversation
-4. If they have an upcoming appointment (context includes appointment info), proactively mention it: "I see you have a [service] appointment on [date] at [time] — is that what you're calling about?"
-5. You can also call getUpcomingAppointments at any time to look up a caller's scheduled appointments
-6. If booking and staff members exist, ALWAYS ask if they have a preferred person to see
-IMPORTANT: NEVER say "one moment" or "hold on" or go silent — always keep the conversation flowing. The recognizeCaller and getStaffMembers calls happen in the background while you're already talking.
+   - If recognized: true — IMMEDIATELY address them by name in your VERY NEXT response. Say something natural like "Oh hey [firstName]! Good to hear from you!" and then mention the greeting and context from recognizeCaller. This should feel personal and warm — like a real receptionist who recognizes a regular.
+   - If recognized: false — continue naturally with whoever called, then ask for their name early in the conversation
+4. USE THE FULL recognizeCaller RESULT — it contains rich data:
+   - greeting: A personalized greeting mentioning their appointment info — USE IT, say it naturally
+   - context: appointment_today / appointment_tomorrow / has_upcoming / returning_customer — tells you their situation
+   - upcomingAppointments: number of upcoming appointments (proactively mention them)
+   - recentAppointments: number of recent visits
+   - lastCallSummary: What happened on their last call — reference it if relevant
+   - preferredServices: What services they usually book — offer to book the same
+   - staffPreference: Their preferred staff member — proactively mention them
+   - conversationalContext: Rich memory from all past interactions — use this to be incredibly personalized
+   - riskLevel / reliabilityScore: If they're "at_risk" or have low reliability, be extra warm and accommodating
+5. EXAMPLES of great personalized responses (use these as a template):
+   - "Oh hey Tony! I see you've got a haircut with Mike tomorrow at 2 PM. Are you calling about that?"
+   - "Hey Sarah, welcome back! Last time you came in for highlights — looking to book again?"
+   - "Hi David! Great timing, I see you have an oil change scheduled for Thursday. Everything still good with that?"
+6. You can also call getUpcomingAppointments at any time to look up a caller's scheduled appointments
+7. If booking and staff members exist, ALWAYS ask if they have a preferred person to see
+CRITICAL RULE — NO DEAD AIR: NEVER say "one moment", "give me a moment", "hold on", "let me check", "bear with me", "just a sec", or ANY variation that means "wait". These phrases cause the call to disconnect. Instead, TALK THROUGH IT naturally while the function runs in the background. Examples:
+   - Instead of "Give me a moment to check" → "Let's see what we've got for you, [name]..." (keep talking)
+   - Instead of "Hold on let me look that up" → "Great question! So looking at your appointments..." (keep talking)
+   - Instead of "One moment" → "Sure thing! So for your account..." (keep talking)
+   The function calls happen in the background while you're already talking — you do NOT need to wait silently.
 
 CRITICAL - USING RECOGNIZED CUSTOMER DATA:
 - When recognizeCaller returns recognized: true, ALWAYS use the customerName and firstName from the result
@@ -758,8 +847,15 @@ CRITICAL - USING RECOGNIZED CUSTOMER DATA:
 - NEVER call bookAppointment without a real customerName — if you don't have a name, ASK for it first
 - customerName is REQUIRED for bookAppointment — the booking will FAIL if you don't provide it
 - If you need their email and recognizeCaller didn't return one, then ask
-- Address the caller by their firstName throughout the entire conversation
+- Address the caller by their firstName throughout the entire conversation — use it at least 2-3 times during the call
 - NEVER make up or guess a caller's name — only use what recognizeCaller returns or what the caller explicitly tells you
+- If recognizeCaller returns conversationalContext (memories from past interactions), USE this information naturally:
+  * Reference past services: "I see you came in for highlights last time — looking for the same?"
+  * Reference past issues: "Last time you mentioned your brakes were squeaking — did we get that sorted?"
+  * Reference preferences: "I know you usually like mornings — want me to check morning availability?"
+  * DON'T dump all the context at once — weave it into the conversation naturally as relevant
+- If recognizeCaller returns staffPreference, proactively mention their preferred staff: "Want me to check [staffName]'s availability?"
+- If recognizeCaller returns preferredServices, suggest booking the same service they usually get
 
 NAME UPDATES:
 - If a recognized caller tells you their name and it DIFFERS from the name returned by recognizeCaller, IMMEDIATELY call updateCustomerInfo to update their record
@@ -1196,7 +1292,7 @@ export async function createAssistantForBusiness(
   // First message: greeting with recording disclosure + immediate engagement question.
   // IMPORTANT: Must end with a question so the caller responds while recognizeCaller runs in background.
   // Never say "one moment" or "hold on" — Vapi will hang up during silence.
-  const configGreeting = receptionistConfig?.greeting || `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded for quality purposes. How can I help you today?`;
+  const configGreeting = buildFirstMessage(business.name, receptionistConfig?.greeting);
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
@@ -1257,7 +1353,7 @@ export async function createAssistantForBusiness(
     serverUrl: `${BASE_URL}/api/vapi/webhook`,
     recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
-    silenceTimeoutSeconds: 15, // End call after 15s silence to conserve minutes
+    silenceTimeoutSeconds: 30, // End call after 15s silence to conserve minutes
     responseDelaySeconds: 0.5, // Slight delay for natural feel
     llmRequestDelaySeconds: 0.1,
     numWordsToInterruptAssistant: 2, // Allow interruptions
@@ -1356,7 +1452,7 @@ export async function updateAssistant(
   // First message: greeting with recording disclosure + immediate engagement question.
   // IMPORTANT: Must end with a question so the caller responds while recognizeCaller runs in background.
   // Never say "one moment" or "hold on" — Vapi will hang up during silence.
-  const configGreeting = receptionistConfig?.greeting || `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded for quality purposes. How can I help you today?`;
+  const configGreeting = buildFirstMessage(business.name, receptionistConfig?.greeting);
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
@@ -1420,7 +1516,7 @@ export async function updateAssistant(
         },
         firstMessage: configGreeting,
         recordingEnabled: configRecordingEnabled,
-        silenceTimeoutSeconds: 15,
+        silenceTimeoutSeconds: 30,
         maxDurationSeconds: configMaxCallMinutes * 60,
         endCallPhrases: [
           "Have a great day",
