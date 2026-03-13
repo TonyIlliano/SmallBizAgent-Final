@@ -3166,19 +3166,29 @@ async function recognizeCaller(
     const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: recogTimezone, weekday: 'long', month: 'long', day: 'numeric' });
     const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: recogTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
 
+    // Look up service name for the appointment
+    let serviceName = '';
+    if (nextApt.serviceId) {
+      try {
+        const service = await storage.getService(nextApt.serviceId);
+        if (service) serviceName = service.name;
+      } catch { /* non-critical */ }
+    }
+    const serviceNote = serviceName ? ` for ${serviceName}` : '';
+
     // Check if appointment is today or tomorrow (timezone-aware comparison)
     const aptLocalDate = getLocalDateString(aptDate, recogTimezone);
     const todayStr = getLocalDateString(now, recogTimezone);
     const tomorrowStr = getLocalDateString(new Date(now.getTime() + 86400000), recogTimezone);
 
     if (aptLocalDate === todayStr) {
-      greeting = `Hi ${customer.firstName}! I see you have an appointment with us today at ${timeStr}.`;
+      greeting = `Hi ${customer.firstName}! I see you have an appointment${serviceNote} today at ${timeStr}. Are you calling about that?`;
       context = 'appointment_today';
     } else if (aptLocalDate === tomorrowStr) {
-      greeting = `Hi ${customer.firstName}! I see you have an appointment tomorrow at ${timeStr}.`;
+      greeting = `Hi ${customer.firstName}! I see you have an appointment${serviceNote} tomorrow at ${timeStr}. Is that what you're calling about?`;
       context = 'appointment_tomorrow';
     } else {
-      greeting = `Hi ${customer.firstName}! I see your next appointment is ${dateStr} at ${timeStr}.`;
+      greeting = `Hi ${customer.firstName}! I see your next appointment${serviceNote} is on ${dateStr} at ${timeStr}.`;
       context = 'has_upcoming';
     }
   } else if (recent.length > 0) {

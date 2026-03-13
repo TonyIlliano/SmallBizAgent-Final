@@ -742,10 +742,13 @@ ADDITIONAL FUNCTIONS:
 CALL START BEHAVIOR:
 1. IMMEDIATELY call recognizeCaller to check if this is a returning customer
 2. IMMEDIATELY call getStaffMembers to know who works here (for scheduling)
-3. If recognized, greet them by name using the name returned by recognizeCaller
-4. If they have an appointment TODAY, ask if they're calling about that
+3. When recognizeCaller returns, SPEAK the "message" field from the result as your FIRST response to the caller:
+   - If recognized: true, the message will include their name and any upcoming appointment info — SAY IT EXACTLY
+   - If recognized: false, the message will be a generic "How can I help you today?" — say that and ask for their name
+4. If they have an upcoming appointment, ask if they're calling about that
 5. Then proceed to help with their request
 6. If booking and staff members exist, ALWAYS ask if they have a preferred person to see
+7. You can also call getUpcomingAppointments at any time to look up a caller's scheduled appointments
 
 CRITICAL - USING RECOGNIZED CUSTOMER DATA:
 - When recognizeCaller returns recognized: true, ALWAYS use the customerName and firstName from the result
@@ -1190,7 +1193,9 @@ export async function createAssistantForBusiness(
   // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  const configGreeting = receptionistConfig?.greeting || `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?`;
+  // First message: brief intro with recording disclosure. The AI will personalize
+  // after recognizeCaller returns — keep this short so the personal greeting comes fast.
+  const configGreeting = `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded for quality purposes. One moment while I pull up your information.`;
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
@@ -1347,7 +1352,9 @@ export async function updateAssistant(
   // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  const configGreeting = receptionistConfig?.greeting || `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?`;
+  // First message: brief intro with recording disclosure. The AI will personalize
+  // after recognizeCaller returns — keep this short so the personal greeting comes fast.
+  const configGreeting = `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded for quality purposes. One moment while I pull up your information.`;
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
