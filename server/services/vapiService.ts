@@ -742,13 +742,13 @@ ADDITIONAL FUNCTIONS:
 CALL START BEHAVIOR:
 1. IMMEDIATELY call recognizeCaller to check if this is a returning customer
 2. IMMEDIATELY call getStaffMembers to know who works here (for scheduling)
-3. When recognizeCaller returns, SPEAK the "message" field from the result as your FIRST response to the caller:
-   - If recognized: true, the message will include their name and any upcoming appointment info — SAY IT EXACTLY
-   - If recognized: false, the message will be a generic "How can I help you today?" — say that and ask for their name
-4. If they have an upcoming appointment, ask if they're calling about that
-5. Then proceed to help with their request
+3. The first greeting already played ("Hi, thanks for calling...How can I help you today?"). When recognizeCaller returns:
+   - If recognized: true — IMMEDIATELY address them by name. Say something like "Oh hey [firstName]!" or "I see it's [firstName] calling!" and then mention any appointment info from the result. Make it feel personal and warm.
+   - If recognized: false — wait for them to respond, then ask for their name early in the conversation
+4. If they have an upcoming appointment (context includes appointment info), proactively mention it: "I see you have a [service] appointment on [date] at [time] — is that what you're calling about?"
+5. You can also call getUpcomingAppointments at any time to look up a caller's scheduled appointments
 6. If booking and staff members exist, ALWAYS ask if they have a preferred person to see
-7. You can also call getUpcomingAppointments at any time to look up a caller's scheduled appointments
+IMPORTANT: NEVER say "one moment" or "hold on" or go silent — always keep the conversation flowing. The recognizeCaller and getStaffMembers calls happen in the background while you're already talking.
 
 CRITICAL - USING RECOGNIZED CUSTOMER DATA:
 - When recognizeCaller returns recognized: true, ALWAYS use the customerName and firstName from the result
@@ -1193,9 +1193,10 @@ export async function createAssistantForBusiness(
   // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  // First message: brief intro with recording disclosure. The AI will personalize
-  // after recognizeCaller returns — keep this short so the personal greeting comes fast.
-  const configGreeting = `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded for quality purposes. One moment while I pull up your information.`;
+  // First message: greeting with recording disclosure + immediate engagement question.
+  // IMPORTANT: Must end with a question so the caller responds while recognizeCaller runs in background.
+  // Never say "one moment" or "hold on" — Vapi will hang up during silence.
+  const configGreeting = receptionistConfig?.greeting || `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded for quality purposes. How can I help you today?`;
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
@@ -1352,9 +1353,10 @@ export async function updateAssistant(
   // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  // First message: brief intro with recording disclosure. The AI will personalize
-  // after recognizeCaller returns — keep this short so the personal greeting comes fast.
-  const configGreeting = `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded for quality purposes. One moment while I pull up your information.`;
+  // First message: greeting with recording disclosure + immediate engagement question.
+  // IMPORTANT: Must end with a question so the caller responds while recognizeCaller runs in background.
+  // Never say "one moment" or "hold on" — Vapi will hang up during silence.
+  const configGreeting = receptionistConfig?.greeting || `Hi, thanks for calling ${business.name}! Just so you know, this call may be recorded for quality purposes. How can I help you today?`;
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
