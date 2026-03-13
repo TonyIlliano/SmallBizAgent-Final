@@ -5174,8 +5174,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             callObj.assistant = assistantFromMessage;
           }
 
+          // Ensure customer info is available on callObj for callerPhone extraction
+          // Vapi tool-calls may place customer at message.customer instead of message.call.customer
+          const customerFromMessage = req.body?.message?.customer;
+          if (customerFromMessage && !callObj.customer) {
+            callObj.customer = customerFromMessage;
+          }
+
           console.log(`Assistant metadata location check - message.assistant: ${!!assistantFromMessage}, call.assistant: ${!!callObj.assistant}`);
           console.log(`BusinessId from message.assistant.metadata: ${assistantFromMessage?.metadata?.businessId}`);
+          console.log(`Customer phone: call.customer=${callObj.customer?.number}, message.customer=${customerFromMessage?.number}`);
 
           // Create a synthetic request in the old format for the handler
           const syntheticRequest = {

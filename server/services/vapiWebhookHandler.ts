@@ -2246,31 +2246,46 @@ async function getStaffSchedule(
       };
     }
 
-    // Format staff-specific hours
-    const sortedHours = [...staffHours].sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day));
+    // Format staff-specific hours, merging with business hours for uncovered days
+    // If staff only has entries for Mon-Thu, use business hours for Fri-Sun
+    const businessHours = await getCachedBusinessHours(businessId);
+    const staffHoursByDay = new Map(staffHours.map(h => [h.day, h]));
     const workingDays: string[] = [];
     const schedule: string[] = [];
+    const daysOff: string[] = [];
 
-    for (const h of sortedHours) {
-      const dayName = h.day.charAt(0).toUpperCase() + h.day.slice(1);
-      if (h.isOff) {
-        // Don't include off days in working days
+    const formatTime = (time: string) => {
+      if (!time) return '';
+      const [hourStr, minStr] = time.split(':');
+      const hour = parseInt(hourStr);
+      const min = parseInt(minStr || '0');
+      const period = hour >= 12 ? 'PM' : 'AM';
+      const hour12 = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+      return min > 0 ? `${hour12}:${minStr} ${period}` : `${hour12} ${period}`;
+    };
+
+    for (const day of dayOrder) {
+      const dayName = day.charAt(0).toUpperCase() + day.slice(1);
+      const staffDay = staffHoursByDay.get(day);
+
+      if (staffDay) {
+        // Staff has explicit hours for this day
+        if (staffDay.isOff) {
+          daysOff.push(dayName);
+        } else {
+          workingDays.push(dayName);
+          schedule.push(`${dayName}: ${formatTime(staffDay.startTime)} - ${formatTime(staffDay.endTime)}`);
+        }
       } else {
-        workingDays.push(dayName);
-        const formatTime = (time: string) => {
-          if (!time) return '';
-          const [hourStr, minStr] = time.split(':');
-          const hour = parseInt(hourStr);
-          const min = parseInt(minStr || '0');
-          const period = hour >= 12 ? 'PM' : 'AM';
-          const hour12 = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
-          return min > 0 ? `${hour12}:${minStr} ${period}` : `${hour12} ${period}`;
-        };
-        schedule.push(`${dayName}: ${formatTime(h.startTime)} - ${formatTime(h.endTime)}`);
+        // No staff-specific entry — fall back to business hours for this day
+        const bizDay = businessHours.find(h => h.day === day);
+        if (bizDay && !bizDay.isClosed && bizDay.open) {
+          workingDays.push(dayName);
+          schedule.push(`${dayName}: ${formatTime(bizDay.open)} - ${formatTime(bizDay.close)} (business hours)`);
+        }
+        // If business is also closed this day, don't add to either list
       }
     }
-
-    const daysOff = sortedHours.filter(h => h.isOff).map(h => h.day.charAt(0).toUpperCase() + h.day.slice(1));
 
     let message = `${staffMember.firstName} works ${workingDays.join(', ')}.`;
     if (daysOff.length > 0) {
