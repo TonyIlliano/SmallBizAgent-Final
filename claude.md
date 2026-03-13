@@ -611,6 +611,14 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/routes/calendarRoutes.ts` — **BUG FIX**: OAuth callback postMessage now uses `window.location.origin` instead of server-side `APP_URL` template string. This prevents origin mismatch when `APP_URL` differs from the actual browser origin (e.g., www vs bare domain).
 - `server/index.ts` — Added calendar-specific startup validation: logs redirect URI for Google/Microsoft if credentials are set, warns if redirect URI would be relative, warns if ENCRYPTION_KEY missing in production (needed for calendar token encryption).
 
+#### 14-Day Free Trial (No Credit Card Required)
+- `server/services/subscriptionService.ts` — `createSubscription()` now detects active trial period. If business has an active trial and no Stripe subscription, saves `stripePlanId` and returns `{ status: 'trialing', trialEndsAt, planName }` without creating a Stripe subscription or requiring payment. After trial expires, the same endpoint creates a real Stripe subscription with `clientSecret` for payment.
+- `client/src/components/subscription/SubscriptionPlans.tsx` — `onSuccess` handler now checks for `status === 'trialing'` response: shows "Plan selected!" toast and redirects to `/dashboard` instead of `/payment`.
+- `client/src/pages/onboarding/subscription.tsx` — Updated text to "14-day free trial. No credit card required. Cancel anytime."
+- `client/src/pages/landing.tsx` — Updated pricing section text to "14-day free trial. No credit card required. Cancel anytime."
+- **Trial flow**: Register → Select plan (saved to `stripePlanId`) → Onboarding → Dashboard (no payment). Trial expires in 14 days → Settings > Subscription → real Stripe subscription created → payment page.
+- **Existing infrastructure** already handles: trial expiration scheduler (deprovisioning + warning emails), trial usage limits (25 free minutes), email drip campaigns, trial status tracking.
+
 ---
 
 ## File Quick Reference
@@ -687,4 +695,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 12, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation.*
+*Last updated: March 12, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation. 14-day free trial: no credit card required during trial, plan selection saved to business record, Stripe subscription created only after trial ends.*

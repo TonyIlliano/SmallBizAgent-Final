@@ -98,27 +98,56 @@ export class SubscriptionService {
    * Create a new subscription for a business
    * @param businessId The ID of the business
    * @param planId The ID of the subscription plan
+   *
+   * If the business is in an active trial period, this saves the selected plan
+   * without requiring payment. Stripe subscription is created when trial ends
+   * or the user manually upgrades.
    */
   async createSubscription(businessId: number, planId: number, promoCode?: string) {
     try {
       // Get the business details
       const business = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
-      
+
       if (!business || business.length === 0) {
         throw new Error('Business not found');
       }
-      
+
       const businessRecord = business[0];
-      
+
       // Get the plan details
       const plan = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, planId)).limit(1);
-      
+
       if (!plan || plan.length === 0) {
         throw new Error('Subscription plan not found');
       }
-      
+
       const planRecord = plan[0];
-      
+
+      // If business is in active trial, save plan selection without requiring payment
+      const isTrialActive = businessRecord.trialEndsAt && new Date(businessRecord.trialEndsAt) > new Date();
+      const hasNoStripeSubscription = !businessRecord.stripeSubscriptionId;
+
+      if (isTrialActive && hasNoStripeSubscription) {
+        // Save the selected plan so we know what to bill when trial ends
+        await db.update(businesses)
+          .set({
+            stripePlanId: planId,
+            subscriptionStatus: 'trialing',
+            updatedAt: new Date(),
+          })
+          .where(eq(businesses.id, businessId));
+
+        console.log(`Business ${businessId} selected plan ${planRecord.name} during trial (expires ${businessRecord.trialEndsAt})`);
+
+        return {
+          subscriptionId: null,
+          status: 'trialing',
+          clientSecret: null,
+          trialEndsAt: businessRecord.trialEndsAt,
+          planName: planRecord.name,
+        };
+      }
+
       // Create a product in Stripe if it doesn't exist yet
       let stripeProduct;
       try {
@@ -126,7 +155,7 @@ export class SubscriptionService {
         const products = await getStripe().products.list({
           ids: [planRecord.id.toString()]
         });
-        
+
         if (products.data.length > 0) {
           stripeProduct = products.data[0];
         } else {

@@ -60,15 +60,24 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
       return await res.json();
     },
     onSuccess: (data) => {
-      toast({
-        title: 'Subscription created',
-        description: 'You will be redirected to complete payment',
-      });
-      
       queryClient.invalidateQueries({ queryKey: ['/api/subscription/status', businessId] });
-      
+
+      // If in trial, no payment needed — go to dashboard
+      if (data.status === 'trialing' && !data.clientSecret) {
+        toast({
+          title: 'Plan selected!',
+          description: `You're on the ${data.planName || ''} plan. Your 14-day free trial is active.`,
+        });
+        navigate('/dashboard');
+        return;
+      }
+
       // If we have a client secret, redirect to payment page
       if (data.clientSecret) {
+        toast({
+          title: 'Subscription created',
+          description: 'You will be redirected to complete payment',
+        });
         navigate('/payment?clientSecret=' + data.clientSecret);
       }
     },

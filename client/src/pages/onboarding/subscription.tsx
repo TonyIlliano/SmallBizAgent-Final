@@ -193,7 +193,7 @@ export default function OnboardingSubscription() {
 
         <div className="flex flex-col items-center mt-10">
           <p className="text-neutral-500 mb-6 text-center max-w-2xl">
-            No credit card required. Cancel anytime.
+            14-day free trial. No credit card required. Cancel anytime.
           </p>
 
           <Button

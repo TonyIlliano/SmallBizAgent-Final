@@ -410,7 +410,7 @@ function PricingSection() {
             Simple, transparent pricing
           </h2>
           <p className="text-neutral-400 text-lg mb-8">
-            Start free, upgrade when you're ready. No credit card required.
+            14-day free trial. No credit card required. Cancel anytime.
           </p>
           <div className="inline-flex items-center gap-3 bg-neutral-900 border border-neutral-800 rounded-full p-1">
             <button
