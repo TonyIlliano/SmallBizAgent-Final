@@ -4074,7 +4074,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (channel === 'sms' && recipient) {
         const { sendSms } = await import("./services/twilioService");
-        await sendSms(recipient, `Test notification from ${business.name}. Your SMS notifications are working!`);
+        await sendSms(recipient, `Test notification from ${business.name}. Your SMS notifications are working!`, undefined, businessId);
         return res.json({ success: true, message: "Test SMS sent" });
       }
 

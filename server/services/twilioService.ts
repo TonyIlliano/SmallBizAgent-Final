@@ -97,20 +97,38 @@ export async function sendSms(to: string, body: string, from?: string, businessI
         return { sid: 'suppression_check_failed', status: 'blocked' };
       }
     }
-    // Prefer Messaging Service SID (A2P 10DLC compliant) over individual from numbers
+    // Resolve the business-specific "from" number so each business sends from their own Twilio number
+    let businessFromNumber = from || null;
+    if (!businessFromNumber && businessId) {
+      try {
+        const { pool } = await import('../db');
+        const bizResult = await pool.query(
+          `SELECT twilio_phone_number FROM businesses WHERE id = $1 LIMIT 1`,
+          [businessId]
+        );
+        if (bizResult.rows.length > 0 && bizResult.rows[0].twilio_phone_number) {
+          businessFromNumber = bizResult.rows[0].twilio_phone_number;
+        }
+      } catch (lookupErr) {
+        console.warn(`[SMS] Failed to look up business ${businessId} phone number:`, lookupErr);
+      }
+    }
+
+    // Use Messaging Service (A2P 10DLC compliant) with business-specific from number
     if (messagingServiceSid) {
-      console.log(`Sending SMS via Messaging Service: to=${to} body="${body.substring(0, 60)}..."`);
-      const message = await client.messages.create({
-        body,
-        messagingServiceSid,
-        to
-      });
-      console.log(`SMS sent successfully: sid=${message.sid} status=${message.status}`);
+      const msgParams: any = { body, messagingServiceSid, to };
+      // Setting "from" within a Messaging Service forces it to use that specific sender
+      if (businessFromNumber) {
+        msgParams.from = businessFromNumber;
+      }
+      console.log(`Sending SMS via Messaging Service: from=${businessFromNumber || 'auto'} to=${to} body="${body.substring(0, 60)}..."`);
+      const message = await client.messages.create(msgParams);
+      console.log(`SMS sent successfully: sid=${message.sid} status=${message.status} from=${message.from}`);
       return message;
     }
 
-    // Fallback: resolve the from number: explicit param > env var > auto-discover from account
-    const fromNumber = from || await getSmsFromNumber();
+    // Fallback (no Messaging Service): explicit from > business number > env var > auto-discover
+    const fromNumber = businessFromNumber || await getSmsFromNumber();
     if (!fromNumber) {
       console.error('No SMS-capable from number available. Set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER.');
       throw new Error('No SMS from number configured');
