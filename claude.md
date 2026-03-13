@@ -572,6 +572,12 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/routes.ts` — Cache invalidation (`dataCache.invalidate()`) added to all business hours, services, staff, staff hours, and appointment mutation endpoints (~20 locations)
 - `server/services/socialMediaService.ts` — OAuth `pendingStates` Map now has 15-minute periodic cleanup of expired entries
 
+#### E2E Test Suite (supertest + vitest)
+- `server/test/e2e-setup.ts` — Shared test helper: createTestApp(), CSRF helpers, cookie extraction, test fixtures
+- `server/test/e2e-auth.test.ts` — 18 tests: register, login, email verification, session management, logout, CSRF enforcement
+- `server/test/e2e-business.test.ts` — 49 tests: business CRUD, business hours, services CRUD, customer CRUD, CSRF enforcement, full onboarding flow
+- `server/test/e2e-appointments-invoices.test.ts` — 51 tests: appointment CRUD, invoice CRUD with items, NaN validation, ownership checks, CSRF enforcement, full flow (register → appointment → invoice)
+
 ---
 
 ## File Quick Reference
@@ -648,4 +654,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 12, 2026. 228 tests passing. Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations.*
+*Last updated: March 12, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51).*
