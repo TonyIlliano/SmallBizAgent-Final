@@ -52,7 +52,8 @@ router.get('/google/callback', async (req, res) => {
           </div>
           <script>
             if (window.opener) {
-              window.opener.postMessage({ type: 'calendar-connected', provider: 'google' }, '${process.env.APP_URL || req.protocol + "://" + req.get("host")}');
+              // Post to same origin (popup is on the same domain as the parent)
+              window.opener.postMessage({ type: 'calendar-connected', provider: 'google' }, window.location.origin);
             }
             setTimeout(function() { window.close(); }, 2000);
           </script>
@@ -95,7 +96,8 @@ router.get('/microsoft/callback', async (req, res) => {
           </div>
           <script>
             if (window.opener) {
-              window.opener.postMessage({ type: 'calendar-connected', provider: 'microsoft' }, '${process.env.APP_URL || req.protocol + "://" + req.get("host")}');
+              // Post to same origin (popup is on the same domain as the parent)
+              window.opener.postMessage({ type: 'calendar-connected', provider: 'microsoft' }, window.location.origin);
             }
             setTimeout(function() { window.close(); }, 2000);
           </script>

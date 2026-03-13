@@ -8,7 +8,15 @@ import { encryptField, decryptField } from '../utils/encryption';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
-const MICROSOFT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI || '/api/calendar/microsoft/callback';
+
+// Microsoft requires an absolute redirect URI — construct from APP_URL if env var not set
+function getMicrosoftRedirectUri(): string {
+  if (process.env.MICROSOFT_REDIRECT_URI) return process.env.MICROSOFT_REDIRECT_URI;
+  const baseUrl = process.env.APP_URL || process.env.BASE_URL;
+  if (baseUrl) return `${baseUrl.replace(/\/$/, '')}/api/calendar/microsoft/callback`;
+  // Fallback for local dev only
+  return 'http://localhost:5000/api/calendar/microsoft/callback';
+}
 
 // Microsoft OAuth2 endpoints (common tenant = personal + work/school accounts)
 const AUTHORIZE_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
@@ -28,7 +36,7 @@ export class MicrosoftCalendarService {
     const params = new URLSearchParams({
       client_id: MICROSOFT_CLIENT_ID,
       response_type: 'code',
-      redirect_uri: MICROSOFT_REDIRECT_URI,
+      redirect_uri: getMicrosoftRedirectUri(),
       scope: SCOPES.join(' '),
       state: String(businessId),
       prompt: 'consent', // Always show consent screen to get refresh token
@@ -58,7 +66,7 @@ export class MicrosoftCalendarService {
           client_id: MICROSOFT_CLIENT_ID,
           client_secret: MICROSOFT_CLIENT_SECRET,
           code,
-          redirect_uri: MICROSOFT_REDIRECT_URI,
+          redirect_uri: getMicrosoftRedirectUri(),
           grant_type: 'authorization_code',
           scope: SCOPES.join(' '),
         }),

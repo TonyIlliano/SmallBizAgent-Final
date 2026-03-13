@@ -97,7 +97,7 @@ export class CalendarService {
             eq(calendarIntegrations.businessId, businessId),
             eq(calendarIntegrations.provider, 'apple')
           ));
-        return;
+        return true;
       default:
         throw new Error(`Unsupported calendar provider: ${provider}`);
     }

@@ -8,7 +8,15 @@ import { encryptField, decryptField } from '../utils/encryption';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '/api/calendar/google/callback';
+
+// Google requires an absolute redirect URI — construct from APP_URL if env var not set
+function getGoogleRedirectUri(): string {
+  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+  const baseUrl = process.env.APP_URL || process.env.BASE_URL;
+  if (baseUrl) return `${baseUrl.replace(/\/$/, '')}/api/calendar/google/callback`;
+  // Fallback for local dev only
+  return 'http://localhost:5000/api/calendar/google/callback';
+}
 
 // Scopes needed for calendar access
 const SCOPES = [
@@ -20,7 +28,7 @@ function createOAuth2Client() {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     throw new Error('Google Calendar credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
   }
-  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
+  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, getGoogleRedirectUri());
 }
 
 export class GoogleCalendarService {

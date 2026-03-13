@@ -76,6 +76,33 @@ function validateEnvironment() {
     console.warn('   Some features may not work correctly.');
   }
 
+  // Calendar integration validation
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    const googleRedirect = process.env.GOOGLE_REDIRECT_URI ||
+      (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/api/calendar/google/callback` : null);
+    if (!googleRedirect || googleRedirect.startsWith('/')) {
+      console.warn('⚠️  WARNING: GOOGLE_REDIRECT_URI is not an absolute URL. Google Calendar OAuth will fail.');
+      console.warn('   Set GOOGLE_REDIRECT_URI or APP_URL to your public URL.');
+    } else {
+      console.log(`✅ Google Calendar: redirect URI = ${googleRedirect}`);
+    }
+  }
+  if (process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET) {
+    const msRedirect = process.env.MICROSOFT_REDIRECT_URI ||
+      (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/api/calendar/microsoft/callback` : null);
+    if (!msRedirect || msRedirect.startsWith('/')) {
+      console.warn('⚠️  WARNING: MICROSOFT_REDIRECT_URI is not an absolute URL. Microsoft Calendar OAuth will fail.');
+      console.warn('   Set MICROSOFT_REDIRECT_URI or APP_URL to your public URL.');
+    } else {
+      console.log(`✅ Microsoft Calendar: redirect URI = ${msRedirect}`);
+    }
+  }
+
+  // Encryption key validation (needed for calendar token storage)
+  if (!process.env.ENCRYPTION_KEY && process.env.NODE_ENV === 'production') {
+    console.warn('⚠️  WARNING: ENCRYPTION_KEY not set. Calendar tokens will not be securely encrypted.');
+  }
+
   console.log('✅ Environment validation passed');
 }
 

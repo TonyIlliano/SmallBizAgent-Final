@@ -604,6 +604,13 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/test/e2e-business.test.ts` — 49 tests: business CRUD, business hours, services CRUD, customer CRUD, CSRF enforcement, full onboarding flow
 - `server/test/e2e-appointments-invoices.test.ts` — 51 tests: appointment CRUD, invoice CRUD with items, NaN validation, ownership checks, CSRF enforcement, full flow (register → appointment → invoice)
 
+#### Calendar Integration Fixes (Google/Microsoft/Apple)
+- `server/services/googleCalendarService.ts` — **CRITICAL FIX**: OAuth redirect URI now constructed from `GOOGLE_REDIRECT_URI` → `APP_URL` → localhost fallback chain instead of relative path `/api/calendar/google/callback` which fails Google OAuth validation. Uses `getGoogleRedirectUri()` function.
+- `server/services/microsoftCalendarService.ts` — **CRITICAL FIX**: Same redirect URI fix for Microsoft. Uses `getMicrosoftRedirectUri()` function.
+- `server/services/calendarService.ts` — **BUG FIX**: Apple Calendar disconnect now returns `true` instead of `void`. The disconnect route checks `if (result)` — returning void caused disconnect to report failure even when it succeeded.
+- `server/routes/calendarRoutes.ts` — **BUG FIX**: OAuth callback postMessage now uses `window.location.origin` instead of server-side `APP_URL` template string. This prevents origin mismatch when `APP_URL` differs from the actual browser origin (e.g., www vs bare domain).
+- `server/index.ts` — Added calendar-specific startup validation: logs redirect URI for Google/Microsoft if credentials are set, warns if redirect URI would be relative, warns if ENCRYPTION_KEY missing in production (needed for calendar token encryption).
+
 ---
 
 ## File Quick Reference
@@ -680,4 +687,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 12, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51).*
+*Last updated: March 12, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation.*
