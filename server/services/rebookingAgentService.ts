@@ -117,7 +117,7 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
       const message = fillTemplate(config.messageTemplate, {
         customerName: customer.firstName || 'there',
         businessName: business.name,
-        businessPhone: business.phone || '',
+        businessPhone: business.twilioPhoneNumber || business.phone || '',
         bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
         daysSinceVisit: String(daysSinceVisit),
         serviceName: lastServiceName,
@@ -172,7 +172,7 @@ export async function handleRebookingReply(
   const templateVars: Record<string, string> = {
     customerName: customer?.firstName || 'there',
     businessName: business.name,
-    businessPhone: business.phone || '',
+    businessPhone: business.twilioPhoneNumber || business.phone || '',
     bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
   };
 

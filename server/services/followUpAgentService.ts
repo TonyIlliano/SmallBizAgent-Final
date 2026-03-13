@@ -190,7 +190,7 @@ function buildTemplateVars(customer: any, business: any): Record<string, string>
   return {
     customerName: customer.firstName || 'there',
     businessName: business.name,
-    businessPhone: business.phone || '',
+    businessPhone: business.twilioPhoneNumber || business.phone || '',
     bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
   };
 }

@@ -68,7 +68,7 @@ export async function triggerNoShowSms(
       customerName: customer.firstName || 'there',
       appointmentTime: apptTime,
       businessName: business.name,
-      businessPhone: business.phone || '',
+      businessPhone: business.twilioPhoneNumber || business.phone || '',
       bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
     });
 
@@ -133,7 +133,7 @@ export async function handleNoShowReply(
   const templateVars: Record<string, string> = {
     customerName: customer?.firstName || 'there',
     businessName: business.name,
-    businessPhone: business.phone || '',
+    businessPhone: business.twilioPhoneNumber || business.phone || '',
     bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
   };
 

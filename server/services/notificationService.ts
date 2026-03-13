@@ -41,6 +41,12 @@ function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }
 
+// Get the best contact number for a business — prefer the Twilio AI receptionist number
+// so customers call into the AI and can reschedule/ask questions automatically.
+function getContactNumber(business: any): string {
+  return business.twilioPhoneNumber || business.phone || '';
+}
+
 // Helper to format date in the business timezone (defaults to UTC if not set)
 function formatDate(date: Date, timezone?: string): string {
   try {
@@ -157,11 +163,11 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
         if (isFieldService) {
           message = manageUrl
             ? `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Manage: ${manageUrl}`
-            : `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Call ${business.phone} to reschedule.`;
+            : `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Call ${getContactNumber(business)} to reschedule.`;
         } else {
           message = manageUrl
             ? `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Manage or reschedule: ${manageUrl} - ${business.name}`
-            : `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to reschedule. - ${business.name}`;
+            : `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Call ${getContactNumber(business)} to reschedule. - ${business.name}`;
         }
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
@@ -265,9 +271,9 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
 
         let message: string;
         if (isFieldService) {
-          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Call ${business.phone} if anything changes.`;
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Call ${getContactNumber(business)} if anything changes.`;
         } else {
-          message = `Hi ${customer.firstName}! Reminder: ${serviceName} is scheduled for ${dateStr} at ${timeStr}. Reply CONFIRM to confirm or call ${business.phone} to reschedule. - ${business.name}`;
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM to confirm or call ${getContactNumber(business)} to reschedule. - ${business.name}`;
         }
 
         // Weather alert for field service reminders (only when enabled and forecast shows rain/snow/storms)
@@ -374,7 +380,7 @@ export async function sendInvoiceCreatedNotification(invoiceId: number, business
     // Send SMS
     if (sendSmsPref && canSendSms(customer)) {
       try {
-        const message = `Hi ${customer.firstName}! You have a new invoice #${invoice.invoiceNumber} for ${amount} from ${business.name}. Due: ${dueDate}. Call ${business.phone} for questions.`;
+        const message = `Hi ${customer.firstName}! You have a new invoice #${invoice.invoiceNumber} for ${amount} from ${business.name}. Due: ${dueDate}. Call ${getContactNumber(business)} with any questions.`;
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
@@ -486,7 +492,8 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
     // Send SMS with payment link
     if (sendSmsPref && canSendSms(customer)) {
       try {
-        const contactInfo = business.phone ? `Call ${business.phone} to pay.` : `Contact ${business.name} to pay.`;
+        const contactNum = getContactNumber(business);
+        const contactInfo = contactNum ? `Call ${contactNum} with any questions.` : `Contact ${business.name} for help.`;
         const message = payUrl
           ? `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. Pay online: ${payUrl} - ${business.name}`
           : `Hi ${customer.firstName}! Reminder: invoice #${invoice.invoiceNumber} for ${amount} is due ${dueDate}. ${contactInfo} - ${business.name}`;
@@ -619,7 +626,7 @@ export async function sendJobCompletedNotification(jobId: number, businessId: nu
     // Send SMS
     if (sendSmsPref && canSendSms(customer)) {
       try {
-        const message = `Hi ${customer.firstName}! "${job.title}" has been completed. Questions? Call ${business.phone}. Thank you for choosing ${business.name}!`;
+        const message = `Hi ${customer.firstName}! "${job.title}" has been completed. Questions? Call ${getContactNumber(business)}. Thank you for choosing ${business.name}!`;
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
@@ -879,7 +886,7 @@ export async function sendQuoteConvertedNotification(
 
     if (canSendSms(customer)) {
       try {
-        const message = `Hi ${customer.firstName}! Your accepted quote from ${business.name} has been converted to invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). Call ${business.phone || 'us'} with any questions.${getSmsFooter()}`;
+        const message = `Hi ${customer.firstName}! Your accepted quote from ${business.name} has been converted to invoice #${invoice.invoiceNumber} for ${amount} (due ${dueDate}). Call ${getContactNumber(business) || 'us'} with any questions.${getSmsFooter()}`;
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,
@@ -1011,7 +1018,7 @@ export async function sendReservationConfirmation(reservationId: number, busines
       try {
         const message = manageUrl
           ? `Hi ${customer.firstName}! Your reservation for ${partyStr} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Manage: ${manageUrl}`
-          : `Hi ${customer.firstName}! Your reservation for ${partyStr} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Call ${business.phone} to modify.`;
+          : `Hi ${customer.firstName}! Your reservation for ${partyStr} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Call ${getContactNumber(business)} to modify.`;
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
           businessId,

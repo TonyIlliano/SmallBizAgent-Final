@@ -82,8 +82,11 @@ export async function sendAppointmentReminder(
       hour12: true
     });
 
+    // Use the Twilio AI number so customers call the receptionist, fall back to business phone
+    const contactNumber = business.twilioPhoneNumber || business.phone;
+
     // Compose the reminder message
-    const message = `Hi ${customer.firstName}! This is a reminder from ${business.name} about ${serviceName} scheduled for ${dateStr} at ${timeStr}. Reply CONFIRM to confirm or call us at ${business.phone} to reschedule.`;
+    const message = `Hi ${customer.firstName}! This is a friendly reminder from ${business.name} — your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM to confirm, or call us at ${contactNumber} to reschedule.`;
 
     // Send the SMS
     try {
@@ -187,8 +190,11 @@ export async function sendInvoiceReminder(
       currency: 'USD'
     }).format(invoice.total || 0);
 
+    // Use the Twilio AI number so customers call the receptionist, fall back to business phone
+    const contactNumber = business.twilioPhoneNumber || business.phone;
+
     // Compose message
-    const message = `Hi ${customer.firstName}! This is a reminder from ${business.name} that invoice #${invoice.invoiceNumber} for ${amount} is due. Pay online or call us at ${business.phone}. Thank you!`;
+    const message = `Hi ${customer.firstName}! This is a reminder from ${business.name} — invoice #${invoice.invoiceNumber} for ${amount} is due. Pay online or call us at ${contactNumber} if you have any questions. Thank you!`;
 
     try {
       const result = await twilioService.sendSms(customer.phone, message, undefined, businessId);
@@ -238,7 +244,8 @@ export async function sendJobFollowUp(
     if (reviewLink) {
       message += ` We'd appreciate a review: ${reviewLink}`;
     } else {
-      message += ` If you have any questions, call us at ${business.phone}.`;
+      const contactNumber = business.twilioPhoneNumber || business.phone;
+      message += ` If you have any questions, give us a call at ${contactNumber}.`;
     }
 
     try {
