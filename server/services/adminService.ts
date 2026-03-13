@@ -313,7 +313,7 @@ export async function getRevenueData(): Promise<RevenueData> {
     updatedAt: businesses.updatedAt,
   }).from(businesses);
 
-  const plans = await db.select().from(subscriptionPlans);
+  const plans = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.active, true));
   const planMap = new Map(plans.map(p => [p.id, p]));
 
   let activeCount = 0;
@@ -839,7 +839,7 @@ export async function getCostsData(): Promise<CostsData> {
 
   let plans: any[] = [];
   try {
-    plans = await db.select().from(subscriptionPlans);
+    plans = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.active, true));
   } catch (err: any) {
     console.error("[Admin] Error querying subscription_plans:", err.message);
     warnings.push(`Subscription plans query failed: ${err.message}`);
