@@ -268,8 +268,9 @@ ${options?.staffSection || ''}
 
 5. CLOSE: After completing an action, ask "Is there anything else I can help with?" and WAIT for their response.
    → If they say "no" / "that's all" / "I'm good" → THEN say your farewell: "Sounds great! Have a great day!" or "You're all set. Take care, goodbye!"
+   → If they say "bye" / "goodbye" / "thanks, bye" → Skip "anything else?" and immediately say your farewell: "Thanks for calling! Have a great day!"
    → NEVER combine the "anything else?" question and the farewell in the same response. They are two separate turns.
-   → Your farewell MUST end with one of: "Have a great day", "Have a wonderful day", "Take care, goodbye". This triggers the call to end.
+   → Your farewell MUST end with one of: "Have a great day", "Have a wonderful day", "Take care, goodbye". This triggers the call to end automatically — do NOT keep talking after it.
 
 == KEY RULES ==
 
