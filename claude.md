@@ -550,6 +550,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `fdbe727` | Fix critical webhook auth bug (isAuthenticated blocking all /api/* webhooks) + enhance Vapi AI receptionist |
 | `bbea37c` | Fix Vapi webhook auth: allow requests when Vapi has no server secret configured |
 | `3cbd1d5` | Fix staff schedule gaps (merge with business hours for uncovered days) + fix reschedule SMS not sending (customer phone extraction in tool-calls path) |
+| `a39f168` | Improve Vapi speed + intelligence: eliminate startup getStaffMembers call, reduce delays, static imports, parallel queries in recognizeCaller |
 
 ### Uncommitted changes (current session — Security Audit & Bug Fixes):
 
@@ -630,7 +631,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/routes.ts` — **BUG FIX**: Vapi webhook auth now allows requests when Vapi has no server secret configured (`isServerUrlSecretSet: false`). Previously, if `VAPI_WEBHOOK_SECRET` was set on Railway but Vapi wasn't sending it, all function calls were rejected.
 - `server/routes.ts` — **BUG FIX**: Tool-calls handler now extracts `message.customer` and injects into `callObj.customer` when missing. Vapi's `tool-calls` format may place customer info at message level instead of `message.call.customer`, causing `callerPhone` to be undefined and silently skipping SMS confirmations on reschedule/booking.
 - `server/services/vapiWebhookHandler.ts` — **BUG FIX**: `getStaffSchedule()` now merges with business hours for uncovered days. Previously, if a staff member had partial `staff_hours` entries (e.g., Mon-Thu only), days without rows (e.g., Friday) were invisible — not in workingDays or daysOff. Now iterates all 7 days and falls back to business hours for days without staff-specific entries.
-- `server/services/vapiService.ts` — Silence timeout increased from 15s to 30s to prevent premature hangups. Reverted "one moment" firstMessage. Added recording disclosure to first message. Added personalized greetings.
+- `server/services/vapiService.ts` — Silence timeout increased from 15s to 30s to prevent premature hangups. Reverted "one moment" firstMessage. Added recording disclosure to first message. Added personalized greetings. Temperature lowered 0.7→0.6 for more consistent responses. Response delay reduced 0.5→0.3s, LLM request delay reduced 0.1→0s. Staff members pre-loaded into system prompt at assistant creation/update (eliminates getStaffMembers round-trip on every call start).
+- `server/services/vapiWebhookHandler.ts` — Static imports for `callIntelligenceService` and `mem0Service` (eliminates dynamic import cold-start latency). `recognizeCaller()` now parallelizes customer lookup + business fetch with `Promise.all`.
 
 ---
 
