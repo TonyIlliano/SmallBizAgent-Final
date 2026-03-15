@@ -266,8 +266,10 @@ ${options?.staffSection || ''}
    → Wait for "yes". Then call bookAppointment with: customerId, customerName (REQUIRED), customerPhone, serviceName (REQUIRED), date (YYYY-MM-DD from checkAvailability), time, notes.
    → Notes: always include what the customer said they need ("brakes squeaking", "wants highlights", etc.)
 
-5. CLOSE: "Is there anything else I can help with?"
-   → When done, give a warm farewell ending with: "Have a great day", "Have a wonderful day", "Take care, goodbye", or "Goodbye". This MUST be the last thing you say.
+5. CLOSE: After completing an action, ask "Is there anything else I can help with?" and WAIT for their response.
+   → If they say "no" / "that's all" / "I'm good" → THEN say your farewell: "Sounds great! Have a great day!" or "You're all set. Take care, goodbye!"
+   → NEVER combine the "anything else?" question and the farewell in the same response. They are two separate turns.
+   → Your farewell MUST end with one of: "Have a great day", "Have a wonderful day", "Take care, goodbye". This triggers the call to end.
 
 == KEY RULES ==
 
@@ -282,7 +284,7 @@ ${options?.voicemailEnabled !== false ? 'Only use leaveMessage if caller explici
 
 NO DEAD AIR: Never say "one moment", "hold on", "let me check". Talk naturally while functions run: "Let's see what we've got..." or "Great question! Looking at the schedule..."
 
-ENDING CALLS: Don't drag out goodbyes. Once they're done, wrap up warmly. Your last words must be a farewell phrase.
+ENDING CALLS: After completing a task, ask "anything else?" and WAIT. Only say your farewell AFTER they confirm they're done. Never say "anything else?" and "goodbye" in the same breath — those are two separate turns. Your farewell must end with "Have a great day" or "Take care, goodbye" (this triggers hang-up).
 
 MULTILINGUAL: Match the caller's language. If they speak Spanish, respond entirely in Spanish. Default to English.
 
@@ -1182,6 +1184,7 @@ export async function createAssistantForBusiness(
     // When the AI says any of these phrases, Vapi automatically hangs up (platform-level)
     // Include versions with period, exclamation, and bare — TTS output punctuation varies
     // Also include Spanish equivalents for multilingual support
+    // Only use FULL farewell phrases — bare "Goodbye" is too trigger-happy and catches mid-sentence
     endCallPhrases: [
       "Have a great day",
       "Have a great day!",
@@ -1192,14 +1195,9 @@ export async function createAssistantForBusiness(
       "Take care, goodbye",
       "Thanks for calling goodbye",
       "Thanks for calling, goodbye",
-      "Goodbye",
-      "Goodbye!",
-      "Goodbye.",
-      // Spanish equivalents for multilingual support
+      // Spanish equivalents
       "Que tenga un buen día",
       "Que tenga un excelente día",
-      "Hasta luego",
-      "Adiós",
       "Gracias por llamar, adiós",
       "Cuídese, adiós",
     ],
@@ -1356,6 +1354,7 @@ export async function updateAssistant(
         recordingEnabled: configRecordingEnabled,
         silenceTimeoutSeconds: 30,
         maxDurationSeconds: configMaxCallMinutes * 60,
+        // Only use FULL farewell phrases — bare "Goodbye" is too trigger-happy
         endCallPhrases: [
           "Have a great day",
           "Have a great day!",
@@ -1366,14 +1365,9 @@ export async function updateAssistant(
           "Take care, goodbye",
           "Thanks for calling goodbye",
           "Thanks for calling, goodbye",
-          "Goodbye",
-          "Goodbye!",
-          "Goodbye.",
-          // Spanish equivalents for multilingual support
+          // Spanish equivalents
           "Que tenga un buen día",
           "Que tenga un excelente día",
-          "Hasta luego",
-          "Adiós",
           "Gracias por llamar, adiós",
           "Cuídese, adiós",
         ],
