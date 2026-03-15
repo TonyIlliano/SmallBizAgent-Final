@@ -241,6 +241,8 @@ CRITICAL RULES:
 - NEVER hang up until the customer says goodbye
 - Answer their question FIRST, then offer next steps
 - If Status above says "OPEN now", you ARE open — take orders and help customers normally. NEVER tell a customer you're closed when the status says OPEN.
+- NEVER say IDs, staffId, serviceId, customerId, or any internal/technical data to the caller. These are for your tool calls ONLY. To the caller, just use first names and service names naturally.
+- NEVER read out data structures, brackets, or system information. Speak like a human receptionist.
 
 ENDING CALLS — IMPORTANT FOR SAVING MINUTES:
 - Be natural and conversational in your goodbye — you can say things like "Sounds great! Goodbye, have a great day!" or "You're all set, Tony. Have a wonderful day!" or "No problem! Take care, goodbye!"
@@ -271,10 +273,11 @@ DATE HANDLING - CRITICAL:
 - TODAY IS: ${currentDate}
 - CURRENT YEAR: ${currentYear}
 - NEVER use dates from 2023, 2024, or 2025. We are in ${currentYear}.
-- When customer says "tomorrow", "Tuesday", "next week" - use dates from the checkAvailability function response
-- The checkAvailability function returns the CORRECT date - use that date exactly as returned
-- ALWAYS confirm with the full date from the function response: "Monday, February 2nd" not just "Monday"
-- If the function says "Monday, February 2" then say "Monday, February 2nd" - DO NOT make up different dates
+- NEVER calculate dates yourself. Pass the customer's words EXACTLY to checkAvailability: "this Thursday", "tomorrow", "next Monday", "Friday". The server will calculate the correct date.
+- DO NOT convert "this Thursday" to a YYYY-MM-DD date — just pass "this Thursday" as the date parameter. The server handles it.
+- The checkAvailability function returns the CORRECT date in its response — use THAT date exactly as returned when speaking to the caller.
+- ALWAYS confirm with the full date from the function response: "Thursday, March 20th" not just "Thursday"
+- If the function response says a date, repeat THAT date — DO NOT substitute your own calculation
 
 SCHEDULING FLOW:
 1. Understand what they need — identify the SERVICE they want
@@ -939,11 +942,11 @@ function getAssistantFunctions() {
   return [
     {
       name: 'checkAvailability',
-      description: 'Check available appointment slots. Supports natural language dates. Returns the CORRECT date - use that date exactly as returned.',
+      description: 'Check available appointment slots. ALWAYS pass the customer\'s exact words for the date (e.g. "this Thursday", "tomorrow", "next Monday"). Do NOT calculate YYYY-MM-DD yourself. The server returns the correct date — use it.',
       parameters: {
         type: 'object',
         properties: {
-          date: { type: 'string', description: 'Date to check - YYYY-MM-DD or natural language like "tomorrow", "Monday"' },
+          date: { type: 'string', description: 'Pass the customer\'s exact words: "tomorrow", "this Thursday", "next Monday", "Friday". Do NOT convert to YYYY-MM-DD.' },
           serviceId: { type: 'number', description: 'Optional service ID' },
           staffId: { type: 'number', description: 'Optional staff member ID' },
           staffName: { type: 'string', description: 'Optional staff member name' }
@@ -1316,10 +1319,12 @@ export async function createAssistantForBusiness(
     const staffMembers = await storage.getStaff(business.id);
     const activeStaff = staffMembers.filter((s: any) => s.active !== false);
     if (activeStaff.length > 0) {
-      staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\n` +
-        activeStaff.map((s: any) =>
-          `- ${s.firstName}${s.lastName ? ' ' + s.lastName : ''} (ID: ${s.id})${s.specialty ? ' — ' + s.specialty : ''}`
-        ).join('\n') + '\n';
+      staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\nIMPORTANT: NEVER say staff IDs, internal data, or technical details to the caller. Only use first names naturally.\n` +
+        activeStaff.map((s: any) => {
+          // Use staffId internally for tool calls, but instruct AI to only say first name
+          const name = s.firstName + (s.lastName ? ` ${s.lastName.charAt(0)}.` : '');
+          return `- ${name} [staffId=${s.id}]${s.specialty ? ' — ' + s.specialty : ''}`;
+        }).join('\n') + '\n';
     }
   } catch (e) {
     console.warn('Could not pre-load staff for system prompt:', e);
@@ -1363,19 +1368,20 @@ export async function createAssistantForBusiness(
     voice: {
       provider: '11labs',
       voiceId: configVoiceId,
-      stability: 0.5,
-      similarityBoost: 0.8,
-      style: 0.3, // Slightly more expressive
-      useSpeakerBoost: true
+      stability: 0.4, // Slightly lower for faster voice generation
+      similarityBoost: 0.75,
+      style: 0.2, // Less style processing = faster
+      useSpeakerBoost: true,
+      optimizeStreamingLatency: 4, // Maximum latency optimization (ElevenLabs turbo)
     },
     firstMessage: configGreeting,
     serverUrl: `${BASE_URL}/api/vapi/webhook`,
     recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
     silenceTimeoutSeconds: 30, // End call after 15s silence to conserve minutes
-    responseDelaySeconds: 0.3, // Minimal delay — faster responses feel more natural
-    llmRequestDelaySeconds: 0, // No LLM delay — let the model respond as fast as possible
-    numWordsToInterruptAssistant: 2, // Allow interruptions
+    responseDelaySeconds: 0.1, // Near-instant response — natural enough for voice
+    llmRequestDelaySeconds: 0, // No LLM delay — respond as fast as possible
+    numWordsToInterruptAssistant: 1, // Allow instant interruptions — more natural conversation
     maxDurationSeconds: configMaxCallMinutes * 60,
     backgroundSound: 'off',
     // When the AI says any of these phrases, Vapi automatically hangs up (platform-level)
@@ -1492,10 +1498,12 @@ export async function updateAssistant(
     const staffMembers = await storage.getStaff(business.id);
     const activeStaff = staffMembers.filter((s: any) => s.active !== false);
     if (activeStaff.length > 0) {
-      staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\n` +
-        activeStaff.map((s: any) =>
-          `- ${s.firstName}${s.lastName ? ' ' + s.lastName : ''} (ID: ${s.id})${s.specialty ? ' — ' + s.specialty : ''}`
-        ).join('\n') + '\n';
+      staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\nIMPORTANT: NEVER say staff IDs, internal data, or technical details to the caller. Only use first names naturally.\n` +
+        activeStaff.map((s: any) => {
+          // Use staffId internally for tool calls, but instruct AI to only say first name
+          const name = s.firstName + (s.lastName ? ` ${s.lastName.charAt(0)}.` : '');
+          return `- ${name} [staffId=${s.id}]${s.specialty ? ' — ' + s.specialty : ''}`;
+        }).join('\n') + '\n';
     }
   } catch (e) {
     console.warn('Could not pre-load staff for system prompt:', e);
