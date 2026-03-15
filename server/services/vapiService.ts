@@ -1343,7 +1343,7 @@ export async function createAssistantForBusiness(
     name: `${business.name} Receptionist`,
     model: {
       provider: 'openai',
-      model: 'gpt-4o-mini', // Cost-effective for voice
+      model: 'gpt-5-mini', // Smarter than gpt-4o-mini, still cost-effective for voice
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
       systemPrompt: systemPrompt,
       functions: [
@@ -1535,7 +1535,7 @@ export async function updateAssistant(
         },
         model: {
           provider: 'openai',
-          model: 'gpt-4o-mini', // Cost-effective for voice
+          model: 'gpt-5-mini', // Smarter than gpt-4o-mini, still cost-effective for voice
           systemPrompt: systemPrompt,
           functions: functions,
           // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
