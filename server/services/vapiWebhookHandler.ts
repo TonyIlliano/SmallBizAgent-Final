@@ -1082,6 +1082,50 @@ async function getAvailableSlotsForDay(
 }
 
 /**
+ * Parse a time slot string (e.g., "9:00 AM", "2:30 PM") into a 24-hour integer.
+ */
+function parseSlotHour(slot: string): number {
+  const hour = parseInt(slot.split(':')[0]);
+  const isPM = slot.toLowerCase().includes('pm');
+  if (isPM && hour !== 12) return hour + 12;
+  if (!isPM && hour === 12) return 0;
+  return hour;
+}
+
+/**
+ * Pick 3-5 representative time slots spread across the day
+ * (morning, midday, afternoon, evening) instead of returning all 48.
+ */
+function pickBestSlots(slots: string[], maxSlots: number = 5): string[] {
+  if (slots.length <= maxSlots) return slots;
+
+  const morning: string[] = [];   // before 12pm
+  const midday: string[] = [];    // 12pm-2pm
+  const afternoon: string[] = []; // 2pm-5pm
+  const evening: string[] = [];   // after 5pm
+
+  for (const slot of slots) {
+    const hour = parseSlotHour(slot);
+    if (hour < 12) morning.push(slot);
+    else if (hour < 14) midday.push(slot);
+    else if (hour < 17) afternoon.push(slot);
+    else evening.push(slot);
+  }
+
+  // Pick first slot from each time-of-day bucket
+  const picks: string[] = [];
+  for (const bucket of [morning, midday, afternoon, evening]) {
+    if (bucket.length > 0 && picks.length < maxSlots) picks.push(bucket[0]);
+  }
+  // Fill remaining slots if we still have room
+  for (const slot of slots) {
+    if (picks.length >= maxSlots) break;
+    if (!picks.includes(slot)) picks.push(slot);
+  }
+  return picks;
+}
+
+/**
  * Check available appointment slots for a date or date range
  * Now supports filtering by staff member for salons/barbershops
  */
@@ -1331,39 +1375,21 @@ async function checkAvailability(
     }
 
     if (availableDays.length === 0) {
-      const noAvailMsg = staffLabel
-        ? `I'm sorry, ${staffLabel} doesn't have any availability in the next two weeks. Would you like to check further out, or try a different team member?`
-        : "I'm sorry, we don't have any availability in the next two weeks. Would you like me to check further out, or would you prefer to leave your number for a callback?";
       return {
         result: {
           available: false,
-          staffId: resolvedStaffId,
           staffName: staffLabel,
-          message: noAvailMsg
         }
       };
     }
 
-    // Format the response with multiple days
-    const firstDay = availableDays[0];
-    const daysList = availableDays.map(d => d.day).join(', ');
-
-    const multiDayMsg = staffLabel
-      ? `${staffLabel} has availability on ${daysList}. The soonest opening is ${firstDay.date} at ${firstDay.slots[0]} ${tzAbbr}. Would that work for you?`
-      : `We have availability on ${daysList}. The soonest opening is ${firstDay.date} at ${firstDay.slots[0]} ${tzAbbr}. Would that work for you, or would you prefer a different day?`;
-
+    // Return curated multi-day availability — the AI composes its own natural phrasing
     return {
       result: {
         available: true,
         isMultipleDays: true,
-        staffId: resolvedStaffId,
         staffName: staffLabel,
         availableDays: availableDays,
-        message: multiDayMsg,
-        suggestion: {
-          date: firstDay.date,
-          time: firstDay.slots[0]
-        }
       }
     };
   }
@@ -1417,91 +1443,43 @@ async function checkAvailability(
       }
     }
 
-    const closedMsg = staffLabel
-      ? `${staffLabel} doesn't work on ${result.dayName}s. Would ${nextOpenDay} work for you instead?`
-      : `We're closed on ${result.dayName}s. Would ${nextOpenDay} work for you instead?`;
-
     return {
       result: {
         available: false,
         isClosed: true,
-        staffId: resolvedStaffId,
         staffName: staffLabel,
-        message: closedMsg,
-        suggestedDay: nextOpenDay
+        dayName: result.dayName,
+        suggestedDay: nextOpenDay,
       }
     };
   }
 
   const availableSlots = result.slots;
 
-  // Build message with staff name if applicable
-  // Group slots by time of day to give a better overview
-  const morningSlots = availableSlots.filter(s => {
-    const hour = parseInt(s.split(':')[0]);
-    const isPM = s.toLowerCase().includes('pm');
-    const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-    return hour24 < 12;
-  });
-  const afternoonSlots = availableSlots.filter(s => {
-    const hour = parseInt(s.split(':')[0]);
-    const isPM = s.toLowerCase().includes('pm');
-    const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-    return hour24 >= 12 && hour24 < 17;
-  });
-  const eveningSlots = availableSlots.filter(s => {
-    const hour = parseInt(s.split(':')[0]);
-    const isPM = s.toLowerCase().includes('pm');
-    const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-    return hour24 >= 17;
-  });
-
-  // Build a descriptive message that covers all time periods
-  let timeDescription: string;
-  const parts: string[] = [];
-
-  if (morningSlots.length > 0) {
-    parts.push(`morning starting at ${morningSlots[0]}`);
-  }
-  if (afternoonSlots.length > 0) {
-    parts.push(`afternoon starting at ${afternoonSlots[0]}`);
-  }
-  if (eveningSlots.length > 0) {
-    parts.push(`evening starting at ${eveningSlots[0]}`);
+  if (availableSlots.length === 0) {
+    return {
+      result: {
+        available: false,
+        date: displayDate,
+        timezone: tzAbbr,
+        staffName: staffLabel,
+      }
+    };
   }
 
-  if (parts.length === 1) {
-    timeDescription = parts[0];
-  } else if (parts.length === 2) {
-    timeDescription = `${parts[0]} or ${parts[1]}`;
-  } else {
-    timeDescription = `${parts.slice(0, -1).join(', ')}, or ${parts[parts.length - 1]}`;
-  }
-
-  let availableMsg: string;
-  let bookedMsg: string;
-
-  if (staffLabel) {
-    availableMsg = `${staffLabel} has openings on ${displayDate} in the ${timeDescription} ${tzAbbr}. What time works best for you?`;
-    bookedMsg = `${staffLabel} is fully booked on ${displayDate}. Would you like to check a different day, or would another team member work for you?`;
-  } else {
-    availableMsg = `We have openings on ${displayDate} in the ${timeDescription} ${tzAbbr}. What time works best for you?`;
-    bookedMsg = `We're fully booked on ${displayDate}. Would you like to check a different day?`;
-  }
-
-  // Return ALL available slots - let the AI decide how to present them to the customer
-  // The AI will naturally offer a few options and can provide more if asked
+  // Return 3-5 curated slots spread across the day instead of all 48
+  // The AI composes its own natural phrasing from these
+  const bestSlots = pickBestSlots(availableSlots, 5);
 
   return {
     result: {
-      available: availableSlots.length > 0,
+      available: true,
       date: displayDate,
       timezone: tzAbbr,
-      staffId: resolvedStaffId,
       staffName: staffLabel,
-      availableSlots: availableSlots, // Return all available slots
+      slots: bestSlots,
       totalAvailable: availableSlots.length,
-      message: availableSlots.length > 0 ? availableMsg : bookedMsg
+      moreAvailable: availableSlots.length > bestSlots.length,
     }
   };
 }
@@ -3246,40 +3224,69 @@ async function recognizeCaller(
     console.error('[recognizeCaller] Error fetching Mem0 context:', mem0Result.reason);
   }
 
+  // Build a concise narrative summary combining all intelligence into natural language
+  // This gives the AI everything it needs in a format it can weave into conversation
+  const summaryParts: string[] = [];
+
+  // Visit history
+  if (insights?.totalVisits && insights.totalVisits > 1) {
+    summaryParts.push(`Regular customer (${insights.totalVisits} visits)`);
+  } else if (recent.length > 0) {
+    summaryParts.push('Returning customer');
+  }
+
+  // Service & staff preferences
+  if (intelligence?.preferredServices) {
+    summaryParts.push(`Usually books: ${intelligence.preferredServices}`);
+  }
+  if (intelligence?.staffPreference) {
+    summaryParts.push(`Preferred staff: ${intelligence.staffPreference}`);
+  }
+
+  // Timing preferences
+  if (insights?.preferredDayOfWeek || insights?.preferredTimeOfDay) {
+    const timeParts: string[] = [];
+    if (insights.preferredDayOfWeek) timeParts.push(insights.preferredDayOfWeek + 's');
+    if (insights.preferredTimeOfDay) timeParts.push(insights.preferredTimeOfDay);
+    summaryParts.push(`Prefers: ${timeParts.join(', ')}`);
+  }
+
+  // Last visit info
+  if (insights?.daysSinceLastVisit) {
+    summaryParts.push(`Last visit: ${insights.daysSinceLastVisit} days ago`);
+  }
+
+  // Last call context
+  if (intelligence?.lastCallSummary) {
+    summaryParts.push(`Last call: ${intelligence.lastCallSummary}`);
+  }
+
+  // Pending follow-up
+  if (intelligence?.pendingFollowUp) {
+    summaryParts.push(`Pending follow-up: ${intelligence.pendingFollowUp}`);
+  }
+
+  // Risk level (only if at-risk)
+  if (insights?.riskLevel === 'at_risk' || insights?.riskLevel === 'high') {
+    summaryParts.push('Note: at-risk customer — be extra warm and accommodating');
+  }
+
+  // Mem0 conversational memory (append if present)
+  if (conversationalContext) {
+    summaryParts.push(`Past notes: ${conversationalContext}`);
+  }
+
+  const summary = summaryParts.length > 0 ? summaryParts.join('. ') + '.' : '';
+
   return {
     result: {
       recognized: true,
       customerId: customer.id,
-      customerName: `${customer.firstName} ${customer.lastName}`,
       firstName: customer.firstName,
-      upcomingAppointments: upcoming.length,
-      recentAppointments: recent.length,
+      customerName: `${customer.firstName} ${customer.lastName}`,
       context,
       greeting,
-      message: `${greeting} How can I help you today?`,
-      // Call intelligence (from recent calls)
-      ...(intelligence ? {
-        lastCallSummary: intelligence.lastCallSummary,
-        lastCallSentiment: intelligence.lastCallSentiment,
-        preferredServices: intelligence.preferredServices,
-        staffPreference: intelligence.staffPreference,
-        pendingFollowUp: intelligence.pendingFollowUp,
-        totalCallsAnalyzed: intelligence.totalCalls,
-      } : {}),
-      // Customer insights (aggregated profile)
-      ...(insights ? {
-        lifetimeValue: insights.lifetimeValue,
-        totalVisits: insights.totalVisits,
-        riskLevel: insights.riskLevel,
-        averageSentiment: insights.averageSentiment,
-        autoTags: insights.autoTags,
-        daysSinceLastVisit: insights.daysSinceLastVisit,
-        reliabilityScore: insights.reliabilityScore,
-        preferredDayOfWeek: insights.preferredDayOfWeek,
-        preferredTimeOfDay: insights.preferredTimeOfDay,
-      } : {}),
-      // Mem0 conversational context (rich customer memory from past interactions)
-      ...(conversationalContext ? { conversationalContext } : {}),
+      summary,
     }
   };
 }
