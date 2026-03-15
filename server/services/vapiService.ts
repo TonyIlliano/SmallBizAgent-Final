@@ -6,6 +6,7 @@
  */
 
 import { Business, Service, ReceptionistConfig } from '@shared/schema';
+import { storage } from '../storage';
 import { getCachedMenu as getCloverCachedMenu, formatMenuForPrompt, type CachedMenu } from './cloverService';
 import { getCachedMenu as getSquareCachedMenu } from './squareService';
 import { getCachedMenu as getHeartlandCachedMenu } from './heartlandService';
@@ -185,6 +186,7 @@ interface PromptOptions {
   customInstructions?: string;
   afterHoursMessage?: string;
   voicemailEnabled?: boolean;
+  staffSection?: string;
 }
 
 function generateSystemPrompt(business: Business, services: Service[], businessHoursFromDB?: any[], menuData?: CachedMenu | null, options?: PromptOptions, knowledgeSection?: string, transferNumbers?: string[]): string {
@@ -257,6 +259,7 @@ BUSINESS INFORMATION:
 SERVICES & PRICING:
 ${serviceList}
 (Always call getServices for the most current pricing)
+${options?.staffSection || ''}
 
 HANDLING QUESTIONS:
 - "How much?" / "What's the price?" → Give the price directly from services list
@@ -812,8 +815,8 @@ ADDITIONAL FUNCTIONS:
 - getServiceDetails: Get detailed info about a specific service
 
 CALL START BEHAVIOR:
-1. IMMEDIATELY call recognizeCaller to check if this is a returning customer
-2. IMMEDIATELY call getStaffMembers to know who works here (for scheduling)
+1. IMMEDIATELY call recognizeCaller to check if this is a returning customer — this is your ONLY startup call
+2. Team members are listed above under TEAM MEMBERS — do NOT call getStaffMembers at call start (it's redundant and adds latency). Only call getStaffMembers if you need to refresh the list mid-call.
 3. The first greeting already played ("Hi, thanks for calling...How can I help you today?"). When recognizeCaller returns:
    - If recognized: true — IMMEDIATELY address them by name in your VERY NEXT response. Say something natural like "Oh hey [firstName]! Good to hear from you!" and then mention the greeting and context from recognizeCaller. This should feel personal and warm — like a real receptionist who recognizes a regular.
    - If recognized: false — continue naturally with whoever called, then ask for their name early in the conversation
@@ -1307,11 +1310,27 @@ export async function createAssistantForBusiness(
   const transferCallTool = nativeTools.find((t: any) => t.type === 'transferCall');
   const normalizedTransferNumbers = transferCallTool?.destinations?.map((d: any) => d.number) || [];
 
+  // Pre-load staff members to embed in the system prompt (eliminates getStaffMembers call at start)
+  let staffSection = '';
+  try {
+    const staffMembers = await storage.getStaff(business.id);
+    const activeStaff = staffMembers.filter((s: any) => s.active !== false);
+    if (activeStaff.length > 0) {
+      staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\n` +
+        activeStaff.map((s: any) =>
+          `- ${s.firstName}${s.lastName ? ' ' + s.lastName : ''} (ID: ${s.id})${s.specialty ? ' — ' + s.specialty : ''}`
+        ).join('\n') + '\n';
+    }
+  } catch (e) {
+    console.warn('Could not pre-load staff for system prompt:', e);
+  }
+
   const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
     assistantName: configAssistantName,
     customInstructions: configCustomInstructions,
     afterHoursMessage: configAfterHoursMessage,
     voicemailEnabled: configVoicemailEnabled,
+    staffSection,
   }, knowledgeSection, normalizedTransferNumbers);
 
   // Build functions list — conditionally exclude leaveMessage if voicemail is disabled
@@ -1324,8 +1343,8 @@ export async function createAssistantForBusiness(
     name: `${business.name} Receptionist`,
     model: {
       provider: 'openai',
-      model: 'gpt-4o-mini', // Cost-effective but smart
-      temperature: 0.7, // Natural variability
+      model: 'gpt-4o-mini', // Cost-effective for voice
+      temperature: 0.6, // Slightly lower for more consistent, accurate responses
       systemPrompt: systemPrompt,
       functions: [
         ...functions,
@@ -1354,8 +1373,8 @@ export async function createAssistantForBusiness(
     recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
     silenceTimeoutSeconds: 30, // End call after 15s silence to conserve minutes
-    responseDelaySeconds: 0.5, // Slight delay for natural feel
-    llmRequestDelaySeconds: 0.1,
+    responseDelaySeconds: 0.3, // Minimal delay — faster responses feel more natural
+    llmRequestDelaySeconds: 0, // No LLM delay — let the model respond as fast as possible
     numWordsToInterruptAssistant: 2, // Allow interruptions
     maxDurationSeconds: configMaxCallMinutes * 60,
     backgroundSound: 'off',
@@ -1467,11 +1486,27 @@ export async function updateAssistant(
   const transferCallTool = nativeTools.find((t: any) => t.type === 'transferCall');
   const normalizedTransferNumbers = transferCallTool?.destinations?.map((d: any) => d.number) || [];
 
+  // Pre-load staff members to embed in the system prompt
+  let staffSection = '';
+  try {
+    const staffMembers = await storage.getStaff(business.id);
+    const activeStaff = staffMembers.filter((s: any) => s.active !== false);
+    if (activeStaff.length > 0) {
+      staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\n` +
+        activeStaff.map((s: any) =>
+          `- ${s.firstName}${s.lastName ? ' ' + s.lastName : ''} (ID: ${s.id})${s.specialty ? ' — ' + s.specialty : ''}`
+        ).join('\n') + '\n';
+    }
+  } catch (e) {
+    console.warn('Could not pre-load staff for system prompt:', e);
+  }
+
   const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
     assistantName: configAssistantName,
     customInstructions: configCustomInstructions,
     afterHoursMessage: configAfterHoursMessage,
     voicemailEnabled: configVoicemailEnabled,
+    staffSection,
   }, knowledgeSection, normalizedTransferNumbers);
 
   // Get functions — conditionally exclude leaveMessage if voicemail is disabled
@@ -1500,7 +1535,7 @@ export async function updateAssistant(
         },
         model: {
           provider: 'openai',
-          model: 'gpt-4o-mini',
+          model: 'gpt-4o-mini', // Cost-effective for voice
           systemPrompt: systemPrompt,
           functions: functions,
           // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it

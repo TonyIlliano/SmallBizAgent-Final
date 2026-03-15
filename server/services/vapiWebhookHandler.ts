@@ -13,6 +13,9 @@ import { getCachedMenu as getHeartlandCachedMenu, createOrder as createHeartland
 import { canBusinessAcceptCalls } from './usageService';
 import { fireEvent } from './webhookService';
 import { getTimezoneAbbreviation } from '../utils/timezone';
+// Pre-import intelligence services to avoid dynamic import latency during calls
+import { getLatestCustomerIntelligence } from './callIntelligenceService';
+import { searchMemory } from './mem0Service';
 
 
 /**
@@ -3150,8 +3153,11 @@ async function recognizeCaller(
     };
   }
 
-  // Get their appointment history
-  const appointments = await storage.getAppointmentsByCustomerId(customer.id);
+  // Fetch appointments + business info in parallel (both needed for greeting)
+  const [appointments, recogBusiness] = await Promise.all([
+    storage.getAppointmentsByCustomerId(customer.id),
+    getCachedBusiness(businessId),
+  ]);
   const now = new Date();
 
   // Find upcoming appointments
@@ -3172,7 +3178,6 @@ async function recognizeCaller(
   let greeting = `Hi ${customer.firstName}! Great to hear from you.`;
   let context = '';
 
-  const recogBusiness = await getCachedBusiness(businessId);
   const recogTimezone = recogBusiness?.timezone || 'America/New_York';
 
   if (upcoming.length > 0) {
@@ -3218,13 +3223,9 @@ async function recognizeCaller(
   let conversationalContext: string = '';
 
   const [intelligenceResult, insightsResult, mem0Result] = await Promise.allSettled([
-    import('./callIntelligenceService').then(({ getLatestCustomerIntelligence }) =>
-      getLatestCustomerIntelligence(customer.id, businessId)
-    ),
+    getLatestCustomerIntelligence(customer.id, businessId),
     storage.getCustomerInsights(customer.id, businessId),
-    import('./mem0Service').then(({ searchMemory }) =>
-      searchMemory(businessId, customer.id, 'customer preferences history concerns', 5, 2000)
-    ),
+    searchMemory(businessId, customer.id, 'customer preferences history concerns', 5, 2000),
   ]);
 
   if (intelligenceResult.status === 'fulfilled') {
