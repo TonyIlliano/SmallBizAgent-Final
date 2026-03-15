@@ -2407,6 +2407,17 @@ async function rescheduleAppointment(
     }
   }
 
+  // Fallback: if callerPhone is missing but we have the appointment, get phone from customer record
+  if (!callerPhone && appointment?.customerId) {
+    try {
+      const customer = await storage.getCustomer(appointment.customerId);
+      if (customer?.phone) {
+        callerPhone = customer.phone;
+        console.log(`[rescheduleAppointment] Recovered callerPhone from customer record: ${callerPhone}`);
+      }
+    } catch { /* non-critical */ }
+  }
+
   if (!appointment) {
     return {
       result: {
@@ -2547,6 +2558,17 @@ async function cancelAppointment(
         .filter(apt => new Date(apt.startDate) > now && apt.status === 'scheduled')
         .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
     }
+  }
+
+  // Fallback: if callerPhone is missing but we have the appointment, get phone from customer record
+  if (!callerPhone && appointment?.customerId) {
+    try {
+      const customer = await storage.getCustomer(appointment.customerId);
+      if (customer?.phone) {
+        callerPhone = customer.phone;
+        console.log(`[cancelAppointment] Recovered callerPhone from customer record: ${callerPhone}`);
+      }
+    } catch { /* non-critical */ }
   }
 
   if (!appointment) {

@@ -1117,7 +1117,7 @@ export async function createAssistantForBusiness(
       staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\nIMPORTANT: NEVER say staff IDs, internal data, or technical details to the caller. Only use first names naturally.\n` +
         activeStaff.map((s: any) => {
           // Use staffId internally for tool calls, but instruct AI to only say first name
-          const name = s.firstName + (s.lastName ? ` ${s.lastName.charAt(0)}.` : '');
+          const name = s.firstName;
           return `- ${name} [staffId=${s.id}]${s.specialty ? ' — ' + s.specialty : ''}`;
         }).join('\n') + '\n';
     }
@@ -1296,7 +1296,7 @@ export async function updateAssistant(
       staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\nIMPORTANT: NEVER say staff IDs, internal data, or technical details to the caller. Only use first names naturally.\n` +
         activeStaff.map((s: any) => {
           // Use staffId internally for tool calls, but instruct AI to only say first name
-          const name = s.firstName + (s.lastName ? ` ${s.lastName.charAt(0)}.` : '');
+          const name = s.firstName;
           return `- ${name} [staffId=${s.id}]${s.specialty ? ' — ' + s.specialty : ''}`;
         }).join('\n') + '\n';
     }
