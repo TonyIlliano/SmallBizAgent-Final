@@ -722,7 +722,10 @@ async function handleFunctionCall(
     };
   }
 
-  // Minimal production log — verbose param logging removed for latency
+  // Log function calls with caller info for debugging recognition issues
+  if (name === 'recognizeCaller') {
+    console.log(`[handleFunctionCall] recognizeCaller called with callerPhone=${callerPhone || 'MISSING'}, businessId=${businessId}`);
+  }
 
   try {
     switch (name) {
@@ -3033,6 +3036,7 @@ async function recognizeCaller(
   callerPhone?: string
 ): Promise<FunctionResult> {
   if (!callerPhone) {
+    console.log(`[recognizeCaller] No callerPhone for business ${businessId} — cannot identify caller`);
     return {
       result: {
         recognized: false,
@@ -3041,9 +3045,11 @@ async function recognizeCaller(
     };
   }
 
+  console.log(`[recognizeCaller] Looking up phone=${callerPhone} for business ${businessId}`);
   const customer = await storage.getCustomerByPhone(callerPhone, businessId);
 
   if (!customer) {
+    console.log(`[recognizeCaller] No customer found for phone=${callerPhone}, business=${businessId} — new caller`);
     return {
       result: {
         recognized: false,
@@ -3052,6 +3058,8 @@ async function recognizeCaller(
       }
     };
   }
+
+  console.log(`[recognizeCaller] Found customer: ${customer.firstName} ${customer.lastName} (id=${customer.id}) for phone=${callerPhone}`);
 
   // Fetch appointments + business info + services in parallel (all needed for greeting)
   const [appointments, recogBusiness, allServices] = await Promise.all([
