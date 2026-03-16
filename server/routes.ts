@@ -5628,16 +5628,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Business not found' });
       }
 
+      // If no assistant exists, CREATE one (+ connect phone if available)
       if (!business.vapiAssistantId) {
-        return res.status(400).json({ error: 'Business does not have a Vapi assistant' });
+        console.log(`[VapiRefresh] Business ${businessId} has no assistant — creating new one via full provisioning`);
+        const provisionResult = await vapiProvisioningService.provisionVapiForBusiness(businessId);
+        if (!provisionResult.success) {
+          console.error('[VapiRefresh] Failed to create Vapi assistant:', provisionResult.error);
+          return res.status(500).json({ error: provisionResult.error || 'Failed to create assistant' });
+        }
+        // Re-enable receptionist
+        await storage.updateBusiness(businessId, { receptionistEnabled: true } as any);
+        console.log(`[VapiRefresh] Created new assistant ${provisionResult.assistantId} for business ${businessId}`);
+        return res.json({
+          success: true,
+          assistantId: provisionResult.assistantId,
+          phoneConnected: provisionResult.phoneConnected,
+          message: 'New assistant created and connected successfully',
+          webhookUrl: `${process.env.APP_URL || process.env.BASE_URL}/api/vapi/webhook`
+        });
       }
 
       const services = await storage.getServices(businessId);
       const businessHours = await storage.getBusinessHours(businessId);
       const rcConfig = await storage.getReceptionistConfig(businessId);
       console.log(`Updating assistant ${business.vapiAssistantId} with ${services.length} services, ${businessHours.length} hour entries`);
-      console.log(`BASE_URL is: ${process.env.BASE_URL}`);
-      console.log(`Webhook URL will be: ${process.env.BASE_URL}/api/vapi/webhook`);
+      console.log(`APP_URL is: ${process.env.APP_URL}`);
+      console.log(`Webhook URL will be: ${process.env.APP_URL}/api/vapi/webhook`);
 
       const result = await vapiService.updateAssistant(
         business.vapiAssistantId,
@@ -5657,7 +5673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         assistantId: business.vapiAssistantId,
         message: 'Assistant refreshed successfully',
-        webhookUrl: `${process.env.BASE_URL}/api/vapi/webhook`
+        webhookUrl: `${process.env.APP_URL || process.env.BASE_URL}/api/vapi/webhook`
       });
     } catch (error) {
       console.error('Error refreshing Vapi assistant:', error);
@@ -5982,13 +5998,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         specificPhoneNumber: phoneNumber
       });
 
-      // Enable the receptionist and restore status if needed
+      // Enable the receptionist and protect from scheduler
       const statusUpdate: any = { receptionistEnabled: true };
       const currentStatus = (business as any).subscriptionStatus;
-      if (currentStatus === 'expired' || currentStatus === 'grace_period') {
-        // Restore to trialing so the business can use the AI again
-        // (admin is manually re-provisioning, so honor the original trial)
-        statusUpdate.subscriptionStatus = 'trialing';
+      if (currentStatus === 'expired' || currentStatus === 'grace_period' || currentStatus === 'trialing') {
+        // Set to 'active' so the trial scheduler won't touch this business
+        // Admin/owner manually provisioning = business should be protected
+        statusUpdate.subscriptionStatus = 'active';
       }
       await storage.updateBusiness(businessId, statusUpdate);
 
@@ -6035,11 +6051,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Provision a specific phone number for a business
+  // Provision a specific phone number for a business (FULL: Twilio + Vapi + connection)
   app.post("/api/admin/phone-numbers/provision", isAdmin, async (req: Request, res: Response) => {
     try {
       const { businessId, phoneNumber } = req.body;
-      
+
       if (!businessId || !phoneNumber) {
         return res.status(400).json({
           error: "Missing required fields. Please provide businessId and phoneNumber"
@@ -6052,8 +6068,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Business not found" });
       }
 
-      // Skip validation for format/etc as Twilio will handle that
-
       // Check if Twilio is configured
       if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
         return res.status(503).json({
@@ -6061,28 +6075,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Purchase the phone number
-      const result = await twilioProvisioningService.provisionSpecificPhoneNumber(
-        businessId,
-        phoneNumber
-      );
-
-      // Auto-connect to Vapi if assistant exists (background)
-      vapiProvisioningService.connectPhoneToVapi(businessId).then(vapiResult => {
-        if (vapiResult.success) {
-          console.log(`Auto-connected phone to Vapi for business ${businessId}`);
-        }
-      }).catch(err => {
-        console.error('Error auto-connecting phone to Vapi:', err);
+      // Use the FULL provisioning service (Twilio + Vapi + phone connection)
+      // This ensures the assistant is created AND the phone is connected to it
+      const result = await businessProvisioningService.provisionBusiness(businessId, {
+        specificPhoneNumber: phoneNumber
       });
 
-      // Return the result
+      // Protect from scheduler: set status to 'active' and extend trial
+      // Admin manually provisioning = business should NOT be auto-deprovisioned
+      const statusUpdate: any = {
+        receptionistEnabled: true,
+        subscriptionStatus: 'active',  // Active businesses skip the trial scheduler entirely
+      };
+      await storage.updateBusiness(businessId, statusUpdate);
+      console.log(`[AdminProvision] Business ${businessId} set to 'active' status (admin-provisioned, protected from scheduler)`);
+
       res.json({
-        success: true,
+        success: result.success,
         business: businessId,
-        phoneNumber: result.phoneNumber,
-        sid: result.sid,
-        message: "Phone number provisioned successfully"
+        phoneNumber: result.twilioPhoneNumber,
+        assistantId: result.vapiAssistantId,
+        vapiConnected: result.vapiPhoneConnected,
+        message: result.success
+          ? "Phone number + AI assistant provisioned successfully"
+          : "Provisioning partially completed — check logs"
       });
     } catch (error) {
       console.error("Error provisioning phone number:", error);

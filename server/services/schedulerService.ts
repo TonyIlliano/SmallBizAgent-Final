@@ -655,6 +655,17 @@ async function runTrialExpirationCheck(): Promise<void> {
         continue;
       }
 
+      // SAFETY: Never deprovision a business that was recently provisioned (within 24h)
+      // This prevents race conditions where admin provisions and scheduler immediately un-does it
+      const provisionedAt = (business as any).provisioningCompletedAt || (business as any).twilioDateProvisioned;
+      if (provisionedAt) {
+        const hoursSinceProvisioned = (now.getTime() - new Date(provisionedAt).getTime()) / (1000 * 60 * 60);
+        if (hoursSinceProvisioned < 24) {
+          console.log(`[TrialExpiration] Skipping business ${business.id} — provisioned ${Math.round(hoursSinceProvisioned)}h ago (< 24h safety window)`);
+          continue;
+        }
+      }
+
       if (!business.trialEndsAt) continue;
 
       const trialEnd = new Date(business.trialEndsAt);

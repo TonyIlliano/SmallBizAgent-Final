@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { ReceptionistConfig } from "@/components/receptionist/ReceptionistConfig";
 import { CallLog } from "@/components/receptionist/CallLog";
@@ -8,9 +8,12 @@ import { WeeklySuggestions } from "@/components/receptionist/WeeklySuggestions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles, RefreshCw, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { FeatureTip } from "@/components/ui/feature-tip";
+import { apiRequest } from "@/lib/queryClient";
 
 // Recording disclosure keywords (must match server-side check)
 const DISCLOSURE_KEYWORDS = ['recorded', 'recording', 'monitored', 'monitor'];
@@ -25,6 +28,28 @@ export default function Receptionist() {
   const [activeTab, setActiveTab] = useState("calls");
   const { user } = useAuth();
   const businessId = user?.businessId;
+  const { toast } = useToast();
+
+  // Refresh/recreate Vapi assistant
+  const refreshVapiMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/vapi/refresh/${businessId}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "AI Assistant Updated",
+        description: "Your AI receptionist has been refreshed with the latest configuration.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to refresh AI assistant. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   // Fetch unanswered question count for notification badge
   const { data: questionCountData } = useQuery<{ count: number }>({
@@ -61,11 +86,31 @@ export default function Receptionist() {
           actionLabel="View setup guide"
           actionHref="/settings?tab=profile"
         />
-        <div>
-          <h2 className="text-2xl font-bold">Virtual Receptionist Management</h2>
-          <p className="text-gray-500">
-            Manage your virtual receptionist settings and view call history
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Virtual Receptionist Management</h2>
+            <p className="text-gray-500">
+              Manage your virtual receptionist settings and view call history
+            </p>
+          </div>
+          <Button
+            onClick={() => refreshVapiMutation.mutate()}
+            disabled={refreshVapiMutation.isPending || !businessId}
+            variant="outline"
+            size="sm"
+          >
+            {refreshVapiMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Refreshing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh Assistant
+              </>
+            )}
+          </Button>
         </div>
 
         <Card className="mb-6">
