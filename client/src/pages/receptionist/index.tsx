@@ -36,10 +36,12 @@ export default function Receptionist() {
       const response = await apiRequest("POST", `/api/vapi/refresh/${businessId}`);
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       toast({
         title: "AI Assistant Updated",
-        description: "Your AI receptionist has been refreshed with the latest configuration.",
+        description: data?.phoneConnected
+          ? "Your AI receptionist has been refreshed and phone connected."
+          : "Your AI receptionist has been refreshed with the latest configuration.",
       });
     },
     onError: (error: any) => {

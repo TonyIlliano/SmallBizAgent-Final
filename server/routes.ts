@@ -5669,10 +5669,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log('Vapi assistant updated successfully');
+
+      // ALWAYS ensure phone is connected to Vapi after updating
+      // This fixes the case where assistant exists but phone was never connected
+      let phoneConnected = !!business.vapiPhoneNumberId;
+      if (!phoneConnected && business.twilioPhoneNumber) {
+        console.log(`[VapiRefresh] Phone not connected to Vapi — connecting now...`);
+        try {
+          const phoneResult = await vapiProvisioningService.connectPhoneToVapi(businessId, business.vapiAssistantId!);
+          phoneConnected = phoneResult.success;
+          if (phoneResult.success) {
+            console.log(`[VapiRefresh] Phone connected to Vapi: ${phoneResult.phoneNumberId}`);
+          } else {
+            console.error(`[VapiRefresh] Failed to connect phone: ${phoneResult.error}`);
+          }
+        } catch (phoneErr) {
+          console.error('[VapiRefresh] Error connecting phone to Vapi:', phoneErr);
+        }
+      }
+
       res.json({
         success: true,
         assistantId: business.vapiAssistantId,
-        message: 'Assistant refreshed successfully',
+        phoneConnected,
+        message: phoneConnected ? 'Assistant refreshed and phone connected' : 'Assistant refreshed (phone connection may need attention)',
         webhookUrl: `${process.env.APP_URL || process.env.BASE_URL}/api/vapi/webhook`
       });
     } catch (error) {
