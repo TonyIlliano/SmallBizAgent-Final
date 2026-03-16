@@ -145,11 +145,9 @@ setInterval(() => {
 async function getCachedBusinessHours(businessId: number): Promise<any[]> {
   const cached = dataCache.get<any[]>('hours', businessId);
   if (cached) {
-    console.log(`[CACHE HIT] Business hours for business ${businessId}`);
     return cached;
   }
 
-  console.log(`[CACHE MISS] Fetching business hours for business ${businessId}`);
   const hours = await storage.getBusinessHours(businessId);
   dataCache.set('hours', businessId, hours);
   return hours;
@@ -158,11 +156,9 @@ async function getCachedBusinessHours(businessId: number): Promise<any[]> {
 async function getCachedServices(businessId: number): Promise<any[]> {
   const cached = dataCache.get<any[]>('services', businessId);
   if (cached) {
-    console.log(`[CACHE HIT] Services for business ${businessId}`);
     return cached;
   }
 
-  console.log(`[CACHE MISS] Fetching services for business ${businessId}`);
   const services = await storage.getServices(businessId);
   dataCache.set('services', businessId, services);
   return services;
@@ -171,11 +167,9 @@ async function getCachedServices(businessId: number): Promise<any[]> {
 async function getCachedStaff(businessId: number): Promise<any[]> {
   const cached = dataCache.get<any[]>('staff', businessId);
   if (cached) {
-    console.log(`[CACHE HIT] Staff for business ${businessId}`);
     return cached;
   }
 
-  console.log(`[CACHE MISS] Fetching staff for business ${businessId}`);
   const staff = await storage.getStaff(businessId);
   dataCache.set('staff', businessId, staff);
   return staff;
@@ -184,11 +178,9 @@ async function getCachedStaff(businessId: number): Promise<any[]> {
 async function getCachedStaffHours(staffId: number, businessId: number): Promise<any[]> {
   const cached = dataCache.get<any[]>('staffHours', businessId, `staff${staffId}`);
   if (cached) {
-    console.log(`[CACHE HIT] Staff hours for staff ${staffId}`);
     return cached;
   }
 
-  console.log(`[CACHE MISS] Fetching staff hours for staff ${staffId}`);
   const hours = await storage.getStaffHours(staffId);
   dataCache.set('staffHours', businessId, hours, `staff${staffId}`);
   return hours;
@@ -197,11 +189,9 @@ async function getCachedStaffHours(staffId: number, businessId: number): Promise
 async function getCachedBusiness(businessId: number): Promise<any | undefined> {
   const cached = dataCache.get<any>('business', businessId);
   if (cached) {
-    console.log(`[CACHE HIT] Business ${businessId}`);
     return cached;
   }
 
-  console.log(`[CACHE MISS] Fetching business ${businessId}`);
   const business = await storage.getBusiness(businessId);
   if (business) {
     dataCache.set('business', businessId, business);
@@ -233,15 +223,12 @@ async function getAppointmentsOptimized(
   const cached = dataCache.get<any[]>('appointments', businessId, cacheKey);
 
   if (cached) {
-    console.log(`[CACHE HIT] Appointments for business ${businessId} (${cacheKey})`);
     // Filter cached data by date range (in case cache has wider range)
     return cached.filter(apt => {
       const aptDate = new Date(apt.startDate);
       return aptDate >= startDate && aptDate <= endDate;
     });
   }
-
-  console.log(`[CACHE MISS] Fetching appointments for business ${businessId} (next ${daysAhead} days)`);
 
   let appointments;
   if (options?.staffId) {
@@ -591,10 +578,6 @@ export async function handleVapiWebhook(
 ): Promise<FunctionResult | { error: string } | null> {
   const { message, metadata } = request;
 
-  // Log the FULL request to understand the structure
-  console.log('=== Vapi Webhook FULL REQUEST ===');
-  console.log(JSON.stringify(request, null, 2));
-
   // Try to find businessId from multiple possible locations in the Vapi payload
   // Vapi can send metadata in various places depending on the event type
   let businessIdStr =
@@ -621,45 +604,27 @@ export async function handleVapiWebhook(
   // FALLBACK: If businessId is not in metadata, try to look it up from the phone number being called
   if (!businessId) {
     const calledNumber = message?.call?.phoneNumber?.number;
-    console.log(`BusinessId not in metadata. Called number from payload: ${calledNumber || 'NOT FOUND'}`);
 
     if (calledNumber) {
-      console.log(`Attempting to look up business by phone number: ${calledNumber}`);
+      console.log('[Vapi] BusinessId lookup fallback via phone number');
       const business = await storage.getBusinessByTwilioPhoneNumber(calledNumber);
       if (business) {
         businessId = business.id;
-        console.log(`SUCCESS: Found business "${business.name}" (ID: ${businessId}) from phone number lookup`);
       } else {
-        console.warn(`FAILED: Could not find business for phone number: ${calledNumber}`);
-        // Debug: List all businesses and their phone numbers
-        const allBusinesses = await storage.getAllBusinesses();
-        console.log('DEBUG - All businesses in database:');
-        allBusinesses.forEach(b => {
-          console.log(`  - ID: ${b.id}, Name: ${b.name}, Twilio Phone: ${b.twilioPhoneNumber || 'NOT SET'}`);
-        });
+        console.warn(`[Vapi] Could not find business for phone number: ${calledNumber}`);
       }
     } else {
-      console.warn('No phone number found in webhook payload to use for fallback lookup');
+      console.warn('[Vapi] No phone number found in webhook payload for fallback lookup');
     }
   }
 
-  console.log('=== Vapi Webhook ===');
-  console.log('Type:', message.type);
-  console.log('Function:', message.functionCall?.name);
-  console.log('Root metadata:', JSON.stringify(metadata));
-  console.log('Call metadata:', JSON.stringify(message?.call?.metadata));
-  console.log('Call assistant metadata:', JSON.stringify(message?.call?.assistant?.metadata));
-  console.log('Message assistant metadata:', JSON.stringify(message?.assistant?.metadata));
-  console.log('AssistantOverrides metadata:', JSON.stringify((message as any)?.call?.assistantOverrides?.metadata));
-  console.log('PhoneNumber metadata:', JSON.stringify((message as any)?.call?.phoneNumber?.metadata));
-  console.log('Resolved Business ID:', businessId);
-  console.log('Caller:', message.call?.customer?.number);
+  // Single production log line — all debug logging removed for latency
+  console.log(`[Vapi] ${message.type}${message.functionCall?.name ? ': ' + message.functionCall.name : ''} | biz=${businessId} | caller=${message.call?.customer?.number || 'unknown'}`);
 
   // Check if receptionist is enabled for this business
   if (businessId) {
     const business = await storage.getBusiness(businessId);
     if (business && business.receptionistEnabled === false) {
-      console.log(`AI Receptionist is DISABLED for business ${businessId}`);
       // Return a message indicating the service is unavailable
       if (message.type === 'function-call') {
         return {
@@ -676,7 +641,6 @@ export async function handleVapiWebhook(
   if (businessId && message.type === 'function-call') {
     const usageCheck = await canBusinessAcceptCalls(businessId);
     if (!usageCheck.allowed) {
-      console.log(`[UsageGate] Blocking call for business ${businessId}: ${usageCheck.reason}`);
       return {
         result: {
           error: "I'm sorry, but this business's AI receptionist service is currently unavailable. " +
@@ -697,15 +661,12 @@ export async function handleVapiWebhook(
       return handleEndOfCall(message, businessId);
 
     case 'status-update':
-      console.log('Call status update:', message);
       return null;
 
     case 'transcript':
-      console.log('Transcript update:', message.transcript);
       return null;
 
     default:
-      console.log('Unknown webhook type:', message.type);
       return null;
   }
 }
@@ -732,8 +693,7 @@ async function handleFunctionCall(
     };
   }
 
-  console.log(`Function call: ${name}`, JSON.stringify(parameters, null, 2));
-  console.log(`Business ID: ${businessId}, Caller Phone: ${callerPhone}`);
+  // Minimal production log — verbose param logging removed for latency
 
   try {
     switch (name) {
@@ -748,10 +708,8 @@ async function handleFunctionCall(
             }
           };
         }
-        console.log(`Executing checkAvailability for business ${businessId}, date: ${parameters.date}`);
         try {
           const availResult = await checkAvailability(businessId, parameters.date, parameters.serviceId, parameters.staffId, parameters.staffName);
-          console.log(`checkAvailability completed successfully:`, JSON.stringify(availResult).substring(0, 500));
           return availResult;
         } catch (err) {
           console.error(`checkAvailability FAILED for business ${businessId}:`, err);
@@ -771,10 +729,8 @@ async function handleFunctionCall(
         return await getCustomerInfo(businessId, parameters.phoneNumber || callerPhone);
 
       case 'getServices':
-        console.log(`Executing getServices for business ${businessId}`);
         try {
           const servicesResult = await getServices(businessId);
-          console.log(`getServices completed successfully:`, JSON.stringify(servicesResult));
           return servicesResult;
         } catch (err) {
           console.error(`getServices FAILED for business ${businessId}:`, err);
@@ -788,10 +744,8 @@ async function handleFunctionCall(
         }
 
       case 'getStaffMembers':
-        console.log(`Executing getStaffMembers for business ${businessId}`);
         try {
           const staffResult = await getStaffMembers(businessId);
-          console.log(`getStaffMembers completed successfully:`, JSON.stringify(staffResult));
           return staffResult;
         } catch (err) {
           console.error(`getStaffMembers FAILED for business ${businessId}:`, err);
@@ -805,10 +759,8 @@ async function handleFunctionCall(
         }
 
       case 'getStaffSchedule':
-        console.log(`Executing getStaffSchedule for business ${businessId}, staffName: ${parameters.staffName}`);
         try {
           const scheduleResult = await getStaffSchedule(businessId, parameters.staffName, parameters.staffId);
-          console.log(`getStaffSchedule completed:`, JSON.stringify(scheduleResult));
           return scheduleResult;
         } catch (err) {
           console.error(`getStaffSchedule FAILED:`, err);
@@ -924,13 +876,6 @@ async function getAvailableSlotsForDay(
   const dayOfWeek = date.getDay();
   const dayName = daysMap[dayOfWeek].charAt(0).toUpperCase() + daysMap[dayOfWeek].slice(1);
 
-  console.log(`\n========== getAvailableSlotsForDay ==========`);
-  console.log(`Date: ${date.toDateString()}, Day: ${dayName}, Duration: ${duration}min`);
-  console.log(`Staff hours provided: ${staffHours ? staffHours.length : 0} entries`);
-  if (staffHours && staffHours.length > 0) {
-    console.log(`Staff hours data:`, JSON.stringify(staffHours));
-  }
-  console.log(`==============================================\n`);
 
   // If staff hours are provided, use them instead of business hours
   const useStaffHours = staffHours && staffHours.length > 0;
@@ -942,12 +887,9 @@ async function getAvailableSlotsForDay(
   if (useStaffHours) {
     // Use staff-specific hours
     const staffDayHours = staffHours.find(h => h.day === daysMap[dayOfWeek]);
-    console.log(`getAvailableSlotsForDay: ${dayName} (${date.toDateString()}) - Checking STAFF hours`);
-    console.log(`  - staffDayHours found: ${!!staffDayHours}`, staffDayHours ? `start: ${staffDayHours.startTime}, end: ${staffDayHours.endTime}, isOff: ${staffDayHours.isOff}` : 'no entry for this day');
 
     // Staff explicitly marked as off this day
     if (staffDayHours?.isOff === true) {
-      console.log(`  - Staff is explicitly off on ${dayName}`);
       return { slots: [], isClosed: true, dayName };
     }
 
@@ -955,35 +897,26 @@ async function getAvailableSlotsForDay(
     if (staffDayHours && (staffDayHours.startTime || staffDayHours.endTime)) {
       openTime = staffDayHours.startTime || '09:00';
       closeTime = staffDayHours.endTime || '17:00';
-      console.log(`  - Using staff hours: ${openTime} - ${closeTime}`);
     } else {
       // No staff hours for this day - fall back to business hours
-      console.log(`  - No staff hours for ${dayName}, falling back to business hours`);
       const dayHours = businessHours.find(h => h.day === daysMap[dayOfWeek]);
       if (dayHours?.isClosed === true || !dayHours || (!dayHours.open && !dayHours.close)) {
-        console.log(`  - Business is closed on ${dayName}`);
         return { slots: [], isClosed: true, dayName };
       }
       openTime = dayHours.open || '09:00';
       closeTime = dayHours.close || '17:00';
-      console.log(`  - Using business hours: ${openTime} - ${closeTime}`);
     }
   } else {
     // Use business hours
     const dayHours = businessHours.find(h => h.day === daysMap[dayOfWeek]);
-    console.log(`getAvailableSlotsForDay: ${dayName} (${date.toDateString()}) - Using BUSINESS hours`);
-    console.log(`  - dayHours found: ${!!dayHours}`, dayHours ? `open: ${dayHours.open}, close: ${dayHours.close}, isClosed: ${dayHours.isClosed}` : 'NO HOURS FOUND');
-    console.log(`  - businessHours array length: ${businessHours.length}`);
 
     // Check if closed - handle both explicit isClosed and missing hours (no entry = closed)
     if (dayHours?.isClosed === true) {
-      console.log(`  - Day is explicitly marked as closed`);
       return { slots: [], isClosed: true, dayName };
     }
 
     // If no hours found for this day, treat as closed (safer default)
     if (!dayHours || (!dayHours.open && !dayHours.close)) {
-      console.log(`  - No hours configured for ${dayName}, treating as closed`);
       return { slots: [], isClosed: true, dayName };
     }
 
@@ -991,8 +924,6 @@ async function getAvailableSlotsForDay(
     openTime = dayHours.open || '09:00';
     closeTime = dayHours.close || '17:00';
   }
-
-  console.log(`  - Using hours: ${openTime} - ${closeTime}`);
 
   const [openH, openM] = openTime.split(':').map(Number);
   const [closeH, closeM] = closeTime.split(':').map(Number);
@@ -1005,8 +936,6 @@ async function getAvailableSlotsForDay(
     const aptDate = new Date(apt.startDate);
     return getLocalDateString(aptDate, timezone) === targetDateStr && apt.status !== 'cancelled';
   });
-
-  console.log(`  - Found ${dayAppointments.length} appointments for this day`);
 
   // Store both start and end times for proper overlap detection
   // CRITICAL: Use timezone-aware time extraction — getHours() returns UTC on Railway servers
@@ -1031,11 +960,8 @@ async function getAvailableSlotsForDay(
       endMinutes = startMinutes + (duration || 60);
     }
 
-    console.log(`  - Apt ${apt.id}: raw startDate=${apt.startDate}, localHours=${startLocal.hours}, startMinutes=${startMinutes}, endMinutes=${endMinutes}`);
     return { start: startMinutes, end: endMinutes, aptId: apt.id };
   });
-
-  console.log(`  - Booked ranges for ${dayAppointments.length} appointments:`, bookedRanges.map(r => `apt${r.aptId}: ${Math.floor(r.start/60)}:${(r.start%60).toString().padStart(2,'0')}-${Math.floor(r.end/60)}:${(r.end%60).toString().padStart(2,'0')}`));
 
   // Generate available slots
   const availableSlots: string[] = [];
@@ -1044,8 +970,6 @@ async function getAvailableSlotsForDay(
   const now = getNowInTimezone(timezone);
   const isToday = getLocalDateString(date, timezone) === getLocalDateString(now, timezone);
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-  console.log(`  - isToday: ${isToday}, currentMinutes: ${currentMinutes}, slotInterval: ${slotIntervalMinutes}min`);
 
   // Generate slots based on configurable interval
   for (let slotStart = openMinutes; slotStart < closeMinutes; slotStart += slotIntervalMinutes) {
@@ -1071,11 +995,6 @@ async function getAvailableSlotsForDay(
       const minuteStr = minute.toString().padStart(2, '0');
       availableSlots.push(`${hour12}:${minuteStr} ${amPm}`);
     }
-  }
-
-  console.log(`  - Generated ${availableSlots.length} available slots for ${dayName}`);
-  if (availableSlots.length > 0) {
-    console.log(`  - First few slots: ${availableSlots.slice(0, 3).join(', ')}`);
   }
 
   return { slots: availableSlots, isClosed: false, dayName };
@@ -1136,8 +1055,6 @@ async function checkAvailability(
   staffId?: number,
   staffName?: string
 ): Promise<FunctionResult> {
-  console.log(`checkAvailability called for business ${businessId}, date: "${dateStr}", serviceId: ${serviceId}, staffId: ${staffId}, staffName: ${staffName}`);
-
   const business = await getCachedBusiness(businessId);
   if (!business) {
     console.error('Business not found:', businessId);
@@ -1158,7 +1075,6 @@ async function checkAvailability(
     if (matchedStaff) {
       resolvedStaffId = matchedStaff.id;
       staffMember = matchedStaff;
-      console.log(`Resolved staff name "${staffName}" to ID ${resolvedStaffId}`);
     } else {
       // Staff member not found by name
       const staffNames = allStaff.filter(s => s.active).map(s => s.firstName).join(', ');
@@ -1237,7 +1153,6 @@ async function checkAvailability(
     if (service) {
       duration = service.duration || 30;
       serviceName = service.name;
-      console.log(`Using service "${service.name}" duration: ${duration} min`);
     } else {
       duration = 30;
     }
@@ -1248,24 +1163,16 @@ async function checkAvailability(
     if (allServices.length > 0) {
       const shortestDuration = Math.min(...allServices.map(s => s.duration || 30));
       duration = shortestDuration;
-      console.log(`No service specified, using shortest service duration: ${duration} min`);
     } else {
       duration = 30; // Fallback if no services configured
-      console.log(`No services configured, using fallback duration: ${duration} min`);
     }
   }
 
   const businessHours = await getCachedBusinessHours(businessId);
   // Get slot interval from business settings (default 30 min)
   const slotIntervalMinutes = business.bookingSlotIntervalMinutes || 30;
-  console.log(`checkAvailability: Business ${businessId} has ${businessHours.length} days of hours configured, slot interval: ${slotIntervalMinutes}min`);
-  if (businessHours.length > 0) {
-    console.log('Business hours:', businessHours.map(h => `${h.day}: ${h.isClosed ? 'CLOSED' : h.open + '-' + h.close}`).join(', '));
-  }
-
   // If no business hours are configured, ask for callback instead
   if (businessHours.length === 0) {
-    console.log('No business hours configured for business', businessId, '- offering callback');
     return {
       result: {
         available: false,
@@ -1279,20 +1186,14 @@ async function checkAvailability(
   let appointments;
   if (resolvedStaffId) {
     appointments = await getAppointmentsOptimized(businessId, { staffId: resolvedStaffId });
-    console.log(`Found ${appointments.length} appointments for staff member ${resolvedStaffId}`);
   } else {
     appointments = await getAppointmentsOptimized(businessId);
-    console.log(`Found ${appointments.length} total appointments for business`);
   }
 
   // Get staff-specific hours if a staff member is selected
   let staffHoursData: any[] = [];
   if (resolvedStaffId) {
     staffHoursData = await getCachedStaffHours(resolvedStaffId, businessId);
-    console.log(`Found ${staffHoursData.length} staff hours entries for staff member ${resolvedStaffId}`);
-    if (staffHoursData.length > 0) {
-      console.log('Staff hours data:', JSON.stringify(staffHoursData.map(h => ({ day: h.day, start: h.startTime, end: h.endTime, isOff: h.isOff }))));
-    }
   }
 
   const staffLabel = staffMember ? staffMember.firstName : null;
@@ -1305,8 +1206,6 @@ async function checkAvailability(
 
   // Check if this is a range request (like "next week")
   if (isDateRangeRequest(dateStr)) {
-    console.log('Processing as date range request');
-
     // Get availability for the next 7 business days (in business timezone)
     const today = getTodayInTimezone(businessTimezone);
 
@@ -1396,7 +1295,6 @@ async function checkAvailability(
 
   // Single date request - original logic with improvements
   const date = parseNaturalDate(dateStr, businessTimezone);
-  console.log(`Parsed date "${dateStr}" to: ${date.toISOString()} (timezone: ${businessTimezone})`);
 
   // Check if date is in the past (in business timezone)
   const today = getTodayInTimezone(businessTimezone);
@@ -1551,7 +1449,6 @@ async function bookAppointment(
 
     // If no existing customer AND no real name provided, reject the booking
     if (!customer && !hasRealName) {
-      console.log(`[bookAppointment] Rejected: no customer name provided for new caller ${phone}`);
       return {
         result: {
           success: false,
@@ -1565,12 +1462,6 @@ async function bookAppointment(
       // Create new customer — we know we have a real name at this point
       const nameParts = (params.customerName || 'New Customer').split(' ');
       try {
-        console.log('Creating new customer for booking:', {
-          businessId,
-          firstName: nameParts[0] || 'New',
-          lastName: nameParts.slice(1).join(' ') || 'Customer',
-          phone
-        });
         customer = await storage.createCustomer({
           businessId,
           firstName: nameParts[0] || 'New',
@@ -1580,7 +1471,6 @@ async function bookAppointment(
           address: '',
           notes: 'Created via AI phone receptionist'
         });
-        console.log('Customer created successfully:', customer.id);
       } catch (customerError: any) {
         console.error('Failed to create customer:', {
           error: customerError.message,
@@ -1622,7 +1512,6 @@ async function bookAppointment(
             updates.email = params.customerEmail;
           }
           await storage.updateCustomer(customer.id, updates);
-          console.log(`Updated customer ${customer.id} name: ${customer.firstName} ${customer.lastName} -> ${firstName} ${lastName || customer.lastName}`);
           customer = { ...customer, ...updates };
         } catch (err) {
           console.error('Error updating customer name:', err);
@@ -1652,7 +1541,6 @@ async function bookAppointment(
     );
     if (matchedService) {
       serviceId = matchedService.id;
-      console.log(`Matched service "${params.serviceName}" to ID ${serviceId} for business ${businessId}`);
     } else {
       console.warn(`Could not find service matching "${params.serviceName}" for business ${businessId}`);
     }
@@ -1661,7 +1549,6 @@ async function bookAppointment(
   // Auto-assign service if only one exists and none was specified
   if (!serviceId && services.length === 1) {
     serviceId = services[0].id;
-    console.log(`Auto-assigned only service "${services[0].name}" (ID ${serviceId}) for business ${businessId}`);
   }
 
   // Staff-service compatibility check before booking:
@@ -1726,7 +1613,6 @@ async function bookAppointment(
     minutes,
     businessTimezone
   );
-  console.log(`Booking: ${params.date} at ${params.time} → parsed as ${appointmentDate.toISOString()} (${businessTimezone})`);
 
   // Calculate duration: prefer DB service duration, then AI estimate, then default 60min
   let duration = 60;
@@ -1734,12 +1620,10 @@ async function bookAppointment(
     const matchedService = services.find(s => s.id === serviceId);
     if (matchedService?.duration) {
       duration = matchedService.duration;
-      console.log(`Using service "${matchedService.name}" duration from DB: ${duration} minutes`);
     }
   }
   if (!serviceId && params.estimatedDuration && params.estimatedDuration > 0) {
     duration = Math.min(params.estimatedDuration, 480); // Cap at 8 hours
-    console.log(`No service matched, using AI estimated duration: ${duration} minutes`);
   }
   const endTime = new Date(appointmentDate);
   endTime.setMinutes(endTime.getMinutes() + duration);
@@ -1806,7 +1690,6 @@ async function bookAppointment(
           status: 'cancelled',
           notes: `${previousAppointment.notes || ''}\n[Rescheduled to new appointment on ${appointmentDate.toLocaleDateString('en-US', { timeZone: businessTimezone, weekday: 'long', month: 'long', day: 'numeric' })}]`.trim()
         });
-        console.log(`Auto-cancelled previous appointment ${previousAppointment.id} (${oldDateStr}) for customer ${customerId} — rescheduled`);
 
         // Also cancel the linked job for the previous appointment
         try {
@@ -1816,7 +1699,6 @@ async function bookAppointment(
               status: 'cancelled',
               notes: `${previousJob.notes || ''}\n[Cancelled: appointment rescheduled to new date]`.trim()
             });
-            console.log(`Auto-cancelled job ${previousJob.id} linked to rescheduled appointment ${previousAppointment.id}`);
           }
         } catch (jobCancelErr) {
           console.error('Error cancelling job for rescheduled appointment:', jobCancelErr);
@@ -1899,7 +1781,6 @@ async function bookAppointment(
         notes: 'Auto-created from AI receptionist booking',
       });
 
-      console.log(`Auto-created job ${createdJob.id} ("${jobTitle}") linked to appointment ${appointment.id}`);
 
       // Fire webhook event (fire-and-forget)
       fireEvent(businessId, 'job.created', { job: createdJob })
@@ -2044,11 +1925,8 @@ async function getCustomerInfo(
  * Get services offered by the business
  */
 async function getServices(businessId: number): Promise<FunctionResult> {
-  console.log(`getServices called for business ${businessId}`);
-
   try {
     const services = await getCachedServices(businessId);
-    console.log(`Found ${services.length} services for business ${businessId}`);
 
     if (services.length === 0) {
       // Check if the business exists
@@ -2064,7 +1942,6 @@ async function getServices(businessId: number): Promise<FunctionResult> {
         };
       }
 
-      console.log(`Business ${business.name} has no services configured`);
       return {
         result: {
           services: [],
@@ -2075,7 +1952,6 @@ async function getServices(businessId: number): Promise<FunctionResult> {
 
     // Filter to only active services if the field exists
     const activeServices = services.filter(s => s.active !== false);
-    console.log(`${activeServices.length} active services out of ${services.length} total`);
 
     const serviceList = activeServices.map(s => ({
       id: s.id,
@@ -2113,11 +1989,8 @@ async function getServices(businessId: number): Promise<FunctionResult> {
  * Get staff members (barbers, stylists, technicians, etc.) for the business
  */
 async function getStaffMembers(businessId: number): Promise<FunctionResult> {
-  console.log(`getStaffMembers called for business ${businessId}`);
-
   try {
     const staffList = await getCachedStaff(businessId);
-    console.log(`Found ${staffList.length} staff members for business ${businessId}`);
 
     // Filter to only active staff
     const activeStaff = staffList.filter(s => s.active);
@@ -2177,8 +2050,6 @@ async function getStaffSchedule(
   staffName?: string,
   staffId?: number
 ): Promise<FunctionResult> {
-  console.log(`getStaffSchedule called for business ${businessId}, staffName: ${staffName}, staffId: ${staffId}`);
-
   try {
     const allStaff = await getCachedStaff(businessId);
     let staffMember: any = null;
@@ -2474,7 +2345,6 @@ async function rescheduleAppointment(
           scheduledDate: newScheduledDateStr,
           notes: `${linkedJob.notes || ''}\n[Rescheduled from ${oldDateStr}${params.reason ? `: ${params.reason}` : ''}]`.trim()
         });
-        console.log(`Auto-updated job ${linkedJob.id} scheduled date to ${newScheduledDateStr}`);
       }
     } catch (jobUpdateErr) {
       console.error('Failed to update linked job for rescheduled appointment:', {
@@ -2608,7 +2478,6 @@ async function cancelAppointment(
           status: 'cancelled',
           notes: `${linkedJob.notes || ''}\n[Cancelled via AI receptionist${params.reason ? `: ${params.reason}` : ''}]`.trim()
         });
-        console.log(`Auto-cancelled job ${linkedJob.id} linked to cancelled appointment ${appointment.id}`);
       }
     } catch (jobCancelErr) {
       console.error('Failed to cancel linked job for appointment:', {
@@ -3216,34 +3085,34 @@ async function recognizeCaller(
     context = 'returning_customer';
   }
 
-  // Fetch call intelligence, customer insights, and Mem0 conversational context in parallel
-  // All non-blocking — failures don't affect recognition
+  // Fetch call intelligence + customer insights (local DB — fast)
+  // Mem0 is external API (500-1000ms) — don't block on it
   let intelligence: any = null;
   let insights: any = null;
   let conversationalContext: string = '';
 
-  const [intelligenceResult, insightsResult, mem0Result] = await Promise.allSettled([
+  const [intelligenceResult, insightsResult] = await Promise.allSettled([
     getLatestCustomerIntelligence(customer.id, businessId),
     storage.getCustomerInsights(customer.id, businessId),
-    searchMemory(businessId, customer.id, 'customer preferences history concerns', 5, 2000),
   ]);
 
   if (intelligenceResult.status === 'fulfilled') {
     intelligence = intelligenceResult.value;
-  } else {
-    console.error('[recognizeCaller] Error fetching call intelligence:', intelligenceResult.reason);
   }
 
   if (insightsResult.status === 'fulfilled') {
     insights = insightsResult.value;
-  } else {
-    console.error('[recognizeCaller] Error fetching customer insights:', insightsResult.reason);
   }
 
-  if (mem0Result.status === 'fulfilled') {
-    conversationalContext = mem0Result.value || '';
-  } else {
-    console.error('[recognizeCaller] Error fetching Mem0 context:', mem0Result.reason);
+  // Fire Mem0 search but don't wait — it's slow (external API) and not critical for greeting
+  // If it resolves fast enough, great; if not, summary is still rich from intelligence + insights
+  try {
+    const mem0Promise = searchMemory(businessId, customer.id, 'customer preferences history concerns', 5, 2000);
+    // Race against a 300ms timeout — if Mem0 responds in time, include it
+    const timeoutPromise = new Promise<string>((resolve) => setTimeout(() => resolve(''), 300));
+    conversationalContext = await Promise.race([mem0Promise, timeoutPromise]) || '';
+  } catch {
+    // Graceful degradation — Mem0 is optional enrichment
   }
 
   // Build a concise narrative summary combining all intelligence into natural language
@@ -3298,7 +3167,11 @@ async function recognizeCaller(
     summaryParts.push(`Past notes: ${conversationalContext}`);
   }
 
-  const summary = summaryParts.length > 0 ? summaryParts.join('. ') + '.' : '';
+  // Cap summary to ~150 chars — less tokens = faster LLM response
+  let summary = summaryParts.length > 0 ? summaryParts.join('. ') + '.' : '';
+  if (summary.length > 200) {
+    summary = summary.substring(0, 197) + '...';
+  }
 
   return {
     result: {
@@ -3380,7 +3253,6 @@ async function updateCustomerInfo(
     // Perform the update
     const updatedCustomer = await storage.updateCustomer(customer.id, updates);
 
-    console.log(`[updateCustomerInfo] Updated customer ${customer.id} for business ${businessId}: ${JSON.stringify(updates)}`);
 
     const fullName = `${updatedCustomer.firstName} ${updatedCustomer.lastName}`.trim();
 
@@ -3613,11 +3485,8 @@ async function getServiceDetails(
   businessId: number,
   serviceName: string
 ): Promise<FunctionResult> {
-  console.log(`getServiceDetails called for business ${businessId}, serviceName: "${serviceName}"`);
-
   try {
     const services = await getCachedServices(businessId);
-    console.log(`Found ${services.length} services for search`);
 
     if (services.length === 0) {
       return {
@@ -3633,7 +3502,6 @@ async function getServiceDetails(
 
     // Try to find matching service with improved matching
     const searchTerms = serviceName.toLowerCase().split(/\s+/).filter(t => t.length > 2);
-    console.log(`Search terms: ${searchTerms.join(', ')}`);
 
     let bestMatch = null;
     let bestScore = 0;
@@ -3659,8 +3527,6 @@ async function getServiceDetails(
         }
       }
 
-      console.log(`Service "${service.name}" scored ${score}`);
-
       if (score > bestScore) {
         bestScore = score;
         bestMatch = service;
@@ -3668,7 +3534,6 @@ async function getServiceDetails(
     }
 
     if (bestMatch && bestScore > 0) {
-      console.log(`Best match: "${bestMatch.name}" with score ${bestScore}`);
       const durationText = bestMatch.duration
         ? ` and typically takes about ${bestMatch.duration} minutes`
         : '';
@@ -3689,7 +3554,6 @@ async function getServiceDetails(
     }
 
     // Didn't find a match, list available services
-    console.log('No matching service found');
     const serviceList = activeServices.slice(0, 4).map(s => s.name).join(', ');
     return {
       result: {
@@ -3717,13 +3581,6 @@ async function handleEndOfCall(
   message: any,
   businessId: number | null
 ): Promise<null> {
-  console.log('Call ended:', {
-    businessId,
-    reason: message.endedReason,
-    duration: message.call?.duration,
-    transcript: message.transcript
-  });
-
   // Log the call in the database
   if (businessId && message.call) {
     const callerPhone = message.call.customer?.number || null;
@@ -3752,7 +3609,6 @@ async function handleEndOfCall(
       }
     }
 
-    console.log(`[CallDuration] ${callDurationSeconds}s (sources: durationSeconds=${message.durationSeconds}, durationMs=${message.durationMs}, startedAt=${message.call.startedAt}, endedAt=${message.call.endedAt})`);
 
     try {
       // Look up caller name from customer records
@@ -3831,7 +3687,6 @@ async function handleEndOfCall(
             address: '',
             notes: 'Auto-created from phone call — update name after follow-up'
           });
-          console.log(`Auto-created customer record for caller ${callerPhone} (business ${businessId})`);
         }
       } catch (error) {
         console.error('Error auto-creating customer from call:', error);
@@ -3868,7 +3723,7 @@ async function handleEndOfCall(
         // TCPA compliance: Only send missed-call text-back if the caller is a known customer with SMS opt-in
         const existingCustomer = await storage.getCustomerByPhone(callerPhone, businessId);
         if (!existingCustomer || !existingCustomer.smsOptIn) {
-          console.log(`[MissedCallTextBack] Skipping — caller ${callerPhone} has no SMS opt-in`);
+          // Caller has no SMS opt-in — skip text-back
         } else {
 
         const businessName = business.name || 'Our business';
@@ -3886,7 +3741,6 @@ async function handleEndOfCall(
 
         twilioService.sendSms(callerPhone, textMessage, business.twilioPhoneNumber, businessId)
           .then(() => {
-            console.log(`[MissedCallTextBack] Sent text-back to ${callerPhone} for business ${businessId}`);
             // Log the notification
             storage.createNotificationLog({
               businessId,
@@ -4126,20 +3980,16 @@ async function handleCreateOrder(
     const deliveryEnabled = business?.restaurantDeliveryEnabled ?? false;
     let orderType = (parameters.orderType || 'pickup') as string;
     if (orderType === 'delivery' && !deliveryEnabled) {
-      console.log(`Delivery not enabled for business ${businessId}, defaulting to pickup`);
       orderType = 'pickup';
     } else if (orderType === 'pickup' && !pickupEnabled && deliveryEnabled) {
-      console.log(`Pickup not enabled for business ${businessId}, defaulting to delivery`);
       orderType = 'delivery';
     }
 
-    console.log(`Creating ${posType} order for business ${businessId}:`, JSON.stringify(parameters));
 
     // Resolve item names to real POS IDs if the AI passed names instead of IDs
     const menu = await getPOSCachedMenu(businessId);
     const allMenuItems = menu?.categories.flatMap(cat => cat.items) || [];
 
-    console.log(`Menu has ${allMenuItems.length} items: ${allMenuItems.map(mi => mi.name).join(', ')}`);
 
     const resolvedItems = parameters.items.map(item => {
       const rawId = item.itemId || item.cloverItemId || '';
@@ -4182,7 +4032,6 @@ async function handleCreateOrder(
       }
 
       if (matched) {
-        console.log(`Resolved item name "${rawId}" to POS ID "${matched.id}" (${matched.name})`);
         return { ...item, itemId: matched.id, cloverItemId: matched.id };
       }
 
@@ -4260,7 +4109,6 @@ async function handleCreateOrder(
               phone,
               email: '',
             });
-            console.log(`Created customer ${customer.id} (${firstName} ${lastName}) from phone order`);
           } else if (parameters.callerName && customer.firstName === 'Caller') {
             // Update generic name if we now have a real name
             const nameParts = parameters.callerName.trim().split(/\s+/);

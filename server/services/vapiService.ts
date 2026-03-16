@@ -1161,6 +1161,7 @@ export async function createAssistantForBusiness(
     },
     transcriber: {
       provider: 'deepgram',
+      model: 'nova-2', // Latest Deepgram model — fastest + most accurate
       language: 'multi', // Auto-detect language (supports English, Spanish, and more)
     },
     voice: {
@@ -1176,10 +1177,10 @@ export async function createAssistantForBusiness(
     serverUrl: `${BASE_URL}/api/vapi/webhook`,
     recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
-    silenceTimeoutSeconds: 30, // End call after 15s silence to conserve minutes
+    silenceTimeoutSeconds: 30, // End call after 30s silence to conserve minutes
     responseDelaySeconds: 0.1, // Near-instant response — natural enough for voice
     llmRequestDelaySeconds: 0, // No LLM delay — respond as fast as possible
-    numWordsToInterruptAssistant: 1, // Allow instant interruptions — more natural conversation
+    numWordsToInterruptAssistant: 2, // Allow natural interruptions without triggering on filler words
     maxDurationSeconds: configMaxCallMinutes * 60,
     backgroundSound: 'off',
     // When the AI says any of these phrases, Vapi automatically hangs up (platform-level)
@@ -1346,14 +1347,18 @@ export async function updateAssistant(
         voice: {
           provider: '11labs',
           voiceId: configVoiceId,
-          stability: 0.5,
-          similarityBoost: 0.8,
-          style: 0.3,
-          useSpeakerBoost: true
+          stability: 0.4,
+          similarityBoost: 0.75,
+          style: 0.2,
+          useSpeakerBoost: true,
+          optimizeStreamingLatency: 4,
         },
         firstMessage: configGreeting,
         recordingEnabled: configRecordingEnabled,
         silenceTimeoutSeconds: 30,
+        responseDelaySeconds: 0.1,
+        llmRequestDelaySeconds: 0,
+        numWordsToInterruptAssistant: 2,
         maxDurationSeconds: configMaxCallMinutes * 60,
         // Only use FULL farewell phrases — bare "Goodbye" is too trigger-happy
         endCallPhrases: [
