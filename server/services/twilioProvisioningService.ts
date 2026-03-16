@@ -190,10 +190,19 @@ export async function releasePhoneNumber(businessId: number) {
       throw new Error(`Business ID ${businessId} does not have a provisioned phone number`);
     }
 
-    // Release the phone number
-    await client.incomingPhoneNumbers(business.twilioPhoneNumberSid).remove();
+    // Release the phone number — gracefully handle already-released numbers
+    try {
+      await client.incomingPhoneNumbers(business.twilioPhoneNumberSid).remove();
+    } catch (twilioErr: any) {
+      // 20404 = "The requested resource was not found" — number already released from Twilio
+      if (twilioErr?.code === 20404 || twilioErr?.status === 404) {
+        console.warn(`[Provisioning] Phone SID ${business.twilioPhoneNumberSid} already released from Twilio — cleaning up DB`);
+      } else {
+        throw twilioErr;
+      }
+    }
 
-    // Update the business record to remove the phone number
+    // Always update the business record (even if Twilio 404)
     await db.db.update(businesses)
       .set({
         twilioPhoneNumber: null,
@@ -531,10 +540,19 @@ export async function releaseSpecificPhoneNumber(phoneNumberId: number) {
       throw new Error(`Phone number record ID ${phoneNumberId} not found`);
     }
 
-    // Release from Twilio via SID
-    await client.incomingPhoneNumbers(phoneRecord.twilioPhoneNumberSid).remove();
+    // Release from Twilio via SID — gracefully handle already-released numbers
+    try {
+      await client.incomingPhoneNumbers(phoneRecord.twilioPhoneNumberSid).remove();
+    } catch (twilioErr: any) {
+      // 20404 = "The requested resource was not found" — number already released from Twilio
+      if (twilioErr?.code === 20404 || twilioErr?.status === 404) {
+        console.warn(`[Provisioning] Phone ${phoneRecord.twilioPhoneNumber} (SID ${phoneRecord.twilioPhoneNumberSid}) already released from Twilio — cleaning up DB`);
+      } else {
+        throw twilioErr;
+      }
+    }
 
-    // Delete from business_phone_numbers table
+    // Always delete from business_phone_numbers table (even if Twilio 404)
     await db.delete(businessPhoneNumbers)
       .where(eq(businessPhoneNumbers.id, phoneNumberId));
 
