@@ -5982,10 +5982,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         specificPhoneNumber: phoneNumber
       });
 
-      // Enable the receptionist
-      await storage.updateBusiness(businessId, {
-        receptionistEnabled: true
-      });
+      // Enable the receptionist and restore status if needed
+      const statusUpdate: any = { receptionistEnabled: true };
+      const currentStatus = (business as any).subscriptionStatus;
+      if (currentStatus === 'expired' || currentStatus === 'grace_period') {
+        // Restore to trialing so the business can use the AI again
+        // (admin is manually re-provisioning, so honor the original trial)
+        statusUpdate.subscriptionStatus = 'trialing';
+      }
+      await storage.updateBusiness(businessId, statusUpdate);
 
       res.json({
         success: result.success,

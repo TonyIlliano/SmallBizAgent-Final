@@ -510,44 +510,83 @@ export class SubscriptionService {
           .from(businesses)
           .where(eq(businesses.stripeSubscriptionId, subscriptionId as string));
 
-        if (business && !business.twilioPhoneNumberSid) {
+        if (business) {
           const prevStatus = business.subscriptionStatus;
-          if (prevStatus === 'canceled' || prevStatus === 'expired' || prevStatus === 'suspended' || prevStatus === 'past_due') {
-            try {
-              const { provisionBusiness } = await import('./businessProvisioningService.js');
-              console.log(`[Reactivation] Auto-provisioning business ${business.id} (was ${prevStatus}, now paying)`);
-              await provisionBusiness(business.id);
 
-              // Set subscriptionStartDate for accurate billing periods
+          // Case 1: Grace period business — already has phone number, just re-enable AI
+          if (prevStatus === 'grace_period' && business.twilioPhoneNumberSid) {
+            try {
+              console.log(`[Reactivation] Re-enabling AI for grace_period business ${business.id} (number already active)`);
               await db.update(businesses)
                 .set({
+                  receptionistEnabled: true,
                   subscriptionStartDate: new Date(),
                   updatedAt: new Date(),
                 })
                 .where(eq(businesses.id, business.id));
 
-              console.log(`[Reactivation] Business ${business.id} re-provisioned successfully`);
+              console.log(`[Reactivation] Business ${business.id} AI re-enabled successfully`);
 
-              // Notify business owner
               if (business.email) {
                 const { sendEmail } = await import('../emailService.js');
                 const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
                 await sendEmail({
                   to: business.email,
                   subject: `Welcome back! Your SmallBizAgent is active again`,
-                  text: `Hi ${business.name}, great news! Your payment was successful and your AI receptionist has been automatically reactivated. Your phone number and AI assistant are back online. Visit your dashboard at ${appUrl}/dashboard to get started.`,
+                  text: `Hi ${business.name}, great news! Your payment was successful and your AI receptionist is back online with your same phone number. Visit your dashboard at ${appUrl}/dashboard.`,
                   html: `
-                    <h2>Your Service Is Restored!</h2>
+                    <h2>Your AI Receptionist Is Back!</h2>
                     <p>Hi ${business.name},</p>
-                    <p>Great news! Your payment was successful and your AI receptionist has been automatically reactivated.</p>
-                    <p>Your phone number and AI assistant are back online and ready to take calls.</p>
-                    <p>All your existing data (customers, appointments, invoices) has been preserved.</p>
+                    <p>Great news! Your payment was successful and your AI receptionist is back online.</p>
+                    <p>Your phone number <strong>${business.twilioPhoneNumber}</strong> is still yours, and your AI assistant is ready to take calls.</p>
                     <p>Visit your <a href="${appUrl}/dashboard">dashboard</a> to get started.</p>
                   `,
                 });
               }
             } catch (provErr) {
-              console.error(`[Reactivation] Failed to auto-provision business ${business.id}:`, provErr);
+              console.error(`[Reactivation] Failed to re-enable AI for business ${business.id}:`, provErr);
+            }
+          }
+          // Case 2: Fully deprovisioned business — needs new phone number + Vapi assistant
+          else if (!business.twilioPhoneNumberSid) {
+            if (prevStatus === 'canceled' || prevStatus === 'expired' || prevStatus === 'suspended' || prevStatus === 'past_due' || prevStatus === 'grace_period') {
+              try {
+                const { provisionBusiness } = await import('./businessProvisioningService.js');
+                console.log(`[Reactivation] Auto-provisioning business ${business.id} (was ${prevStatus}, now paying)`);
+                await provisionBusiness(business.id);
+
+                // Set subscriptionStartDate for accurate billing periods
+                await db.update(businesses)
+                  .set({
+                    subscriptionStartDate: new Date(),
+                    receptionistEnabled: true,
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(businesses.id, business.id));
+
+                console.log(`[Reactivation] Business ${business.id} re-provisioned successfully`);
+
+                // Notify business owner
+                if (business.email) {
+                  const { sendEmail } = await import('../emailService.js');
+                  const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+                  await sendEmail({
+                    to: business.email,
+                    subject: `Welcome back! Your SmallBizAgent is active again`,
+                    text: `Hi ${business.name}, great news! Your payment was successful and your AI receptionist has been automatically reactivated. Your phone number and AI assistant are back online. Visit your dashboard at ${appUrl}/dashboard to get started.`,
+                    html: `
+                      <h2>Your Service Is Restored!</h2>
+                      <p>Hi ${business.name},</p>
+                      <p>Great news! Your payment was successful and your AI receptionist has been automatically reactivated.</p>
+                      <p>Your phone number and AI assistant are back online and ready to take calls.</p>
+                      <p>All your existing data (customers, appointments, invoices) has been preserved.</p>
+                      <p>Visit your <a href="${appUrl}/dashboard">dashboard</a> to get started.</p>
+                    `,
+                  });
+                }
+              } catch (provErr) {
+                console.error(`[Reactivation] Failed to auto-provision business ${business.id}:`, provErr);
+              }
             }
           }
         }

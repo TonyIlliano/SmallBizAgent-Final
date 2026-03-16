@@ -592,11 +592,28 @@ export function startTrialExpirationScheduler(): void {
   scheduledJobs.set(jobKey, intervalId);
 }
 
+/**
+ * Grace Period Model for Trial Expiration:
+ *
+ * 1. Trial active: Full AI features, phone number, everything works
+ * 2. Trial expired (0-30 days, "grace_period"): Phone number KEPT, AI calls DISABLED
+ *    - Business can still log in, see dashboard, manage customers
+ *    - Callers hear a "please subscribe" message or get forwarded
+ *    - Nudge emails sent at 0, 7, 14, 21 days past expiry
+ * 3. 30+ days past trial with no subscription: Number released, full deprovision
+ *    - Final warning email sent before deprovision
+ *
+ * This prevents the "lost number" problem where a business's number gets
+ * released to Twilio's pool and someone else buys it.
+ */
+const GRACE_PERIOD_DAYS = 30;
+
 async function runTrialExpirationCheck(): Promise<void> {
   try {
     console.log(`[TrialExpiration] Running trial expiration check at ${new Date().toISOString()}`);
     const allBusinesses = await storage.getAllBusinesses();
     const now = new Date();
+    let graceStarted = 0;
     let deprovisioned = 0;
     let warned = 0;
 
@@ -622,8 +639,8 @@ async function runTrialExpirationCheck(): Promise<void> {
         continue;
       }
 
-      // Skip businesses already deprovisioned (expired, canceled, suspended)
-      if (status === 'expired' || status === 'canceled' || status === 'suspended') {
+      // Skip businesses already fully deprovisioned (canceled, suspended)
+      if (status === 'canceled' || status === 'suspended') {
         continue;
       }
 
@@ -642,25 +659,70 @@ async function runTrialExpirationCheck(): Promise<void> {
 
       const trialEnd = new Date(business.trialEndsAt);
       const daysUntilExpiry = Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      const daysPastExpiry = Math.floor((now.getTime() - trialEnd.getTime()) / (1000 * 60 * 60 * 24));
 
-      // EXPIRED: Update status + deprovision if trial has expired
+      // TRIAL HAS EXPIRED
       if (trialEnd < now) {
-        // Always update subscriptionStatus to 'expired' if still 'trialing'
-        if (status === 'trialing') {
+        // Phase 1: Grace period (0-30 days past expiry)
+        // Keep the phone number, but disable AI features
+        if (daysPastExpiry < GRACE_PERIOD_DAYS) {
+          // Update status to 'grace_period' if still 'trialing' or first transition to 'expired'
+          if (status === 'trialing') {
+            try {
+              await storage.updateBusiness(business.id, {
+                subscriptionStatus: 'grace_period',
+                receptionistEnabled: false,  // Disable AI calls
+              } as any);
+              graceStarted++;
+              console.log(`[TrialExpiration] Business ${business.id} → grace_period (AI disabled, number kept). ${GRACE_PERIOD_DAYS - daysPastExpiry} days until deprovision.`);
+            } catch (err) {
+              console.error(`[TrialExpiration] Failed to update status for business ${business.id}:`, err);
+            }
+          }
+
+          // Send nudge emails at 0, 7, 14, 21 days past expiry
+          if (daysPastExpiry === 0 || daysPastExpiry === 7 || daysPastExpiry === 14 || daysPastExpiry === 21) {
+            try {
+              const logs = await storage.getNotificationLogs(business.id, 50);
+              const nudgeKey = `grace_period_${daysPastExpiry}`;
+              const alreadySent = logs.some(
+                (l: any) => l.type === nudgeKey &&
+                     l.sentAt && (now.getTime() - new Date(l.sentAt).getTime()) < 24 * 60 * 60 * 1000
+              );
+
+              if (!alreadySent) {
+                const daysLeft = GRACE_PERIOD_DAYS - daysPastExpiry;
+                await sendGracePeriodNudge(business as any, daysPastExpiry, daysLeft);
+                warned++;
+              }
+            } catch (err) {
+              console.error(`[TrialExpiration] Error sending grace period nudge for business ${business.id}:`, err);
+            }
+          }
+
+          continue;
+        }
+
+        // Phase 2: Grace period expired (30+ days past trial) — NOW deprovision
+        // Update status to 'expired' if in grace_period
+        if (status === 'grace_period' || status === 'trialing' || status === 'expired') {
           try {
             await storage.updateBusiness(business.id, { subscriptionStatus: 'expired' } as any);
-            console.log(`[TrialExpiration] Updated business ${business.id} status from 'trialing' to 'expired'`);
+            console.log(`[TrialExpiration] Updated business ${business.id} status to 'expired' (grace period ended)`);
           } catch (err) {
             console.error(`[TrialExpiration] Failed to update status for business ${business.id}:`, err);
           }
         }
 
-        // Deprovision resources if still has Twilio number
+        // Deprovision resources (release Twilio number, delete Vapi assistant)
         if ((business as any).twilioPhoneNumberSid) {
           try {
-            console.log(`[TrialExpiration] Deprovisioning business ${business.id} (trial expired ${trialEnd.toISOString()})`);
+            console.log(`[TrialExpiration] Deprovisioning business ${business.id} (${daysPastExpiry} days past trial, grace period ended)`);
             await deprovisionBusiness(business.id);
             deprovisioned++;
+
+            // Send final deprovision notification
+            await sendDeprovisionNotification(business as any);
           } catch (err) {
             console.error(`[TrialExpiration] Failed to deprovision business ${business.id}:`, err);
           }
@@ -693,9 +755,103 @@ async function runTrialExpirationCheck(): Promise<void> {
       await new Promise(r => setTimeout(r, 200));
     }
 
-    console.log(`[TrialExpiration] Done — ${deprovisioned} deprovisioned, ${warned} warned`);
+    console.log(`[TrialExpiration] Done — ${graceStarted} entered grace period, ${deprovisioned} deprovisioned, ${warned} warned`);
   } catch (error) {
     console.error('[TrialExpiration] Error:', error);
+  }
+}
+
+/**
+ * Send grace period nudge email — business trial expired but they still have their phone number.
+ * Encourage them to subscribe to reactivate AI features.
+ */
+async function sendGracePeriodNudge(business: any, daysPastExpiry: number, daysLeft: number): Promise<void> {
+  if (!business.email) return;
+
+  try {
+    const { sendEmail } = await import('../emailService.js');
+    const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+
+    const urgency = daysLeft <= 7 ? 'URGENT' : '';
+    const subject = daysPastExpiry === 0
+      ? `Your SmallBizAgent trial has ended — your AI receptionist is paused`
+      : `${urgency ? urgency + ': ' : ''}${daysLeft} days left to keep your phone number`;
+
+    await sendEmail({
+      to: business.email,
+      subject,
+      text: `Hi ${business.name},\n\nYour SmallBizAgent trial has ended. Your AI receptionist is currently paused, but we're keeping your phone number (${business.twilioPhoneNumber || 'your business line'}) reserved for you.\n\nYou have ${daysLeft} days to subscribe and reactivate your AI receptionist. After that, your phone number will be released.\n\nSubscribe now: ${appUrl}/settings\n\nBest,\nSmallBizAgent`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #1a1a1a;">${daysPastExpiry === 0 ? 'Your trial has ended' : `${daysLeft} days left to keep your number`}</h2>
+          <p>Hi ${business.name},</p>
+          <p>Your SmallBizAgent trial has ended. Your AI receptionist is currently <strong>paused</strong>, but we're keeping your phone number${business.twilioPhoneNumber ? ` <strong>${business.twilioPhoneNumber}</strong>` : ''} reserved for you.</p>
+          ${daysLeft <= 7 ? '<p style="color: #dc2626; font-weight: bold;">⚠️ Your phone number will be released in ' + daysLeft + ' days if you don\'t subscribe.</p>' : ''}
+          <p>Subscribe to reactivate your AI receptionist and keep your number:</p>
+          <p style="text-align: center; margin: 24px 0;">
+            <a href="${appUrl}/settings" style="background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">Subscribe Now</a>
+          </p>
+          <p style="color: #666; font-size: 14px;">You have ${daysLeft} days remaining before your phone number is released.</p>
+        </div>
+      `
+    });
+
+    await storage.createNotificationLog({
+      businessId: business.id,
+      type: `grace_period_${daysPastExpiry}`,
+      channel: 'email',
+      recipient: business.email,
+      subject,
+      status: 'sent',
+      referenceType: 'business',
+      referenceId: daysPastExpiry,
+    });
+
+    console.log(`[TrialExpiration] Grace period nudge sent to business ${business.id} (day ${daysPastExpiry}, ${daysLeft} days left)`);
+  } catch (err) {
+    console.error(`[TrialExpiration] Failed to send grace period nudge for business ${business.id}:`, err);
+  }
+}
+
+/**
+ * Send final deprovision notification — phone number is being released.
+ */
+async function sendDeprovisionNotification(business: any): Promise<void> {
+  if (!business.email) return;
+
+  try {
+    const { sendEmail } = await import('../emailService.js');
+    const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+
+    await sendEmail({
+      to: business.email,
+      subject: 'Your SmallBizAgent phone number has been released',
+      text: `Hi ${business.name},\n\nYour grace period has ended and your phone number (${business.twilioPhoneNumber || 'your business line'}) has been released.\n\nYou can still subscribe and get a new number at any time: ${appUrl}/settings\n\nBest,\nSmallBizAgent`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #1a1a1a;">Your phone number has been released</h2>
+          <p>Hi ${business.name},</p>
+          <p>Your 30-day grace period has ended and your phone number${business.twilioPhoneNumber ? ` <strong>${business.twilioPhoneNumber}</strong>` : ''} has been released.</p>
+          <p>You can still subscribe at any time — we'll set you up with a new phone number:</p>
+          <p style="text-align: center; margin: 24px 0;">
+            <a href="${appUrl}/settings" style="background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">Subscribe & Get a New Number</a>
+          </p>
+        </div>
+      `
+    });
+
+    await storage.createNotificationLog({
+      businessId: business.id,
+      type: 'trial_deprovisioned',
+      channel: 'email',
+      recipient: business.email,
+      subject: 'Your SmallBizAgent phone number has been released',
+      status: 'sent',
+      referenceType: 'business',
+      referenceId: 0,
+    });
+  } catch (err) {
+    console.error(`[TrialExpiration] Failed to send deprovision notification for business ${business.id}:`, err);
   }
 }
 

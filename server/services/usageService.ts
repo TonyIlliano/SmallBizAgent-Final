@@ -146,6 +146,11 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
     minutesIncluded = FOUNDER_MINUTES;
     planName = 'Founder (Unlimited)';
     planTier = 'founder';
+  } else if (subscriptionStatus === 'grace_period') {
+    // Grace period: trial expired, number kept, AI disabled
+    minutesIncluded = 0;
+    planName = 'Grace Period (AI Paused)';
+    planTier = 'grace_period';
   } else if (isTrialActive && !isSubscribed) {
     minutesIncluded = TRIAL_MINUTES;
     planName = 'Free Trial';
@@ -164,7 +169,7 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
   const overageCost = overageMinutes * overageRate;
   const percentUsed = minutesIncluded > 0 ? Math.min(100, Math.round((minutesUsed / minutesIncluded) * 100)) : 0;
 
-  // Determine if business can accept calls
+  // Determine if business can accept calls (grace_period = number alive but AI disabled)
   const canAcceptCalls = isFounder || isTrialActive || isSubscribed;
 
   return {
@@ -209,6 +214,11 @@ export async function canBusinessAcceptCalls(businessId: number): Promise<{ allo
     const subscriptionStatus = business.subscriptionStatus || 'inactive';
     // 'trialing' only counts as subscribed if the trial is actually still active
     const isSubscribed = subscriptionStatus === 'active' || (subscriptionStatus === 'trialing' && isTrialActive);
+
+    // Grace period: number is kept but AI is disabled
+    if (subscriptionStatus === 'grace_period') {
+      return { allowed: false, reason: 'Trial expired — subscribe to reactivate your AI receptionist' };
+    }
 
     // If no trial and no subscription, block
     if (!isTrialActive && !isSubscribed) {
