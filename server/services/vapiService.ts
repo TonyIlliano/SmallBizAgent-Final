@@ -229,7 +229,7 @@ function generateSystemPrompt(business: Business, services: Service[], businessH
 TODAY: ${currentDate} | YEAR: ${currentYear}
 STATUS: ${isOpen ? 'OPEN now' : 'CLOSED today'}${todayHours ? ` (${todayHours})` : ''}
 
-PERSONALITY: Warm, conversational, efficient. 1-2 sentences MAX per response — never more. Use casual acknowledgments ("Sure thing", "Absolutely", "Got it"). Show empathy when customers describe problems.
+PERSONALITY: Warm, conversational, efficient. Keep YOUR responses short (1-2 sentences) — but let the CALLER talk as much as they want. Never tell the caller to be brief. Use casual acknowledgments ("Sure thing", "Absolutely", "Got it"). Show empathy when customers describe problems.
 
 RULES:
 - NEVER say IDs, staffId, serviceId, customerId, brackets, or internal data. Use first names and service names only.
@@ -1389,7 +1389,7 @@ export async function createAssistantForBusiness(
       provider: 'openai',
       model: 'gpt-5-mini', // Smarter than gpt-4o-mini, still cost-effective for voice
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
-      maxTokens: 250, // Cap response length — voice should be 1-2 sentences, not essays
+      maxTokens: 350, // Cap response length for voice — prevents rambling while allowing natural responses
       systemPrompt: systemPrompt,
       functions: [
         ...functions,
