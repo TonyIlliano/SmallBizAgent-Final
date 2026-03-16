@@ -600,10 +600,41 @@ async function runTrialExpirationCheck(): Promise<void> {
     let deprovisioned = 0;
     let warned = 0;
 
+    // Pre-fetch admin business IDs so we never deprovision the platform owner
+    const SUBSCRIPTION_LAUNCH_DATE = new Date('2026-02-23T00:00:00Z');
+    let adminBusinessIds: Set<number> = new Set();
+    try {
+      const { db: database } = await import('../db.js');
+      const { users: usersTable } = await import('../../shared/schema.js');
+      const { eq } = await import('drizzle-orm');
+      const admins = await database.select({ businessId: usersTable.businessId })
+        .from(usersTable)
+        .where(eq(usersTable.role, 'admin'));
+      adminBusinessIds = new Set(admins.filter(a => a.businessId != null).map(a => a.businessId!));
+    } catch (err) {
+      console.warn('[TrialExpiration] Could not fetch admin business IDs:', err);
+    }
+
     for (const business of allBusinesses) {
-      // Skip businesses with active paid subscriptions (not trialing)
+      // Skip businesses with active paid subscriptions
       const status = (business as any).subscriptionStatus;
       if (status === 'active') {
+        continue;
+      }
+
+      // Skip businesses already deprovisioned (expired, canceled, suspended)
+      if (status === 'expired' || status === 'canceled' || status === 'suspended') {
+        continue;
+      }
+
+      // Skip founder/grandfathered accounts (created before subscription system launched)
+      const businessCreatedAt = business.createdAt ? new Date(business.createdAt) : null;
+      if (businessCreatedAt && businessCreatedAt < SUBSCRIPTION_LAUNCH_DATE) {
+        continue;
+      }
+
+      // Skip admin user's businesses (platform owner should never be auto-deprovisioned)
+      if (adminBusinessIds.has(business.id)) {
         continue;
       }
 
@@ -760,9 +791,24 @@ async function runDunningDeprovisionCheck(): Promise<void> {
     const now = new Date();
     let deprovisioned = 0;
 
+    // Pre-fetch admin business IDs
+    let adminBusinessIds: Set<number> = new Set();
+    try {
+      const { db: database } = await import('../db.js');
+      const { users: usersTable } = await import('../../shared/schema.js');
+      const { eq } = await import('drizzle-orm');
+      const admins = await database.select({ businessId: usersTable.businessId })
+        .from(usersTable)
+        .where(eq(usersTable.role, 'admin'));
+      adminBusinessIds = new Set(admins.filter(a => a.businessId != null).map(a => a.businessId!));
+    } catch { /* non-critical */ }
+
     for (const business of allBusinesses) {
       const status = (business as any).subscriptionStatus;
       if (status !== 'past_due' && status !== 'payment_failed') continue;
+
+      // Never deprovision admin businesses
+      if (adminBusinessIds.has(business.id)) continue;
 
       // Check if past grace period by looking at updatedAt (when status was set to past_due)
       const updatedAt = business.updatedAt ? new Date(business.updatedAt) : null;
