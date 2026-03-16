@@ -1433,20 +1433,22 @@ export async function createAssistantForBusiness(
     // Also include Spanish equivalents for multilingual support
     // Only use FULL farewell phrases — bare "Goodbye" is too trigger-happy and catches mid-sentence
     endCallPhrases: [
+      // Common farewells the AI uses — Vapi hangs up when it detects these
       "Have a great day",
-      "Have a great day!",
-      "Have a great day.",
       "Have a wonderful day",
       "Have a good one",
-      "Take care goodbye",
-      "Take care, goodbye",
-      "Thanks for calling goodbye",
-      "Thanks for calling, goodbye",
+      "Have a good day",
+      "Take care",
+      "Goodbye",
+      "Bye bye",
+      "Thanks for calling",
+      "Thank you for calling",
       // Spanish equivalents
       "Que tenga un buen día",
       "Que tenga un excelente día",
-      "Gracias por llamar, adiós",
-      "Cuídese, adiós",
+      "Gracias por llamar",
+      "Cuídese",
+      "Adiós",
     ],
     metadata: {
       businessId: business.id.toString()
@@ -1616,22 +1618,21 @@ export async function updateAssistant(
         llmRequestDelaySeconds: 0,
         numWordsToInterruptAssistant: 2,
         maxDurationSeconds: configMaxCallMinutes * 60,
-        // Only use FULL farewell phrases — bare "Goodbye" is too trigger-happy
         endCallPhrases: [
           "Have a great day",
-          "Have a great day!",
-          "Have a great day.",
           "Have a wonderful day",
           "Have a good one",
-          "Take care goodbye",
-          "Take care, goodbye",
-          "Thanks for calling goodbye",
-          "Thanks for calling, goodbye",
-          // Spanish equivalents
+          "Have a good day",
+          "Take care",
+          "Goodbye",
+          "Bye bye",
+          "Thanks for calling",
+          "Thank you for calling",
           "Que tenga un buen día",
           "Que tenga un excelente día",
-          "Gracias por llamar, adiós",
-          "Cuídese, adiós",
+          "Gracias por llamar",
+          "Cuídese",
+          "Adiós",
         ],
         serverUrl: `${BASE_URL}/api/vapi/webhook`,
         metadata: {
