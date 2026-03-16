@@ -107,7 +107,7 @@ function getChecklistItems(status: SetupStatus): ChecklistItemConfig[] {
       subtitle: 'Define when you\'re available',
       completedSubtitle: `${status.details?.businessHoursDays || 0} day(s) configured`,
       icon: Clock,
-      href: '/settings?tab=integrations',
+      href: '/settings?tab=hours',
       isCompleted: status.calendar,
       priority: 3,
     },
@@ -119,7 +119,7 @@ function getChecklistItems(status: SetupStatus): ChecklistItemConfig[] {
         ? `Active ${formatPhoneNumber(status.details.twilioPhoneNumber)}`
         : 'Connected',
       icon: Bot,
-      href: '/settings?tab=profile',
+      href: '/receptionist',
       isCompleted: status.receptionist,
       priority: 4,
     },

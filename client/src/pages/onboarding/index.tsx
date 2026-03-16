@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import Welcome from './steps/welcome';
 import BusinessSetup from './steps/business-setup';
 import ServicesSetup from './steps/services-setup';
+import HoursSetup from './steps/hours-setup';
+import StaffSetup from './steps/staff-setup';
 import CloverSetup from './steps/clover-setup';
 import VirtualReceptionistSetup from './steps/virtual-receptionist-setup';
 import CalendarSetup from './steps/calendar-setup';
@@ -21,8 +23,8 @@ export default function OnboardingPage() {
   const { user, isLoading } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  
-  // Use our progress hook
+
+  // Use our progress hook (now persists to database)
   const {
     progress,
     setCurrentStep,
@@ -31,34 +33,40 @@ export default function OnboardingPage() {
     getNextIncompleteStep,
     resetProgress
   } = useOnboardingProgress();
-  
+
   // Fetch business data to check industry for conditional steps
-  const { data: business } = useQuery<{ industry?: string }>({
+  const { data: business } = useQuery<{ industry?: string; type?: string }>({
     queryKey: [`/api/business/${user?.businessId}`],
     enabled: !!user?.businessId,
   });
 
   const isRestaurant = business?.industry?.toLowerCase() === 'restaurant';
 
+  // Industries that need staff setup prominently
+  const needsStaffStep = !isRestaurant; // Restaurants get staff via POS, everyone else needs it
+
   // Define the steps with mapping to our progress tracking
   // Clover POS step only shows for restaurant businesses
+  // Staff step shows for non-restaurant service businesses
   const steps = [
     { id: 'welcome' as OnboardingStep, label: 'Welcome', component: Welcome },
     { id: 'business' as OnboardingStep, label: 'Business Profile', component: BusinessSetup },
     { id: 'services' as OnboardingStep, label: 'Services', component: ServicesSetup },
+    { id: 'hours' as OnboardingStep, label: 'Business Hours', component: HoursSetup },
+    ...(needsStaffStep ? [{ id: 'staff' as OnboardingStep, label: 'Team', component: StaffSetup }] : []),
     ...(isRestaurant ? [{ id: 'clover' as OnboardingStep, label: 'Clover POS', component: CloverSetup }] : []),
-    { id: 'receptionist' as OnboardingStep, label: 'Virtual Receptionist', component: VirtualReceptionistSetup },
-    { id: 'calendar' as OnboardingStep, label: 'Calendar Integration', component: CalendarSetup },
+    { id: 'receptionist' as OnboardingStep, label: 'AI Receptionist', component: VirtualReceptionistSetup },
+    { id: 'calendar' as OnboardingStep, label: 'Calendar', component: CalendarSetup },
     { id: 'final' as OnboardingStep, label: 'Complete', component: FinalSetup },
   ];
-  
-  // Get the active step IDs for the current flow (excludes clover for non-restaurants)
+
+  // Get the active step IDs for the current flow (excludes clover for non-restaurants, etc.)
   const activeStepIds = steps.map(s => s.id);
 
   // Find current step index based on progress
   const currentStepIndex = steps.findIndex(step => step.id === progress.currentStep);
   const currentStep = steps[currentStepIndex >= 0 ? currentStepIndex : 0];
-  
+
   // Reset onboarding if state shows complete but user has no business
   useEffect(() => {
     if (user && !user.businessId && progress.isComplete) {
@@ -72,25 +80,30 @@ export default function OnboardingPage() {
       setLocation('/');
     }
   }, [progress.isComplete, user?.onboardingComplete, user?.businessId, setLocation]);
-  
+
   // If not logged in, navigate to auth page
   useEffect(() => {
     if (!isLoading && !user) {
       setLocation('/auth');
     }
   }, [user, isLoading, setLocation]);
-  
+
   // On first mount or when steps change, check if we need to resume at a specific step
   useEffect(() => {
     const nextStep = getNextIncompleteStep(activeStepIds);
     const stepIndex = steps.findIndex(step => step.id === nextStep);
 
     if (stepIndex >= 0 && progress.currentStep !== nextStep) {
-      setCurrentStep(nextStep);
+      // Only auto-advance if we're at a step that's not in the current flow
+      // (e.g., user's progress says 'clover' but they're not a restaurant)
+      const currentInFlow = activeStepIds.includes(progress.currentStep);
+      if (!currentInFlow) {
+        setCurrentStep(nextStep);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRestaurant]);
-  
+
   const handleNext = () => {
     if (currentStepIndex < steps.length - 1) {
       // Mark current step as completed
@@ -122,7 +135,7 @@ export default function OnboardingPage() {
       }
     }
   };
-  
+
   const handleBack = () => {
     if (currentStepIndex > 0) {
       // Move to previous step
@@ -130,9 +143,7 @@ export default function OnboardingPage() {
       setCurrentStep(prevStep);
     }
   };
-  
-  // Skip Setup removed for production — users must complete onboarding
-  
+
   // Handle loading state
   if (isLoading) {
     return (
@@ -142,25 +153,24 @@ export default function OnboardingPage() {
       </div>
     );
   }
-  
+
   // Handle not logged in state (should redirect via useEffect)
   if (!user) {
     return null;
   }
-  
+
   // Calculate progress percentage
   const progressPercentage = ((currentStepIndex) / (steps.length - 1)) * 100;
-  
+
   // Render the current step component
   const StepComponent = currentStep.component;
-  
+
   return (
     <div className="bg-muted/40 min-h-screen flex flex-col">
       <header className="bg-background py-4 px-6 border-b">
         <div className="container max-w-5xl mx-auto">
           <div className="flex items-center justify-between">
             <h1 className="font-semibold text-xl">SmallBizAgent Setup</h1>
-            {/* Setup is required for production */}
           </div>
           <div className="mt-6">
             <div className="flex justify-between mb-2 text-sm">
@@ -171,10 +181,10 @@ export default function OnboardingPage() {
           </div>
           <div className="flex space-x-2 mt-6 overflow-x-auto pb-1">
             {steps.map((step, index) => (
-              <div 
+              <div
                 key={step.id}
                 className={`px-4 py-2 rounded-full text-sm whitespace-nowrap
-                  ${index === currentStepIndex 
+                  ${index === currentStepIndex
                     ? 'bg-primary text-primary-foreground font-medium'
                     : index < currentStepIndex
                       ? 'bg-primary/10 text-primary'
@@ -187,13 +197,13 @@ export default function OnboardingPage() {
           </div>
         </div>
       </header>
-      
+
       <main className="flex-1 py-8">
         <div className="container max-w-3xl mx-auto px-4">
           <StepComponent onComplete={handleNext} onSkip={handleSkipStep} />
         </div>
       </main>
-      
+
       <footer className="bg-background py-4 px-6 border-t">
         <div className="container max-w-3xl mx-auto flex justify-between">
           <Button
@@ -205,7 +215,7 @@ export default function OnboardingPage() {
             <ChevronLeft className="h-4 w-4" />
             Back
           </Button>
-          
+
           {currentStepIndex < steps.length - 1 && (
             <Button
               variant="default"

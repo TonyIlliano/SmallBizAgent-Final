@@ -7,7 +7,8 @@ import {
   Calendar,
   CheckCircle2,
   ArrowRight,
-  Clock
+  Clock as ClockIcon,
+  Users
 } from 'lucide-react';
 
 interface WelcomeProps {
@@ -23,12 +24,17 @@ export default function Welcome({ onComplete }: WelcomeProps) {
     },
     {
       icon: Briefcase,
-      title: 'Services',
-      description: 'Set up your service offerings',
+      title: 'Services & Hours',
+      description: 'Set up what you offer and when',
+    },
+    {
+      icon: Users,
+      title: 'Your Team',
+      description: 'Add staff members for scheduling',
     },
     {
       icon: Bot,
-      title: 'Virtual Receptionist',
+      title: 'AI Receptionist',
       description: 'Configure AI call handling',
     },
     {
@@ -53,7 +59,7 @@ export default function Welcome({ onComplete }: WelcomeProps) {
           your virtual receptionist, services, and more.
         </p>
         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Clock className="h-4 w-4" />
+          <ClockIcon className="h-4 w-4" />
           <span>Takes about 5 minutes</span>
         </div>
       </div>

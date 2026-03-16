@@ -29,6 +29,7 @@ async function fixExistingTables() {
   // Fix users table
   await addColumnIfNotExists('users', 'active', 'BOOLEAN DEFAULT true');
   await addColumnIfNotExists('users', 'last_login', 'TIMESTAMP');
+  await addColumnIfNotExists('users', 'onboarding_progress', 'JSONB');
 
   // Fix businesses table
   await addColumnIfNotExists('businesses', 'website', 'TEXT');

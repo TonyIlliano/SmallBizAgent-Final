@@ -839,6 +839,36 @@ export function setupAuth(app: Express) {
     res.json({ success: true });
   });
 
+  // Save onboarding wizard progress to database (persists across page reloads)
+  app.post("/api/onboarding/progress", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const { currentStep, stepStatuses } = req.body;
+      if (!currentStep || !stepStatuses) {
+        return res.status(400).json({ error: 'currentStep and stepStatuses are required' });
+      }
+      const progressData = { currentStep, stepStatuses, lastUpdated: Date.now() };
+      await pool.query('UPDATE users SET onboarding_progress = $1 WHERE id = $2', [JSON.stringify(progressData), userId]);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error saving onboarding progress:', error);
+      res.status(500).json({ error: 'Failed to save onboarding progress' });
+    }
+  });
+
+  // Load onboarding wizard progress from database
+  app.get("/api/onboarding/progress", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const result = await pool.query('SELECT onboarding_progress FROM users WHERE id = $1', [userId]);
+      const progress = result.rows[0]?.onboarding_progress || null;
+      res.json({ progress });
+    } catch (error: any) {
+      console.error('Error loading onboarding progress:', error);
+      res.status(500).json({ error: 'Failed to load onboarding progress' });
+    }
+  });
+
   // Mark onboarding as complete in database
   app.post("/api/onboarding/complete", isAuthenticated, async (req: Request, res: Response) => {
     try {

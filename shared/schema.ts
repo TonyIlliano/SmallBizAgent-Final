@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   twoFactorBackupCodes: text("two_factor_backup_codes"), // JSON array of hashed backup codes
   onboardingComplete: boolean("onboarding_complete").default(false),
+  onboardingProgress: jsonb("onboarding_progress"), // Persisted wizard step progress {currentStep, stepStatuses}
   setupChecklistDismissed: boolean("setup_checklist_dismissed").default(false),
   dismissedTips: text("dismissed_tips"), // JSON array of dismissed tip IDs
   lastLogin: timestamp("last_login"),

@@ -601,9 +601,9 @@ async function runTrialExpirationCheck(): Promise<void> {
     let warned = 0;
 
     for (const business of allBusinesses) {
-      // Skip businesses with active paid subscriptions
+      // Skip businesses with active paid subscriptions (not trialing)
       const status = (business as any).subscriptionStatus;
-      if (status === 'active' || status === 'trialing') {
+      if (status === 'active') {
         continue;
       }
 
@@ -612,22 +612,35 @@ async function runTrialExpirationCheck(): Promise<void> {
       const trialEnd = new Date(business.trialEndsAt);
       const daysUntilExpiry = Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-      // EXPIRED: Deprovision if trial has expired and still has Twilio number
-      if (trialEnd < now && (business as any).twilioPhoneNumberSid) {
-        try {
-          console.log(`[TrialExpiration] Deprovisioning business ${business.id} (trial expired ${trialEnd.toISOString()})`);
-          await deprovisionBusiness(business.id);
-          deprovisioned++;
-        } catch (err) {
-          console.error(`[TrialExpiration] Failed to deprovision business ${business.id}:`, err);
+      // EXPIRED: Update status + deprovision if trial has expired
+      if (trialEnd < now) {
+        // Always update subscriptionStatus to 'expired' if still 'trialing'
+        if (status === 'trialing') {
+          try {
+            await storage.updateBusiness(business.id, { subscriptionStatus: 'expired' } as any);
+            console.log(`[TrialExpiration] Updated business ${business.id} status from 'trialing' to 'expired'`);
+          } catch (err) {
+            console.error(`[TrialExpiration] Failed to update status for business ${business.id}:`, err);
+          }
         }
-        // Delay between deprovisions to avoid rate limits
-        await new Promise(r => setTimeout(r, 500));
+
+        // Deprovision resources if still has Twilio number
+        if ((business as any).twilioPhoneNumberSid) {
+          try {
+            console.log(`[TrialExpiration] Deprovisioning business ${business.id} (trial expired ${trialEnd.toISOString()})`);
+            await deprovisionBusiness(business.id);
+            deprovisioned++;
+          } catch (err) {
+            console.error(`[TrialExpiration] Failed to deprovision business ${business.id}:`, err);
+          }
+          // Delay between deprovisions to avoid rate limits
+          await new Promise(r => setTimeout(r, 500));
+        }
         continue;
       }
 
-      // PRE-EXPIRATION WARNINGS: 3 days and 1 day before expiry
-      if (daysUntilExpiry === 3 || daysUntilExpiry === 1) {
+      // PRE-EXPIRATION WARNINGS: 7 days, 3 days, and 1 day before expiry
+      if (daysUntilExpiry === 7 || daysUntilExpiry === 3 || daysUntilExpiry === 1) {
         // Check notification log to avoid duplicate warnings on the same day
         try {
           const logs = await storage.getNotificationLogs(business.id, 50);
@@ -708,6 +721,96 @@ async function sendTrialExpirationWarnings(business: any, daysRemaining: number)
     } catch (err) {
       console.error(`[TrialExpiration] Failed to send warning SMS for business ${business.id}:`, err);
     }
+  }
+}
+
+/**
+ * Start the dunning deprovisioning scheduler.
+ * Runs every 12 hours. If a business has been in 'past_due' status for 7+ days
+ * (grace period), deprovision resources (Twilio number, Vapi assistant).
+ * This closes the gap where failed payments don't release resources.
+ */
+export function startDunningDeprovisionScheduler(): void {
+  const jobKey = 'dunning-deprovision';
+  if (scheduledJobs.has(jobKey)) return;
+
+  console.log('Starting dunning deprovisioning scheduler');
+
+  // Run immediately on start
+  withReentryGuard(jobKey, () =>
+    withAdvisoryLock(jobKey, () => runDunningDeprovisionCheck())
+  );
+
+  // Then every 12 hours
+  const intervalId = setInterval(() => {
+    withReentryGuard(jobKey, () =>
+      withAdvisoryLock(jobKey, () => runDunningDeprovisionCheck())
+    );
+  }, 12 * 60 * 60 * 1000);
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+const DUNNING_GRACE_PERIOD_DAYS = 7;
+
+async function runDunningDeprovisionCheck(): Promise<void> {
+  try {
+    console.log(`[Dunning] Running deprovisioning check at ${new Date().toISOString()}`);
+    const allBusinesses = await storage.getAllBusinesses();
+    const now = new Date();
+    let deprovisioned = 0;
+
+    for (const business of allBusinesses) {
+      const status = (business as any).subscriptionStatus;
+      if (status !== 'past_due' && status !== 'payment_failed') continue;
+
+      // Check if past grace period by looking at updatedAt (when status was set to past_due)
+      const updatedAt = business.updatedAt ? new Date(business.updatedAt) : null;
+      if (!updatedAt) continue;
+
+      const daysSinceFailure = Math.floor((now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (daysSinceFailure >= DUNNING_GRACE_PERIOD_DAYS && (business as any).twilioPhoneNumberSid) {
+        try {
+          console.log(`[Dunning] Deprovisioning business ${business.id} (${status} for ${daysSinceFailure} days, past ${DUNNING_GRACE_PERIOD_DAYS}-day grace period)`);
+          await deprovisionBusiness(business.id);
+
+          // Update status to reflect deprovisioning
+          await storage.updateBusiness(business.id, { subscriptionStatus: 'suspended' } as any);
+          deprovisioned++;
+
+          // Send final notification
+          if (business.email) {
+            try {
+              const { sendEmail } = await import('../emailService.js');
+              const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+              await sendEmail({
+                to: business.email,
+                subject: `SmallBizAgent: Your service has been suspended`,
+                text: `Hi ${business.name}, your SmallBizAgent service has been suspended due to ${DUNNING_GRACE_PERIOD_DAYS} days of unpaid invoices. Your AI receptionist and phone number have been deactivated. Your data is preserved. To reactivate, update your payment method at ${appUrl}/settings.`,
+                html: `
+                  <h2>Service Suspended</h2>
+                  <p>Hi ${business.name},</p>
+                  <p>Your SmallBizAgent service has been suspended due to ${DUNNING_GRACE_PERIOD_DAYS} days of unpaid invoices.</p>
+                  <p>Your AI receptionist and phone number have been deactivated. Your data (customers, appointments, invoices) is preserved.</p>
+                  <p><strong>To reactivate:</strong> Update your payment method at <a href="${appUrl}/settings">Settings</a> and we'll restore your service immediately.</p>
+                  <p>If you have questions, reply to this email or visit our <a href="${appUrl}/support">support page</a>.</p>
+                `,
+              });
+            } catch (emailErr) {
+              console.error(`[Dunning] Failed to send suspension email for business ${business.id}:`, emailErr);
+            }
+          }
+        } catch (err) {
+          console.error(`[Dunning] Failed to deprovision business ${business.id}:`, err);
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    console.log(`[Dunning] Done — ${deprovisioned} businesses deprovisioned after grace period`);
+  } catch (error) {
+    console.error('[Dunning] Error in deprovisioning check:', error);
   }
 }
 
@@ -1188,6 +1291,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start trial expiration scheduler (deprovisions expired trials, sends pre-expiration warnings)
     startTrialExpirationScheduler();
 
+    // Start dunning deprovisioning scheduler (deprovisions past_due businesses after grace period)
+    startDunningDeprovisionScheduler();
+
     // Start data retention scheduler (purges expired call recordings and transcripts daily)
     startDataRetentionScheduler();
 
@@ -1369,6 +1475,7 @@ export default {
   startOverageBillingScheduler,
   startBirthdayCampaignScheduler,
   startTrialExpirationScheduler,
+  startDunningDeprovisionScheduler,
   startDataRetentionScheduler,
   startAutoRefineScheduler,
   startFollowUpAgentScheduler,

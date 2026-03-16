@@ -122,7 +122,8 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
   const now = new Date();
   const isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
   const subscriptionStatus = business.subscriptionStatus || 'inactive';
-  const isSubscribed = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
+  // 'trialing' only counts as subscribed if the trial is actually still active
+  const isSubscribed = subscriptionStatus === 'active' || (subscriptionStatus === 'trialing' && isTrialActive);
 
   // Get plan details if subscribed
   let plan = null;
@@ -206,7 +207,8 @@ export async function canBusinessAcceptCalls(businessId: number): Promise<{ allo
     const now = new Date();
     const isTrialActive = business.trialEndsAt ? new Date(business.trialEndsAt) > now : false;
     const subscriptionStatus = business.subscriptionStatus || 'inactive';
-    const isSubscribed = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
+    // 'trialing' only counts as subscribed if the trial is actually still active
+    const isSubscribed = subscriptionStatus === 'active' || (subscriptionStatus === 'trialing' && isTrialActive);
 
     // If no trial and no subscription, block
     if (!isTrialActive && !isSubscribed) {

@@ -250,6 +250,7 @@ export class SubscriptionService {
             stripeSubscriptionId: subscription.id,
             stripePlanId: planId,
             subscriptionStatus: subscription.status,
+            subscriptionStartDate: new Date(),
             subscriptionPeriodEnd: new Date((subscription as any).current_period_end * 1000),
             updatedAt: new Date()
           })
@@ -461,15 +462,16 @@ export class SubscriptionService {
         return;
       }
 
-      // Update subscription details
+      // Update subscription details — clear stripeSubscriptionId so resubscription works cleanly
       await db.update(businesses)
         .set({
           subscriptionStatus: 'canceled',
+          stripeSubscriptionId: null,
           updatedAt: new Date()
         })
         .where(eq(businesses.id, business[0].id));
 
-      console.log(`Marked subscription as canceled for business ${business[0].id}`);
+      console.log(`Marked subscription as canceled for business ${business[0].id} (cleared stripeSubscriptionId)`);
 
       // Deprovision resources (Twilio number, Vapi assistant)
       // This also triggers call forwarding deactivation notifications if applicable
@@ -501,29 +503,57 @@ export class SubscriptionService {
         await this.updateSubscriptionStatus(subscription);
 
         console.log(`Subscription payment succeeded for subscription ${subscriptionId}`);
+
+        // Auto-reprovision if the business was previously deprovisioned
+        // (canceled, expired, suspended, past_due — and now paying again)
+        const [business] = await db.select()
+          .from(businesses)
+          .where(eq(businesses.stripeSubscriptionId, subscriptionId as string));
+
+        if (business && !business.twilioPhoneNumberSid) {
+          const prevStatus = business.subscriptionStatus;
+          if (prevStatus === 'canceled' || prevStatus === 'expired' || prevStatus === 'suspended' || prevStatus === 'past_due') {
+            try {
+              const { provisionBusiness } = await import('./businessProvisioningService.js');
+              console.log(`[Reactivation] Auto-provisioning business ${business.id} (was ${prevStatus}, now paying)`);
+              await provisionBusiness(business.id);
+
+              // Set subscriptionStartDate for accurate billing periods
+              await db.update(businesses)
+                .set({
+                  subscriptionStartDate: new Date(),
+                  updatedAt: new Date(),
+                })
+                .where(eq(businesses.id, business.id));
+
+              console.log(`[Reactivation] Business ${business.id} re-provisioned successfully`);
+
+              // Notify business owner
+              if (business.email) {
+                const { sendEmail } = await import('../emailService.js');
+                const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+                await sendEmail({
+                  to: business.email,
+                  subject: `Welcome back! Your SmallBizAgent is active again`,
+                  text: `Hi ${business.name}, great news! Your payment was successful and your AI receptionist has been automatically reactivated. Your phone number and AI assistant are back online. Visit your dashboard at ${appUrl}/dashboard to get started.`,
+                  html: `
+                    <h2>Your Service Is Restored!</h2>
+                    <p>Hi ${business.name},</p>
+                    <p>Great news! Your payment was successful and your AI receptionist has been automatically reactivated.</p>
+                    <p>Your phone number and AI assistant are back online and ready to take calls.</p>
+                    <p>All your existing data (customers, appointments, invoices) has been preserved.</p>
+                    <p>Visit your <a href="${appUrl}/dashboard">dashboard</a> to get started.</p>
+                  `,
+                });
+              }
+            } catch (provErr) {
+              console.error(`[Reactivation] Failed to auto-provision business ${business.id}:`, provErr);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Error handling invoice payment succeeded:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle failed invoice payment
-   * @private
-   */
-  private async handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
-    try {
-      // Update the subscription status in our database
-      const subscriptionId = (invoice as any).subscription;
-      if (subscriptionId) {
-        const subscription = await getStripe().subscriptions.retrieve(subscriptionId as string);
-        await this.updateSubscriptionStatus(subscription);
-
-        console.log(`Subscription payment failed for subscription ${subscriptionId}`);
-      }
-    } catch (error) {
-      console.error('Error handling invoice payment failed:', error);
       throw error;
     }
   }
