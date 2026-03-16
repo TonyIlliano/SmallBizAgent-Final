@@ -1,11 +1,15 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Calendar,
   Clock,
@@ -20,6 +24,9 @@ import {
   Maximize2,
   Minimize2,
   Eye,
+  CalendarOff,
+  Plus,
+  X,
 } from "lucide-react";
 
 interface StaffProfile {
@@ -80,13 +87,35 @@ function formatHour(hour: number): string {
   return `${hour - 12} PM`;
 }
 
+interface StaffTimeOff {
+  id: number;
+  staffId: number;
+  businessId: number;
+  startDate: string;
+  endDate: string;
+  reason?: string | null;
+  allDay: boolean;
+  note?: string | null;
+}
+
+const TIME_OFF_REASONS = ['Vacation', 'Sick', 'Personal', 'Training', 'Holiday', 'Other'];
+
 export default function StaffDashboard() {
   const { user, logoutMutation } = useAuth();
+  const { toast } = useToast();
+  const queryClientHook = useQueryClient();
   const [, setLocation] = useLocation();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
+  const [showTimeOffForm, setShowTimeOffForm] = useState(false);
+  const [timeOffForm, setTimeOffForm] = useState({
+    startDate: '',
+    endDate: '',
+    reason: 'Vacation',
+    note: '',
+  });
 
   // Update current time every 30 seconds for the time indicator
   useEffect(() => {
@@ -150,6 +179,69 @@ export default function StaffDashboard() {
     },
     refetchInterval: 30000,
   });
+
+  // Fetch time-off entries
+  const { data: timeOffEntries = [] } = useQuery<StaffTimeOff[]>({
+    queryKey: ["/api/staff/me/time-off"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/staff/me/time-off");
+      return res.json();
+    },
+  });
+
+  // Create time-off mutation
+  const createTimeOffMutation = useMutation({
+    mutationFn: async (data: typeof timeOffForm) => {
+      const res = await apiRequest('POST', '/api/staff/me/time-off', {
+        startDate: new Date(data.startDate + 'T00:00:00').toISOString(),
+        endDate: new Date(data.endDate + 'T23:59:59').toISOString(),
+        reason: data.reason,
+        note: data.note || null,
+        allDay: true,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClientHook.invalidateQueries({ queryKey: ['/api/staff/me/time-off'] });
+      setTimeOffForm({ startDate: '', endDate: '', reason: 'Vacation', note: '' });
+      setShowTimeOffForm(false);
+      toast({ title: 'Time off added', description: 'Your schedule has been updated.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to add time off', variant: 'destructive' });
+    },
+  });
+
+  // Delete time-off mutation
+  const deleteTimeOffMutation = useMutation({
+    mutationFn: async (timeOffId: number) => {
+      await apiRequest('DELETE', `/api/staff/me/time-off/${timeOffId}`);
+    },
+    onSuccess: () => {
+      queryClientHook.invalidateQueries({ queryKey: ['/api/staff/me/time-off'] });
+      toast({ title: 'Removed', description: 'Time off entry removed.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to remove time off', variant: 'destructive' });
+    },
+  });
+
+  // Filter to upcoming time-off only
+  const upcomingTimeOff = timeOffEntries
+    .filter(e => new Date(e.endDate) >= new Date())
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+  const pastTimeOff = timeOffEntries
+    .filter(e => new Date(e.endDate) < new Date())
+    .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+
+  const formatTimeOffDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
 
   const navigateDay = (offset: number) => {
     const newDate = new Date(selectedDate);
@@ -746,6 +838,163 @@ export default function StaffDashboard() {
                 );
               })}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Time Off */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarOff className="h-5 w-5" />
+                  Time Off
+                </CardTitle>
+                <CardDescription>Request days off — the AI won't book you during these times</CardDescription>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setShowTimeOffForm(!showTimeOffForm)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {/* Add time off form */}
+            {showTimeOffForm && (
+              <div className="space-y-3 mb-4 p-3 border rounded-lg bg-muted/30">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Start Date</Label>
+                    <Input
+                      type="date"
+                      value={timeOffForm.startDate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setTimeOffForm(prev => ({
+                          ...prev,
+                          startDate: val,
+                          endDate: (!prev.endDate || val > prev.endDate) ? val : prev.endDate,
+                        }));
+                      }}
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">End Date</Label>
+                    <Input
+                      type="date"
+                      value={timeOffForm.endDate}
+                      onChange={(e) => setTimeOffForm({ ...timeOffForm, endDate: e.target.value })}
+                      min={timeOffForm.startDate || new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Reason</Label>
+                    <Select
+                      value={timeOffForm.reason}
+                      onValueChange={(value) => setTimeOffForm({ ...timeOffForm, reason: value })}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TIME_OFF_REASONS.map(r => (
+                          <SelectItem key={r} value={r}>{r}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Note</Label>
+                    <Input
+                      value={timeOffForm.note}
+                      onChange={(e) => setTimeOffForm({ ...timeOffForm, note: e.target.value })}
+                      placeholder="Optional"
+                      className="h-9"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => createTimeOffMutation.mutate(timeOffForm)}
+                    disabled={!timeOffForm.startDate || !timeOffForm.endDate || createTimeOffMutation.isPending}
+                  >
+                    {createTimeOffMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-1" />
+                    )}
+                    Save
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowTimeOffForm(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Time off entries */}
+            {upcomingTimeOff.length === 0 && pastTimeOff.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-3">
+                No time off scheduled. Tap "Add" to request days off.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {upcomingTimeOff.map((entry) => {
+                  const isSameDay = new Date(entry.startDate).toDateString() === new Date(entry.endDate).toDateString();
+                  return (
+                    <div key={entry.id} className="flex items-center justify-between p-2 rounded-lg border bg-muted/50">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium">
+                          {isSameDay
+                            ? formatTimeOffDate(entry.startDate)
+                            : `${formatTimeOffDate(entry.startDate)} - ${formatTimeOffDate(entry.endDate)}`
+                          }
+                        </div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1">
+                          {entry.reason && <Badge variant="outline" className="text-xs py-0 h-5">{entry.reason}</Badge>}
+                          {entry.note && <span className="truncate">{entry.note}</span>}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (confirm('Remove this time off?')) {
+                            deleteTimeOffMutation.mutate(entry.id);
+                          }
+                        }}
+                        disabled={deleteTimeOffMutation.isPending}
+                      >
+                        <X className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  );
+                })}
+                {pastTimeOff.slice(0, 3).map((entry) => {
+                  const isSameDay = new Date(entry.startDate).toDateString() === new Date(entry.endDate).toDateString();
+                  return (
+                    <div key={entry.id} className="flex items-center justify-between p-2 rounded-lg border opacity-50 bg-muted/20">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm">
+                          {isSameDay
+                            ? formatTimeOffDate(entry.startDate)
+                            : `${formatTimeOffDate(entry.startDate)} - ${formatTimeOffDate(entry.endDate)}`
+                          }
+                        </div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1">
+                          {entry.reason && <Badge variant="secondary" className="text-xs py-0 h-5">{entry.reason}</Badge>}
+                          <Badge variant="secondary" className="text-xs py-0 h-5">Past</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 

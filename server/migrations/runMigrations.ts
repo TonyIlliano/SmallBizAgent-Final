@@ -1201,6 +1201,33 @@ async function fixExistingTables() {
     ON customer_engagement_lock (customer_id, business_id, status);
   `);
 
+  // Staff Time Off (vacation, sick days, PTO — date-specific blocks)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_time_off (
+      id SERIAL PRIMARY KEY,
+      staff_id INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      start_date TIMESTAMP NOT NULL,
+      end_date TIMESTAMP NOT NULL,
+      reason TEXT,
+      all_day BOOLEAN DEFAULT true,
+      note TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Index for fast time-off lookups by staff and date range
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS staff_time_off_staff_date_idx
+    ON staff_time_off (staff_id, start_date, end_date);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS staff_time_off_business_idx
+    ON staff_time_off (business_id);
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 

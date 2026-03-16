@@ -41,7 +41,8 @@ import {
   UserBusinessAccess, InsertUserBusinessAccess, userBusinessAccess,
   CallIntelligence, InsertCallIntelligence, callIntelligence,
   CustomerInsightsRow, InsertCustomerInsights, customerInsights,
-  CustomerEngagementLock, InsertCustomerEngagementLock, customerEngagementLock
+  CustomerEngagementLock, InsertCustomerEngagementLock, customerEngagementLock,
+  StaffTimeOff, InsertStaffTimeOff, staffTimeOff
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -136,6 +137,14 @@ export interface IStorage {
   setStaffHours(staffId: number, hours: InsertStaffHours[]): Promise<StaffHours[]>;
   updateStaffHoursForDay(staffId: number, day: string, hours: Partial<StaffHours>): Promise<StaffHours>;
   getAvailableStaffForSlot(businessId: number, date: Date, time: string): Promise<Staff[]>;
+
+  // Staff Time Off
+  getStaffTimeOff(staffId: number): Promise<StaffTimeOff[]>;
+  getStaffTimeOffByBusiness(businessId: number): Promise<StaffTimeOff[]>;
+  getStaffTimeOffForDate(staffId: number, date: Date): Promise<StaffTimeOff[]>;
+  createStaffTimeOff(timeOff: InsertStaffTimeOff): Promise<StaffTimeOff>;
+  updateStaffTimeOff(id: number, businessId: number, data: Partial<StaffTimeOff>): Promise<StaffTimeOff>;
+  deleteStaffTimeOff(id: number, businessId: number): Promise<void>;
 
   // Staff-Service assignments
   getStaffServices(staffId: number): Promise<number[]>; // returns serviceIds
@@ -844,6 +853,10 @@ export class DatabaseStorage implements IStorage {
       // If hours are set and it's their day off, skip
       if (dayHours?.isOff) continue;
 
+      // Check if staff has time off on this date (vacation, sick, etc.)
+      const timeOffEntries = await this.getStaffTimeOffForDate(staffMember.id, date);
+      if (timeOffEntries.some(t => t.allDay !== false)) continue; // Full-day time off
+
       // If they have hours set, check if the time falls within their working hours
       if (dayHours?.startTime && dayHours?.endTime) {
         const startMinutes = parseInt(dayHours.startTime.split(':')[0]) * 60 + parseInt(dayHours.startTime.split(':')[1]);
@@ -906,6 +919,57 @@ export class DatabaseStorage implements IStorage {
     const results = await db.select().from(staffServices)
       .where(inArray(staffServices.staffId, staffIds));
     return results.map(r => ({ staffId: r.staffId, serviceId: r.serviceId }));
+  }
+
+  // Staff Time Off
+  async getStaffTimeOff(staffId: number): Promise<StaffTimeOff[]> {
+    return db.select().from(staffTimeOff)
+      .where(eq(staffTimeOff.staffId, staffId))
+      .orderBy(staffTimeOff.startDate);
+  }
+
+  async getStaffTimeOffByBusiness(businessId: number): Promise<StaffTimeOff[]> {
+    return db.select().from(staffTimeOff)
+      .where(eq(staffTimeOff.businessId, businessId))
+      .orderBy(staffTimeOff.startDate);
+  }
+
+  async getStaffTimeOffForDate(staffId: number, date: Date): Promise<StaffTimeOff[]> {
+    // Find any time-off entries that overlap with the given date
+    // A time-off entry overlaps if: startDate <= endOfDay AND endDate >= startOfDay
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    return db.select().from(staffTimeOff)
+      .where(and(
+        eq(staffTimeOff.staffId, staffId),
+        lte(staffTimeOff.startDate, endOfDay),
+        gte(staffTimeOff.endDate, startOfDay)
+      ));
+  }
+
+  async createStaffTimeOff(timeOffData: InsertStaffTimeOff): Promise<StaffTimeOff> {
+    const [entry] = await db.insert(staffTimeOff).values({
+      ...timeOffData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }).returning();
+    return entry;
+  }
+
+  async updateStaffTimeOff(id: number, businessId: number, data: Partial<StaffTimeOff>): Promise<StaffTimeOff> {
+    const [updated] = await db.update(staffTimeOff)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(staffTimeOff.id, id), eq(staffTimeOff.businessId, businessId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteStaffTimeOff(id: number, businessId: number): Promise<void> {
+    await db.delete(staffTimeOff)
+      .where(and(eq(staffTimeOff.id, id), eq(staffTimeOff.businessId, businessId)));
   }
 
   // Appointments

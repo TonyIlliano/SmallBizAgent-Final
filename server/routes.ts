@@ -1220,6 +1220,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Staff portal: Get my time-off entries (staff only) — MUST be before /api/staff/:id
+  app.get("/api/staff/me/time-off", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      if (req.user?.role !== "staff") {
+        return res.status(403).json({ message: "Staff access only" });
+      }
+      const staffMember = await storage.getStaffMemberByUserId(req.user.id);
+      if (!staffMember) {
+        return res.status(404).json({ message: "Staff profile not found" });
+      }
+      const entries = await storage.getStaffTimeOff(staffMember.id);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching staff time off:", error);
+      res.status(500).json({ message: "Error fetching time off" });
+    }
+  });
+
+  // Staff portal: Add my own time-off (staff only) — MUST be before /api/staff/:id
+  app.post("/api/staff/me/time-off", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      if (req.user?.role !== "staff") {
+        return res.status(403).json({ message: "Staff access only" });
+      }
+      const staffMember = await storage.getStaffMemberByUserId(req.user.id);
+      if (!staffMember) {
+        return res.status(404).json({ message: "Staff profile not found" });
+      }
+
+      const { startDate, endDate, reason, allDay, note } = req.body;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "Start date and end date are required" });
+      }
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({ message: "Invalid date format" });
+      }
+      if (end < start) {
+        return res.status(400).json({ message: "End date must be on or after start date" });
+      }
+
+      const entry = await storage.createStaffTimeOff({
+        staffId: staffMember.id,
+        businessId: staffMember.businessId,
+        startDate: start,
+        endDate: end,
+        reason: reason || null,
+        allDay: allDay !== false,
+        note: note || null,
+      });
+
+      // Invalidate availability cache
+      dataCache.invalidate(staffMember.businessId);
+
+      res.status(201).json(entry);
+    } catch (error) {
+      console.error("Error creating staff time off:", error);
+      res.status(500).json({ message: "Error creating time off" });
+    }
+  });
+
+  // Staff portal: Delete my own time-off (staff only) — MUST be before /api/staff/:id
+  app.delete("/api/staff/me/time-off/:timeOffId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      if (req.user?.role !== "staff") {
+        return res.status(403).json({ message: "Staff access only" });
+      }
+      const staffMember = await storage.getStaffMemberByUserId(req.user.id);
+      if (!staffMember) {
+        return res.status(404).json({ message: "Staff profile not found" });
+      }
+      const timeOffId = parseInt(req.params.timeOffId);
+      if (isNaN(timeOffId)) {
+        return res.status(400).json({ message: "Invalid time off ID" });
+      }
+      // Delete scoped to their businessId (ensures they can only delete their own)
+      await storage.deleteStaffTimeOff(timeOffId, staffMember.businessId);
+
+      // Invalidate availability cache
+      dataCache.invalidate(staffMember.businessId);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting staff time off:", error);
+      res.status(500).json({ message: "Error deleting time off" });
+    }
+  });
+
   app.get("/api/staff", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
@@ -1651,6 +1740,139 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error accepting staff invite:", error);
       res.status(500).json({ message: "Error creating staff account" });
+    }
+  });
+
+  // =================== STAFF TIME OFF API ===================
+
+  // Get all time-off entries for a business
+  app.get("/api/staff/time-off", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const entries = await storage.getStaffTimeOffByBusiness(businessId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching staff time off:", error);
+      res.status(500).json({ message: "Error fetching time off entries" });
+    }
+  });
+
+  // Get time-off entries for a specific staff member
+  app.get("/api/staff/:id/time-off", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const staffId = parseInt(req.params.id);
+      if (isNaN(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
+      const staffMember = await storage.getStaffMember(staffId);
+      if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+      const entries = await storage.getStaffTimeOff(staffId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching staff time off:", error);
+      res.status(500).json({ message: "Error fetching time off entries" });
+    }
+  });
+
+  // Create a time-off entry
+  app.post("/api/staff/:id/time-off", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const staffId = parseInt(req.params.id);
+      if (isNaN(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
+      const staffMember = await storage.getStaffMember(staffId);
+      if (!staffMember || !verifyBusinessOwnership(staffMember, req)) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+
+      const businessId = getBusinessId(req);
+      const { startDate, endDate, reason, allDay, note } = req.body;
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "Start date and end date are required" });
+      }
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({ message: "Invalid date format" });
+      }
+      if (end < start) {
+        return res.status(400).json({ message: "End date must be on or after start date" });
+      }
+
+      const entry = await storage.createStaffTimeOff({
+        staffId,
+        businessId,
+        startDate: start,
+        endDate: end,
+        reason: reason || null,
+        allDay: allDay !== false, // default to true
+        note: note || null,
+      });
+
+      // Invalidate availability cache so Vapi picks up time-off changes
+      dataCache.invalidate(businessId);
+
+      res.status(201).json(entry);
+    } catch (error) {
+      console.error("Error creating staff time off:", error);
+      res.status(500).json({ message: "Error creating time off entry" });
+    }
+  });
+
+  // Update a time-off entry
+  app.put("/api/staff/time-off/:timeOffId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const timeOffId = parseInt(req.params.timeOffId);
+      if (isNaN(timeOffId)) {
+        return res.status(400).json({ message: "Invalid time off ID" });
+      }
+      const businessId = getBusinessId(req);
+      const { startDate, endDate, reason, allDay, note } = req.body;
+
+      const updateData: any = {};
+      if (startDate) updateData.startDate = new Date(startDate);
+      if (endDate) updateData.endDate = new Date(endDate);
+      if (reason !== undefined) updateData.reason = reason;
+      if (allDay !== undefined) updateData.allDay = allDay;
+      if (note !== undefined) updateData.note = note;
+
+      const updated = await storage.updateStaffTimeOff(timeOffId, businessId, updateData);
+      if (!updated) {
+        return res.status(404).json({ message: "Time off entry not found" });
+      }
+
+      // Invalidate availability cache so Vapi picks up time-off changes
+      dataCache.invalidate(businessId);
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating staff time off:", error);
+      res.status(500).json({ message: "Error updating time off entry" });
+    }
+  });
+
+  // Delete a time-off entry
+  app.delete("/api/staff/time-off/:timeOffId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const timeOffId = parseInt(req.params.timeOffId);
+      if (isNaN(timeOffId)) {
+        return res.status(400).json({ message: "Invalid time off ID" });
+      }
+      const businessId = getBusinessId(req);
+      await storage.deleteStaffTimeOff(timeOffId, businessId);
+
+      // Invalidate availability cache so Vapi picks up time-off changes
+      dataCache.invalidate(businessId);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting staff time off:", error);
+      res.status(500).json({ message: "Error deleting time off entry" });
     }
   });
 

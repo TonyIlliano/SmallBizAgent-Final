@@ -161,7 +161,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ---
 
-## Database Schema (60 Tables)
+## Database Schema (61 Tables)
 
 ### Core
 | Table | Purpose | Key Columns |
@@ -191,6 +191,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `staff_hours` | Staff schedules | staffId, day, startTime, endTime, isOff |
 | `staff_services` | Staff-service assignments | staffId, serviceId |
 | `staff_invites` | Staff invitation codes | businessId, staffId, email, inviteCode, status |
+| `staff_time_off` | Staff vacation/PTO blocks | staffId, businessId, startDate, endDate, reason, allDay, note |
 | `appointments` | Scheduled appointments | businessId, customerId, staffId, serviceId, startDate, endDate, status, googleCalendarEventId |
 | `jobs` | Service jobs | businessId, customerId, title, status (pending/in_progress/waiting_parts/completed) |
 | `job_line_items` | Job line items | jobId, type, description, quantity, unitPrice |
@@ -552,7 +553,18 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `3cbd1d5` | Fix staff schedule gaps (merge with business hours for uncovered days) + fix reschedule SMS not sending (customer phone extraction in tool-calls path) |
 | `a39f168` | Improve Vapi speed + intelligence: eliminate startup getStaffMembers call, reduce delays, static imports, parallel queries in recognizeCaller |
 
-### Uncommitted changes (current session — Vapi Call Flow Redesign):
+### Uncommitted changes (current session):
+
+#### Staff Time Off / Vacation Blocking
+- **Goal**: Allow business owners to block off specific dates when staff members are unavailable (vacation, sick days, PTO), and have the AI receptionist automatically respect these blocks.
+- `shared/schema.ts` — Added `staff_time_off` table with columns: staffId, businessId, startDate, endDate, reason, allDay, note. Includes insert schema and TypeScript types.
+- `server/storage.ts` — Added 6 storage methods: `getStaffTimeOff()`, `getStaffTimeOffByBusiness()`, `getStaffTimeOffForDate()` (date overlap query), `createStaffTimeOff()`, `updateStaffTimeOff()`, `deleteStaffTimeOff()`. Also updated `getAvailableStaffForSlot()` to skip staff with all-day time off on the requested date.
+- `server/routes.ts` — Added 5 API endpoints: `GET /api/staff/time-off` (business-wide), `GET /api/staff/:id/time-off` (per staff), `POST /api/staff/:id/time-off` (create), `PUT /api/staff/time-off/:timeOffId` (update), `DELETE /api/staff/time-off/:timeOffId` (delete). All endpoints scoped by businessId with ownership verification and cache invalidation.
+- `server/services/vapiWebhookHandler.ts` — **checkAvailability** now checks `isStaffOffOnDate()` before generating slots. Range requests skip days where staff has time off. Single-date requests return `staffOff: true` with `nextAvailable` date suggestion. **bookAppointment** rejects bookings when staff has time off with helpful error message. **getStaffSchedule** includes upcoming time-off entries in the response message (e.g., "Mike also has time off scheduled: Mon Mar 20 - Fri Mar 24 (Vacation)").
+- `server/migrations/runMigrations.ts` — Added `CREATE TABLE IF NOT EXISTS staff_time_off` with indexes on `(staff_id, start_date, end_date)` and `(business_id)` for auto-migration on Railway.
+- `client/src/components/settings/StaffScheduleManager.tsx` — Added "Time Off" button in staff table actions (owner view). New dialog with: date range picker, reason dropdown (Vacation/Sick/Personal/Training/Holiday/Other), optional note field. Shows list of existing time-off entries sorted by date with delete capability. Past entries shown dimmed. AI receptionist automatically respects all blocked dates.
+- `server/routes.ts` — Added 3 staff-portal endpoints: `GET /api/staff/me/time-off` (view own), `POST /api/staff/me/time-off` (create own), `DELETE /api/staff/me/time-off/:timeOffId` (delete own). Staff can only manage their own time off, scoped by their userId→staffId mapping.
+- `client/src/pages/staff/dashboard.tsx` — Added "Time Off" card to staff dashboard with add/view/delete capability. Staff members can self-serve their own vacation/sick days without needing the owner to do it.
 
 #### Vapi Call Flow Redesign (Cohesion & Smoothness)
 - **Goal**: Make the AI receptionist feel like one smooth conversation instead of choppy disconnected checks
@@ -727,4 +739,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 15, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 60 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation. 14-day free trial: no credit card required during trial, plan selection saved to business record, Stripe subscription created only after trial ends. Rate limits: general 500/15min, auth 20/15min. Agent Coordinator: cross-agent wiring, real platform stats fed into agents. Vapi call flow redesign: recognizeCaller simplified to 7 fields + narrative summary (was 24 fields), checkAvailability returns 3-5 curated slots (was all 48), system prompt restructured from ~930 to ~300 lines with unified 5-beat call flow, tool descriptions shortened, industry prompt conflicts fixed. Vertical-specific terminology: CUSTOMER LINGO dictionaries added to all 15 industry prompts mapping customer slang to correct services. Latency optimization: startSpeakingPlan with tuned endpointing (onNoPunctuationSeconds 1.5s→0.5s), maxTokens 250, nova-2 transcriber fix in update path, batched staff-service queries (eliminates N+1), batched service lookups in recognizeCaller. Model: gpt-5-mini with ElevenLabs turbo voice + Deepgram nova-2 STT.*
+*Last updated: March 16, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 61 tables. Intelligence layer (Sprints 1-3) + Mem0 persistent memory (Sprint 4) + LangGraph.js orchestration (Sprint 5). Security audit: IDOR, XSS, host header injection, CSRF, Stripe, postMessage fixes applied. Defense-in-depth: storage layer multi-tenant scoping, parseInt NaN validation, SMS rate limiting, frontend resilience fixes. Scalability: connection pool 25, scheduler re-entry guards + advisory locks, engagement lock race condition fix, cache max size + periodic cleanup + invalidation on mutations. E2E tests: auth flow (18), business+customer CRUD (49), appointments+invoices (51). Calendar integration: Google/Microsoft OAuth redirect URI fix (relative → absolute), Apple disconnect fix, postMessage origin fix, startup validation. 14-day free trial: no credit card required during trial, plan selection saved to business record, Stripe subscription created only after trial ends. Rate limits: general 500/15min, auth 20/15min. Agent Coordinator: cross-agent wiring, real platform stats fed into agents. Vapi call flow redesign: recognizeCaller simplified to 7 fields + narrative summary (was 24 fields), checkAvailability returns 3-5 curated slots (was all 48), system prompt restructured from ~930 to ~300 lines with unified 5-beat call flow, tool descriptions shortened, industry prompt conflicts fixed. Vertical-specific terminology: CUSTOMER LINGO dictionaries added to all 15 industry prompts mapping customer slang to correct services. Latency optimization: startSpeakingPlan with tuned endpointing (onNoPunctuationSeconds 1.5s→0.5s), maxTokens 250, nova-2 transcriber fix in update path, batched staff-service queries (eliminates N+1), batched service lookups in recognizeCaller. Staff time-off/vacation blocking: staff_time_off table + CRUD API + UI dialog + Vapi integration (checkAvailability/bookAppointment/getStaffSchedule all respect blocked dates). Model: gpt-5-mini with ElevenLabs turbo voice + Deepgram nova-2 STT.*

@@ -1411,3 +1411,21 @@ export const blogPosts = pgTable("blog_posts", {
 export const insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: true, createdAt: true, updatedAt: true });
 export type BlogPost = typeof blogPosts.$inferSelect;
 export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
+
+// Staff Time Off (vacation, sick days, PTO — date-specific blocks)
+export const staffTimeOff = pgTable("staff_time_off", {
+  id: serial("id").primaryKey(),
+  staffId: integer("staff_id").notNull(),
+  businessId: integer("business_id").notNull(),
+  startDate: timestamp("start_date").notNull(), // Start of time off
+  endDate: timestamp("end_date").notNull(),     // End of time off (inclusive)
+  reason: text("reason"),                        // Vacation, Sick, Training, Personal, Other
+  allDay: boolean("all_day").default(true),     // true = full day(s), false = partial (uses start/end times)
+  note: text("note"),                           // Optional note (e.g., "Doctor appointment at 2pm")
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertStaffTimeOffSchema = createInsertSchema(staffTimeOff).omit({ id: true, createdAt: true, updatedAt: true });
+export type StaffTimeOff = typeof staffTimeOff.$inferSelect;
+export type InsertStaffTimeOff = z.infer<typeof insertStaffTimeOffSchema>;

@@ -229,6 +229,26 @@ async function getCachedStaffServiceMap(businessId: number): Promise<Map<number,
 }
 
 /**
+ * Check if a staff member has time off on a specific date.
+ * Returns true if they have an all-day time-off entry covering that date.
+ */
+async function isStaffOffOnDate(staffId: number, date: Date): Promise<boolean> {
+  const entries = await storage.getStaffTimeOffForDate(staffId, date);
+  return entries.some(t => t.allDay !== false);
+}
+
+/**
+ * Get all time-off entries for a staff member (for schedule display).
+ * Returns upcoming entries only (from today forward).
+ */
+async function getUpcomingTimeOff(staffId: number): Promise<any[]> {
+  const allEntries = await storage.getStaffTimeOff(staffId);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return allEntries.filter(e => new Date(e.endDate) >= now);
+}
+
+/**
  * Get appointments with date range limit for performance
  * Only fetches appointments for the next 30 days by default
  */
@@ -1258,6 +1278,13 @@ async function checkAvailability(
 
     // Check up to 14 days to find at least 5 available days
     while (availableDays.length < 5 && daysChecked < 14) {
+      // Skip this day if staff has time off (vacation, sick, etc.)
+      if (resolvedStaffId && await isStaffOffOnDate(resolvedStaffId, currentDate)) {
+        currentDate.setDate(currentDate.getDate() + 1);
+        daysChecked++;
+        continue;
+      }
+
       const result = await getAvailableSlotsForDay(
         businessId,
         currentDate,
@@ -1337,6 +1364,44 @@ async function checkAvailability(
       result: {
         available: false,
         error: 'That date has already passed. Would you like to check a future date?'
+      }
+    };
+  }
+
+  // Check if staff has time off on this date (vacation, sick, etc.)
+  if (resolvedStaffId && await isStaffOffOnDate(resolvedStaffId, date)) {
+    const displayDate = date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric'
+    });
+    // Find next available day for this staff member
+    let nextAvailable = '';
+    let checkDate = new Date(date);
+    for (let i = 1; i <= 14; i++) {
+      checkDate.setDate(checkDate.getDate() + 1);
+      if (!await isStaffOffOnDate(resolvedStaffId, checkDate)) {
+        const daysMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const dayName = daysMap[checkDate.getDay()];
+        // Also check regular schedule
+        if (staffHoursData.length > 0) {
+          const staffDay = staffHoursData.find(h => h.day === dayName);
+          if (staffDay?.isOff) continue;
+        } else {
+          const bizDay = businessHours.find(h => h.day === dayName);
+          if (bizDay?.isClosed) continue;
+        }
+        nextAvailable = checkDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+        break;
+      }
+    }
+    return {
+      result: {
+        available: false,
+        staffName: staffLabel,
+        date: displayDate,
+        staffOff: true,
+        nextAvailable: nextAvailable || undefined,
       }
     };
   }
@@ -1661,6 +1726,19 @@ async function bookAppointment(
   }
   const endTime = new Date(appointmentDate);
   endTime.setMinutes(endTime.getMinutes() + duration);
+
+  // Check if staff has time off on the booking date (vacation, sick, etc.)
+  if (resolvedStaffId && await isStaffOffOnDate(resolvedStaffId, parsedDate)) {
+    const staffLabel = staffMember ? staffMember.firstName : 'That team member';
+    const dateDisplay = parsedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    return {
+      result: {
+        success: false,
+        staffOff: true,
+        error: `${staffLabel} is off on ${dateDisplay}. Would you like to try a different date or book with another team member?`
+      }
+    };
+  }
 
   // Double-booking prevention: Check if the time slot is already taken (optimized query)
   const existingAppointments = await getAppointmentsOptimized(businessId, {
@@ -2173,9 +2251,27 @@ async function getStaffSchedule(
       }
     }
 
+    // Check for upcoming time off (vacation, sick days, etc.)
+    const upcomingTimeOff = await getUpcomingTimeOff(staffMember.id);
+    const timeOffInfo: string[] = [];
+    for (const entry of upcomingTimeOff.slice(0, 3)) { // Show up to 3 upcoming
+      const start = new Date(entry.startDate);
+      const end = new Date(entry.endDate);
+      const startStr = start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      if (start.toDateString() === end.toDateString()) {
+        timeOffInfo.push(`${startStr}${entry.reason ? ` (${entry.reason})` : ''}`);
+      } else {
+        const endStr = end.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        timeOffInfo.push(`${startStr} - ${endStr}${entry.reason ? ` (${entry.reason})` : ''}`);
+      }
+    }
+
     let message = `${staffMember.firstName} works ${workingDays.join(', ')}.`;
     if (daysOff.length > 0) {
       message += ` ${staffMember.firstName} is off on ${daysOff.join(' and ')}.`;
+    }
+    if (timeOffInfo.length > 0) {
+      message += ` ${staffMember.firstName} also has time off scheduled: ${timeOffInfo.join(', ')}.`;
     }
     message += ` Would you like to schedule an appointment with ${staffMember.firstName}?`;
 
@@ -2187,6 +2283,7 @@ async function getStaffSchedule(
         workingDays: workingDays,
         daysOff: daysOff,
         schedule: schedule,
+        upcomingTimeOff: timeOffInfo.length > 0 ? timeOffInfo : undefined,
         message: message
       }
     };

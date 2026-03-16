@@ -26,7 +26,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { UserPlus, Edit2, Trash2, Clock, Loader2, Calendar, Mail, Copy, Check, ExternalLink } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { UserPlus, Edit2, Trash2, Clock, Loader2, Calendar, Mail, Copy, Check, ExternalLink, CalendarOff, Plus, X } from "lucide-react";
 
 interface Staff {
   id: number;
@@ -60,7 +61,19 @@ interface StaffHours {
   isOff: boolean;
 }
 
+interface StaffTimeOff {
+  id: number;
+  staffId: number;
+  businessId: number;
+  startDate: string;
+  endDate: string;
+  reason?: string | null;
+  allDay: boolean;
+  note?: string | null;
+}
+
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const TIME_OFF_REASONS = ['Vacation', 'Sick', 'Personal', 'Training', 'Holiday', 'Other'];
 
 interface StaffScheduleManagerProps {
   businessId: number;
@@ -79,6 +92,14 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
   const [inviteEmail, setInviteEmail] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [lastInvite, setLastInvite] = useState<StaffInvite | null>(null);
+  const [timeOffDialogOpen, setTimeOffDialogOpen] = useState(false);
+  const [selectedStaffForTimeOff, setSelectedStaffForTimeOff] = useState<Staff | null>(null);
+  const [timeOffForm, setTimeOffForm] = useState({
+    startDate: '',
+    endDate: '',
+    reason: 'Vacation',
+    note: '',
+  });
 
   // Staff form state
   const [staffForm, setStaffForm] = useState({
@@ -246,6 +267,78 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
       toast({ title: 'Error', description: 'Failed to create invite', variant: 'destructive' });
     },
   });
+
+  // Fetch time-off entries for selected staff
+  const { data: timeOffEntries = [] } = useQuery({
+    queryKey: ['/api/staff/time-off', selectedStaffForTimeOff?.id],
+    queryFn: async () => {
+      if (!selectedStaffForTimeOff) return [];
+      const res = await apiRequest('GET', `/api/staff/${selectedStaffForTimeOff.id}/time-off`);
+      return res.json();
+    },
+    enabled: !!selectedStaffForTimeOff,
+  });
+
+  // Create time-off mutation
+  const createTimeOffMutation = useMutation({
+    mutationFn: async ({ staffId, data }: { staffId: number; data: typeof timeOffForm }) => {
+      const res = await apiRequest('POST', `/api/staff/${staffId}/time-off`, {
+        startDate: new Date(data.startDate + 'T00:00:00').toISOString(),
+        endDate: new Date(data.endDate + 'T23:59:59').toISOString(),
+        reason: data.reason,
+        note: data.note || null,
+        allDay: true,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/staff/time-off'] });
+      setTimeOffForm({ startDate: '', endDate: '', reason: 'Vacation', note: '' });
+      toast({ title: 'Success', description: 'Time off added. The AI receptionist will not book during this period.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to add time off', variant: 'destructive' });
+    },
+  });
+
+  // Delete time-off mutation
+  const deleteTimeOffMutation = useMutation({
+    mutationFn: async (timeOffId: number) => {
+      await apiRequest('DELETE', `/api/staff/time-off/${timeOffId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/staff/time-off'] });
+      toast({ title: 'Success', description: 'Time off removed' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to remove time off', variant: 'destructive' });
+    },
+  });
+
+  const openTimeOffDialog = (member: Staff) => {
+    setSelectedStaffForTimeOff(member);
+    setTimeOffForm({ startDate: '', endDate: '', reason: 'Vacation', note: '' });
+    setTimeOffDialogOpen(true);
+  };
+
+  const handleAddTimeOff = () => {
+    if (!selectedStaffForTimeOff || !timeOffForm.startDate || !timeOffForm.endDate) return;
+    createTimeOffMutation.mutate({ staffId: selectedStaffForTimeOff.id, data: timeOffForm });
+  };
+
+  const handleDeleteTimeOff = (id: number) => {
+    if (confirm('Remove this time off entry?')) {
+      deleteTimeOffMutation.mutate(id);
+    }
+  };
+
+  const formatTimeOffDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
 
   const openInviteDialog = (member: Staff) => {
     setInvitingStaff(member);
@@ -423,6 +516,10 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
                     <Button variant="ghost" size="sm" onClick={() => openHoursDialog(member)}>
                       <Clock className="h-4 w-4 mr-1" />
                       Schedule
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => openTimeOffDialog(member)}>
+                      <CalendarOff className="h-4 w-4 mr-1" />
+                      Time Off
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => openEditStaffDialog(member)}>
                       <Edit2 className="h-4 w-4" />
@@ -628,6 +725,137 @@ export function StaffScheduleManager({ businessId }: StaffScheduleManagerProps) 
                   Create Invite Link
                 </Button>
               )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Time Off Dialog */}
+        <Dialog open={timeOffDialogOpen} onOpenChange={setTimeOffDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>
+                {selectedStaffForTimeOff ? `${selectedStaffForTimeOff.firstName}'s Time Off` : 'Time Off'}
+              </DialogTitle>
+              <DialogDescription>
+                Block off dates when this team member is unavailable. The AI receptionist will not book appointments during these times.
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Add new time off form */}
+            <div className="space-y-3 py-2 border-b pb-4">
+              <Label className="text-sm font-medium">Add Time Off</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Start Date</Label>
+                  <Input
+                    type="date"
+                    value={timeOffForm.startDate}
+                    onChange={(e) => {
+                      setTimeOffForm({ ...timeOffForm, startDate: e.target.value });
+                      // Auto-set end date to same day if not set or before start
+                      if (!timeOffForm.endDate || e.target.value > timeOffForm.endDate) {
+                        setTimeOffForm(prev => ({ ...prev, startDate: e.target.value, endDate: e.target.value }));
+                      }
+                    }}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">End Date</Label>
+                  <Input
+                    type="date"
+                    value={timeOffForm.endDate}
+                    onChange={(e) => setTimeOffForm({ ...timeOffForm, endDate: e.target.value })}
+                    min={timeOffForm.startDate || new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Reason</Label>
+                  <Select
+                    value={timeOffForm.reason}
+                    onValueChange={(value) => setTimeOffForm({ ...timeOffForm, reason: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIME_OFF_REASONS.map(r => (
+                        <SelectItem key={r} value={r}>{r}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Note (optional)</Label>
+                  <Input
+                    value={timeOffForm.note}
+                    onChange={(e) => setTimeOffForm({ ...timeOffForm, note: e.target.value })}
+                    placeholder="e.g., Family trip"
+                  />
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleAddTimeOff}
+                disabled={!timeOffForm.startDate || !timeOffForm.endDate || createTimeOffMutation.isPending}
+              >
+                {createTimeOffMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-1" />
+                )}
+                Add Time Off
+              </Button>
+            </div>
+
+            {/* Existing time-off entries */}
+            <div className="space-y-2 max-h-[250px] overflow-y-auto">
+              {(timeOffEntries as StaffTimeOff[]).length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No time off scheduled. Add dates above when this team member will be unavailable.
+                </p>
+              ) : (
+                (timeOffEntries as StaffTimeOff[])
+                  .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+                  .map((entry: StaffTimeOff) => {
+                    const isPast = new Date(entry.endDate) < new Date();
+                    const isSameDay = new Date(entry.startDate).toDateString() === new Date(entry.endDate).toDateString();
+                    return (
+                      <div
+                        key={entry.id}
+                        className={`flex items-center justify-between p-2 rounded-lg border ${isPast ? 'opacity-50 bg-muted/30' : 'bg-muted/50'}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium">
+                            {isSameDay
+                              ? formatTimeOffDate(entry.startDate)
+                              : `${formatTimeOffDate(entry.startDate)} - ${formatTimeOffDate(entry.endDate)}`
+                            }
+                          </div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-2">
+                            {entry.reason && <Badge variant="outline" className="text-xs py-0 h-5">{entry.reason}</Badge>}
+                            {entry.note && <span className="truncate">{entry.note}</span>}
+                            {isPast && <Badge variant="secondary" className="text-xs py-0 h-5">Past</Badge>}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteTimeOff(entry.id)}
+                          disabled={deleteTimeOffMutation.isPending}
+                        >
+                          <X className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTimeOffDialogOpen(false)}>Done</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
