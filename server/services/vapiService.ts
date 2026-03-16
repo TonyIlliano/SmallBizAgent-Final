@@ -311,6 +311,22 @@ AUTOMOTIVE-SPECIFIC GUIDANCE:
   * Brake service: 2-3 hours
   * Major repairs: May need to leave the car
 - Ask if they need a ride or loaner vehicle for longer services
+
+CUSTOMER LINGO (what they say → what they mean):
+- "She's pulling to the right/left" → Alignment service
+- "Check engine light" / "CEL is on" → Diagnostic appointment
+- "Making a grinding noise" / "squealing when I brake" → Brake inspection
+- "Shaking at highway speed" / "wobbling" → Tire balance or alignment
+- "Won't turn over" / "won't crank" → Starter or battery issue, diagnostic
+- "Running rough" / "idling funny" / "sputtering" → Engine diagnostic
+- "Leaking something green/red/brown" → Fluid leak diagnostic
+- "Needs a tune-up" → General maintenance (spark plugs, filters, fluids)
+- "AC isn't blowing cold" / "heat doesn't work" → HVAC diagnostic
+- "Tires are bald" / "need new shoes" → Tire replacement
+- "Overheating" / "temp gauge is in the red" → Cooling system — urgent
+- "Burning smell" → Could be brakes, clutch, or oil leak — diagnostic
+- "Transmission is slipping" / "hard shifting" → Transmission diagnostic
+- "State inspection" / "emissions" → Inspection service
 `,
     'plumbing': `
 PLUMBING-SPECIFIC GUIDANCE:
@@ -328,6 +344,20 @@ PLUMBING-SPECIFIC GUIDANCE:
   * Water heater → Ask if there's no hot water vs leak vs strange noises
   * Running toilet → Usually quick fix, 30-60 min appointment
 - Always ask about access to the area (basement, crawl space, etc.)
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Slab leak" → Leak under the foundation — emergency/urgent
+- "Disposal is jammed" / "garbage disposal won't turn on" → Garbage disposal repair
+- "Toilet keeps running" / "won't stop running" → Running toilet repair (flapper/fill valve)
+- "Backed up" / "sewage coming up" → Drain/sewer backup — emergency
+- "Dripping faucet" / "faucet won't shut off" → Faucet repair or replacement
+- "No hot water" / "water is lukewarm" → Water heater issue
+- "Water pressure is low" / "barely a trickle" → Pressure issue diagnostic
+- "Pipe burst" / "water everywhere" → Emergency — shut off water, dispatch ASAP
+- "Toilet is rocking" / "wobbly toilet" → Toilet reset/wax ring replacement
+- "Smells like rotten eggs" / "sulfur smell" → Could be gas leak or drain issue — treat as urgent
+- "Sump pump isn't working" → Sump pump repair/replacement
+- "Water is brown/rusty" → Pipe corrosion or water heater sediment
 `,
     'hvac': `
 HVAC-SPECIFIC GUIDANCE:
@@ -345,6 +375,20 @@ HVAC-SPECIFIC GUIDANCE:
   * Weak airflow → Could be filter or duct issue
   * Strange smells → Safety concern, prioritize
   * High bills → Suggest efficiency inspection
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Short cycling" / "keeps turning on and off" → System cycling issue — diagnostic
+- "My unit is frozen" / "ice on the pipes" → AC freeze-up — turn off, schedule repair
+- "Blowing hot air" (in summer) → AC not cooling — diagnostic
+- "Blowing cold air" (in winter) → Furnace not heating — diagnostic
+- "Thermostat is blank" / "thermostat won't turn on" → Thermostat or power issue
+- "Weird smell from vents" / "musty smell" → Could be mold in ducts — duct inspection
+- "Pilot light keeps going out" → Furnace issue — diagnostic
+- "Loud banging when it kicks on" → Delayed ignition or duct expansion
+- "My bill doubled" / "electric bill is crazy" → Efficiency inspection
+- "Freon" / "needs a charge" / "needs refrigerant" → AC recharge / leak check
+- "Ductwork" / "some rooms are hot, some cold" → Duct inspection or zoning
+- "Annual tune-up" / "seasonal maintenance" → Maintenance appointment
 `,
     'salon': `
 SALON/BARBERSHOP-SPECIFIC GUIDANCE:
@@ -368,6 +412,20 @@ SALON/BARBERSHOP-SPECIFIC GUIDANCE:
 - Always mention:
   * Arrival time (suggest 5-10 min early)
   * The stylist's name when confirming the appointment
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Touch-up" / "just my roots" → Root color service
+- "Balayage" / "ombré" / "hand-painted highlights" → Color service (premium)
+- "Full foil" / "highlights" / "lowlights" → Foil color service
+- "Blowout" / "blow dry" → Styling/blowout service
+- "Trim" / "just a trim" / "clean up the ends" → Haircut (shorter appointment)
+- "Brazilian blowout" / "keratin" / "smoothing treatment" → Keratin/smoothing service
+- "Updo" / "special occasion" / "prom hair" / "wedding hair" → Formal styling
+- "Deep condition" / "treatment" / "my hair is fried" → Deep conditioning treatment
+- "Extensions" / "tape-ins" / "sew-in" → Extension service (allow extra time)
+- "Toner" / "gloss" / "my color is brassy" → Toner/gloss service
+- "Buzz cut" / "pixie cut" / "bob" → Haircut styles — book as haircut
+- "Split ends" / "damaged" → Haircut + possible treatment recommendation
 `,
     'barber': `
 BARBERSHOP-SPECIFIC GUIDANCE:
@@ -392,6 +450,20 @@ BARBERSHOP-SPECIFIC GUIDANCE:
   * The barber's name
   * Service and time
   * Suggest arriving 5 min early
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Lineup" / "line-up" / "edge-up" / "shape-up" → Edge-up/lineup service
+- "Fade" / "taper" / "taper fade" / "skin fade" / "mid fade" / "high fade" / "low fade" → Haircut (specify fade type in notes)
+- "Bald fade" / "zero on the sides" → Haircut with bald/skin fade
+- "Buzz cut" / "number 2 all around" → Haircut (clipper cut)
+- "Beard trim" / "just clean up the beard" / "line up the beard" → Beard trim service
+- "Hot towel shave" / "straight razor" / "clean shave" → Hot towel shave service
+- "Kid's cut" / "my son needs a cut" → Kids haircut
+- "Design" / "hair design" / "razor design" → Design/art service if offered
+- "Blow out" / "blow dry" → Styling after cut
+- "Wash" / "shampoo" → Shampoo service (usually included)
+- "I want it short on the sides, long on top" → Haircut — note the style preference
+- "Temp fade" / "temple fade" → Haircut with temple fade
 `,
     'electrical': `
 ELECTRICAL-SPECIFIC GUIDANCE:
@@ -409,6 +481,20 @@ ELECTRICAL-SPECIFIC GUIDANCE:
   * Emergency (sparks, burning, no power): Same day
   * Upgrades (new outlets, panel upgrades): Schedule normally
   * Troubleshooting: 1-2 hour diagnostic
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Outlet is dead" / "plug doesn't work" → Outlet troubleshooting
+- "Breaker keeps tripping" / "keeps blowing a fuse" → Circuit overload diagnostic
+- "Lights are flickering" / "dimming on and off" → Wiring issue — diagnostic
+- "Sparking" / "I saw a spark" → Urgent safety concern — prioritize
+- "Burning smell from outlet/panel" → Fire hazard — emergency, same day
+- "Need more outlets" / "not enough plugs" → Outlet installation
+- "Panel upgrade" / "need more circuits" / "fuse box" → Electrical panel upgrade
+- "GFCI" / "that outlet with the buttons" / "the reset button outlet" → GFCI outlet install/repair
+- "Ceiling fan install" / "want a fan put in" → Ceiling fan installation
+- "Hot tub hookup" / "EV charger" / "car charger install" → Dedicated circuit installation
+- "Whole house surge protector" → Surge protection installation
+- "Outdoor lighting" / "landscape lights" / "security lights" → Exterior electrical work
 `,
     'cleaning': `
 CLEANING SERVICE GUIDANCE:
@@ -426,6 +512,19 @@ CLEANING SERVICE GUIDANCE:
   * Ask about areas needing extra attention
   * Note any allergies or eco-friendly product preferences
   * Confirm access arrangements (key, code, someone home)
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Deep clean" / "top to bottom" / "spring cleaning" → Deep cleaning service
+- "Regular cleaning" / "maintenance clean" / "weekly/biweekly" → Recurring standard cleaning
+- "Move-in" / "move-out" / "turnover clean" → Move-in/move-out cleaning (deep)
+- "Post-construction" / "after renovation" → Construction cleanup (specialized)
+- "Just the basics" / "light clean" → Standard cleaning
+- "Organize" / "declutter" → Organization service (if offered), otherwise clarify scope
+- "Carpet cleaning" / "steam clean" → Carpet/upholstery service (if offered)
+- "Windows inside and out" → Window cleaning service
+- "Airbnb" / "rental turnover" / "between guests" → Short-term rental turnover cleaning
+- "Hoarder" / "heavy duty" → Heavy-duty cleaning — may need on-site quote
+- "Green products" / "non-toxic" / "eco-friendly" → Note: customer wants eco-friendly products
 `,
     'landscaping': `
 LANDSCAPING-SPECIFIC GUIDANCE:
@@ -474,6 +573,23 @@ IMPORTANT REMINDERS:
 - Many callers just want a quick estimate scheduled — don't over-question them
 - The free estimate is the primary conversion tool — always offer it
 - This business does NOT handle crew dispatch — only customer-facing scheduling and communication
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Mow" / "cut the grass" / "lawn needs cutting" → Mowing service
+- "Edging" / "weed whack" / "weed eat" / "string trim" → Edging/trimming service
+- "Mulch" / "need mulch laid" / "fresh mulch" → Mulching service
+- "Leaf cleanup" / "fall cleanup" / "leaves everywhere" → Leaf removal service
+- "Aeration" / "core aeration" / "lawn is compacted" → Aeration service
+- "Overseeding" / "seed the lawn" / "bare spots" → Overseeding service
+- "Sod" / "new grass" / "lay sod" → Sod installation
+- "Bush trimming" / "hedge trimming" / "shrubs are overgrown" → Shrub/hedge trimming
+- "Tree trimming" / "limbs hanging over" / "branches down" → Tree service
+- "Stump grinding" / "remove a stump" → Stump removal service
+- "Hardscaping" / "patio" / "retaining wall" / "pavers" → Hardscape project (estimate needed)
+- "French drain" / "yard is flooding" / "drainage issue" → Drainage solution
+- "Fertilize" / "weed control" / "lawn treatment" → Lawn treatment/fertilization
+- "Irrigation" / "sprinkler" / "sprinkler heads broken" → Irrigation repair/install
+- "Curb appeal" / "front yard makeover" → Landscape design — book estimate
 `,
     'construction': `
 CONSTRUCTION/CONTRACTOR GUIDANCE:
@@ -490,6 +606,21 @@ CONSTRUCTION/CONTRACTOR GUIDANCE:
   * On-site estimate for accurate pricing
   * Written quotes before work begins
   * Discuss timeline and milestones
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Punch list" / "touch-ups" / "small fixes" → Finishing/punch-out work
+- "Demo" / "tear out" / "gut it" → Demolition work
+- "Drywall" / "sheetrock" / "patch a hole" → Drywall repair/installation
+- "Remodel" / "renovation" / "redo the kitchen/bath" → Renovation project — schedule consultation
+- "Addition" / "build out" / "add a room" → Room addition — schedule consultation
+- "Deck" / "build a deck" / "patio" → Deck/outdoor construction
+- "Framing" / "structural" → Structural work
+- "Foundation crack" / "settling" → Foundation repair — urgent consultation
+- "Water damage" / "flood damage" / "mold" → Water damage restoration — urgent
+- "Siding" / "exterior" / "curb appeal" → Exterior renovation
+- "Permits" / "do I need a permit?" → Advise to discuss during consultation
+- "Load-bearing wall" / "open up the floor plan" → Structural consultation needed
+- "GC" / "general contractor" → They're looking for project management
 `,
     'medical': `
 MEDICAL/HEALTHCARE GUIDANCE:
@@ -508,6 +639,19 @@ MEDICAL/HEALTHCARE GUIDANCE:
   * Don't discuss medical details
   * Verify identity before sharing appointment info
   * Keep conversations professional
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Physical" / "annual physical" / "yearly checkup" → Wellness/annual exam
+- "Sick visit" / "I'm not feeling well" / "I think I have a cold/flu" → Sick visit (same-day if possible)
+- "Follow-up" / "check my results" / "lab results" → Follow-up appointment
+- "Referral" / "I need a referral" → Referral request — may need appointment or can sometimes handle by phone
+- "Prescription refill" / "need my meds refilled" → Prescription refill (may not need appointment)
+- "Pre-op" / "clearance" / "surgical clearance" → Pre-operative clearance appointment
+- "Shot" / "vaccine" / "flu shot" / "booster" → Immunization/vaccination appointment
+- "Blood work" / "labs" / "need blood drawn" → Lab work appointment
+- "Sports physical" / "school physical" → Sports/school physical exam
+- "Workers comp" / "work injury" → Work injury visit — note workers comp
+- "DOT physical" / "CDL physical" → DOT/CDL physical exam
 `,
     'dental': `
 DENTAL OFFICE GUIDANCE:
@@ -524,6 +668,20 @@ DENTAL OFFICE GUIDANCE:
   * Insurance accepted
   * New patient forms to fill out
   * Arrive 10-15 min early
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Cleaning" / "teeth cleaning" / "just a cleaning" → Hygiene/prophylaxis appointment
+- "Chipped my tooth" / "broke a tooth" / "tooth cracked" → Emergency — book urgently
+- "Crown fell off" / "lost my crown" / "cap came off" → Emergency — re-cement crown
+- "Toothache" / "tooth is killing me" / "throbbing" → Emergency/urgent — pain visit
+- "Filling" / "cavity" / "I have a cavity" → Restorative — filling appointment
+- "Whitening" / "bleaching" / "want whiter teeth" → Cosmetic whitening consultation
+- "Veneers" / "Invisalign" / "braces" / "straighten my teeth" → Cosmetic/ortho consultation
+- "Wisdom teeth" / "my wisdoms are coming in" → Consultation for extraction
+- "Root canal" / "I need a root canal" → Endodontic treatment appointment
+- "Dentures" / "partials" / "my dentures don't fit" → Denture consultation/adjustment
+- "Night guard" / "I grind my teeth" / "TMJ" / "jaw pain" → TMJ/bruxism consultation
+- "Deep cleaning" / "scaling" → Periodontal scaling and root planing
 `,
     'veterinary': `
 VETERINARY GUIDANCE:
@@ -541,6 +699,21 @@ VETERINARY GUIDANCE:
 - For emergencies:
   * If after hours, provide emergency vet info
   * Reassure owner and get them in ASAP
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Shots" / "vaccines" / "puppy shots" / "kitten shots" → Vaccination appointment
+- "Spay" / "neuter" / "fix" / "get fixed" → Spay/neuter surgery consultation
+- "Checkup" / "wellness exam" / "annual" → Wellness exam
+- "Not eating" / "won't eat" / "off their food" → Sick visit
+- "Limping" / "favoring a leg" / "hurt their paw" → Injury exam
+- "Throwing up" / "vomiting" / "diarrhea" → Sick visit (urgent if persistent)
+- "Itching" / "scratching" / "hot spots" / "skin issue" → Dermatology/allergy visit
+- "Ate something" / "got into the trash" / "ate chocolate" → Potential poisoning — URGENT
+- "Lump" / "found a bump" / "growth" → Exam for mass/growth
+- "Dental" / "bad breath" / "teeth cleaning" → Dental cleaning (requires anesthesia)
+- "Heartworm" / "flea and tick" / "prevention" → Preventive care/medication refill
+- "Boarding" / "kennel" → Boarding reservation (if offered)
+- "Microchip" → Microchip implantation appointment
 `,
     'fitness': `
 FITNESS/GYM GUIDANCE:
@@ -558,6 +731,20 @@ FITNESS/GYM GUIDANCE:
   * Best times to see the facility
   * What to bring
   * Parking information
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Sign up" / "join" / "membership" → Membership inquiry
+- "Tour" / "check out the gym" / "look around" → Facility tour appointment
+- "Personal trainer" / "PT" / "one-on-one" → Personal training session/consultation
+- "Group class" / "spin" / "yoga" / "Pilates" / "HIIT" → Group fitness class booking
+- "Day pass" / "guest pass" / "trial" → Trial/guest pass
+- "Freeze my membership" / "put it on hold" → Membership hold request
+- "Cancel" / "cancel my membership" → Cancellation request — follow retention protocol
+- "Locker" / "towel service" → Amenity inquiry
+- "Pool" / "lap swim" / "swim lanes" → Pool/aquatics schedule
+- "Kids program" / "child care" / "kids' club" → Youth program or childcare inquiry
+- "Body comp" / "InBody" / "assessment" → Fitness assessment appointment
+- "Rehab" / "physical therapy" / "recovering from injury" → Note limitations, suggest PT consultation
 `,
     'restaurant': `
 RESTAURANT AI ORDERING & RESERVATIONS:
@@ -625,6 +812,19 @@ If a customer calls to CANCEL a reservation:
 3. Confirm the cancellation politely.
 
 If no times are available, suggest trying another date or calling back.
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Pickup" / "to-go" / "carryout" / "takeout" → Pickup order
+- "Delivery" / "can you deliver?" → Delivery order (if offered)
+- "Dine-in" / "eat there" / "table for" → Reservation
+- "Party" / "large group" / "event" / "private dining" → Large party reservation or catering inquiry
+- "Catering" / "cater an event" → Catering inquiry
+- "What's good?" / "what do you recommend?" → Ask about popular items, suggest best sellers
+- "Allergies" / "gluten-free" / "dairy-free" / "nut allergy" → Note allergy — check menu items carefully
+- "Kids menu" / "children's" → Kids menu section
+- "Happy hour" / "drink specials" → Happy hour menu/hours
+- "Gift card" / "gift certificate" → Gift card inquiry
+- "Reservation" / "book a table" / "table for tonight" → Reservation booking
 `,
     'retail': `
 RETAIL GUIDANCE:
@@ -641,6 +841,18 @@ RETAIL GUIDANCE:
   * Know current sales/promotions
   * Mention online ordering options
   * Provide store location details
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Do you have it in stock?" / "is it available?" → Inventory check
+- "Hold it for me" / "can you put it aside?" → Item hold/reserve request
+- "Return" / "exchange" / "bring it back" → Return/exchange — share policy
+- "Price match" / "I saw it cheaper at..." → Price match policy inquiry
+- "Layaway" / "put it on hold" → Layaway program (if offered)
+- "Gift wrap" / "it's a gift" → Gift wrapping service
+- "Pickup" / "curbside" / "buy online pickup" → Order pickup
+- "Personal shopper" / "need help picking" → Personal shopping service (if offered)
+- "Sale" / "discount" / "any deals?" → Current promotions inquiry
+- "Custom order" / "special order" / "can you order it?" → Special order request
 `,
     'professional': `
 PROFESSIONAL SERVICES GUIDANCE:
@@ -658,6 +870,19 @@ PROFESSIONAL SERVICES GUIDANCE:
   * Urgency level
   * Any deadlines to be aware of
   * Documents they should bring
+
+CUSTOMER LINGO (what they say → what they mean):
+- "Consult" / "consultation" / "initial meeting" → Initial consultation appointment
+- "Follow-up" / "check in" / "update meeting" → Follow-up appointment
+- "Taxes" / "file my taxes" / "tax prep" → Tax preparation appointment (accounting)
+- "Audit" / "IRS letter" / "got a notice" → Urgent — tax issue consultation
+- "Will" / "estate planning" / "trust" → Estate planning consultation (legal)
+- "Closing" / "real estate closing" → Closing appointment (legal/real estate)
+- "Showing" / "view a property" / "open house" → Property viewing (real estate)
+- "Contract review" / "look over a contract" → Document review appointment (legal)
+- "Bookkeeping" / "monthly books" / "reconciliation" → Ongoing bookkeeping service
+- "Retainer" / "ongoing services" → Retainer/ongoing engagement discussion
+- "Second opinion" → New client consultation — note they're seeking second opinion
 `,
     'general': `
 GENERAL SERVICE GUIDANCE:
@@ -668,6 +893,12 @@ GENERAL SERVICE GUIDANCE:
 - Ask clarifying questions to properly categorize the request
 - When in doubt, offer to have someone call them back
 - If team members are listed above, ask the customer if they have a preference for who they'd like to see
+
+CUSTOMER LINGO TIPS:
+- Pay attention to informal language — customers rarely use official service names
+- If they describe a problem rather than naming a service, match it to the closest available service
+- When unsure what service they need, ask: "Can you tell me a bit more about what you're looking for?" then match to available services
+- Include customer's own words in booking notes so the business knows exactly what was discussed
 `
   };
 
