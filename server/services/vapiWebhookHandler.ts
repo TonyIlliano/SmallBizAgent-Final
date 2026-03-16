@@ -200,6 +200,35 @@ async function getCachedBusiness(businessId: number): Promise<any | undefined> {
 }
 
 /**
+ * Batch-fetch staff-service mappings for all active staff in a business.
+ * Returns a Map<staffId, serviceId[]>. Cached for 5 minutes.
+ * Replaces the N+1 pattern of calling getStaffServices(s.id) in a loop.
+ */
+async function getCachedStaffServiceMap(businessId: number): Promise<Map<number, number[]>> {
+  const cached = dataCache.get<Map<number, number[]>>('staffServiceMap', businessId);
+  if (cached) return cached;
+
+  const staff = await getCachedStaff(businessId);
+  const activeStaff = staff.filter((s: any) => s.active !== false);
+
+  // Fetch all staff-service mappings in parallel (one query per staff, but all at once)
+  const results = await Promise.all(
+    activeStaff.map(async (s: any) => ({
+      staffId: s.id,
+      serviceIds: await storage.getStaffServices(s.id),
+    }))
+  );
+
+  const map = new Map<number, number[]>();
+  for (const { staffId, serviceIds } of results) {
+    map.set(staffId, serviceIds);
+  }
+
+  dataCache.set('staffServiceMap', businessId, map);
+  return map;
+}
+
+/**
  * Get appointments with date range limit for performance
  * Only fetches appointments for the next 30 days by default
  */
@@ -1098,8 +1127,10 @@ async function checkAvailability(
   // Staff-service compatibility check:
   // If a specific staff member AND service are requested, verify the staff can do that service.
   // Backward compat: if staff has NO service assignments, they can do ALL services.
+  // Uses batched cached map instead of N sequential queries.
   if (resolvedStaffId && serviceId) {
-    const staffServiceIds = await storage.getStaffServices(resolvedStaffId);
+    const staffServiceMap = await getCachedStaffServiceMap(businessId);
+    const staffServiceIds = staffServiceMap.get(resolvedStaffId) || [];
     if (staffServiceIds.length > 0 && !staffServiceIds.includes(serviceId)) {
       // This staff member can't do this service — suggest eligible alternatives
       const allStaff = await getCachedStaff(businessId);
@@ -1110,7 +1141,7 @@ async function checkAvailability(
       // Find staff who either are in the eligible list OR have no assignments at all (backward compat)
       const eligibleStaffWithFallback: typeof allStaff = [];
       for (const s of allStaff.filter(st => st.active && st.id !== resolvedStaffId)) {
-        const theirServices = await storage.getStaffServices(s.id);
+        const theirServices = staffServiceMap.get(s.id) || [];
         if (theirServices.length === 0 || theirServices.includes(serviceId)) {
           eligibleStaffWithFallback.push(s);
         }
@@ -1552,10 +1583,10 @@ async function bookAppointment(
   }
 
   // Staff-service compatibility check before booking:
-  // If a staff member is selected AND a service is resolved, verify the staff can perform it.
-  // Backward compat: staff with NO service assignments can do ALL services.
+  // Uses batched cached map instead of N sequential queries.
   if (resolvedStaffId && serviceId) {
-    const staffServiceIds = await storage.getStaffServices(resolvedStaffId);
+    const staffServiceMap = await getCachedStaffServiceMap(businessId);
+    const staffServiceIds = staffServiceMap.get(resolvedStaffId) || [];
     if (staffServiceIds.length > 0 && !staffServiceIds.includes(serviceId)) {
       const serviceLookup = services.find(s => s.id === serviceId);
       const serviceLabel = serviceLookup?.name || 'that service';
@@ -1565,7 +1596,7 @@ async function bookAppointment(
       const allStaff = await getCachedStaff(businessId);
       const eligibleStaffWithFallback: typeof allStaff = [];
       for (const s of allStaff.filter(st => st.active && st.id !== resolvedStaffId)) {
-        const theirServices = await storage.getStaffServices(s.id);
+        const theirServices = staffServiceMap.get(s.id) || [];
         if (theirServices.length === 0 || theirServices.includes(serviceId)) {
           eligibleStaffWithFallback.push(s);
         }
@@ -3022,10 +3053,11 @@ async function recognizeCaller(
     };
   }
 
-  // Fetch appointments + business info in parallel (both needed for greeting)
-  const [appointments, recogBusiness] = await Promise.all([
+  // Fetch appointments + business info + services in parallel (all needed for greeting)
+  const [appointments, recogBusiness, allServices] = await Promise.all([
     storage.getAppointmentsByCustomerId(customer.id),
     getCachedBusiness(businessId),
+    getCachedServices(businessId),
   ]);
   const now = new Date();
 
@@ -3055,13 +3087,11 @@ async function recognizeCaller(
     const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: recogTimezone, weekday: 'long', month: 'long', day: 'numeric' });
     const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: recogTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
 
-    // Look up service name for the appointment
+    // Look up service name from cached services list (no extra DB query)
     let serviceName = '';
     if (nextApt.serviceId) {
-      try {
-        const service = await storage.getService(nextApt.serviceId);
-        if (service) serviceName = service.name;
-      } catch { /* non-critical */ }
+      const service = allServices.find((s: any) => s.id === nextApt.serviceId);
+      if (service) serviceName = service.name;
     }
     const serviceNote = serviceName ? ` for ${serviceName}` : '';
 

@@ -1448,6 +1448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "serviceIds must be an array" });
       }
       await storage.setStaffServices(staffId, serviceIds);
+      dataCache.invalidate(staffMember.businessId, 'staffServiceMap');
       res.json({ success: true, serviceIds });
     } catch (error) {
       console.error('Error setting staff services:', error);

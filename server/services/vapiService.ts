@@ -1379,6 +1379,7 @@ export async function createAssistantForBusiness(
       provider: 'openai',
       model: 'gpt-5-mini', // Smarter than gpt-4o-mini, still cost-effective for voice
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
+      maxTokens: 250, // Cap response length — voice should be 1-2 sentences, not essays
       systemPrompt: systemPrompt,
       functions: [
         ...functions,
@@ -1403,6 +1404,18 @@ export async function createAssistantForBusiness(
       style: 0.2, // Less style processing = faster
       useSpeakerBoost: true,
       optimizeStreamingLatency: 4, // Maximum latency optimization (ElevenLabs turbo)
+    },
+    // START SPEAKING PLAN: Controls when the AI starts responding after the user stops talking.
+    // Default onNoPunctuationSeconds is 1.5s — WAY too slow for phone conversations.
+    // This single config is the biggest latency win: cuts perceived response time from ~1.5s to ~0.5s.
+    startSpeakingPlan: {
+      waitSeconds: 0.4, // Overall minimum wait before speaking (natural pause, not robotic)
+      smartEndpointingEnabled: false, // Disabled — we use transcription endpointing instead (faster)
+      transcriptionEndpointingPlan: {
+        onPunctuationSeconds: 0.1, // After punctuation (period, question mark) — respond fast
+        onNoPunctuationSeconds: 0.5, // After speech without punctuation — THE KEY SETTING (was 1.5s default!)
+        onNumberSeconds: 0.4, // After numbers (phone numbers, dates) — slightly longer to let them finish
+      },
     },
     firstMessage: configGreeting,
     serverUrl: `${BASE_URL}/api/vapi/webhook`,
@@ -1565,14 +1578,16 @@ export async function updateAssistant(
         name: `${business.name} Receptionist`,
         transcriber: {
           provider: 'deepgram',
-          language: 'multi', // Auto-detect language (supports English, Spanish, and more)
+          model: 'nova-2', // Was missing in update path — must match create path
+          language: 'multi',
         },
         model: {
           provider: 'openai',
-          model: 'gpt-5-mini', // Smarter than gpt-4o-mini, still cost-effective for voice
+          model: 'gpt-5-mini',
+          temperature: 0.6,
+          maxTokens: 250, // Cap response length for voice
           systemPrompt: systemPrompt,
           functions: functions,
-          // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
           tools: nativeTools,
         },
         voice: {
@@ -1583,6 +1598,15 @@ export async function updateAssistant(
           style: 0.2,
           useSpeakerBoost: true,
           optimizeStreamingLatency: 4,
+        },
+        startSpeakingPlan: {
+          waitSeconds: 0.4,
+          smartEndpointingEnabled: false,
+          transcriptionEndpointingPlan: {
+            onPunctuationSeconds: 0.1,
+            onNoPunctuationSeconds: 0.5, // Default was 1.5s — the biggest hidden latency killer
+            onNumberSeconds: 0.4,
+          },
         },
         firstMessage: configGreeting,
         recordingEnabled: configRecordingEnabled,
