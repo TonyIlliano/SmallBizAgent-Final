@@ -1450,8 +1450,8 @@ export async function createAssistantForBusiness(
       "Take care",
       "Goodbye",
       "Bye bye",
-      "Thanks for calling",
-      "Thank you for calling",
+      "Thanks for calling, have a great day",
+      "Thank you for calling, have a great day",
       // Spanish equivalents
       "Que tenga un buen día",
       "Que tenga un excelente día",
