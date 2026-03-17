@@ -3269,17 +3269,17 @@ async function recognizeCaller(
     const tomorrowStr = getLocalDateString(new Date(now.getTime() + 86400000), recogTimezone);
 
     if (aptLocalDate === todayStr) {
-      greeting = `Hi ${customer.firstName}! I see you have an appointment${serviceNote} today at ${timeStr}. Are you calling about that?`;
+      greeting = `Hey ${customer.firstName}! I see you've got your ${serviceName || 'appointment'} today at ${timeStr}. Are you calling about that?`;
       context = 'appointment_today';
     } else if (aptLocalDate === tomorrowStr) {
-      greeting = `Hi ${customer.firstName}! I see you have an appointment${serviceNote} tomorrow at ${timeStr}. Is that what you're calling about?`;
+      greeting = `Hey ${customer.firstName}! You've got your ${serviceName || 'appointment'} tomorrow at ${timeStr}. What can I do for you?`;
       context = 'appointment_tomorrow';
     } else {
-      greeting = `Hi ${customer.firstName}! I see your next appointment${serviceNote} is on ${dateStr} at ${timeStr}.`;
+      greeting = `Hey ${customer.firstName}! I see your next ${serviceName || 'appointment'} is ${dateStr} at ${timeStr}. What can I do for you?`;
       context = 'has_upcoming';
     }
   } else if (recent.length > 0) {
-    greeting = `Hi ${customer.firstName}! Welcome back.`;
+    greeting = `Hey ${customer.firstName}! What can I do for you?`;
     context = 'returning_customer';
   }
 
@@ -3316,6 +3316,20 @@ async function recognizeCaller(
   // Build a concise narrative summary combining all intelligence into natural language
   // This gives the AI everything it needs in a format it can weave into conversation
   const summaryParts: string[] = [];
+
+  // Upcoming appointment (crucial context — AI references this when relevant)
+  if (upcoming.length > 0) {
+    const nextApt = upcoming[0];
+    const aptDate = new Date(nextApt.startDate);
+    const aptTimeStr = aptDate.toLocaleTimeString('en-US', { timeZone: recogTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
+    const aptDateStr = aptDate.toLocaleDateString('en-US', { timeZone: recogTimezone, weekday: 'long', month: 'long', day: 'numeric' });
+    let svcName = '';
+    if (nextApt.serviceId) {
+      const svc = allServices.find((s: any) => s.id === nextApt.serviceId);
+      if (svc) svcName = ` for ${svc.name}`;
+    }
+    summaryParts.push(`Next appointment${svcName}: ${aptDateStr} at ${aptTimeStr}`);
+  }
 
   // Visit history
   if (insights?.totalVisits && insights.totalVisits > 1) {
@@ -3365,10 +3379,10 @@ async function recognizeCaller(
     summaryParts.push(`Past notes: ${conversationalContext}`);
   }
 
-  // Cap summary to ~150 chars — less tokens = faster LLM response
+  // Build summary — include enough context for natural conversation
   let summary = summaryParts.length > 0 ? summaryParts.join('. ') + '.' : '';
-  if (summary.length > 200) {
-    summary = summary.substring(0, 197) + '...';
+  if (summary.length > 350) {
+    summary = summary.substring(0, 347) + '...';
   }
 
   return {
