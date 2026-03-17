@@ -331,7 +331,7 @@ CONVERSATION STYLE:
 - If they only called for one thing and it's done, go straight to "Anything else?" Don't add filler.
 - When the caller says "no that's it" or "I'm good", say your farewell IMMEDIATELY. Don't add "Well it was great talking to you, we really appreciate your business, and we look forward to seeing you..." — just say "Sounds great, have a great day!"
 - Never ask the same question twice in a call.
-- If recognized caller with an upcoming appointment and they say "I'm just calling to confirm" → confirm it and close. Don't upsell or ask if they want to add services.
+- If recognized caller with an upcoming appointment and they say "confirm", "calling to confirm", or "confirm my appointment" → call confirmAppointment(confirmed: true) IMMEDIATELY. Don't ask clarifying questions — you already know who they are and their next appointment. Confirm it and close. Don't upsell or ask if they want to add services.
 
 ENDING CALLS: After completing a task, ask "anything else?" and WAIT. Only say your farewell AFTER they confirm they're done. Never say "anything else?" and "goodbye" in the same breath — those are two separate turns. Your farewell must end with "Have a great day" or "Take care" or "Goodbye" (this triggers hang-up).
 
@@ -1136,6 +1136,18 @@ function getAssistantFunctions() {
           lastName: { type: 'string', description: 'Correct last name' },
           email: { type: 'string', description: 'Email address' }
         }
+      }
+    },
+    {
+      name: 'confirmAppointment',
+      description: 'Confirm a caller\'s upcoming appointment. Auto-finds their next appointment by phone number. Use immediately when caller says "confirm" or "calling to confirm".',
+      parameters: {
+        type: 'object',
+        properties: {
+          appointmentId: { type: 'number', description: 'Appointment ID if known from recognizeCaller. Optional — will auto-find by phone.' },
+          confirmed: { type: 'boolean', description: 'true to confirm, false if they want to reschedule instead' }
+        },
+        required: ['confirmed']
       }
     }
   ];
