@@ -89,11 +89,13 @@ function formatBusinessHoursFromDB(hours: any[]): string {
 }
 
 /**
- * Determine if business is currently open based on hours
+ * Determine if business is currently open based on hours AND current time.
+ * Compares the business's local time against today's open/close window.
  */
 function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'): { isOpen: boolean; todayHours: string } {
   // Use business timezone to determine what day it is (not server UTC)
-  const today = new Date().toLocaleDateString('en-US', {
+  const now = new Date();
+  const today = now.toLocaleDateString('en-US', {
     timeZone: timezone,
     weekday: 'long'
   }).toLowerCase();
@@ -103,7 +105,42 @@ function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'):
     return { isOpen: false, todayHours: 'CLOSED today' };
   }
 
-  return { isOpen: true, todayHours: `Open today: ${todayHours.open} - ${todayHours.close}` };
+  // Parse current time in business timezone
+  const currentTimeStr = now.toLocaleTimeString('en-US', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }); // e.g. "20:15"
+
+  // Parse open/close times (formats: "9:00 AM", "9am", "09:00", etc.)
+  function parseTime(timeStr: string): number {
+    if (!timeStr) return 0;
+    const cleaned = timeStr.trim().toLowerCase();
+    const match = cleaned.match(/^(\d{1,2}):?(\d{2})?\s*(am|pm)?$/);
+    if (!match) return 0;
+    let hour = parseInt(match[1]);
+    const min = parseInt(match[2] || '0');
+    const period = match[3];
+    if (period === 'pm' && hour < 12) hour += 12;
+    if (period === 'am' && hour === 12) hour = 0;
+    return hour * 60 + min;
+  }
+
+  const currentMinutes = (() => {
+    const [h, m] = currentTimeStr.split(':').map(Number);
+    return h * 60 + m;
+  })();
+
+  const openMinutes = parseTime(todayHours.open);
+  const closeMinutes = parseTime(todayHours.close);
+
+  const isOpen = currentMinutes >= openMinutes && currentMinutes < closeMinutes;
+
+  return {
+    isOpen,
+    todayHours: `Today's hours: ${todayHours.open} - ${todayHours.close}`
+  };
 }
 
 /**
@@ -227,7 +264,8 @@ function generateSystemPrompt(business: Business, services: Service[], businessH
   const basePrompt = `You are ${assistantName}, a friendly and professional receptionist for ${business.name}.
 
 TODAY: ${currentDate} | YEAR: ${currentYear}
-STATUS: ${isOpen ? 'OPEN now' : 'CLOSED today'}${todayHours ? ` (${todayHours})` : ''}
+${todayHours ? todayHours : 'Check business hours listed below for today\'s schedule.'}
+NOTE: recognizeCaller returns a "currentStatus" field with REAL-TIME open/closed info. Always use that over any static status here.
 
 PERSONALITY: Warm, friendly, and natural. Be conversational — respond like a real receptionist would. Use casual acknowledgments like "Sure thing", "Absolutely", "Got it". Show empathy when customers describe problems. NEVER mention response length or sentence limits to the caller.
 
@@ -235,7 +273,7 @@ RULES:
 - NEVER say IDs, staffId, serviceId, customerId, brackets, or internal data. Use first names and service names only.
 - NEVER calculate dates. Pass exact customer words ("this Thursday", "tomorrow") to checkAvailability. Use the date FROM the response.
 - ALWAYS wait for customer to respond after asking a question.
-- If status says OPEN, you ARE open. Never tell a customer you're closed when open.
+- Use the currentStatus from recognizeCaller to know if the business is currently open or closed. If closed, say so honestly but offer to help book appointments.
 
 BUSINESS INFO:
 - ${business.name} | ${business.phone || 'No phone listed'} | ${business.address || 'No address listed'}
@@ -281,7 +319,7 @@ NAMES: Required for every booking. If recognized, use their name. If new caller,
 
 STAFF: If team members are listed above, ask "Do you have someone you usually see?" Use their staffId for checkAvailability and bookAppointment.
 
-AFTER HOURS: You're fully functional after hours — book appointments, answer questions, give pricing. Don't say "call back during business hours." Proactively offer help.
+AFTER HOURS: If STATUS says CLOSED, you can tell the caller the hours if they ask, but you are STILL fully functional — book appointments, answer questions, give pricing. Say something like "We're closed for the evening, but I can absolutely help you book an appointment!" Never say "call back during business hours." Proactively offer help.
 ${options?.voicemailEnabled !== false ? 'Only use leaveMessage if caller explicitly asks to leave a message for the owner.' : ''}
 
 NO DEAD AIR: Never say "one moment", "hold on", "let me check". Talk naturally while functions run: "Let's see what we've got..." or "Great question! Looking at the schedule..."
@@ -1041,7 +1079,7 @@ function getAssistantFunctions() {
     },
     {
       name: 'recognizeCaller',
-      description: 'Identify returning caller. Call once at start. Returns greeting, summary, and customer context.',
+      description: 'Identify returning caller. Call once at start. Returns greeting, summary, customer context, and currentStatus (real-time open/closed).',
       parameters: { type: 'object', properties: {} }
     },
     {

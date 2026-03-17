@@ -3126,17 +3126,74 @@ async function scheduleCallback(
 }
 
 /**
+ * Parse a time string like "9:00 AM", "9am", "14:00" into minutes since midnight
+ */
+function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const cleaned = timeStr.trim().toLowerCase();
+  const match = cleaned.match(/^(\d{1,2}):?(\d{2})?\s*(am|pm)?$/);
+  if (!match) return 0;
+  let hour = parseInt(match[1]);
+  const min = parseInt(match[2] || '0');
+  const period = match[3];
+  if (period === 'pm' && hour < 12) hour += 12;
+  if (period === 'am' && hour === 12) hour = 0;
+  return hour * 60 + min;
+}
+
+/**
+ * Get real-time open/closed status for a business (called per-call, not cached in prompt)
+ */
+async function getCurrentBusinessStatus(businessId: number): Promise<string> {
+  try {
+    const [business, hours] = await Promise.all([
+      getCachedBusiness(businessId),
+      getCachedBusinessHours(businessId),
+    ]);
+    const timezone = business?.timezone || 'America/New_York';
+    const now = new Date();
+    const today = now.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'long' }).toLowerCase();
+    const todayHours = hours?.find((h: any) => h.day === today);
+
+    if (!todayHours || todayHours.isClosed || (!todayHours.open && !todayHours.close)) {
+      return `CLOSED today. Hours resume next open day.`;
+    }
+
+    // Parse current time in business timezone
+    const currentTimeStr = now.toLocaleTimeString('en-US', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false });
+    const [curH, curM] = currentTimeStr.split(':').map(Number);
+    const currentMinutes = curH * 60 + curM;
+
+    const openMin = parseTimeToMinutes(todayHours.open);
+    const closeMin = parseTimeToMinutes(todayHours.close);
+
+    if (currentMinutes >= openMin && currentMinutes < closeMin) {
+      return `OPEN now (today's hours: ${todayHours.open} - ${todayHours.close})`;
+    } else {
+      return `CLOSED right now (today's hours were ${todayHours.open} - ${todayHours.close}). You can still book appointments and answer questions.`;
+    }
+  } catch (err) {
+    console.error(`[getCurrentBusinessStatus] Error for business ${businessId}:`, err);
+    return 'Hours unavailable';
+  }
+}
+
+/**
  * Recognize the caller at the start of the call
  */
 async function recognizeCaller(
   businessId: number,
   callerPhone?: string
 ): Promise<FunctionResult> {
+  // Get real-time open/closed status (not stale from prompt)
+  const currentStatus = await getCurrentBusinessStatus(businessId);
+
   if (!callerPhone) {
     console.log(`[recognizeCaller] No callerPhone for business ${businessId} — cannot identify caller`);
     return {
       result: {
         recognized: false,
+        currentStatus,
         message: 'How can I help you today?'
       }
     };
@@ -3151,6 +3208,7 @@ async function recognizeCaller(
       result: {
         recognized: false,
         isNewCaller: true,
+        currentStatus,
         message: 'How can I help you today?'
       }
     };
@@ -3317,6 +3375,7 @@ async function recognizeCaller(
       context,
       greeting,
       summary,
+      currentStatus,
     }
   };
 }
