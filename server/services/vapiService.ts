@@ -1649,7 +1649,7 @@ export async function updateAssistant(
           similarityBoost: 0.75,
           style: 0.2,
           useSpeakerBoost: true,
-          optimizeStreamingLatency: 4,
+          optimizeStreamingLatency: 3, // High optimization but avoids first-word clipping at level 4
         },
         startSpeakingPlan: {
           waitSeconds: 0.4,
