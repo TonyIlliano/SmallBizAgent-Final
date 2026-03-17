@@ -59,8 +59,8 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
     }
   }
 
-  // Pre-filter to only SMS-eligible customers
-  const eligibleCustomers = customers.filter(c => c.phone && c.smsOptIn);
+  // Pre-filter to only marketing-eligible customers (rebooking is a promotional message)
+  const eligibleCustomers = customers.filter(c => c.phone && c.marketingOptIn);
 
   for (const customer of eligibleCustomers) {
     try {
@@ -107,10 +107,10 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
       const activeConv = await storage.getActiveSmsConversation(customer.phone!, businessId);
       if (activeConv) continue;
 
-      // Re-check smsOptIn right before sending (customer may have opted out during loop iteration)
+      // Re-check marketingOptIn right before sending (customer may have opted out during loop iteration)
       const freshCustomer = await storage.getCustomer(customer.id);
-      if (!freshCustomer?.phone || !freshCustomer.smsOptIn) {
-        console.log(`[RebookingAgent] Skipping SMS — customer ${customer.id} has not opted in (re-check)`);
+      if (!freshCustomer?.phone || !freshCustomer.marketingOptIn) {
+        console.log(`[RebookingAgent] Skipping SMS — customer ${customer.id} has not opted into marketing (re-check)`);
         continue;
       }
 
@@ -184,9 +184,9 @@ export async function handleRebookingReply(
       import('./orchestrationService').then(mod => {
         mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
       }).catch(() => {});
-      try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
     }
-    return { replyMessage: `You've been unsubscribed from SMS messages. Reply START to re-subscribe. - ${business.name}` };
+    return { replyMessage: `You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
   }
 
   if (intent === 'positive') {

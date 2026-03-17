@@ -38,7 +38,7 @@ import { isAgentEnabled, getAgentConfig } from './agentSettingsService';
 // ── Test Data ──
 
 const BUSINESS = { id: 1, name: 'Test Barber', phone: '+15551234567', bookingSlug: 'test-barber' };
-const CUSTOMER = { id: 10, firstName: 'Jane', phone: '+15559876543', smsOptIn: true };
+const CUSTOMER = { id: 10, firstName: 'Jane', phone: '+15559876543', smsOptIn: true, marketingOptIn: true };
 const COMPLETED_APPOINTMENT = { id: 100, businessId: 1, customerId: 10, status: 'completed' };
 const COMPLETED_JOB = { id: 200, businessId: 1, customerId: 10, status: 'completed', title: 'Haircut' };
 const DEFAULT_CONFIG = {
@@ -97,12 +97,12 @@ describe('followUpAgentService', () => {
       expect(mockLogAgentAction).not.toHaveBeenCalled();
     });
 
-    it('does nothing when customer has not opted into SMS', async () => {
+    it('does nothing when customer has not opted into marketing', async () => {
       (isAgentEnabled as any).mockResolvedValue(true);
       (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
       mockStorage.getBusiness.mockResolvedValue(BUSINESS);
       mockStorage.getAppointment.mockResolvedValue(COMPLETED_APPOINTMENT);
-      mockStorage.getCustomer.mockResolvedValue({ ...CUSTOMER, smsOptIn: false });
+      mockStorage.getCustomer.mockResolvedValue({ ...CUSTOMER, marketingOptIn: false });
 
       await triggerFollowUp('appointment', 100, 1);
 

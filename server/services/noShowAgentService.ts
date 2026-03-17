@@ -42,8 +42,8 @@ export async function triggerNoShowSms(
     if (!customer?.phone) {
       return { sent: false, reason: 'customer has no phone number' };
     }
-    if (!customer.smsOptIn) {
-      return { sent: false, reason: 'customer has not opted into SMS' };
+    if (!customer.marketingOptIn) {
+      return { sent: false, reason: 'customer has not opted into marketing SMS' };
     }
 
     // Idempotency: don't send twice for the same appointment
@@ -137,7 +137,7 @@ export async function handleNoShowReply(
     bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
   };
 
-  // Handle STOP requests — opt the customer out immediately (TCPA)
+  // Handle STOP requests — opt out of marketing only (TCPA)
   if (intent === 'stop') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     // Release engagement lock via orchestrator
@@ -145,9 +145,9 @@ export async function handleNoShowReply(
       import('./orchestrationService').then(mod => {
         mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
       }).catch(() => {});
-      try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
     }
-    return { replyMessage: `You've been unsubscribed from SMS messages. Reply START to re-subscribe. - ${business.name}` };
+    return { replyMessage: `You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
   }
 
   if (intent === 'positive') {

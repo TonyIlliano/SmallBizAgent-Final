@@ -46,7 +46,7 @@ import { isAgentEnabled, getAgentConfig } from './agentSettingsService';
 // ── Test Data ──
 
 const BUSINESS = { id: 1, name: 'Test Barber', phone: '+15551234567', bookingSlug: 'test-barber' };
-const CUSTOMER = { id: 10, firstName: 'John', phone: '+15559876543', smsOptIn: true };
+const CUSTOMER = { id: 10, firstName: 'John', phone: '+15559876543', smsOptIn: true, marketingOptIn: true };
 const APPOINTMENT = { id: 100, businessId: 1, customerId: 10, startDate: new Date('2025-03-15T14:00:00Z'), status: 'no_show' };
 const DEFAULT_CONFIG = {
   messageTemplate: 'Hey {customerName}, we missed you at your {appointmentTime} appointment with {businessName}. Want to reschedule? Reply YES.',
@@ -155,17 +155,17 @@ describe('noShowAgentService', () => {
       expect(result.reason).toBe('customer has no phone number');
     });
 
-    it('skips when customer has not opted into SMS (TCPA)', async () => {
+    it('skips when customer has not opted into marketing SMS (TCPA)', async () => {
       (isAgentEnabled as any).mockResolvedValue(true);
       (getAgentConfig as any).mockResolvedValue(DEFAULT_CONFIG);
       mockStorage.getBusiness.mockResolvedValue(BUSINESS);
       mockStorage.getAppointment.mockResolvedValue(APPOINTMENT);
-      mockStorage.getCustomer.mockResolvedValue({ ...CUSTOMER, smsOptIn: false });
+      mockStorage.getCustomer.mockResolvedValue({ ...CUSTOMER, marketingOptIn: false });
 
       const result = await triggerNoShowSms(100, 1);
 
       expect(result.sent).toBe(false);
-      expect(result.reason).toBe('customer has not opted into SMS');
+      expect(result.reason).toBe('customer has not opted into marketing SMS');
     });
 
     it('prevents duplicate SMS (idempotency)', async () => {
@@ -300,7 +300,7 @@ describe('noShowAgentService', () => {
       expect(result).not.toBeNull();
       expect(result!.replyMessage).toContain('unsubscribed');
       expect(mockStorage.updateSmsConversation).toHaveBeenCalledWith(50, { state: 'resolved' });
-      expect(mockStorage.updateCustomer).toHaveBeenCalledWith(10, { smsOptIn: false });
+      expect(mockStorage.updateCustomer).toHaveBeenCalledWith(10, { marketingOptIn: false });
     });
   });
 

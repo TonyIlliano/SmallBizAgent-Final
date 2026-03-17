@@ -75,7 +75,7 @@ async function processBusinessEstimates(businessId: number): Promise<void> {
       // the same value within the same loop iteration.
 
       const customer = await storage.getCustomer(quote.customerId);
-      if (!customer?.phone || !customer.smsOptIn) continue;
+      if (!customer?.phone || !customer.marketingOptIn) continue;
 
       const templateIdx = Math.min(attemptCount, templates.length - 1);
       const template = templates[templateIdx] || templates[0];

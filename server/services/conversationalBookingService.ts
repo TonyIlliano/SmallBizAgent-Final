@@ -183,7 +183,15 @@ export async function handleBookingConversation(
 
   // Quick decline check (before calling OpenAI)
   const upperMsg = messageBody.trim().toUpperCase();
-  const quickDeclineWords = ['STOP', 'CANCEL', 'NEVERMIND', 'NEVER MIND', 'FORGET IT'];
+  const stopWords = ['STOP', 'UNSUBSCRIBE', 'END', 'QUIT'];
+  if (stopWords.includes(upperMsg)) {
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    if (customer?.id) {
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
+    }
+    return { replyMessage: `You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
+  }
+  const quickDeclineWords = ['CANCEL', 'NEVERMIND', 'NEVER MIND', 'FORGET IT'];
   if (quickDeclineWords.some(w => upperMsg === w)) {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     return { replyMessage: `No problem! We'll be here when you're ready. - ${business.name}` };
@@ -609,13 +617,13 @@ async function handleConfirmingBooking(
   // Use centralized word-boundary-aware reply parser
   const replyIntent = classifyReply(messageBody);
 
-  // Handle STOP during booking flow
+  // Handle STOP during booking flow — opt out of marketing only
   if (replyIntent === 'stop') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     if (customer?.id) {
-      try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
     }
-    return { replyMessage: `You've been unsubscribed from SMS messages. Reply START to re-subscribe. - ${business.name}` };
+    return { replyMessage: `You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
   }
 
   // Also check for change-of-mind words that don't map to negative

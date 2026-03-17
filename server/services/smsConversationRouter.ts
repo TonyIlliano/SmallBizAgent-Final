@@ -23,11 +23,11 @@ export async function routeConversationReply(
 ): Promise<{ replyMessage: string } | null> {
   // ── STOP/Unsubscribe handling (TCPA compliance) ──
   // Intercept STOP requests before routing to any agent.
-  // This ensures opt-outs are ALWAYS honored regardless of agent type or conversation state.
+  // STOP opts out of MARKETING only — transactional (reminders, confirmations) still go through.
   if (isStopRequest(messageBody)) {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     if (customer?.id) {
-      try { await storage.updateCustomer(customer.id, { smsOptIn: false }); } catch {}
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
     }
     await logAgentAction({
       businessId,
@@ -40,7 +40,7 @@ export async function routeConversationReply(
     });
     const business = await storage.getBusiness(businessId);
     const businessName = business?.name || 'us';
-    return { replyMessage: `You've been unsubscribed from SMS messages from ${businessName}. Reply START to re-subscribe.` };
+    return { replyMessage: `You've been unsubscribed from ${businessName} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
   }
 
   // Route conversations in active booking flow to the conversational booking handler

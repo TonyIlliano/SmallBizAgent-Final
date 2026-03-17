@@ -119,9 +119,9 @@ export async function sendReviewRequestSms(
       return { success: false, error: 'Customer not found or has no phone number' };
     }
 
-    // TCPA compliance: only send SMS to customers who opted in
-    if (!customer.smsOptIn) {
-      return { success: false, error: 'Customer has not opted in to SMS (TCPA compliance)' };
+    // TCPA compliance: review requests are promotional — check marketingOptIn
+    if (!customer.marketingOptIn) {
+      return { success: false, error: 'Customer has not opted in to marketing SMS (TCPA compliance)' };
     }
 
     // Get business info
@@ -356,13 +356,13 @@ export async function sendReviewRequestForCompletedJob(
       return { success: false, error: 'Customer not found' };
     }
 
-    // Prefer SMS if customer has phone AND opted in, otherwise try email
-    if (customer.phone && customer.smsOptIn) {
+    // Prefer SMS if customer has phone AND opted into marketing, otherwise try email
+    if (customer.phone && customer.marketingOptIn) {
       return await sendReviewRequestSms(businessId, job.customerId, jobId);
     } else if (customer.email) {
       return await sendReviewRequestEmail(businessId, job.customerId, jobId);
-    } else if (customer.phone && !customer.smsOptIn) {
-      return { success: false, error: 'Customer has not opted in to SMS and has no email' };
+    } else if (customer.phone && !customer.marketingOptIn) {
+      return { success: false, error: 'Customer has not opted in to marketing SMS and has no email' };
     } else {
       return { success: false, error: 'Customer has no contact information' };
     }

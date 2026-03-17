@@ -50,7 +50,7 @@ export async function triggerFollowUp(
     if (!customerId) return;
 
     const customer = await storage.getCustomer(customerId);
-    if (!customer?.phone || !customer.smsOptIn) return;
+    if (!customer?.phone || !customer.marketingOptIn) return;
 
     // Check if we already queued follow-ups for this entity (idempotency)
     const existingLogs = await storage.getAgentActivityLogs(businessId, { agentType: 'follow_up' });
@@ -141,7 +141,7 @@ async function processBusinessFollowUps(businessId: number): Promise<void> {
       // Send thank-you if enabled, not yet sent, and delay has elapsed
       if (config.enableThankYou && !thankYouSent && (now - queuedAt >= thankYouDelayMs)) {
         const customer = await storage.getCustomer(customerId);
-        if (customer?.phone && customer.smsOptIn) {
+        if (customer?.phone && customer.marketingOptIn) {
           const templateVars = buildTemplateVars(customer, business);
           const message = fillTemplate(config.thankYouTemplate, templateVars);
           await sendSms(customer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
@@ -162,7 +162,7 @@ async function processBusinessFollowUps(businessId: number): Promise<void> {
       if (config.enableUpsell && !upsellSent && (now - queuedAt >= upsellDelayMs)) {
         // Re-check customer opt-in (they may have opted out since thank-you)
         const freshCustomer = await storage.getCustomer(customerId);
-        if (freshCustomer?.phone && freshCustomer.smsOptIn) {
+        if (freshCustomer?.phone && freshCustomer.marketingOptIn) {
           const templateVars = buildTemplateVars(freshCustomer, business);
           if (templateVars.bookingLink) {
             const message = fillTemplate(config.upsellTemplate, templateVars);

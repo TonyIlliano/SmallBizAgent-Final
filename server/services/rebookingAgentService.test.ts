@@ -49,7 +49,7 @@ import { isAgentEnabled, getAgentConfig } from './agentSettingsService';
 // ── Test Data ──
 
 const BUSINESS = { id: 1, name: 'Test Salon', phone: '+15551234567', bookingSlug: 'test-salon' };
-const CUSTOMER = { id: 10, firstName: 'Alice', phone: '+15559876543', smsOptIn: true };
+const CUSTOMER = { id: 10, firstName: 'Alice', phone: '+15559876543', smsOptIn: true, marketingOptIn: true };
 const DEFAULT_CONFIG = {
   defaultIntervalDays: 42,
   serviceIntervals: {},
@@ -128,7 +128,7 @@ describe('rebookingAgentService', () => {
       expect(result).not.toBeNull();
       expect(result!.replyMessage).toContain('unsubscribed');
       expect(mockStorage.updateSmsConversation).toHaveBeenCalledWith(50, { state: 'resolved' });
-      expect(mockStorage.updateCustomer).toHaveBeenCalledWith(10, { smsOptIn: false });
+      expect(mockStorage.updateCustomer).toHaveBeenCalledWith(10, { marketingOptIn: false });
     });
 
     it('asks for clarification on ambiguous reply', async () => {

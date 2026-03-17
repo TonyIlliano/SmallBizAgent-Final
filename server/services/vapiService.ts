@@ -1442,8 +1442,9 @@ export async function createAssistantForBusiness(
     transcriber: {
       provider: 'deepgram',
       model: 'nova-2', // Latest Deepgram model — fastest + most accurate
-      language: 'multi', // Auto-detect language (supports English, Spanish, and more)
+      language: 'en', // English-only — faster, more reliable barge-in recovery than 'multi'
     },
+    backgroundDenoisingEnabled: true, // Helps Deepgram filter background noise and focus on voice
     voice: {
       provider: '11labs',
       voiceId: configVoiceId,
@@ -1451,7 +1452,7 @@ export async function createAssistantForBusiness(
       similarityBoost: 0.75,
       style: 0.2, // Less style processing = faster
       useSpeakerBoost: true,
-      optimizeStreamingLatency: 4, // Maximum latency optimization (ElevenLabs turbo)
+      optimizeStreamingLatency: 3, // High optimization but avoids first-word clipping at level 4
     },
     // START SPEAKING PLAN: Controls when the AI starts responding after the user stops talking.
     // Default onNoPunctuationSeconds is 1.5s — WAY too slow for phone conversations.
@@ -1469,7 +1470,7 @@ export async function createAssistantForBusiness(
     serverUrl: `${BASE_URL}/api/vapi/webhook`,
     recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
-    silenceTimeoutSeconds: 20, // End call after 20s silence — saves minutes without cutting off slow speakers // End call after 30s silence to conserve minutes
+    silenceTimeoutSeconds: 30, // End call after 30s silence — enough buffer if STT briefly drops audio
     responseDelaySeconds: 0.1, // Near-instant response — natural enough for voice
     llmRequestDelaySeconds: 0, // No LLM delay — respond as fast as possible
     numWordsToInterruptAssistant: 2, // Allow natural interruptions without triggering on filler words
@@ -1628,9 +1629,10 @@ export async function updateAssistant(
         name: `${business.name} Receptionist`,
         transcriber: {
           provider: 'deepgram',
-          model: 'nova-2', // Was missing in update path — must match create path
-          language: 'multi',
+          model: 'nova-2',
+          language: 'en', // English-only — faster, more reliable barge-in recovery than 'multi'
         },
+        backgroundDenoisingEnabled: true,
         model: {
           provider: 'openai',
           model: 'gpt-5-mini',
@@ -1660,7 +1662,7 @@ export async function updateAssistant(
         },
         firstMessage: configGreeting,
         recordingEnabled: configRecordingEnabled,
-        silenceTimeoutSeconds: 20, // End call after 20s silence — saves minutes without cutting off slow speakers
+        silenceTimeoutSeconds: 30, // End call after 30s silence — enough buffer if STT briefly drops audio
         responseDelaySeconds: 0.1,
         llmRequestDelaySeconds: 0,
         numWordsToInterruptAssistant: 2,

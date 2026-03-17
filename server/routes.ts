@@ -4650,29 +4650,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bodyTrimmed = (Body || '').trim().toUpperCase();
 
       // ── TCPA: Handle STOP/UNSUBSCRIBE keywords ──
+      // STOP opts out of MARKETING messages only (agents, promos, review requests).
+      // Transactional messages (appointment reminders, confirmations, invoices) still go through
+      // because those are expected service communications the customer needs.
+      // We do NOT add to the suppression list — that blocks ALL sends at the Twilio layer.
       if (['STOP', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'].includes(bodyTrimmed)) {
         if (customer) {
           await storage.updateCustomer(customer.id, {
-            smsOptIn: false,
             marketingOptIn: false,
           });
-          console.log(`[SMS] Customer ${customer.id} opted out via STOP keyword`);
-        }
-        // Add to global SMS suppression list
-        try {
-          const { pool } = await import("./db");
-          await pool.query(
-            `INSERT INTO sms_suppression_list (phone_number, business_id, reason, source, created_at)
-             VALUES ($1, $2, 'opt_out', 'stop_keyword', NOW())
-             ON CONFLICT (phone_number, business_id) DO UPDATE SET reason = 'opt_out', source = 'stop_keyword', updated_at = NOW()`,
-            [From, businessId]
-          );
-          console.log(`[SMS] Added ${From} to suppression list for business ${businessId}`);
-        } catch (suppressionErr) {
-          console.error('[SMS] Failed to add to suppression list:', suppressionErr);
+          console.log(`[SMS] Customer ${customer.id} opted out of marketing via STOP keyword (transactional SMS still active)`);
         }
         const twiml = new twilio.twiml.MessagingResponse();
-        twiml.message(`You have been unsubscribed from ${business.name} messages. Reply START to re-subscribe.`);
+        twiml.message(`You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe to all messages.`);
         res.type('text/xml');
         return res.send(twiml.toString());
       }
@@ -4689,16 +4679,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           console.log(`[SMS] Customer ${customer.id} re-opted in via START keyword`);
         }
-        // Remove from global SMS suppression list
+        // Also remove from suppression list if they were added previously (legacy cleanup)
         try {
           const { pool } = await import("./db");
           await pool.query(
             `DELETE FROM sms_suppression_list WHERE phone_number = $1 AND business_id = $2`,
             [From, businessId]
           );
-          console.log(`[SMS] Removed ${From} from suppression list for business ${businessId}`);
         } catch (suppressionErr) {
-          console.error('[SMS] Failed to remove from suppression list:', suppressionErr);
+          // Non-critical — suppression list is no longer used for STOP
         }
         const twiml = new twilio.twiml.MessagingResponse();
         twiml.message(`You're subscribed to ${business.name} updates! Reply STOP to opt out. Msg & data rates may apply.`);
