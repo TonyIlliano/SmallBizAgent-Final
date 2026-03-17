@@ -4718,6 +4718,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.send(twiml.toString());
       }
 
+      // ── Handle CONFIRM keyword (from appointment reminders) ──
+      if (bodyTrimmed === 'CONFIRM' && customer) {
+        try {
+          // Find their next upcoming scheduled appointment
+          const appointments = await storage.getAppointmentsByCustomerId(customer.id);
+          const now = new Date();
+          const upcoming = appointments
+            .filter((apt: any) => new Date(apt.startDate) > now && (apt.status === 'scheduled' || apt.status === 'confirmed'))
+            .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+          if (upcoming.length > 0) {
+            const nextApt = upcoming[0];
+            // Mark as confirmed
+            await storage.updateAppointment(nextApt.id, { status: 'confirmed' });
+            const aptDate = new Date(nextApt.startDate);
+            const dateStr = aptDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+            const timeStr = aptDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`Your appointment on ${dateStr} at ${timeStr} is confirmed! See you then. - ${business.name}`);
+            console.log(`[SMS] CONFIRM keyword: confirmed appointment ${nextApt.id} for customer ${customer.id}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          } else {
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`Thanks for reaching out! We don't see any upcoming appointments for you. Call us at ${business.twilioPhoneNumber || business.phone || 'our number'} to book. - ${business.name}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          }
+        } catch (confirmErr) {
+          console.error('[SMS] Error handling CONFIRM:', confirmErr);
+        }
+      }
+
       // ── Handle BIRTHDAY text-in (e.g., "BIRTHDAY 03-15" or "BIRTHDAY March 15") ──
       const birthdayMatch = (Body || '').trim().match(/^birthday\s+(\d{1,2})[\/\-](\d{1,2})$/i) ||
                             (Body || '').trim().match(/^birthday\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})$/i);

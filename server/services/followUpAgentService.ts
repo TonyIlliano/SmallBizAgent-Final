@@ -144,7 +144,7 @@ async function processBusinessFollowUps(businessId: number): Promise<void> {
         if (customer?.phone && customer.smsOptIn) {
           const templateVars = buildTemplateVars(customer, business);
           const message = fillTemplate(config.thankYouTemplate, templateVars);
-          await sendSms(customer.phone, message, undefined, businessId);
+          await sendSms(customer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
           await logAgentAction({
             businessId,
             agentType: 'follow_up',
@@ -166,7 +166,7 @@ async function processBusinessFollowUps(businessId: number): Promise<void> {
           const templateVars = buildTemplateVars(freshCustomer, business);
           if (templateVars.bookingLink) {
             const message = fillTemplate(config.upsellTemplate, templateVars);
-            await sendSms(freshCustomer.phone, message, undefined, businessId);
+            await sendSms(freshCustomer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
             await logAgentAction({
               businessId,
               agentType: 'follow_up',

@@ -72,7 +72,7 @@ export async function triggerNoShowSms(
       bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
     });
 
-    await sendSms(customer.phone, message, undefined, businessId);
+    await sendSms(customer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
 
     // Create conversation for reply tracking
     const expirationHours = config.expirationHours ?? 24;
