@@ -28,12 +28,15 @@ function canSendSms(customer: any, isMarketing: boolean = false): boolean {
   return customer.smsOptIn === true;
 }
 
-// TCPA compliance: Standard SMS footer — ALL customer SMS include opt-out
+// TCPA compliance: SMS footer
+// - Marketing/promotional SMS: MUST include opt-out language
+// - Transactional SMS (confirmations, reminders): opt-out NOT required per TCPA
+//   (covered by the one-time welcome message when customer first opts in)
 function getSmsFooter(isMarketing: boolean = false): string {
   if (isMarketing) {
     return '\n\nReply STOP to opt out. Msg & data rates may apply.';
   }
-  return '\n\nReply STOP to unsubscribe.';
+  return ''; // Transactional — no footer needed (welcome message covers opt-out disclosure)
 }
 
 // Helper to format currency
@@ -1091,6 +1094,44 @@ export async function sendReservationConfirmation(reservationId: number, busines
   }
 }
 
+/**
+ * Send one-time SMS opt-in welcome message (TCPA compliance).
+ * Sent when a customer first opts into SMS — covers opt-out disclosure
+ * so individual transactional messages don't need "Reply STOP" footers.
+ */
+export async function sendSmsOptInWelcome(customerId: number, businessId: number): Promise<void> {
+  try {
+    const customer = await storage.getCustomer(customerId);
+    if (!customer?.phone) return;
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    // Check if we already sent a welcome message to this customer
+    const existingLogs = await storage.getNotificationLogs(businessId, 100);
+    const alreadySent = existingLogs.some(
+      (log: any) => log.customerId === customerId && log.type === 'sms_opt_in_welcome' && log.status === 'sent'
+    );
+    if (alreadySent) return;
+
+    const message = `Welcome to ${business.name}! You'll receive appointment confirmations & reminders via text. Msg & data rates may apply. Msg frequency varies. Reply HELP for help, STOP to cancel.`;
+
+    await twilioService.sendSms(customer.phone, message, undefined, businessId);
+    await storage.createNotificationLog({
+      businessId,
+      customerId,
+      type: 'sms_opt_in_welcome',
+      channel: 'sms',
+      recipient: customer.phone,
+      message,
+      status: 'sent',
+    });
+    console.log(`[Notification] SMS opt-in welcome sent to customer ${customerId}`);
+  } catch (error) {
+    console.error(`[Notification] Failed to send SMS opt-in welcome for customer ${customerId}:`, error);
+  }
+}
+
 export default {
   sendAppointmentConfirmation,
   sendAppointmentReminder,
@@ -1103,4 +1144,5 @@ export default {
   sendQuoteConvertedNotification,
   sendQuoteFollowUpNotification,
   sendReservationConfirmation,
+  sendSmsOptInWelcome,
 };

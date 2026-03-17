@@ -340,6 +340,12 @@ router.post("/book/:slug", async (req, res) => {
         smsOptInDate: validatedData.customer.smsOptIn ? new Date() : undefined,
         smsOptInMethod: validatedData.customer.smsOptIn ? 'booking_form' : undefined,
       });
+      // Send TCPA welcome SMS if opted in
+      if (validatedData.customer.smsOptIn === true && customer) {
+        import('../services/notificationService').then(ns => {
+          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(() => {});
+        }).catch(() => {});
+      }
     } else {
       // Update existing customer info + consent if given
       const updateData: any = {
@@ -352,7 +358,14 @@ router.post("/book/:slug", async (req, res) => {
         updateData.smsOptInDate = new Date();
         updateData.smsOptInMethod = 'booking_form';
       }
+      const wasOptedIn = customer.smsOptIn;
       customer = await storage.updateCustomer(customer.id, updateData);
+      // Send welcome SMS if newly opted in
+      if (!wasOptedIn && validatedData.customer.smsOptIn === true && customer) {
+        import('../services/notificationService').then(ns => {
+          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(() => {});
+        }).catch(() => {});
+      }
     }
 
     // Prevent duplicate bookings — check if this customer already has an active appointment today
@@ -929,6 +942,12 @@ router.post("/book/:slug/reserve", async (req, res) => {
         smsOptInDate: validatedData.customer.smsOptIn ? new Date() : undefined,
         smsOptInMethod: validatedData.customer.smsOptIn ? 'booking_form' : undefined,
       });
+      // Send TCPA welcome SMS if opted in
+      if (validatedData.customer.smsOptIn === true && customer) {
+        import('../services/notificationService').then(ns => {
+          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(() => {});
+        }).catch(() => {});
+      }
     } else {
       const updateData: any = {
         firstName: validatedData.customer.firstName,

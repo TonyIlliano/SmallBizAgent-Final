@@ -1568,8 +1568,13 @@ async function bookAppointment(
           phone: phone,
           email: params.customerEmail || '',
           address: '',
-          notes: 'Created via AI phone receptionist'
+          notes: 'Created via AI phone receptionist',
+          smsOptIn: true, // Caller provided phone by calling — opt into transactional SMS
         });
+        // Send one-time TCPA opt-in welcome message (fire-and-forget)
+        import('./notificationService').then(ns => {
+          ns.sendSmsOptInWelcome(customer!.id, businessId).catch(() => {});
+        }).catch(() => {});
       } catch (customerError: any) {
         console.error('Failed to create customer:', {
           error: customerError.message,
