@@ -1597,7 +1597,7 @@ export async function updateAssistant(
           provider: 'openai',
           model: 'gpt-5-mini',
           temperature: 0.6,
-          maxTokens: 250, // Cap response length for voice
+          maxTokens: 350, // Cap response length for voice — prevents rambling while allowing natural responses
           systemPrompt: systemPrompt,
           functions: functions,
           tools: nativeTools,
@@ -1635,8 +1635,8 @@ export async function updateAssistant(
           "Take care",
           "Goodbye",
           "Bye bye",
-          "Thanks for calling",
-          "Thank you for calling",
+          "Thanks for calling, have a great day",
+          "Thank you for calling, have a great day",
           "Que tenga un buen día",
           "Que tenga un excelente día",
           "Gracias por llamar",
