@@ -77,10 +77,11 @@ export function startReminderScheduler(businessId: number): void {
 
   console.log(`Starting reminder scheduler for business ${businessId}`);
 
-  // Run immediately on start
-  withReentryGuard(`reminder-${businessId}`, () => runReminderCheck(businessId));
+  // Do NOT run immediately on start — prevents duplicate reminders on every deploy/restart.
+  // The dedup check in reminderService is a safety net, but skipping the immediate run
+  // avoids unnecessary DB queries and SMS sends on every Railway deploy.
 
-  // Then run every hour
+  // Run every hour (first run happens ~1 hour after deploy, not immediately)
   const intervalId = setInterval(() => {
     withReentryGuard(`reminder-${businessId}`, () => runReminderCheck(businessId));
   }, 60 * 60 * 1000); // Every hour

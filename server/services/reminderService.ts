@@ -1,5 +1,8 @@
 import { storage } from "../storage";
 import twilioService from "./twilioService";
+import { db } from "../db";
+import { notificationLog } from "../../shared/schema";
+import { and, eq, gte } from "drizzle-orm";
 
 interface ReminderResult {
   appointmentId: number;
@@ -17,6 +20,29 @@ export async function sendAppointmentReminder(
   businessId: number
 ): Promise<ReminderResult> {
   try {
+    // Deduplication: check if a reminder was already sent for this appointment in the last 20 hours
+    const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000);
+    const existing = await db.select({ id: notificationLog.id }).from(notificationLog)
+      .where(and(
+        eq(notificationLog.businessId, businessId),
+        eq(notificationLog.referenceType, 'appointment'),
+        eq(notificationLog.referenceId, appointmentId),
+        eq(notificationLog.type, 'appointment_reminder'),
+        eq(notificationLog.status, 'sent'),
+        gte(notificationLog.sentAt, twentyHoursAgo)
+      ))
+      .limit(1);
+
+    if (existing.length > 0) {
+      console.log(`[Reminder] Skipping appointment ${appointmentId} — reminder already sent recently`);
+      return {
+        appointmentId,
+        customerPhone: '',
+        status: 'skipped',
+        message: 'Reminder already sent for this appointment'
+      };
+    }
+
     // Get appointment details
     const appointment = await storage.getAppointment(appointmentId);
     if (!appointment) {
@@ -92,6 +118,24 @@ export async function sendAppointmentReminder(
     try {
       const result = await twilioService.sendSms(customer.phone, message, undefined, businessId);
       console.log(`Reminder sent to ${customer.phone} for appointment ${appointmentId}`);
+
+      // Log to notification_log for deduplication on restart
+      try {
+        await storage.createNotificationLog({
+          businessId,
+          customerId: appointment.customerId,
+          type: 'appointment_reminder',
+          channel: 'sms',
+          recipient: customer.phone,
+          message,
+          status: 'sent',
+          referenceType: 'appointment',
+          referenceId: appointmentId,
+        });
+      } catch (logErr) {
+        console.error(`[Reminder] Failed to log notification for appointment ${appointmentId}:`, logErr);
+      }
+
       return {
         appointmentId,
         customerPhone: customer.phone,
