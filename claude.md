@@ -552,8 +552,37 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `bbea37c` | Fix Vapi webhook auth: allow requests when Vapi has no server secret configured |
 | `3cbd1d5` | Fix staff schedule gaps (merge with business hours for uncovered days) + fix reschedule SMS not sending (customer phone extraction in tool-calls path) |
 | `a39f168` | Improve Vapi speed + intelligence: eliminate startup getStaffMembers call, reduce delays, static imports, parallel queries in recognizeCaller |
+| `bd1d547` | Update claude.md with Vapi performance improvements |
+| `86cc744` | Upgrade Vapi AI model from gpt-4o-mini to gpt-5-mini |
+| `205d213` | Fix Vapi saying IDs aloud, wrong dates, and reduce latency |
+| `07597a2` | Redesign Vapi call flow for smooth, cohesive conversations |
+| `5ef1561` | Fix Mike G. name display and reschedule SMS not sending |
+| `478be29` | Fix premature hang-up: separate "anything else?" from farewell |
+| `bb62246` | Tighten call ending: immediate farewell when caller says bye |
+| `4f24d4c` | Optimize Vapi: voice settings, transcriber, latency, log cleanup |
+| `c815a65` | Add vertical-specific terminology dictionaries to all 15 industry prompts |
+| `c4da52d` | Optimize Vapi latency: startSpeakingPlan, maxTokens, batch queries |
+| `9ca3666` | Fix services hallucination + strengthen caller recognition |
+| `1048657` | Fix call not hanging up: broaden endCallPhrases to catch common farewells |
+| `73c5d38` | Optimize Vapi for saving minutes: efficiency prompting + shorter silence timeout |
+| `13dba13` | Add staff time-off/vacation blocking with Vapi AI integration |
+| `f5c7332` | Fix Stripe subscription lifecycle bugs + improve onboarding completion |
+| `f55c94d` | Fix trial expiration scheduler deprovisioning admin/founder businesses |
+| `16c14cc` | Change trial expiration to 30-day grace period model (keep number, disable AI only) |
+| `5b4ea21` | Fix deprovision failing on already-released Twilio numbers (stale SID) |
+| `7a7b601` | Fix admin provisioning: full Twilio+Vapi+phone in one step, protect from scheduler |
+| `91aafb9` | Fix Refresh Assistant: always connect phone to Vapi after updating |
+| `c22f866` | Fix immediate hang-up: endCallPhrases matched the greeting |
+| `e5de90f` | Fix AI telling callers to be brief + increase maxTokens to 350 |
+| `1319c19` | Fix prompt leakage: remove all sentence-length instructions from system prompt |
+| `e371f7d` | Fix create/update drift: endCallPhrases and maxTokens in update path |
+| `aedce79` | Add real-time open/closed status to every call via recognizeCaller |
+| `e388caf` | Fix duplicate appointment reminders on every deploy/restart |
+| `643ae0b` | SMS compliance: add CONFIRM handler + TCPA opt-out to all customer SMS |
+| `8ed6485` | TCPA compliance: opt-in welcome SMS + proper footer strategy |
+| `9163e10` | Fix STOP handler + Vapi call quality: STOP only opts out of marketing, switch Deepgram to English-only |
 
-### Uncommitted changes (current session):
+### Recent changes (committed):
 
 #### Stripe Subscription Lifecycle Fixes (Revenue-Critical)
 - **Goal**: Fix 3 critical bugs in the subscription lifecycle that could cause revenue loss or resource leaks.
@@ -597,13 +626,59 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/services/vapiService.ts` — **Industry prompt conflicts fixed**: Removed `getStaffMembers` instructions from salon, barber, and general industry prompts (staff is pre-loaded in prompt, so these conflicted with "do NOT call getStaffMembers at start").
 - `server/services/vapiService.ts` — **Vertical-specific terminology dictionaries** added to all 15 industry prompts (automotive, plumbing, HVAC, salon, barber, electrical, cleaning, landscaping, construction, medical, dental, veterinary, fitness, restaurant, retail, professional, general). Each prompt now has a `CUSTOMER LINGO` section mapping common slang/jargon to the correct service or action (e.g., barbershop "lineup"/"shape-up" → edge-up service, automotive "she's pulling to the right" → alignment, HVAC "short cycling" → diagnostic). This helps the AI understand what customers actually mean when they use informal language and map it to bookable services.
 - `server/services/vapiService.ts` — **Latency optimization: startSpeakingPlan** added to both create and update paths. Default `onNoPunctuationSeconds` was 1.5s (hidden latency killer). Now set to 0.5s with tuned endpointing: `onPunctuationSeconds: 0.1`, `onNumberSeconds: 0.4`, `waitSeconds: 0.4`. Cuts perceived response time from ~1.5s to ~0.5s. `smartEndpointingEnabled: false` (uses transcription endpointing instead — faster for English).
-- `server/services/vapiService.ts` — **maxTokens: 250** added to LLM config in both create and update paths. Caps AI response length for voice — prevents rambling, faster TTS generation.
+- `server/services/vapiService.ts` — **maxTokens: 350** added to LLM config in both create and update paths. Caps AI response length for voice — prevents rambling, faster TTS generation. (Initially 250, increased to 350 for more natural responses.)
 - `server/services/vapiService.ts` — **Update path transcriber fix**: `model: 'nova-2'` was missing from the update path transcriber config (another create/update drift bug). Also added `temperature: 0.6` to update path model config for consistency.
 - `server/services/vapiWebhookHandler.ts` — **Batch staff-service queries**: Added `getCachedStaffServiceMap()` helper that fetches all staff-service mappings for a business in parallel (one `Promise.all`) and caches the result. Replaces the N+1 sequential `getStaffServices(s.id)` pattern in `checkAvailability` and `bookAppointment`. Saves 50-150ms when checking staff-service compatibility for 3+ staff members.
 - `server/services/vapiWebhookHandler.ts` — **Batch service lookups in recognizeCaller**: Service name lookup for upcoming appointments now uses `getCachedServices()` (fetched in parallel with appointments + business) instead of individual `storage.getService()` calls per appointment. Eliminates per-appointment DB queries.
 - `server/routes.ts` — Cache invalidation for `staffServiceMap` added to `setStaffServices` endpoint.
 
-### Prior uncommitted changes (Security Audit & Bug Fixes):
+#### Vapi Prompt Leakage & Hang-up Fixes
+- **Goal**: Fix AI telling callers to "keep responses to 1-2 sentences" and fix repeated hang-up-after-greeting bugs
+- `server/services/vapiService.ts` — Removed all sentence-length instructions that could leak (personality line, "SAVING MINUTES" section, farewell length instruction). Replaced with behavioral prompts that don't sound like instructions when spoken.
+- `server/services/vapiService.ts` — **endCallPhrases create/update drift fix**: Earlier commit c22f866 only fixed the CREATE path. The UPDATE path (used by Refresh Assistant) still had bare "Thanks for calling" which matched the greeting and caused immediate hang-up. Fixed both paths to use full farewell phrases only.
+- `server/services/vapiService.ts` — **maxTokens create/update drift fix**: CREATE had 350, UPDATE had 250. Fixed UPDATE to 350.
+
+#### Real-time Open/Closed Status
+- **Goal**: Fix AI saying "we're open until 7pm" when it's 8pm — the status was baked stale into the system prompt at assistant creation time
+- `server/services/vapiWebhookHandler.ts` — Added `getCurrentBusinessStatus()` function that computes real-time open/closed per call by comparing current time in business timezone against today's hours.
+- `server/services/vapiWebhookHandler.ts` — Added `currentStatus` field to ALL three `recognizeCaller` return paths (no phone, new caller, recognized). AI now uses this live data instead of stale prompt.
+- `server/services/vapiService.ts` — System prompt updated: STATUS line replaced with note to use `currentStatus` from `recognizeCaller`. AFTER HOURS instruction updated to tell callers business is closed but can still book.
+
+#### Duplicate Appointment Reminder Fix
+- **Goal**: Fix appointment reminders being sent on every Railway deploy/restart
+- `server/services/schedulerService.ts` — Removed immediate-run-on-start from `startReminderScheduler`. First run now happens ~1 hour after deploy.
+- `server/services/reminderService.ts` — Added 20-hour deduplication check against `notification_log` table before sending. Logs successful sends for idempotency.
+
+#### SMS TCPA Compliance Overhaul
+- **Goal**: Proper TCPA compliance with welcome SMS, correct footer strategy, CONFIRM handler, and proper STOP behavior
+- `server/routes.ts` — Added CONFIRM keyword handler: finds next upcoming appointment, marks as confirmed, sends confirmation reply.
+- `server/services/notificationService.ts` — Added `sendSmsOptInWelcome()` function (one-time welcome SMS with full TCPA disclosure). Added `getSmsFooter()` that returns empty for transactional, footer for marketing.
+- `server/services/vapiWebhookHandler.ts` — AI receptionist now sets `smsOptIn: true` on customer creation and triggers welcome SMS.
+- `server/routes/bookingRoutes.ts` — Booking routes trigger welcome SMS on new customer opt-in.
+- Agent services (noShow, followUp, rebooking, estimateFollowUp) — Added "Reply STOP to unsubscribe" footer to marketing SMS only.
+
+#### STOP Handler Fix (Marketing vs Transactional)
+- **Goal**: STOP should only opt out of marketing messages, NOT block appointment reminders/confirmations
+- **Previous behavior**: STOP set `smsOptIn: false` + `marketingOptIn: false` + added to suppression list → blocked ALL messages including transactional
+- **New behavior**: STOP only sets `marketingOptIn: false` → marketing agents stop, but reminders/confirmations still go through
+- `server/routes.ts` — Main STOP handler: only sets `marketingOptIn: false`, removed suppression list insertion. Updated reply message to tell customer they'll still get reminders.
+- `server/services/smsConversationRouter.ts` — Central conversation STOP interceptor updated.
+- `server/services/noShowAgentService.ts` — STOP handler + opt-in check switched to `marketingOptIn`.
+- `server/services/rebookingAgentService.ts` — STOP handler + eligibility filter + re-check switched to `marketingOptIn`.
+- `server/services/conversationalBookingService.ts` — Both STOP handlers (quick decline + reply intent) switched to `marketingOptIn`.
+- `server/services/followUpAgentService.ts` — Trigger check + thank-you + upsell re-checks switched to `marketingOptIn`.
+- `server/services/estimateFollowUpAgentService.ts` — Opt-in check switched to `marketingOptIn`.
+- `server/services/reviewService.ts` — Review request SMS check + auto-send channel selection switched to `marketingOptIn` (reviews are promotional).
+- Test files updated: noShowAgentService.test.ts, rebookingAgentService.test.ts, followUpAgentService.test.ts — fixtures and assertions updated.
+
+#### Vapi Call Quality Improvements
+- **Goal**: Fix AI not hearing caller after barge-in (Deepgram multilingual STT dropping audio stream)
+- `server/services/vapiService.ts` — **Transcriber language**: `multi` → `en` (English-only). Multilingual model is slower and less reliable for barge-in recovery. English-only is faster and more accurate for single-language calls. Applied to both create and update paths.
+- `server/services/vapiService.ts` — **Background denoising**: Enabled `backgroundDenoisingEnabled: true` in both paths. Helps Deepgram filter noise and focus on voice.
+- `server/services/vapiService.ts` — **Silence timeout**: 20s → 30s in both paths. More buffer if STT briefly drops — prevents premature hang-ups.
+- `server/services/vapiService.ts` — **ElevenLabs latency optimization**: `optimizeStreamingLatency` 4 → 3 in both paths. Level 4 was clipping the first word of responses ("I help you today?" instead of "How can I help you today?").
+
+### Prior changes (Security Audit & Bug Fixes):
 
 #### Email Verification Flow (Production Bug Fix)
 - **Root cause**: `/api/verify-email` and `/api/resend-verification` were blocked by CSRF middleware
@@ -772,4 +847,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 16, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 61 tables. Trial expiration redesigned: grace period model (30-day window where number is kept but AI is disabled, then deprovision after 30 days with no subscription). Subscription reactivation: grace_period businesses get AI re-enabled on payment without re-provisioning; fully deprovisioned businesses get full re-provisioning. Admin re-provision endpoint restores status to trialing. Stripe subscription lifecycle fixes: dunning deprovisioning scheduler (7-day grace period then suspend), auto-reprovision on resubscription, subscriptionStartDate set on create, stale subscriptionId cleared on cancel. Onboarding improvements: wizard progress persisted to database JSONB column, business hours + staff steps added to wizard. Staff time-off/vacation blocking: staff_time_off table + CRUD API + UI dialog + Vapi integration. Model: gpt-5-mini with ElevenLabs turbo voice + Deepgram nova-2 STT.*
+*Last updated: March 17, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 61 tables. Message Log moved from Settings to AI Agents > Messages tab. All 4 SMS agent services (follow-up, no-show, rebooking, estimate follow-up) now log to `notification_log` alongside `agent_activity_log` so business owners see every outbound message (agents + appointment reminders/confirmations) in one place. UI features: expandable rows (click to see full SMS text), type filter (All/Appointments/AI Agents/Other), agent message badge (purple bot icon), agent count in summary badges. Active conversations shown above the log, past conversations below. Tab renamed from "Conversations" to "Messages". Removed Notification Log tab from Settings page. STOP handler fixed: STOP only opts out of marketing messages (not transactional) — appointment reminders/confirmations still go through. All 5 STOP handlers + 7 agent opt-in checks updated to use marketingOptIn instead of smsOptIn. Suppression list no longer used for STOP (was blocking ALL sends). TCPA compliance: welcome SMS on opt-in, CONFIRM keyword handler, proper footer strategy (marketing only). Duplicate reminder fix: removed immediate-run-on-start, added 20-hour dedup. Real-time open/closed status: per-call computation via recognizeCaller instead of stale baked prompt. Prompt leakage fix: removed all sentence-length instructions that could be spoken aloud. Create/update drift fixes: endCallPhrases and maxTokens synced across both paths. Vapi call quality: Deepgram transcriber switched from multi→en (English-only, more reliable barge-in recovery), backgroundDenoisingEnabled, silence timeout 20→30s, ElevenLabs optimizeStreamingLatency 4→3 (fixes first-word clipping). Model: gpt-5-mini with ElevenLabs voice (opt level 3) + Deepgram nova-2 English STT.*

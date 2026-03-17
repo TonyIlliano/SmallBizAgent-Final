@@ -99,6 +99,18 @@ export async function triggerNoShowSms(
       referenceId: appointmentId,
       details: { message, appointmentTime: apptTime },
     });
+    // Also log to notification_log so business owners see it in Notification History
+    await storage.createNotificationLog({
+      businessId,
+      customerId: customer.id,
+      type: 'agent_no_show',
+      channel: 'sms',
+      recipient: customer.phone,
+      message,
+      status: 'sent',
+      referenceType: 'appointment',
+      referenceId: appointmentId,
+    });
 
     console.log(`[NoShowAgent] Sent no-show SMS for appointment ${appointmentId} (manual trigger)`);
     return { sent: true };

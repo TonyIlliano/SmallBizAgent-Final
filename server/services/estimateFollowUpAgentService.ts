@@ -107,6 +107,18 @@ async function processBusinessEstimates(businessId: number): Promise<void> {
         referenceId: quote.id,
         details: { attemptNumber: attemptCount + 1, message },
       });
+      // Also log to notification_log so business owners see it in Notification History
+      await storage.createNotificationLog({
+        businessId,
+        customerId: customer.id,
+        type: 'agent_estimate_follow_up',
+        channel: 'sms',
+        recipient: customer.phone,
+        message,
+        status: 'sent',
+        referenceType: 'quote',
+        referenceId: quote.id,
+      });
 
       console.log(`[EstimateFollowUpAgent] Sent follow-up #${attemptCount + 1} for quote ${quote.id}`);
 

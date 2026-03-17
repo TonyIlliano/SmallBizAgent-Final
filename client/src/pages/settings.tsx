@@ -27,7 +27,6 @@ import PhoneNumbersManager from "@/components/settings/PhoneNumbersManager";
 import LocationsManager from "@/components/settings/LocationsManager";
 import TwoFactorSetup from "@/components/settings/TwoFactorSetup";
 import AuditLog from "@/components/settings/AuditLog";
-import NotificationHistory from "@/components/settings/NotificationHistory";
 import AgentInsights from "@/components/settings/AgentInsights";
 import IntegrationHealth from "@/components/settings/IntegrationHealth";
 import {
@@ -1134,7 +1133,6 @@ export default function Settings() {
             <TabsTrigger value="security" className="whitespace-nowrap flex-shrink-0">Security</TabsTrigger>
             {(user?.role === 'admin' || user?.role === 'owner') && (
               <>
-                <TabsTrigger value="notification-history" className="whitespace-nowrap flex-shrink-0">Notification Log</TabsTrigger>
                 <TabsTrigger value="agent-insights" className="whitespace-nowrap flex-shrink-0">AI Insights</TabsTrigger>
                 <TabsTrigger value="integrations-health" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
               </>
@@ -2483,13 +2481,6 @@ export default function Settings() {
 
             <ActiveSessionsCard />
           </TabsContent>
-
-          {/* Notification Log — admin/owner only */}
-          {(user?.role === 'admin' || user?.role === 'owner') && businessId && (
-            <TabsContent value="notification-history" className="space-y-4">
-              <NotificationHistory businessId={businessId} />
-            </TabsContent>
-          )}
 
           {/* AI Agent Insights — admin/owner only */}
           {(user?.role === 'admin' || user?.role === 'owner') && (

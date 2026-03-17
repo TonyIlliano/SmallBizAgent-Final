@@ -20,6 +20,7 @@ import { ActivityFeed } from "@/components/automations/ActivityFeed";
 import { ConversationList } from "@/components/automations/ConversationList";
 import { ReviewQueue } from "@/components/automations/ReviewQueue";
 import { AgentReport } from "@/components/automations/AgentReport";
+import NotificationHistory from "@/components/settings/NotificationHistory";
 import {
   LayoutDashboard,
   Activity,
@@ -361,17 +362,39 @@ function SettingsTab() {
 
 // ── Conversations Tab ──
 
-function ConversationsTab() {
+function ConversationsTab({ businessId }: { businessId?: number }) {
   const { data: conversations = [], isLoading } = useQuery<SmsConversation[]>({
     queryKey: ["/api/automations/conversations"],
   });
 
+  const activeConversations = conversations.filter(c => c.state === 'awaiting_reply' || c.state === 'replied');
+  const pastConversations = conversations.filter(c => c.state !== 'awaiting_reply' && c.state !== 'replied');
+
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        SMS conversations from No-Show and Rebooking agents. Conversations expire after their configured timeout.
-      </p>
-      <ConversationList conversations={conversations} isLoading={isLoading} />
+    <div className="space-y-6">
+      {/* Active conversations section */}
+      {activeConversations.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-foreground">Active Conversations</h3>
+          <p className="text-sm text-muted-foreground">
+            Ongoing SMS conversations waiting for a customer reply.
+          </p>
+          <ConversationList conversations={activeConversations} isLoading={isLoading} />
+        </div>
+      )}
+
+      {/* Message log — all sent messages with full text */}
+      {businessId && (
+        <NotificationHistory businessId={businessId} />
+      )}
+
+      {/* Past conversations */}
+      {pastConversations.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-foreground">Past Conversations</h3>
+          <ConversationList conversations={pastConversations} isLoading={isLoading} />
+        </div>
+      )}
     </div>
   );
 }
@@ -410,7 +433,7 @@ export default function AutomationsPage() {
             </TabsTrigger>
             <TabsTrigger value="conversations" className="flex items-center gap-1.5">
               <MessageSquare className="h-4 w-4" />
-              <span className="hidden sm:inline">Conversations</span>
+              <span className="hidden sm:inline">Messages</span>
             </TabsTrigger>
             <TabsTrigger value="reviews" className="flex items-center gap-1.5">
               <Star className="h-4 w-4" />
@@ -437,7 +460,7 @@ export default function AutomationsPage() {
           </TabsContent>
 
           <TabsContent value="conversations">
-            <ConversationsTab />
+            <ConversationsTab businessId={user?.businessId ?? undefined} />
           </TabsContent>
 
           <TabsContent value="reviews">

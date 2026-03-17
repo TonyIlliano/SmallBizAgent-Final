@@ -148,6 +148,18 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
         referenceId: customer.id,
         details: { message, daysSinceVisit, serviceName: lastServiceName },
       });
+      // Also log to notification_log so business owners see it in Notification History
+      await storage.createNotificationLog({
+        businessId,
+        customerId: customer.id,
+        type: 'agent_rebooking',
+        channel: 'sms',
+        recipient: customer.phone,
+        message,
+        status: 'sent',
+        referenceType: 'customer',
+        referenceId: customer.id,
+      });
 
       console.log(`[RebookingAgent] Sent rebooking SMS to customer ${customer.id} (${daysSinceVisit} days)`);
       await new Promise(r => setTimeout(r, 500));

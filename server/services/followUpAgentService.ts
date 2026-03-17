@@ -154,6 +154,18 @@ async function processBusinessFollowUps(businessId: number): Promise<void> {
             referenceId: entityId,
             details: { messageType: 'thank_you', message },
           });
+          // Also log to notification_log so business owners see it in Notification History
+          await storage.createNotificationLog({
+            businessId,
+            customerId: customer.id,
+            type: 'agent_follow_up',
+            channel: 'sms',
+            recipient: customer.phone,
+            message,
+            status: 'sent',
+            referenceType: entityType,
+            referenceId: entityId,
+          });
           console.log(`[FollowUpAgent] Sent thank-you for ${entityType} ${entityId}`);
         }
       }
@@ -175,6 +187,17 @@ async function processBusinessFollowUps(businessId: number): Promise<void> {
               referenceType: entityType,
               referenceId: entityId,
               details: { messageType: 'upsell', message },
+            });
+            await storage.createNotificationLog({
+              businessId,
+              customerId: freshCustomer.id,
+              type: 'agent_follow_up',
+              channel: 'sms',
+              recipient: freshCustomer.phone,
+              message,
+              status: 'sent',
+              referenceType: entityType,
+              referenceId: entityId,
             });
             console.log(`[FollowUpAgent] Sent upsell for ${entityType} ${entityId}`);
           }
