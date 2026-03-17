@@ -164,13 +164,9 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
 
         let message: string;
         if (isFieldService) {
-          message = manageUrl
-            ? `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Manage: ${manageUrl}${getSmsFooter()}`
-            : `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Call ${getContactNumber(business)} to reschedule.${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Reply RESCHEDULE or CANCEL to change.${getSmsFooter()}`;
         } else {
-          message = manageUrl
-            ? `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Manage or reschedule: ${manageUrl} - ${business.name}${getSmsFooter()}`
-            : `Hi ${customer.firstName}! Your appointment for ${serviceName} is confirmed for ${dateStr} at ${timeStr}. Call ${getContactNumber(business)} to reschedule. - ${business.name}${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Your ${serviceName} appointment is confirmed for ${dateStr} at ${timeStr}. Reply RESCHEDULE or CANCEL to change. - ${business.name}${getSmsFooter()}`;
         }
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
@@ -274,9 +270,9 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
 
         let message: string;
         if (isFieldService) {
-          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Call ${getContactNumber(business)} if anything changes.${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Reply CONFIRM, RESCHEDULE, or CANCEL. Or call ${getContactNumber(business)}.${getSmsFooter()}`;
         } else {
-          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM to confirm or call ${getContactNumber(business)} to reschedule. - ${business.name}${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE, or CANCEL. - ${business.name}${getSmsFooter()}`;
         }
 
         // Weather alert for field service reminders (only when enabled and forecast shows rain/snow/storms)

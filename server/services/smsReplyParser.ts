@@ -25,7 +25,7 @@ const NEGATIVE_WORDS = [
 ];
 
 // STOP words get special treatment — these trigger SMS opt-out (TCPA compliance)
-const STOP_WORDS = ['stop', 'unsubscribe', 'cancel', 'quit', 'end'];
+const STOP_WORDS = ['stop', 'unsubscribe', 'quit', 'end'];
 
 /**
  * Classify an SMS reply as positive, negative, stop, or ambiguous.

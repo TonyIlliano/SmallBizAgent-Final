@@ -4675,7 +4675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Transactional messages (appointment reminders, confirmations, invoices) still go through
       // because those are expected service communications the customer needs.
       // We do NOT add to the suppression list — that blocks ALL sends at the Twilio layer.
-      if (['STOP', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'].includes(bodyTrimmed)) {
+      if (['STOP', 'UNSUBSCRIBE', 'END', 'QUIT'].includes(bodyTrimmed)) {
         if (customer) {
           await storage.updateCustomer(customer.id, {
             marketingOptIn: false,
@@ -4759,6 +4759,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } catch (confirmErr) {
           console.error('[SMS] Error handling CONFIRM:', confirmErr);
+        }
+      }
+
+      // ── Handle CANCEL keyword (cancel next upcoming appointment) ──
+      if (bodyTrimmed === 'CANCEL' && customer) {
+        try {
+          const appointments = await storage.getAppointmentsByCustomerId(customer.id);
+          const now = new Date();
+          const upcoming = appointments
+            .filter((apt: any) => new Date(apt.startDate) > now && (apt.status === 'scheduled' || apt.status === 'confirmed'))
+            .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+          if (upcoming.length > 0) {
+            const nextApt = upcoming[0];
+            const aptDate = new Date(nextApt.startDate);
+            const biz = await storage.getBusiness(nextApt.businessId);
+            const tz = biz?.timezone || 'America/New_York';
+            const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' });
+            const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+
+            await storage.updateAppointment(nextApt.id, {
+              status: 'cancelled',
+              notes: `${nextApt.notes || ''}\n[Cancelled via SMS on ${new Date().toLocaleDateString()}]`.trim()
+            });
+
+            // Dispatch cancellation event for insights recalculation
+            import('./services/orchestrationService').then(mod => {
+              mod.dispatchEvent('appointment.cancelled', {
+                businessId: nextApt.businessId,
+                customerId: customer.id,
+                referenceType: 'appointment',
+                referenceId: nextApt.id,
+              }).catch(err => console.error('[Orchestrator] Error dispatching appointment.cancelled:', err));
+            }).catch(err => console.error('[Orchestrator] Import error:', err));
+
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`Your appointment on ${dateStr} at ${timeStr} has been cancelled. To rebook, reply RESCHEDULE or call ${business.twilioPhoneNumber || business.phone || 'us'}. - ${business.name}`);
+            console.log(`[SMS] CANCEL keyword: cancelled appointment ${nextApt.id} for customer ${customer.id}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          } else {
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`We don't see any upcoming appointments for you to cancel. Call us at ${business.twilioPhoneNumber || business.phone || 'our number'} if you need help. - ${business.name}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          }
+        } catch (cancelErr) {
+          console.error('[SMS] Error handling CANCEL:', cancelErr);
+        }
+      }
+
+      // ── Handle RESCHEDULE keyword (send booking link for self-service rescheduling) ──
+      if (bodyTrimmed === 'RESCHEDULE' && customer) {
+        try {
+          const appointments = await storage.getAppointmentsByCustomerId(customer.id);
+          const now = new Date();
+          const upcoming = appointments
+            .filter((apt: any) => new Date(apt.startDate) > now && (apt.status === 'scheduled' || apt.status === 'confirmed'))
+            .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+          const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+
+          if (upcoming.length > 0) {
+            const nextApt = upcoming[0];
+            const aptDate = new Date(nextApt.startDate);
+            const biz = await storage.getBusiness(nextApt.businessId);
+            const tz = biz?.timezone || 'America/New_York';
+            const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' });
+            const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+
+            // Use manage token if available, otherwise fall back to booking page
+            let rescheduleLink: string;
+            if (nextApt.manageToken && business.bookingSlug) {
+              rescheduleLink = `${appUrl}/book/${business.bookingSlug}/manage/${nextApt.manageToken}`;
+            } else if (business.bookingSlug) {
+              rescheduleLink = `${appUrl}/book/${business.bookingSlug}`;
+            } else {
+              // No booking page — tell them to call
+              const twiml = new twilio.twiml.MessagingResponse();
+              twiml.message(`To reschedule your appointment on ${dateStr} at ${timeStr}, please call us at ${business.twilioPhoneNumber || business.phone || 'our number'}. - ${business.name}`);
+              res.type('text/xml');
+              return res.send(twiml.toString());
+            }
+
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`Your current appointment is ${dateStr} at ${timeStr}. Reschedule here: ${rescheduleLink} — or call ${business.twilioPhoneNumber || business.phone || 'us'}. - ${business.name}`);
+            console.log(`[SMS] RESCHEDULE keyword: sent manage link for appointment ${nextApt.id} to customer ${customer.id}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          } else {
+            // No upcoming appointment — send booking link
+            let bookLink = '';
+            if (business.bookingSlug) {
+              bookLink = ` Book here: ${appUrl}/book/${business.bookingSlug}`;
+            }
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`We don't see any upcoming appointments to reschedule.${bookLink} Or call us at ${business.twilioPhoneNumber || business.phone || 'our number'}. - ${business.name}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          }
+        } catch (rescheduleErr) {
+          console.error('[SMS] Error handling RESCHEDULE:', rescheduleErr);
         }
       }
 
@@ -5007,7 +5109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (From && business) {
             try {
               await twilioService.sendSms(From,
-                `Your appointment with ${business.name} is confirmed for ${decodeURIComponent(pendingTimeDescription || '')}. Reply CANCEL to cancel.`
+                `Your appointment with ${business.name} is confirmed for ${decodeURIComponent(pendingTimeDescription || '')}. Reply RESCHEDULE or CANCEL to change.`
               );
             } catch (smsError) {
               console.error('Error sending appointment confirmation SMS:', smsError);
