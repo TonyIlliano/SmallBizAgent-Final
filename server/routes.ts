@@ -4145,13 +4145,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get notification log
+  // Get notification log with customer names (scoped to business, customer-facing only)
   app.get("/api/notification-log", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = getBusinessId(req);
       const limit = parseInt(req.query.limit as string) || 50;
       const logs = await storage.getNotificationLogs(businessId, limit);
-      res.json(logs);
+
+      // Filter to customer-facing messages only (exclude platform drip emails, trial warnings, etc.)
+      const customerLogs = logs.filter(l => l.customerId);
+
+      // Enrich with customer names (batch lookup)
+      const customerIds = Array.from(new Set(customerLogs.map(l => l.customerId!)));
+      const customerMap = new Map<number, { name: string; phone: string | null }>();
+      if (customerIds.length > 0) {
+        const customers = await storage.getCustomers(businessId);
+        for (const c of customers) {
+          const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
+          customerMap.set(c.id, { name: name || 'Unknown', phone: c.phone || null });
+        }
+      }
+
+      const enriched = customerLogs.map(log => ({
+        ...log,
+        customerName: log.customerId ? (customerMap.get(log.customerId)?.name || null) : null,
+        customerPhone: log.customerId ? (customerMap.get(log.customerId)?.phone || null) : null,
+      }));
+
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching notification log:", error);
       res.status(500).json({ message: "Error fetching notification log" });

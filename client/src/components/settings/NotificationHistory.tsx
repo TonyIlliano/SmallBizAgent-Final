@@ -25,12 +25,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, MessageSquare, AlertCircle, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Bot } from "lucide-react";
+import { Mail, MessageSquare, AlertCircle, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Bot, User } from "lucide-react";
 
 interface NotificationLog {
   id: number;
   businessId: number;
   customerId?: number | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
   type: string;
   channel: string;
   recipient: string;
@@ -43,17 +45,16 @@ interface NotificationLog {
   sentAt: string;
 }
 
-/** Mask email/phone for privacy in the table */
-function maskRecipient(recipient: string): string {
-  if (recipient.includes("@")) {
-    const [local, domain] = recipient.split("@");
-    return local.slice(0, 2) + "***@" + domain;
+/** Format phone as (XXX) XXX-XXXX */
+function formatPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 11 && digits[0] === "1") {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
   }
-  // Phone: show last 4 digits
-  if (recipient.length >= 4) {
-    return "***" + recipient.slice(-4);
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
-  return recipient;
+  return phone;
 }
 
 /** Turn drip keys like "drip:onboarding:day1:42" into readable labels */
@@ -76,12 +77,12 @@ function formatType(type: string): string {
   // Agent types get a special prefix
   if (type.startsWith("agent_")) {
     const agentLabels: Record<string, string> = {
-      agent_follow_up: "Agent: Follow-Up",
-      agent_no_show: "Agent: No-Show Recovery",
-      agent_rebooking: "Agent: Rebooking",
-      agent_estimate_follow_up: "Agent: Estimate Follow-Up",
+      agent_follow_up: "Follow-Up",
+      agent_no_show: "No-Show Recovery",
+      agent_rebooking: "Rebooking",
+      agent_estimate_follow_up: "Estimate Follow-Up",
     };
-    return agentLabels[type] || `Agent: ${type.replace("agent_", "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}`;
+    return agentLabels[type] || type.replace("agent_", "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   }
   // Convert snake_case / underscore types to readable
   return type
@@ -104,7 +105,6 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
@@ -138,8 +138,8 @@ export default function NotificationHistory({ businessId }: { businessId: number
     filtered = filtered.filter((l) => !isAgentType(l.type) && !isAppointmentType(l.type));
   }
 
-  const emailCount = logs.filter((l) => l.channel === "email").length;
   const smsCount = logs.filter((l) => l.channel === "sms").length;
+  const emailCount = logs.filter((l) => l.channel === "email").length;
   const failedCount = logs.filter((l) => l.status === "failed").length;
   const agentCount = logs.filter((l) => isAgentType(l.type)).length;
 
@@ -161,11 +161,11 @@ export default function NotificationHistory({ businessId }: { businessId: number
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Mail className="h-5 w-5" />
-              Notification History
+              <MessageSquare className="h-5 w-5" />
+              Sent Messages
             </CardTitle>
             <CardDescription>
-              All emails, SMS messages, and AI agent messages sent on behalf of your business
+              Every SMS and email sent to your customers — appointment reminders, confirmations, and AI agent messages
             </CardDescription>
           </div>
           <Button
@@ -182,17 +182,19 @@ export default function NotificationHistory({ businessId }: { businessId: number
         {/* Summary badges */}
         <div className="flex gap-3 pt-2 flex-wrap">
           <Badge variant="secondary" className="gap-1">
-            <Mail className="h-3 w-3" />
-            {emailCount} emails
-          </Badge>
-          <Badge variant="secondary" className="gap-1">
             <MessageSquare className="h-3 w-3" />
             {smsCount} SMS
           </Badge>
+          {emailCount > 0 && (
+            <Badge variant="secondary" className="gap-1">
+              <Mail className="h-3 w-3" />
+              {emailCount} emails
+            </Badge>
+          )}
           {agentCount > 0 && (
             <Badge variant="secondary" className="gap-1">
               <Bot className="h-3 w-3" />
-              {agentCount} agent messages
+              {agentCount} from agents
             </Badge>
           )}
           {failedCount > 0 && (
@@ -213,8 +215,8 @@ export default function NotificationHistory({ businessId }: { businessId: number
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All channels</SelectItem>
-              <SelectItem value="email">Email only</SelectItem>
               <SelectItem value="sms">SMS only</SelectItem>
+              <SelectItem value="email">Email only</SelectItem>
             </SelectContent>
           </Select>
 
@@ -244,22 +246,22 @@ export default function NotificationHistory({ businessId }: { businessId: number
         </div>
 
         {isLoading ? (
-          <div className="text-center py-8 text-muted-foreground">Loading notification history...</div>
+          <div className="text-center py-8 text-muted-foreground">Loading sent messages...</div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
-            No notifications sent yet. Emails and SMS messages will appear here once sent.
+            No messages sent yet. SMS and emails to your customers will appear here.
           </div>
         ) : (
           <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[50px]">Channel</TableHead>
+                  <TableHead className="w-[40px]"></TableHead>
+                  <TableHead>Customer</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Recipient</TableHead>
                   <TableHead>Message</TableHead>
-                  <TableHead className="w-[80px]">Status</TableHead>
-                  <TableHead className="w-[150px]">Sent</TableHead>
+                  <TableHead className="w-[70px]">Status</TableHead>
+                  <TableHead className="w-[130px]">Sent</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -267,6 +269,7 @@ export default function NotificationHistory({ businessId }: { businessId: number
                   const isExpanded = expandedRows.has(log.id);
                   const hasMessage = !!(log.message || log.subject);
                   const previewText = log.subject || (log.message ? log.message.slice(0, 80) + (log.message.length > 80 ? "..." : "") : "—");
+                  const displayPhone = log.customerPhone || log.recipient;
 
                   return (
                     <Fragment key={log.id}>
@@ -286,11 +289,22 @@ export default function NotificationHistory({ businessId }: { businessId: number
                             <MessageSquare className="h-4 w-4 text-green-500" />
                           )}
                         </TableCell>
-                        <TableCell className="font-medium text-sm">
-                          {formatType(log.type)}
+                        <TableCell className="text-sm">
+                          <div className="flex flex-col">
+                            {log.customerName ? (
+                              <>
+                                <span className="font-medium text-foreground">{log.customerName}</span>
+                                <span className="text-xs text-muted-foreground">{formatPhone(displayPhone)}</span>
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">{formatPhone(displayPhone)}</span>
+                            )}
+                          </div>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground font-mono">
-                          {maskRecipient(log.recipient)}
+                        <TableCell className="text-sm">
+                          <Badge variant={isAgentType(log.type) ? "secondary" : "outline"} className="text-xs">
+                            {formatType(log.type)}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-sm max-w-[300px]">
                           <div className="flex items-center gap-1">
@@ -308,18 +322,12 @@ export default function NotificationHistory({ businessId }: { businessId: number
                         </TableCell>
                         <TableCell>
                           {log.status === "sent" || log.status === "delivered" ? (
-                            <Badge variant="outline" className="text-green-600 border-green-200 gap-1">
-                              <CheckCircle2 className="h-3 w-3" />
-                              {log.status}
-                            </Badge>
+                            <CheckCircle2 className="h-4 w-4 text-green-500" />
                           ) : (
-                            <Badge variant="destructive" className="gap-1">
-                              <XCircle className="h-3 w-3" />
-                              failed
-                            </Badge>
+                            <XCircle className="h-4 w-4 text-destructive" />
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {log.sentAt ? formatDate(log.sentAt) : "—"}
                         </TableCell>
                       </TableRow>
@@ -346,13 +354,13 @@ export default function NotificationHistory({ businessId }: { businessId: number
         {/* Show error details for failed items */}
         {filtered.some((l) => l.status === "failed" && l.error) && (
           <div className="mt-4 space-y-2">
-            <p className="text-sm font-medium text-destructive">Failed notification details:</p>
+            <p className="text-sm font-medium text-destructive">Failed message details:</p>
             {filtered
               .filter((l) => l.status === "failed" && l.error)
               .slice(0, 5)
               .map((l) => (
                 <div key={l.id} className="text-xs bg-destructive/5 border border-destructive/20 rounded p-2">
-                  <span className="font-medium">{formatType(l.type)}</span> to {maskRecipient(l.recipient)}:{" "}
+                  <span className="font-medium">{formatType(l.type)}</span> to {l.customerName || formatPhone(l.recipient)}:{" "}
                   <span className="text-destructive">{l.error}</span>
                 </div>
               ))}

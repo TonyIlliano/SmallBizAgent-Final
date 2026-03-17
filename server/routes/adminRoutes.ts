@@ -10,8 +10,8 @@ import { isAdmin } from "../middleware/auth";
 import * as adminService from "../services/adminService";
 import { storage } from "../storage";
 import { db } from "../db";
-import { agentActivityLog, businesses, blogPosts } from "../../shared/schema";
-import { eq, sql, desc, and, gte, inArray } from "drizzle-orm";
+import { agentActivityLog, businesses, blogPosts, notificationLog } from "../../shared/schema";
+import { eq, sql, desc, and, gte, inArray, isNull } from "drizzle-orm";
 
 const router = Router();
 
@@ -618,6 +618,47 @@ router.get("/api/admin/platform-agents-summary", isAdmin, async (req: Request, r
   } catch (error: any) {
     console.error("[Admin] Error fetching agents summary:", error);
     res.status(500).json({ error: "Failed to fetch agents summary", details: error.message });
+  }
+});
+
+// ===========================================
+// Platform Messages (notifications sent to business owners)
+// ===========================================
+
+/**
+ * GET /api/admin/platform-messages — All platform-to-business-owner notifications
+ * (drip campaigns, trial warnings, onboarding nudges, grace period, etc.)
+ * These are notification_log entries WITHOUT a customerId — sent to owners, not customers.
+ */
+router.get("/api/admin/platform-messages", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+
+    // Get all platform-level notifications (no customerId = sent to business owner, not a customer)
+    const logs = await storage.getAllPlatformNotificationLogs(limit);
+
+    // Enrich with business names
+    const businessIds = Array.from(new Set(logs.map(l => l.businessId)));
+    const businessMap = new Map<number, string>();
+    if (businessIds.length > 0) {
+      const bizRows = await db
+        .select({ id: businesses.id, name: businesses.name })
+        .from(businesses)
+        .where(inArray(businesses.id, businessIds));
+      for (const b of bizRows) {
+        businessMap.set(b.id, b.name);
+      }
+    }
+
+    const enriched = logs.map(log => ({
+      ...log,
+      businessName: businessMap.get(log.businessId) || `Business #${log.businessId}`,
+    }));
+
+    res.json(enriched);
+  } catch (error: any) {
+    console.error("[Admin] Error fetching platform messages:", error);
+    res.status(500).json({ error: "Failed to fetch platform messages", details: error.message });
   }
 });
 

@@ -46,7 +46,7 @@ import {
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
-import { eq, and, or, desc, ilike, sql, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, or, desc, ilike, sql, gte, lte, inArray, isNull } from "drizzle-orm";
 import { db, pool } from "./db";
 import { encryptField, decryptField } from "./utils/encryption";
 
@@ -277,6 +277,7 @@ export interface IStorage {
   // Notification Log
   createNotificationLog(entry: InsertNotificationLog): Promise<NotificationLog>;
   getNotificationLogs(businessId: number, limit?: number): Promise<NotificationLog[]>;
+  getAllPlatformNotificationLogs(limit?: number): Promise<NotificationLog[]>;
 
   // Clover Menu Cache
   getCloverMenuCache(businessId: number): Promise<CloverMenuCache | undefined>;
@@ -1775,6 +1776,13 @@ export class DatabaseStorage implements IStorage {
   async getNotificationLogs(businessId: number, limit: number = 50): Promise<NotificationLog[]> {
     return db.select().from(notificationLog)
       .where(eq(notificationLog.businessId, businessId))
+      .orderBy(desc(notificationLog.sentAt))
+      .limit(limit);
+  }
+
+  async getAllPlatformNotificationLogs(limit: number = 100): Promise<NotificationLog[]> {
+    return db.select().from(notificationLog)
+      .where(isNull(notificationLog.customerId))
       .orderBy(desc(notificationLog.sentAt))
       .limit(limit);
   }
