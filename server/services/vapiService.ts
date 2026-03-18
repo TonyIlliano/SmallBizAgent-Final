@@ -61,31 +61,53 @@ interface VapiPhoneNumber {
  */
 function formatBusinessHoursFromDB(hours: any[]): string {
   if (!hours || hours.length === 0) {
-    return 'Monday-Friday 9am-5pm';
+    return 'Monday through Friday 9 AM to 5 PM';
   }
 
   const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   const sortedHours = [...hours].sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day));
 
-  const formatted = sortedHours.map(h => {
+  // Format times like "09:00" to "9 AM", "09:30" to "9:30 AM"
+  const formatTime = (time: string) => {
+    if (!time) return '';
+    const [hourStr, minStr] = time.split(':');
+    const hour = parseInt(hourStr);
+    const min = parseInt(minStr || '0');
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+    return min > 0 ? `${hour12}:${minStr} ${period}` : `${hour12} ${period}`;
+  };
+
+  // Build a key for each day's hours so we can group consecutive days with the same schedule
+  const dayEntries = sortedHours.map(h => {
     const dayName = h.day.charAt(0).toUpperCase() + h.day.slice(1);
     if (h.isClosed || (!h.open && !h.close)) {
-      return `${dayName}: CLOSED`;
+      return { day: dayName, key: 'CLOSED', label: 'CLOSED' };
     }
-    // Format times like "09:00" to "9 AM"
-    const formatTime = (time: string) => {
-      if (!time) return '';
-      const [hourStr, minStr] = time.split(':');
-      const hour = parseInt(hourStr);
-      const min = parseInt(minStr || '0');
-      const period = hour >= 12 ? 'PM' : 'AM';
-      const hour12 = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
-      return min > 0 ? `${hour12}:${minStr} ${period}` : `${hour12} ${period}`;
-    };
-    return `${dayName}: ${formatTime(h.open)} to ${formatTime(h.close)}`;
+    const timeRange = `${formatTime(h.open)} to ${formatTime(h.close)}`;
+    return { day: dayName, key: timeRange, label: timeRange };
   });
 
-  return formatted.join(', ');
+  // Group consecutive days with the same hours
+  const groups: { days: string[]; label: string }[] = [];
+  for (const entry of dayEntries) {
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup && lastGroup.label === entry.label) {
+      lastGroup.days.push(entry.day);
+    } else {
+      groups.push({ days: [entry.day], label: entry.label });
+    }
+  }
+
+  // Format each group: "Monday through Friday: 9:30 AM to 7 PM"
+  return groups.map(g => {
+    const dayRange = g.days.length > 2
+      ? `${g.days[0]} through ${g.days[g.days.length - 1]}`
+      : g.days.length === 2
+        ? `${g.days[0]} and ${g.days[1]}`
+        : g.days[0];
+    return `${dayRange}: ${g.label}`;
+  }).join(', ');
 }
 
 /**

@@ -249,6 +249,44 @@ async function getUpcomingTimeOff(staffId: number): Promise<any[]> {
 }
 
 /**
+ * Group consecutive days into natural speech ranges.
+ * ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] → "Monday through Friday"
+ * ["Monday", "Tuesday", "Saturday"] → "Monday and Tuesday, Saturday"
+ * ["Wednesday"] → "Wednesday"
+ */
+function groupConsecutiveDays(days: string[]): string {
+  if (days.length === 0) return '';
+  if (days.length === 1) return days[0];
+
+  const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const indices = days.map(d => dayOrder.indexOf(d)).filter(i => i !== -1).sort((a, b) => a - b);
+
+  if (indices.length === 0) return days.join(', ');
+
+  // Group consecutive indices
+  const groups: number[][] = [];
+  let current = [indices[0]];
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] === current[current.length - 1] + 1) {
+      current.push(indices[i]);
+    } else {
+      groups.push(current);
+      current = [indices[i]];
+    }
+  }
+  groups.push(current);
+
+  return groups.map(g => {
+    if (g.length > 2) {
+      return `${dayOrder[g[0]]} through ${dayOrder[g[g.length - 1]]}`;
+    } else if (g.length === 2) {
+      return `${dayOrder[g[0]]} and ${dayOrder[g[1]]}`;
+    }
+    return dayOrder[g[0]];
+  }).join(', ');
+}
+
+/**
  * Get appointments with date range limit for performance
  * Only fetches appointments for the next 30 days by default
  */
@@ -2270,7 +2308,7 @@ async function getStaffSchedule(
           staffId: staffMember.id,
           usesBusinessHours: true,
           workingDays: workingDays,
-          message: `${staffMember.firstName} works during our regular business hours: ${workingDays.join(', ')}. Would you like to schedule an appointment with ${staffMember.firstName}?`
+          message: `${staffMember.firstName} works during our regular business hours: ${groupConsecutiveDays(workingDays)}. Would you like to schedule an appointment with ${staffMember.firstName}?`
         }
       };
     }
@@ -2327,13 +2365,13 @@ async function getStaffSchedule(
         timeOffInfo.push(`${startStr}${entry.reason ? ` (${entry.reason})` : ''}`);
       } else {
         const endStr = end.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-        timeOffInfo.push(`${startStr} - ${endStr}${entry.reason ? ` (${entry.reason})` : ''}`);
+        timeOffInfo.push(`${startStr} through ${endStr}${entry.reason ? ` (${entry.reason})` : ''}`);
       }
     }
 
-    let message = `${staffMember.firstName} works ${workingDays.join(', ')}.`;
+    let message = `${staffMember.firstName} works ${groupConsecutiveDays(workingDays)}.`;
     if (daysOff.length > 0) {
-      message += ` ${staffMember.firstName} is off on ${daysOff.join(' and ')}.`;
+      message += ` ${staffMember.firstName} is off on ${groupConsecutiveDays(daysOff)}.`;
     }
     if (timeOffInfo.length > 0) {
       message += ` ${staffMember.firstName} also has time off scheduled: ${timeOffInfo.join(', ')}.`;
@@ -2745,12 +2783,33 @@ async function getBusinessHours(businessId: number): Promise<FunctionResult> {
     return `${hour}${m > 0 ? ':' + m.toString().padStart(2, '0') : ''} ${period}`;
   };
 
-  const hoursText = sortedHours.map(h => {
+  // Group consecutive days with the same hours for natural speech
+  const dayEntries = sortedHours.map(h => {
     const day = h.day.charAt(0).toUpperCase() + h.day.slice(1);
     if (h.isClosed) {
-      return `${day}: Closed`;
+      return { day, key: 'Closed', label: 'Closed' };
     }
-    return `${day}: ${formatTime(h.open || '09:00')} to ${formatTime(h.close || '17:00')}`;
+    const timeRange = `${formatTime(h.open || '09:00')} to ${formatTime(h.close || '17:00')}`;
+    return { day, key: timeRange, label: timeRange };
+  });
+
+  const groups: { days: string[]; label: string }[] = [];
+  for (const entry of dayEntries) {
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup && lastGroup.label === entry.label) {
+      lastGroup.days.push(entry.day);
+    } else {
+      groups.push({ days: [entry.day], label: entry.label });
+    }
+  }
+
+  const hoursText = groups.map(g => {
+    const dayRange = g.days.length > 2
+      ? `${g.days[0]} through ${g.days[g.days.length - 1]}`
+      : g.days.length === 2
+        ? `${g.days[0]} and ${g.days[1]}`
+        : g.days[0];
+    return `${dayRange}: ${g.label}`;
   }).join(', ');
 
   // Check if business is currently open (use business timezone, not UTC)
