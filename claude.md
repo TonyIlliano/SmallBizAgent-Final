@@ -586,6 +586,23 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `d5e43ab` | Fix Vapi confirmAppointment tool registration |
 | `73eca02` | SMS CANCEL + RESCHEDULE keywords for appointment self-service |
 
+### Recent changes (uncommitted):
+
+#### Vapi AI Optimization — Restore Call Quality After Prompt Rewrite
+- **Goal**: Fix degraded AI behavior after commit `271306a` stripped the structured 5-beat call flow and key rules from the system prompt. The AI still received rich data (knowledge base, customer insights, Mem0 memory, upcoming appointments) but no longer had instructions on how to use it properly.
+- `server/services/vapiService.ts` — **System prompt restored** from ~10 compressed lines back to structured 5-beat call flow (GREET → UNDERSTAND → CHECK → BOOK → CLOSE) with KEY RULES sections (DATES, NAMES, STAFF, AFTER HOURS, WHILE TOOLS RUN, CONVERSATION STYLE, MULTILINGUAL). Kept leakage prevention: no sentence-length instructions that sound like commands when spoken aloud.
+- `server/services/vapiService.ts` — **GREET beat** now explicitly instructs AI to "Use the summary and context from recognizeCaller to personalize — reference their upcoming appointment, preferences, or past visits naturally." This restores the AI's ability to leverage Mem0 memory, customer insights, and intelligence data.
+- `server/services/vapiService.ts` — **endCallPhrases**: Removed bare "Goodbye", "Bye bye", "Take care", "Adiós" that caused premature hang-ups mid-sentence. Replaced with full farewell phrases only: "Take care, goodbye", "Sounds great, have a great day", "You're all set, take care", "Cuídese mucho", etc. Applied to BOTH create and update paths.
+- `server/services/vapiService.ts` — **Missing tool definitions added**: `getEstimate` (price quotes), `checkWaitTime` (current wait/next slot), `getServiceDetails` (service info lookup) were listed in AVAILABLE TOOLS and implemented in webhook handler but never registered with Vapi. AI was trying to call them and getting errors. Now properly defined in `getAssistantFunctions()`.
+- `server/services/vapiService.ts` — **numWordsToInterruptAssistant**: 2 → 4. Two words was too aggressive — filler words like "uh huh", "oh yeah", "okay sure" were interrupting the AI mid-sentence while reading availability slots or confirming booking details.
+- `server/services/vapiService.ts` — **startSpeakingPlan timing tuned** (both create and update paths):
+  - `waitSeconds`: 0.4 → 0.5 (more natural conversational pause)
+  - `onPunctuationSeconds`: 0.1 → 0.3 (prevents AI jumping in on mid-sentence pauses like "I need... a haircut")
+  - `onNoPunctuationSeconds`: 0.5 → 0.6 (balanced: responsive but lets callers finish thoughts)
+  - `onNumberSeconds`: 0.4 → 0.5 (lets callers finish full phone numbers/dates)
+- `server/services/vapiService.ts` — **Stale date warning**: System prompt date header changed from "TODAY:" to "TODAY (at assistant build time):" with explicit note that recognizeCaller's `currentStatus` has the real-time date and should always be preferred.
+- `server/services/vapiService.ts` — **AVAILABLE TOOLS list** reordered to group related tools logically (booking tools → info tools → customer tools → utility tools).
+
 ### Recent changes (committed):
 
 #### New Caller Name Capture
@@ -872,4 +889,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 17, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 61 tables. New caller name capture: recognizeCaller creates customer record immediately, AI instructed to call updateCustomerInfo with name, transcript-based extraction fallback at end-of-call. SMS self-service: CANCEL and RESCHEDULE keywords for appointment management via SMS reply. confirmAppointment tool registered with Vapi. CANCEL removed from STOP/opt-out keywords. Platform admin Messages tab. STOP handler: marketingOptIn-based. TCPA compliance: welcome SMS, CONFIRM handler, proper footers. Vapi: Deepgram nova-2 English STT, ElevenLabs opt level 3, gpt-5-mini.*
+*Last updated: March 17, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 61 tables. Vapi optimization: restored 5-beat call flow (stripped in prompt rewrite), added missing tool definitions (getEstimate, checkWaitTime, getServiceDetails), removed bare "Goodbye"/"Bye bye" from endCallPhrases, tuned timing (waitSeconds 0.5, onPunctuationSeconds 0.3, onNoPunctuationSeconds 0.6, numWordsToInterrupt 4), added stale date warning, restored instructions for AI to use recognizeCaller summary/Mem0/insights data. Vapi: Deepgram nova-2 English STT, ElevenLabs opt level 3, gpt-5-mini.*

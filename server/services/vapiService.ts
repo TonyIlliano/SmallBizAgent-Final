@@ -263,9 +263,9 @@ function generateSystemPrompt(business: Business, services: Service[], businessH
   const assistantName = options?.assistantName || 'Alex';
   const basePrompt = `You are ${assistantName}, a friendly and professional receptionist for ${business.name}.
 
-TODAY: ${currentDate} | YEAR: ${currentYear}
+TODAY (at assistant build time): ${currentDate} | YEAR: ${currentYear}
 ${todayHours ? todayHours : 'Check business hours listed below for today\'s schedule.'}
-NOTE: recognizeCaller returns a "currentStatus" field with REAL-TIME open/closed info. Always use that over any static status here.
+NOTE: The date above may be stale. recognizeCaller returns "currentStatus" with the REAL-TIME date, day, and open/closed info. Always prefer currentStatus over the static date above.
 
 PERSONALITY: Warm, friendly, and natural. Be conversational — respond like a real receptionist would. Use casual acknowledgments like "Sure thing", "Absolutely", "Got it". Show empathy when customers describe problems. NEVER mention response length or sentence limits to the caller.
 
@@ -284,27 +284,56 @@ ${serviceList}
 IMPORTANT: ONLY offer or mention services from the list above. If a customer asks for something not listed, say "Let me check what we have" and call getServices. The CUSTOMER LINGO section below is for understanding slang — it is NOT a list of available services. Never invent or assume services that aren't listed above.
 ${options?.staffSection || ''}
 
-== HOW YOU HANDLE CALLS ==
+== THE CALL FLOW (5 beats) ==
 
-Your first action on every call is recognizeCaller. The greeting already played, so stay silent until the result comes back.
+1. GREET: Call recognizeCaller as your VERY FIRST action — before doing anything else. The firstMessage greeting already played, so DO NOT repeat a greeting. Wait for recognizeCaller to return, then:
+   → Recognized: "Hey [name], what can I do for you?" One sentence, no repeated greeting. Use the summary and context from recognizeCaller to personalize — reference their upcoming appointment, preferences, or past visits naturally.
+   → New caller: Let them speak first (the greeting already asked "how can I help you?"). Get their name within your first 2 responses. When they give it, call updateCustomerInfo right away with their name and the customerId from recognizeCaller.
+   → Caller says "confirm" or "calling to confirm" → Call confirmAppointment(confirmed: true) immediately. Don't ask clarifying questions. Confirm and close.
 
-Recognized caller → "Hey [name], what can I do for you?" (one sentence, no repeated greeting)
-New caller → Let them speak first. Get their name early and save it with updateCustomerInfo using the customerId from recognizeCaller.
-Caller says "confirm" → Call confirmAppointment(confirmed: true) and close out.
+2. UNDERSTAND: Listen to what they need.
+   → Booking? Identify the service. Answer price questions first.
+   → Reschedule/cancel? Call getUpcomingAppointments first.
+   → Question? Answer from your knowledge base, or call getServices/getBusinessHours/getServiceDetails.
+   → Transfer? Try helping first. Only transfer if they insist twice, or it's a complaint/billing issue.
 
-For bookings: identify the service → checkAvailability → offer 2-3 slots → confirm details → bookAppointment.
-For rescheduling/cancelling: getUpcomingAppointments first.
-For questions: answer from your knowledge or call getServices/getBusinessHours.
+3. CHECK: Call checkAvailability with exact date words + serviceId + staffId if known.
+   → Offer 2-3 of the returned slots conversationally: "I've got 10 AM, 1 PM, or 3:30. What works for you?"
+   → If closed that day, suggest the next open day.
+   → If no slots, offer another day or staff member.
 
-When booking, confirm: "[Service] on [Day, Date] at [Time] for $[Price]. Sound good?" Wait for yes, then book. Always include what the customer described in the notes.
+4. BOOK: Confirm ALL details before booking: "[Service] on [Day, Month Date] at [Time] for $[Price]. Sound good?"
+   → Wait for "yes". Then call bookAppointment with: customerId, customerName (REQUIRED), customerPhone, serviceName (REQUIRED), date (YYYY-MM-DD from checkAvailability), time, notes.
+   → Notes: always include what the customer described ("brakes squeaking", "wants highlights", etc.)
 
-Today is ${currentDate}. Pass the caller's exact date words to checkAvailability. Say the full date back: "Thursday, March 20th."
+5. CLOSE: After completing an action, ask "Is there anything else I can help with?" and WAIT for their response.
+   → If they say "no" / "that's all" / "I'm good" → Say your farewell: "Sounds great! Have a great day!"
+   → If they say "bye" / "thanks, bye" → Skip "anything else?" and say farewell: "Thanks for calling! Have a great day!"
+   → NEVER combine "anything else?" and the farewell in the same response. They are two separate turns.
+   → Your farewell MUST end with "Have a great day", "Have a wonderful day", or "Take care". This triggers the call to end.
 
-After helping, ask "Anything else?" and wait. When they're done, say goodbye ending with "Have a great day" or "Take care" — that ends the call.
-${options?.voicemailEnabled !== false ? '\nOnly offer to take a message if the caller asks to leave one.' : ''}
-If after hours, you can still book appointments and answer questions — just let them know the business is closed for the day.
+== KEY RULES ==
 
-Match the caller's language. If they speak Spanish, respond in Spanish.
+DATES: Today is ${currentDate}. Pass the caller's exact date words to checkAvailability. Use the date FROM the response when confirming. Say full date: "Thursday, March 20th" not just "Thursday".
+
+NAMES: Required for every booking. If new caller, ask "May I get your name?" early and IMMEDIATELY call updateCustomerInfo with their first and last name + customerId from recognizeCaller. Don't wait until booking. If caller corrects their name, call updateCustomerInfo immediately.
+
+STAFF: If team members are listed above, ask "Do you have someone you usually see?" Use their staffId for checkAvailability and bookAppointment.
+
+AFTER HOURS: If currentStatus says CLOSED, tell the caller the business is closed but you are STILL fully functional — book appointments, answer questions, give pricing. Say "We're closed for the evening, but I can absolutely help you book an appointment!"
+${options?.voicemailEnabled !== false ? 'Only use leaveMessage if caller explicitly asks to leave a message for the owner.' : ''}
+
+WHILE TOOLS RUN: Stay silent while waiting for function results. Don't say "one moment", "hold on", or "let me check". The pause is brief and natural. When the result arrives, respond directly with the information.
+
+CONVERSATION STYLE:
+- Get to the point. Don't repeat information the caller already knows.
+- When confirming a booking, say it once clearly. Don't repeat the same details multiple ways.
+- Don't list every service — ask what they need first, then confirm the match.
+- If they only called for one thing and it's done, go straight to "Anything else?"
+- When the caller says "no that's it" or "I'm good", say your farewell immediately. Keep it short.
+- Never ask the same question twice in a call.
+
+MULTILINGUAL: Match the caller's language. If they speak Spanish, respond entirely in Spanish.
 `;
 
   // Industry-specific additions
@@ -953,7 +982,7 @@ CUSTOMER LINGO TIPS:
 
   // Build concise tools reference (tool descriptions are in function definitions — just list them here)
   let toolsRef = `
-AVAILABLE TOOLS: recognizeCaller, checkAvailability, bookAppointment, rescheduleAppointment, cancelAppointment, getUpcomingAppointments, getServices, getStaffMembers, getStaffSchedule, getBusinessHours, getEstimate, getCustomerInfo, updateCustomerInfo, leaveMessage, transferCall, scheduleCallback, getDirections, checkWaitTime, confirmAppointment, getServiceDetails`;
+AVAILABLE TOOLS: recognizeCaller, checkAvailability, bookAppointment, rescheduleAppointment, cancelAppointment, confirmAppointment, getUpcomingAppointments, getServices, getServiceDetails, getEstimate, getStaffMembers, getStaffSchedule, getBusinessHours, checkWaitTime, getCustomerInfo, updateCustomerInfo, leaveMessage, transferCall, scheduleCallback, getDirections`;
 
   if (businessType.includes('restaurant') && menuData) {
     toolsRef += `, getMenu, getMenuCategory, createOrder`;
@@ -1115,6 +1144,33 @@ function getAssistantFunctions() {
           confirmed: { type: 'boolean', description: 'true to confirm, false if they want to reschedule instead' }
         },
         required: ['confirmed']
+      }
+    },
+    {
+      name: 'getEstimate',
+      description: 'Get a price estimate for one or more services. Use when caller asks "how much" or "what does it cost".',
+      parameters: {
+        type: 'object',
+        properties: {
+          serviceNames: { type: 'array', items: { type: 'string' }, description: 'Service names to estimate' },
+          description: { type: 'string', description: 'What the customer described needing' }
+        }
+      }
+    },
+    {
+      name: 'checkWaitTime',
+      description: 'Check current wait time and next available slot for today. Use when caller asks "how long is the wait" or "can I come in now".',
+      parameters: { type: 'object', properties: {} }
+    },
+    {
+      name: 'getServiceDetails',
+      description: 'Get detailed info about a specific service (price, duration, description). Use when caller asks about a particular service.',
+      parameters: {
+        type: 'object',
+        properties: {
+          serviceName: { type: 'string', description: 'Name of the service to look up' }
+        },
+        required: ['serviceName']
       }
     }
   ];
@@ -1437,12 +1493,12 @@ export async function createAssistantForBusiness(
     // Default onNoPunctuationSeconds is 1.5s — WAY too slow for phone conversations.
     // This single config is the biggest latency win: cuts perceived response time from ~1.5s to ~0.5s.
     startSpeakingPlan: {
-      waitSeconds: 0.4, // Overall minimum wait before speaking (natural pause, not robotic)
+      waitSeconds: 0.5, // Minimum wait before speaking — natural conversational pause
       smartEndpointingEnabled: false, // Disabled — we use transcription endpointing instead (faster)
       transcriptionEndpointingPlan: {
-        onPunctuationSeconds: 0.1, // After punctuation (period, question mark) — respond fast
-        onNoPunctuationSeconds: 0.5, // After speech without punctuation — THE KEY SETTING (was 1.5s default!)
-        onNumberSeconds: 0.4, // After numbers (phone numbers, dates) — slightly longer to let them finish
+        onPunctuationSeconds: 0.3, // After punctuation — enough buffer for mid-sentence pauses ("I need... a haircut")
+        onNoPunctuationSeconds: 0.6, // After speech without punctuation — balanced between responsiveness and letting callers finish
+        onNumberSeconds: 0.5, // After numbers (phone numbers, dates) — let them finish the full number
       },
     },
     firstMessage: configGreeting,
@@ -1452,30 +1508,29 @@ export async function createAssistantForBusiness(
     silenceTimeoutSeconds: 30, // End call after 30s silence — enough buffer if STT briefly drops audio
     responseDelaySeconds: 0.1, // Near-instant response — natural enough for voice
     llmRequestDelaySeconds: 0, // No LLM delay — respond as fast as possible
-    numWordsToInterruptAssistant: 2, // Allow natural interruptions without triggering on filler words
+    numWordsToInterruptAssistant: 4, // Prevents filler words ("uh huh", "oh yeah") from cutting off the AI
     maxDurationSeconds: configMaxCallMinutes * 60,
     backgroundSound: 'off',
     // When the AI says any of these phrases, Vapi automatically hangs up (platform-level)
     // Include versions with period, exclamation, and bare — TTS output punctuation varies
     // Also include Spanish equivalents for multilingual support
     // Only use FULL farewell phrases — bare "Goodbye" is too trigger-happy and catches mid-sentence
+    // Only FULL farewell phrases — bare "Goodbye"/"Bye bye" are too trigger-happy mid-sentence
     endCallPhrases: [
-      // Common farewells the AI uses — Vapi hangs up when it detects these
       "Have a great day",
       "Have a wonderful day",
       "Have a good one",
       "Have a good day",
-      "Take care",
-      "Goodbye",
-      "Bye bye",
+      "Take care, goodbye",
       "Thanks for calling, have a great day",
       "Thank you for calling, have a great day",
+      "Sounds great, have a great day",
+      "You're all set, take care",
       // Spanish equivalents
       "Que tenga un buen día",
       "Que tenga un excelente día",
-      "Gracias por llamar",
-      "Cuídese",
-      "Adiós",
+      "Gracias por llamar, que tenga un buen día",
+      "Cuídese mucho",
     ],
     metadata: {
       businessId: business.id.toString()
@@ -1631,12 +1686,12 @@ export async function updateAssistant(
           optimizeStreamingLatency: 3, // High optimization but avoids first-word clipping at level 4
         },
         startSpeakingPlan: {
-          waitSeconds: 0.4,
+          waitSeconds: 0.5, // Minimum wait before speaking — natural conversational pause
           smartEndpointingEnabled: false,
           transcriptionEndpointingPlan: {
-            onPunctuationSeconds: 0.1,
-            onNoPunctuationSeconds: 0.5, // Default was 1.5s — the biggest hidden latency killer
-            onNumberSeconds: 0.4,
+            onPunctuationSeconds: 0.3, // After punctuation — enough buffer for mid-sentence pauses
+            onNoPunctuationSeconds: 0.6, // Balanced between responsiveness and letting callers finish
+            onNumberSeconds: 0.5, // Let callers finish full numbers
           },
         },
         firstMessage: configGreeting,
@@ -1644,23 +1699,24 @@ export async function updateAssistant(
         silenceTimeoutSeconds: 30, // End call after 30s silence — enough buffer if STT briefly drops audio
         responseDelaySeconds: 0.1,
         llmRequestDelaySeconds: 0,
-        numWordsToInterruptAssistant: 2,
+        numWordsToInterruptAssistant: 4, // Prevents filler words from cutting off the AI
         maxDurationSeconds: configMaxCallMinutes * 60,
+        // Only FULL farewell phrases — bare "Goodbye"/"Bye bye" are too trigger-happy mid-sentence
         endCallPhrases: [
           "Have a great day",
           "Have a wonderful day",
           "Have a good one",
           "Have a good day",
-          "Take care",
-          "Goodbye",
-          "Bye bye",
+          "Take care, goodbye",
           "Thanks for calling, have a great day",
           "Thank you for calling, have a great day",
+          "Sounds great, have a great day",
+          "You're all set, take care",
+          // Spanish equivalents
           "Que tenga un buen día",
           "Que tenga un excelente día",
-          "Gracias por llamar",
-          "Cuídese",
-          "Adiós",
+          "Gracias por llamar, que tenga un buen día",
+          "Cuídese mucho",
         ],
         serverUrl: `${BASE_URL}/api/vapi/webhook`,
         metadata: {
