@@ -2303,14 +2303,14 @@ async function getStaffSchedule(
           daysOff.push(dayName);
         } else {
           workingDays.push(dayName);
-          schedule.push(`${dayName}: ${formatTime(staffDay.startTime)} - ${formatTime(staffDay.endTime)}`);
+          schedule.push(`${dayName}: ${formatTime(staffDay.startTime)} to ${formatTime(staffDay.endTime)}`);
         }
       } else {
         // No staff-specific entry — fall back to business hours for this day
         const bizDay = businessHours.find(h => h.day === day);
         if (bizDay && !bizDay.isClosed && bizDay.open) {
           workingDays.push(dayName);
-          schedule.push(`${dayName}: ${formatTime(bizDay.open)} - ${formatTime(bizDay.close)} (business hours)`);
+          schedule.push(`${dayName}: ${formatTime(bizDay.open)} to ${formatTime(bizDay.close)} (business hours)`);
         }
         // If business is also closed this day, don't add to either list
       }
@@ -3233,9 +3233,9 @@ async function getCurrentBusinessStatus(businessId: number): Promise<string> {
     const closeMin = parseTimeToMinutes(todayHours.close);
 
     if (currentMinutes >= openMin && currentMinutes < closeMin) {
-      return `OPEN now (today's hours: ${todayHours.open} - ${todayHours.close})`;
+      return `OPEN now (today's hours: ${todayHours.open} to ${todayHours.close})`;
     } else {
-      return `CLOSED right now (today's hours were ${todayHours.open} - ${todayHours.close}). You can still book appointments and answer questions.`;
+      return `CLOSED right now (today's hours were ${todayHours.open} to ${todayHours.close}). You can still book appointments and answer questions.`;
     }
   } catch (err) {
     console.error(`[getCurrentBusinessStatus] Error for business ${businessId}:`, err);

@@ -82,7 +82,7 @@ function formatBusinessHoursFromDB(hours: any[]): string {
       const hour12 = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
       return min > 0 ? `${hour12}:${minStr} ${period}` : `${hour12} ${period}`;
     };
-    return `${dayName}: ${formatTime(h.open)} - ${formatTime(h.close)}`;
+    return `${dayName}: ${formatTime(h.open)} to ${formatTime(h.close)}`;
   });
 
   return formatted.join(', ');
@@ -139,7 +139,7 @@ function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'):
 
   return {
     isOpen,
-    todayHours: `Today's hours: ${todayHours.open} - ${todayHours.close}`
+    todayHours: `Today's hours: ${todayHours.open} to ${todayHours.close}`
   };
 }
 
