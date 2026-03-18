@@ -157,6 +157,7 @@ import { registerMarketingRoutes } from './routes/marketingRoutes';
 import { registerZapierRoutes } from './routes/zapierRoutes';
 import { registerInventoryRoutes } from './routes/inventoryRoutes';
 import { registerAutomationRoutes } from './routes/automationRoutes';
+import { registerExpressSetupRoutes } from './routes/expressSetupRoutes';
 import { fireEvent } from './services/webhookService';
 // Multi-line phone + multi-location routes
 import phoneRoutes from './routes/phoneRoutes';
@@ -247,6 +248,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register automation routes (SMS agents)
   registerAutomationRoutes(app);
+
+  // Register express onboarding routes
+  registerExpressSetupRoutes(app);
 
   // Register admin dashboard routes
   app.use(adminRoutes);

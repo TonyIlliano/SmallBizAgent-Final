@@ -6,6 +6,7 @@ import { useOnboardingProgress, type OnboardingStep } from '@/hooks/use-onboardi
 
 import { useQuery } from '@tanstack/react-query';
 import Welcome from './steps/welcome';
+import ExpressSetup from './steps/express-setup';
 import BusinessSetup from './steps/business-setup';
 import ServicesSetup from './steps/services-setup';
 import HoursSetup from './steps/hours-setup';
@@ -23,6 +24,7 @@ export default function OnboardingPage() {
   const { user, isLoading } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const [setupMode, setSetupMode] = useState<'choose' | 'express' | 'detailed'>('choose');
 
   // Use our progress hook (now persists to database)
   const {
@@ -162,8 +164,45 @@ export default function OnboardingPage() {
   // Calculate progress percentage
   const progressPercentage = ((currentStepIndex) / (steps.length - 1)) * 100;
 
+  // Handle welcome step completion — routes to express or detailed flow
+  const handleWelcomeComplete = (mode?: 'express' | 'detailed') => {
+    if (mode === 'express') {
+      setSetupMode('express');
+    } else {
+      setSetupMode('detailed');
+      handleNext();
+    }
+  };
+
+  // Express setup — single-page form, no wizard
+  if (setupMode === 'express' || (setupMode === 'choose' && progress.currentStep === 'welcome' && false)) {
+    return (
+      <div className="bg-muted/40 min-h-screen flex flex-col">
+        <header className="bg-background py-4 px-6 border-b">
+          <div className="container max-w-5xl mx-auto flex items-center justify-between">
+            <h1 className="font-semibold text-xl">SmallBizAgent Setup</h1>
+            <Button variant="ghost" size="sm" onClick={() => setSetupMode('choose')}>
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Back to options
+            </Button>
+          </div>
+        </header>
+        <main className="flex-1 py-8">
+          <div className="container max-w-3xl mx-auto px-4">
+            <ExpressSetup userEmail={user?.email || undefined} />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   // Render the current step component
   const StepComponent = currentStep.component;
+
+  // For the welcome step, pass our custom handler instead of handleNext
+  const stepProps = currentStep.id === 'welcome'
+    ? { onComplete: handleWelcomeComplete, onSkip: handleSkipStep }
+    : { onComplete: handleNext, onSkip: handleSkipStep };
 
   return (
     <div className="bg-muted/40 min-h-screen flex flex-col">
@@ -200,7 +239,7 @@ export default function OnboardingPage() {
 
       <main className="flex-1 py-8">
         <div className="container max-w-3xl mx-auto px-4">
-          <StepComponent onComplete={handleNext} onSkip={handleSkipStep} />
+          <StepComponent {...stepProps} />
         </div>
       </main>
 
