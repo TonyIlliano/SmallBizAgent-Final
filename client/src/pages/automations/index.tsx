@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageLayout } from "@/components/layout/PageLayout";
+import { FeatureTip } from "@/components/ui/feature-tip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -299,6 +300,11 @@ function OverviewTab({ isOwner, onTest }: { isOwner: boolean; onTest: (agentType
 
   return (
     <div className="space-y-4">
+      <FeatureTip
+        tipId="agents-intro"
+        title="Your AI Agents Work While You Sleep"
+        description="These SMS agents automatically follow up after completed jobs, recover no-shows, send rebooking reminders to inactive customers, and request reviews. They're all enabled by default and respect customer opt-out preferences."
+      />
       {isOwner && <PerformanceBanner />}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {sorted.map((agent) => (

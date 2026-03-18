@@ -51,6 +51,7 @@ const VOICE_OPTIONS = [
   { id: 'sam', name: 'Sam', gender: 'Male' },
 ];
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 
 // Recording disclosure keywords (must match server-side check)
 const DISCLOSURE_KEYWORDS = ['recorded', 'recording', 'monitored', 'monitor'];
@@ -315,7 +316,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                 name="assistantName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Assistant Name</FormLabel>
+                    <FormLabel className="flex items-center gap-1.5">Assistant Name <HelpTooltip content="The name your AI introduces itself as on calls. Callers will hear 'Hi, this is [name]'." /></FormLabel>
                     <FormControl>
                       <Input
                         placeholder="Alex"
@@ -335,7 +336,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                 name="voiceId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Voice</FormLabel>
+                    <FormLabel className="flex items-center gap-1.5">Voice <HelpTooltip content="Choose the voice callers will hear. Click the speaker icon to preview each voice." /></FormLabel>
                     <div className="flex gap-2">
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
@@ -383,7 +384,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
               name="greeting"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Greeting Message</FormLabel>
+                  <FormLabel className="flex items-center gap-1.5">Greeting Message <HelpTooltip content="First thing callers hear when the AI answers. Keep it warm and natural. Recording disclosure is added automatically if Call Recording is on." /></FormLabel>
                   <FormControl>
                     <Textarea 
                       placeholder="Hi, thanks for calling! Just so you know, this call may be recorded to make sure we're giving you the best service possible. How can I help you today?" 
@@ -404,7 +405,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
               name="afterHoursMessage"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>After Hours Message</FormLabel>
+                  <FormLabel className="flex items-center gap-1.5">After Hours Message <HelpTooltip content="What callers hear outside business hours. The AI can still book appointments and answer questions when closed." /></FormLabel>
                   <FormControl>
                     <Textarea 
                       placeholder="I'm sorry, our office is currently closed. If this is an emergency, please say 'emergency' to be connected with our on-call staff." 
@@ -425,7 +426,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
               name="customInstructions"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Custom Instructions</FormLabel>
+                  <FormLabel className="flex items-center gap-1.5">Custom Instructions <HelpTooltip content="Special rules for your AI — promotions, emergency handling, upsells, restrictions, or anything specific to your business." /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder={"Examples:\n• Always mention our 10% new customer discount\n• If someone mentions a water leak or gas smell, transfer to a human immediately\n• We deliver within 5 miles — let callers know\n• Never book appointments on Sundays\n• Try to upsell our premium package on every call"}
@@ -553,7 +554,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                 name="maxCallLengthMinutes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Max Call Length (minutes)</FormLabel>
+                    <FormLabel className="flex items-center gap-1.5">Max Call Length (minutes) <HelpTooltip content="Calls automatically end after this limit. Most calls complete in 2-5 minutes." /></FormLabel>
                     <FormControl>
                       <Input
                         type="number"
@@ -573,7 +574,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
             </div>
             
             <FormItem>
-              <FormLabel>Call Transfer Numbers</FormLabel>
+              <FormLabel className="flex items-center gap-1.5">Call Transfer Numbers <HelpTooltip content="Numbers the AI can transfer callers to when they insist on speaking with a person. Use a cell phone or direct line — not your main business number." /></FormLabel>
               <FormDescription className="mb-2">
                 When a caller insists on speaking to a person, the AI will transfer the call to these numbers. Use a cell phone or direct line — <strong>not</strong> your main business number if it forwards to the AI (this would create a loop).
               </FormDescription>

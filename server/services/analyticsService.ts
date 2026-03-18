@@ -1,14 +1,17 @@
 import { db } from "../db";
 import { storage } from "../storage";
-import { eq, and, gte, lte, sql, between, like, count } from "drizzle-orm";
-import { 
+import { eq, and, gte, lte, sql, between, like, count, inArray } from "drizzle-orm";
+import {
   invoices,
-  jobs, 
-  appointments, 
-  callLogs, 
+  jobs,
+  appointments,
+  callLogs,
   customers,
   services,
-  staff
+  staff,
+  callIntelligence,
+  subscriptionPlans,
+  businesses
 } from "../../shared/schema";
 
 interface DateRange {
@@ -806,4 +809,110 @@ export async function getBusinessAnalytics(
     customers,
     performance
   };
+}
+
+/**
+ * Get AI ROI analytics — the "money story" for the dashboard.
+ * Traces: calls answered → bookings made → revenue generated → ROI
+ */
+export async function getAiRoiAnalytics(businessId: number, dateRange: DateRange) {
+  const { startDate, endDate } = dateRange;
+
+  try {
+    // 1. Total calls in period
+    const callData = await db.select({
+      id: callLogs.id,
+      status: callLogs.status,
+    })
+      .from(callLogs)
+      .where(and(
+        eq(callLogs.businessId, businessId),
+        gte(callLogs.callTime, startDate),
+        lte(callLogs.callTime, endDate)
+      ));
+
+    const totalCalls = callData.length;
+    const answeredCalls = callData.filter(c => c.status === 'answered').length;
+
+    // 2. Calls that resulted in bookings (from call intelligence)
+    const bookedIntel = await db.select({
+      customerId: callIntelligence.customerId,
+    })
+      .from(callIntelligence)
+      .where(and(
+        eq(callIntelligence.businessId, businessId),
+        eq(callIntelligence.outcome, 'booked'),
+        gte(callIntelligence.createdAt, startDate),
+        lte(callIntelligence.createdAt, endDate)
+      ));
+
+    const bookedFromCalls = bookedIntel.length;
+    const bookedCustomerIds = Array.from(new Set(
+      bookedIntel.map(b => b.customerId).filter((id): id is number => id !== null)
+    ));
+
+    // 3. Revenue from those bookings — paid invoices for customers who booked via AI calls
+    let revenueFromBookings = 0;
+    if (bookedCustomerIds.length > 0) {
+      const invoiceData = await db.select({
+        total: invoices.total,
+      })
+        .from(invoices)
+        .where(and(
+          eq(invoices.businessId, businessId),
+          eq(invoices.status, 'paid'),
+          inArray(invoices.customerId, bookedCustomerIds),
+          gte(invoices.createdAt, startDate),
+          lte(invoices.createdAt, endDate)
+        ));
+      revenueFromBookings = invoiceData.reduce((sum, inv) => sum + (inv.total || 0), 0);
+    }
+
+    // 4. Plan cost
+    let planCost = 0;
+    const business = await db.select({
+      stripePlanId: businesses.stripePlanId,
+    })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+
+    if (business[0]?.stripePlanId) {
+      const plan = await db.select({
+        price: subscriptionPlans.price,
+      })
+        .from(subscriptionPlans)
+        .where(eq(subscriptionPlans.id, business[0].stripePlanId))
+        .limit(1);
+      planCost = plan[0]?.price || 0;
+    }
+
+    // 5. Calculate ROI metrics
+    const roi = planCost > 0 ? Math.round(((revenueFromBookings - planCost) / planCost) * 100) : null;
+    const conversionRate = totalCalls > 0 ? Math.round((bookedFromCalls / totalCalls) * 100) : 0;
+    const avgRevenuePerBooking = bookedFromCalls > 0 ? Math.round(revenueFromBookings / bookedFromCalls) : 0;
+
+    return {
+      totalCalls,
+      answeredCalls,
+      bookedFromCalls,
+      revenueFromBookings: Math.round(revenueFromBookings * 100) / 100,
+      planCost,
+      roi,
+      conversionRate,
+      avgRevenuePerBooking,
+    };
+  } catch (error) {
+    console.error('[AI ROI Analytics] Error:', error);
+    return {
+      totalCalls: 0,
+      answeredCalls: 0,
+      bookedFromCalls: 0,
+      revenueFromBookings: 0,
+      planCost: 0,
+      roi: null,
+      conversionRate: 0,
+      avgRevenuePerBooking: 0,
+    };
+  }
 }

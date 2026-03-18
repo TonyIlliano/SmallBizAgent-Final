@@ -16,6 +16,7 @@ import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 
 
 import { Progress } from "@/components/ui/progress";
+import { AiRoiCard } from "@/components/dashboard/AiRoiCard";
 
 import {
   CheckSquare,
@@ -448,6 +449,9 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         )}
+
+        {/* AI ROI Card — the "money story" */}
+        {usageData && businessId && <AiRoiCard businessId={businessId} />}
 
         {/* Needs Attention Section */}
         {attentionItems.length > 0 && (

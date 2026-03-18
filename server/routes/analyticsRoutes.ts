@@ -611,4 +611,45 @@ export function registerAnalyticsRoutes(app: any) {
       res.status(500).json({ message: "Error exporting analytics report" });
     }
   });
+
+  /**
+   * Get AI ROI analytics — the "money story" for the dashboard.
+   * Shows: calls answered → bookings made → revenue generated → ROI
+   */
+  app.get("/api/analytics/ai-roi", isOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
+        period: req.query.period
+      });
+
+      const now = new Date();
+      let startDate: Date;
+      switch (period) {
+        case 'week':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'quarter':
+          startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+          break;
+        case 'year':
+          startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+          break;
+        case 'month':
+        default:
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          break;
+      }
+
+      const roiData = await analyticsService.getAiRoiAnalytics(businessId, {
+        startDate,
+        endDate: now,
+      });
+
+      res.json({ period, ...roiData });
+    } catch (error) {
+      console.error("Error fetching AI ROI analytics:", error);
+      res.status(500).json({ message: "Error fetching AI ROI analytics" });
+    }
+  });
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useSearch } from "wouter";
+import { ErrorBoundary, PublicErrorFallback } from "@/components/ui/error-boundary";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -114,7 +115,7 @@ const DAY_LABELS: Record<string, string> = {
   friday: "Fri", saturday: "Sat", sunday: "Sun",
 };
 
-export default function PublicBooking() {
+function PublicBookingInner() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
   const searchString = useSearch();
@@ -1519,5 +1520,14 @@ export default function PublicBooking() {
         <PoweredByFooter />
       </div>
     </div>
+  );
+}
+
+export default function PublicBooking() {
+  const { slug } = useParams<{ slug: string }>();
+  return (
+    <ErrorBoundary fallback={<PublicErrorFallback />} resetKeys={[slug]}>
+      <PublicBookingInner />
+    </ErrorBoundary>
   );
 }

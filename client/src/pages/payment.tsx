@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { Button } from '@/components/ui/button';
@@ -79,7 +80,7 @@ function PaymentForm() {
   );
 }
 
-export default function PaymentPage() {
+function PaymentPageInner() {
   const [searchParams] = useState(new URLSearchParams(window.location.search));
   const [clientSecret, setClientSecret] = useState<string | null>(null);
 
@@ -134,5 +135,13 @@ export default function PaymentPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function PaymentPage() {
+  return (
+    <ErrorBoundary>
+      <PaymentPageInner />
+    </ErrorBoundary>
   );
 }

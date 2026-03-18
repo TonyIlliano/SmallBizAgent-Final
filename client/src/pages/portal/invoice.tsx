@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useLocation } from "wouter";
+import { ErrorBoundary, PublicErrorFallback } from "@/components/ui/error-boundary";
 import { loadStripe } from "@stripe/stripe-js";
 import {
   Elements,
@@ -135,7 +136,7 @@ function PortalCheckoutForm({
   );
 }
 
-export default function PortalInvoice() {
+function PortalInvoiceInner() {
   const params = useParams();
   const token = params.token;
   const [, navigate] = useLocation();
@@ -483,5 +484,14 @@ export default function PortalInvoice() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function PortalInvoice() {
+  const { token } = useParams<{ token: string }>();
+  return (
+    <ErrorBoundary fallback={<PublicErrorFallback />} resetKeys={[token]}>
+      <PortalInvoiceInner />
+    </ErrorBoundary>
   );
 }

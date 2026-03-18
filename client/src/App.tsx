@@ -12,6 +12,7 @@ import { ProtectedAdminRoute } from "./components/auth/ProtectedAdminRoute";
 import { ServiceWorkerNotification } from "@/components/ui/ServiceWorkerNotification";
 import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
 import { ContextHelp } from "@/components/ui/context-help";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 // Eagerly loaded (critical path)
 import NotFound from "@/pages/not-found";
@@ -201,19 +202,21 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          <SidebarProvider>
-            <Toaster />
-            <ServiceWorkerNotification />
-            <PWAInstallPrompt />
-            <ContextHelp />
-            <Router />
-          </SidebarProvider>
-        </AuthProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <AuthProvider>
+            <SidebarProvider>
+              <Toaster />
+              <ServiceWorkerNotification />
+              <PWAInstallPrompt />
+              <ContextHelp />
+              <Router />
+            </SidebarProvider>
+          </AuthProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

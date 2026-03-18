@@ -91,6 +91,52 @@ export function ContextHelp() {
           'Set up payment methods and tax rates.',
         ],
       });
+    } else if (location.startsWith('/receptionist')) {
+      setHelpContent({
+        title: 'AI Receptionist Help',
+        content: [
+          'Your AI receptionist answers calls 24/7 — books appointments, answers questions, and takes messages.',
+          'The Call Log tab shows recent call transcripts and outcomes.',
+          'The Knowledge Base tab lets you teach your AI about your business with Q&A pairs.',
+          'The Configuration tab lets you customize the greeting, voice, and behavior.',
+          'Click "Refresh Assistant" after making changes to push updates to the live AI.',
+        ],
+        links: [
+          { label: 'View Support Guide', href: '/support' },
+        ]
+      });
+    } else if (location.startsWith('/ai-agents') || location.startsWith('/automations')) {
+      setHelpContent({
+        title: 'AI Agents Help',
+        content: [
+          'AI agents send SMS messages automatically based on business events.',
+          'Follow-Up Agent: Thanks customers after completed jobs.',
+          'No-Show Agent: Reaches out to no-show customers to rebook.',
+          'Rebooking Agent: Contacts inactive customers after 30+ days.',
+          'All agents respect SMS opt-out preferences and TCPA compliance.',
+        ],
+      });
+    } else if (location.startsWith('/marketing')) {
+      setHelpContent({
+        title: 'Marketing Help',
+        content: [
+          'Manage your online reputation and request reviews from happy customers.',
+          'The AI can draft responses to Google reviews automatically.',
+          'Set up automated review requests after job completion.',
+        ],
+      });
+    } else if (location.startsWith('/analytics')) {
+      setHelpContent({
+        title: 'Analytics Help',
+        content: [
+          'Track your business performance across revenue, calls, jobs, and appointments.',
+          'Use the period selector to view different timeframes (week, month, quarter, year).',
+          'The AI ROI card on the dashboard shows the return on your AI receptionist investment.',
+        ],
+        links: [
+          { label: 'View Dashboard', href: '/' },
+        ]
+      });
     } else {
       setHelpContent({
         title: 'Need help?',
