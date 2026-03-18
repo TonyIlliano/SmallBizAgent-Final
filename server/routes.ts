@@ -771,20 +771,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dataCache.invalidate(hours.businessId, 'hours');
       }
 
-      // Auto-refresh Vapi assistant when business hours are created
+      // Auto-refresh Vapi assistant when business hours are created (includes knowledge base)
       if (hours.businessId) {
         const business = await storage.getBusiness(hours.businessId);
         if (business?.vapiAssistantId) {
-          const services = await storage.getServices(hours.businessId);
-          const allHours = await storage.getBusinessHours(hours.businessId);
-          const rcConfig = await storage.getReceptionistConfig(hours.businessId);
-          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours, rcConfig)
-            .then(result => {
-              if (result.success) {
-                console.log(`Auto-refreshed Vapi assistant after business hours creation`);
-              }
-            })
-            .catch(err => console.error('Failed to auto-refresh Vapi assistant:', err));
+          vapiProvisioningService.debouncedUpdateVapiAssistant(hours.businessId);
         }
       }
 
@@ -819,20 +810,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dataCache.invalidate(hours.businessId, 'hours');
       }
 
-      // Auto-refresh Vapi assistant when business hours change
+      // Auto-refresh Vapi assistant when business hours change (includes knowledge base)
       if (hours.businessId) {
         const business = await storage.getBusiness(hours.businessId);
         if (business?.vapiAssistantId) {
-          const services = await storage.getServices(hours.businessId);
-          const allHours = await storage.getBusinessHours(hours.businessId);
-          const rcConfig = await storage.getReceptionistConfig(hours.businessId);
-          vapiService.updateAssistant(business.vapiAssistantId, business, services, allHours, rcConfig)
-            .then(result => {
-              if (result.success) {
-                console.log(`Auto-refreshed Vapi assistant after business hours update`);
-              }
-            })
-            .catch(err => console.error('Failed to auto-refresh Vapi assistant:', err));
+          vapiProvisioningService.debouncedUpdateVapiAssistant(hours.businessId);
         }
       }
 
@@ -5800,16 +5782,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const services = await storage.getServices(businessId);
       const businessHours = await storage.getBusinessHours(businessId);
       const rcConfig = await storage.getReceptionistConfig(businessId);
-      console.log(`Updating assistant ${business.vapiAssistantId} with ${services.length} services, ${businessHours.length} hour entries`);
-      console.log(`APP_URL is: ${process.env.APP_URL}`);
-      console.log(`Webhook URL will be: ${process.env.APP_URL}/api/vapi/webhook`);
+
+      // Build knowledge section (FAQs, website scrape data, answered questions)
+      let knowledgeSection = '';
+      try {
+        const { buildKnowledgeSection } = await import('./services/knowledgePromptBuilder');
+        knowledgeSection = await buildKnowledgeSection(businessId);
+      } catch (e) {
+        console.warn('[VapiRefresh] Could not load knowledge section:', e);
+      }
+
+      console.log(`Updating assistant ${business.vapiAssistantId} with ${services.length} services, ${businessHours.length} hour entries, ${knowledgeSection.length} chars knowledge`);
 
       const result = await vapiService.updateAssistant(
         business.vapiAssistantId,
         business,
         services,
         businessHours,
-        rcConfig
+        rcConfig,
+        knowledgeSection
       );
 
       if (!result.success) {
@@ -5873,6 +5864,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const businessHours = await storage.getBusinessHours(businessId);
       const rcConfig = await storage.getReceptionistConfig(businessId);
 
+      // Build knowledge section (FAQs, website scrape data, answered questions)
+      let knowledgeSection = '';
+      try {
+        const { buildKnowledgeSection } = await import('./services/knowledgePromptBuilder');
+        knowledgeSection = await buildKnowledgeSection(businessId);
+      } catch (e) {
+        console.warn('[VapiAssistant] Could not load knowledge section:', e);
+      }
+
       // Check if business already has a Vapi assistant
       if (business.vapiAssistantId) {
         // Update existing assistant
@@ -5881,7 +5881,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           business,
           services,
           businessHours,
-          rcConfig
+          rcConfig,
+          knowledgeSection
         );
 
         if (!result.success) {
@@ -5895,7 +5896,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } else {
         // Create new assistant
-        const result = await vapiService.createAssistantForBusiness(business, services, businessHours, rcConfig);
+        const result = await vapiService.createAssistantForBusiness(business, services, businessHours, rcConfig, knowledgeSection);
 
         if (!result.assistantId) {
           return res.status(500).json({ error: result.error });
