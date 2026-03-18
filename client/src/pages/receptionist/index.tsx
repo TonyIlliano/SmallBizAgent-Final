@@ -75,6 +75,7 @@ export default function Receptionist() {
     enabled: !!businessId,
   });
   const aiInsightsEnabled = receptionistConfig?.aiInsightsEnabled === true;
+  const callRecordingEnabled = receptionistConfig?.callRecordingEnabled !== false; // defaults to true
   const greetingHasDisclosure = hasRecordingDisclosure(receptionistConfig?.greeting);
 
   return (
@@ -199,7 +200,7 @@ export default function Receptionist() {
             <WeeklySuggestions
               businessId={businessId ?? undefined}
               aiInsightsEnabled={aiInsightsEnabled}
-              hasRecordingDisclosure={greetingHasDisclosure}
+              callRecordingEnabled={callRecordingEnabled}
             />
           </TabsContent>
 

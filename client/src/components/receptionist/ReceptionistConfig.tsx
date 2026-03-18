@@ -498,8 +498,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                 control={form.control}
                 name="aiInsightsEnabled"
                 render={({ field }) => {
-                  const greetingValue = form.watch("greeting");
-                  const greetingOk = hasRecordingDisclosure(greetingValue);
+                  const recordingOn = form.watch("callRecordingEnabled");
                   return (
                     <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                       <div className="space-y-0.5">
@@ -510,10 +509,10 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                         <FormDescription>
                           Weekly AI analysis of calls to suggest improvements
                         </FormDescription>
-                        {!greetingOk && (
+                        {!recordingOn && (
                           <p className="text-xs text-amber-600 flex items-center gap-1 mt-1">
                             <AlertTriangle className="h-3 w-3" />
-                            Requires a recording disclosure in your greeting (e.g., "this call may be recorded")
+                            Requires Call Recording to be enabled
                           </p>
                         )}
                       </div>
@@ -521,10 +520,10 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                         <Switch
                           checked={field.value}
                           onCheckedChange={(checked) => {
-                            if (checked && !greetingOk) {
+                            if (checked && !recordingOn) {
                               toast({
-                                title: "Recording disclosure required",
-                                description: "Your greeting must mention that calls may be recorded before enabling AI Insights. This is a legal requirement.",
+                                title: "Call Recording required",
+                                description: "Enable Call Recording to use AI Insights. The recording disclosure will be added to your greeting automatically.",
                                 variant: "destructive",
                               });
                               return;

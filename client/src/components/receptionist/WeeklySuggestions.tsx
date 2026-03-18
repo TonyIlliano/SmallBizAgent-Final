@@ -17,7 +17,8 @@ import { Sparkles, Check, X, Pencil, Loader2, AlertTriangle, ShieldAlert } from 
 interface WeeklySuggestionsProps {
   businessId?: number;
   aiInsightsEnabled?: boolean;
-  hasRecordingDisclosure?: boolean;
+  hasRecordingDisclosure?: boolean; // deprecated — kept for backward compat, use callRecordingEnabled
+  callRecordingEnabled?: boolean;
 }
 
 interface Suggestion {
@@ -73,7 +74,7 @@ function formatSuggestedValue(type: string, value: string | null): string {
   return value;
 }
 
-export function WeeklySuggestions({ businessId, aiInsightsEnabled, hasRecordingDisclosure }: WeeklySuggestionsProps) {
+export function WeeklySuggestions({ businessId, aiInsightsEnabled, hasRecordingDisclosure, callRecordingEnabled }: WeeklySuggestionsProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -146,17 +147,17 @@ export function WeeklySuggestions({ businessId, aiInsightsEnabled, hasRecordingD
     );
   }
 
-  // Disabled state: no recording disclosure
-  if (!hasRecordingDisclosure) {
+  // Disabled state: Call Recording must be enabled for AI Insights
+  const recordingActive = callRecordingEnabled ?? hasRecordingDisclosure ?? false;
+  if (!recordingActive) {
     return (
       <Card className="border-amber-200">
         <CardContent className="flex flex-col items-center justify-center py-12">
           <ShieldAlert className="h-12 w-12 text-amber-400 mb-4" />
-          <h3 className="text-lg font-medium text-amber-700">Recording Disclosure Required</h3>
+          <h3 className="text-lg font-medium text-amber-700">Call Recording Required</h3>
           <p className="text-sm text-gray-500 mt-1 text-center max-w-md">
-            For legal compliance, AI Insights requires your greeting to include a recording disclosure
-            (e.g., "this call may be recorded"). Go to the <strong>Configuration</strong> tab
-            to update your greeting.
+            AI Insights requires Call Recording to be enabled. Turn on Call Recording in the
+            <strong> Configuration</strong> tab — the recording disclosure will be added to your greeting automatically.
           </p>
         </CardContent>
       </Card>

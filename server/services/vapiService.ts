@@ -169,66 +169,65 @@ function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'):
  * Build the firstMessage that plays when the call connects.
  *
  * Rules:
- * 1. ALWAYS includes recording disclosure ("this call may be recorded")
- *    — regardless of whether a custom greeting is stored in the DB.
+ * 1. Only includes recording disclosure when Call Recording is enabled.
  * 2. ALWAYS ends with an engagement question so the caller responds
  *    while recognizeCaller runs in the background.
  * 3. Uses the business's custom greeting if set, but injects the
  *    recording disclosure if it's missing from the custom text.
  */
-function buildFirstMessage(businessName: string, customGreeting?: string | null): string {
+function buildFirstMessage(businessName: string, customGreeting?: string | null, callRecordingEnabled?: boolean): string {
+  const recordingEnabled = callRecordingEnabled ?? true;
   const recordingPhrase = 'Just so you know, this call may be recorded for quality purposes.';
   const engagementQuestion = 'How can I help you today?';
 
   // No custom greeting — use dynamic default with business name
   if (!customGreeting || !customGreeting.trim()) {
-    return `Hi, thanks for calling ${businessName}! ${recordingPhrase} ${engagementQuestion}`;
+    if (recordingEnabled) {
+      return `Hi, thanks for calling ${businessName}! ${recordingPhrase} ${engagementQuestion}`;
+    }
+    return `Hi, thanks for calling ${businessName}! ${engagementQuestion}`;
   }
 
   // Use the custom greeting as-is, only adding what's missing
   let greeting = customGreeting.trim();
-
-  // Check if the custom greeting already mentions recording
-  const mentionsRecording = /record|monitor/i.test(greeting);
-
-  // Check if greeting already ends with a question
   const endsWithQuestion = /\?\s*$/.test(greeting);
 
-  if (!mentionsRecording) {
-    // Insert recording disclosure before the final question, or append it
-    if (endsWithQuestion) {
-      // Find where the last question starts so we can insert disclosure before it
-      const lastQ = greeting.lastIndexOf('?');
-      const textUpToQ = greeting.substring(0, lastQ + 1);
+  // Only inject recording disclosure if Call Recording is ON
+  if (recordingEnabled) {
+    const mentionsRecording = /record|monitor/i.test(greeting);
 
-      // Find the start of the question sentence
-      const beforeQ = greeting.substring(0, lastQ);
-      const lastSentenceBreak = Math.max(
-        beforeQ.lastIndexOf('. '),
-        beforeQ.lastIndexOf('! '),
-        beforeQ.lastIndexOf('? ')
-      );
+    if (!mentionsRecording) {
+      if (endsWithQuestion) {
+        const lastQ = greeting.lastIndexOf('?');
+        const beforeQ = greeting.substring(0, lastQ);
+        const lastSentenceBreak = Math.max(
+          beforeQ.lastIndexOf('. '),
+          beforeQ.lastIndexOf('! '),
+          beforeQ.lastIndexOf('? ')
+        );
 
-      if (lastSentenceBreak >= 0) {
-        // Insert disclosure between the greeting body and the closing question
-        const body = greeting.substring(0, lastSentenceBreak + 1).trim();
-        const question = greeting.substring(lastSentenceBreak + 1).trim();
-        greeting = `${body} ${recordingPhrase} ${question}`;
+        if (lastSentenceBreak >= 0) {
+          const body = greeting.substring(0, lastSentenceBreak + 1).trim();
+          const question = greeting.substring(lastSentenceBreak + 1).trim();
+          greeting = `${body} ${recordingPhrase} ${question}`;
+        } else {
+          greeting = `${recordingPhrase} ${greeting}`;
+        }
       } else {
-        // Entire greeting is one question — prepend disclosure
-        greeting = `${recordingPhrase} ${greeting}`;
+        const stripped = greeting.replace(/[.!?]+\s*$/, '');
+        greeting = `${stripped}. ${recordingPhrase} ${engagementQuestion}`;
       }
-    } else {
-      // No question at the end — append disclosure + engagement question
+    } else if (!endsWithQuestion) {
       const stripped = greeting.replace(/[.!?]+\s*$/, '');
-      greeting = `${stripped}. ${recordingPhrase} ${engagementQuestion}`;
+      greeting = `${stripped}. ${engagementQuestion}`;
     }
-  } else if (!endsWithQuestion) {
-    // Has recording mention but doesn't end with question — append one
-    const stripped = greeting.replace(/[.!?]+\s*$/, '');
-    greeting = `${stripped}. ${engagementQuestion}`;
+  } else {
+    // Recording OFF — just ensure greeting ends with a question
+    if (!endsWithQuestion) {
+      const stripped = greeting.replace(/[.!?]+\s*$/, '');
+      greeting = `${stripped}. ${engagementQuestion}`;
+    }
   }
-  // else: has recording mention AND ends with question — use exactly as-is
 
   return greeting;
 }
@@ -1425,11 +1424,11 @@ export async function createAssistantForBusiness(
   // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  // First message: greeting with recording disclosure + immediate engagement question.
-  // IMPORTANT: Must end with a question so the caller responds while recognizeCaller runs in background.
-  // Never say "one moment" or "hold on" — Vapi will hang up during silence.
-  const configGreeting = buildFirstMessage(business.name, receptionistConfig?.greeting);
+  // Extract config values with sensible defaults
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
+  // First message: greeting with conditional recording disclosure + engagement question.
+  // IMPORTANT: Must end with a question so the caller responds while recognizeCaller runs in background.
+  const configGreeting = buildFirstMessage(business.name, receptionistConfig?.greeting, configRecordingEnabled);
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
   const configAfterHoursMessage = receptionistConfig?.afterHoursMessage || '';
@@ -1451,7 +1450,6 @@ export async function createAssistantForBusiness(
     if (activeStaff.length > 0) {
       staffSection = `\nTEAM MEMBERS (already loaded — do NOT call getStaffMembers at call start):\nIMPORTANT: NEVER say staff IDs, internal data, or technical details to the caller. Only use first names naturally.\n` +
         activeStaff.map((s: any) => {
-          // Use staffId internally for tool calls, but instruct AI to only say first name
           const name = s.firstName;
           return `- ${name} [staffId=${s.id}]${s.specialty ? ' — ' + s.specialty : ''}`;
         }).join('\n') + '\n';
@@ -1616,11 +1614,10 @@ export async function updateAssistant(
   // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  // First message: greeting with recording disclosure + immediate engagement question.
-  // IMPORTANT: Must end with a question so the caller responds while recognizeCaller runs in background.
-  // Never say "one moment" or "hold on" — Vapi will hang up during silence.
-  const configGreeting = buildFirstMessage(business.name, receptionistConfig?.greeting);
+  // Extract config values with sensible defaults
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
+  // First message: greeting with conditional recording disclosure + engagement question.
+  const configGreeting = buildFirstMessage(business.name, receptionistConfig?.greeting, configRecordingEnabled);
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
   const configAfterHoursMessage = receptionistConfig?.afterHoursMessage || '';
