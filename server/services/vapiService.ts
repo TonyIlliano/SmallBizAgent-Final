@@ -177,14 +177,15 @@ function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'):
  *    recording disclosure if it's missing from the custom text.
  */
 function buildFirstMessage(businessName: string, customGreeting?: string | null): string {
-  const recordingPhrase = 'this call may be recorded for quality purposes';
+  const recordingPhrase = 'Just so you know, this call may be recorded for quality purposes.';
   const engagementQuestion = 'How can I help you today?';
 
-  // No custom greeting — use our complete default
+  // No custom greeting — use dynamic default with business name
   if (!customGreeting || !customGreeting.trim()) {
-    return `Hi, thanks for calling ${businessName}! Just so you know, ${recordingPhrase}. ${engagementQuestion}`;
+    return `Hi, thanks for calling ${businessName}! ${recordingPhrase} ${engagementQuestion}`;
   }
 
+  // Use the custom greeting as-is, only adding what's missing
   let greeting = customGreeting.trim();
 
   // Check if the custom greeting already mentions recording
@@ -194,45 +195,40 @@ function buildFirstMessage(businessName: string, customGreeting?: string | null)
   const endsWithQuestion = /\?\s*$/.test(greeting);
 
   if (!mentionsRecording) {
-    // Need to inject recording disclosure
+    // Insert recording disclosure before the final question, or append it
     if (endsWithQuestion) {
-      // Greeting ends with a question like "How may I help you today?"
-      // Strategy: Remove the question, inject disclosure, then add our standard question
-      // "Thank you for calling Canton Barb. How may I help you today?"
-      //  → "Thank you for calling Canton Barb. Just so you know, this call may be recorded for quality purposes. How can I help you today?"
-
-      // Find where the question starts — look for last sentence boundary before the ?
+      // Find where the last question starts so we can insert disclosure before it
       const lastQ = greeting.lastIndexOf('?');
-      const textBeforeQ = greeting.substring(0, lastQ);
+      const textUpToQ = greeting.substring(0, lastQ + 1);
 
-      // Find the start of the question sentence (after last period/exclamation)
+      // Find the start of the question sentence
+      const beforeQ = greeting.substring(0, lastQ);
       const lastSentenceBreak = Math.max(
-        textBeforeQ.lastIndexOf('. '),
-        textBeforeQ.lastIndexOf('! '),
-        textBeforeQ.lastIndexOf('? ')
+        beforeQ.lastIndexOf('. '),
+        beforeQ.lastIndexOf('! '),
+        beforeQ.lastIndexOf('? ')
       );
 
-      let prefix: string;
       if (lastSentenceBreak >= 0) {
-        // There's a sentence before the question — keep it
-        prefix = textBeforeQ.substring(0, lastSentenceBreak + 1).trim();
+        // Insert disclosure between the greeting body and the closing question
+        const body = greeting.substring(0, lastSentenceBreak + 1).trim();
+        const question = greeting.substring(lastSentenceBreak + 1).trim();
+        greeting = `${body} ${recordingPhrase} ${question}`;
       } else {
-        // The entire greeting is one question — use business name intro
-        prefix = `Thanks for calling ${businessName}!`;
+        // Entire greeting is one question — prepend disclosure
+        greeting = `${recordingPhrase} ${greeting}`;
       }
-
-      greeting = `${prefix} Just so you know, ${recordingPhrase}. ${engagementQuestion}`;
     } else {
-      // No question at the end — strip trailing punctuation, add disclosure + question
+      // No question at the end — append disclosure + engagement question
       const stripped = greeting.replace(/[.!?]+\s*$/, '');
-      greeting = `${stripped}. Just so you know, ${recordingPhrase}. ${engagementQuestion}`;
+      greeting = `${stripped}. ${recordingPhrase} ${engagementQuestion}`;
     }
   } else if (!endsWithQuestion) {
     // Has recording mention but doesn't end with question — append one
     const stripped = greeting.replace(/[.!?]+\s*$/, '');
     greeting = `${stripped}. ${engagementQuestion}`;
   }
-  // else: has recording mention AND ends with question — use as-is
+  // else: has recording mention AND ends with question — use exactly as-is
 
   return greeting;
 }
