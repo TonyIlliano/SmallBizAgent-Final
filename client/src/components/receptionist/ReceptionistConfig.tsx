@@ -222,6 +222,17 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
+  // Warn before navigating away with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (form.formState.isDirty) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [form.formState.isDirty]);
+
   // Add phone number
   const addPhoneNumber = () => {
     if (!newPhoneNumber.trim()) return;
