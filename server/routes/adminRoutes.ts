@@ -10,8 +10,9 @@ import { isAdmin } from "../middleware/auth";
 import * as adminService from "../services/adminService";
 import { storage } from "../storage";
 import { db } from "../db";
-import { agentActivityLog, businesses, blogPosts, notificationLog } from "../../shared/schema";
-import { eq, sql, desc, and, gte, inArray, isNull } from "drizzle-orm";
+import { agentActivityLog, businesses, blogPosts, notificationLog, users } from "../../shared/schema";
+import { eq, sql, desc, and, gte, lte, inArray, isNull, or, ilike } from "drizzle-orm";
+import { hashPassword } from "../auth";
 
 const router = Router();
 
@@ -821,6 +822,325 @@ router.post("/api/admin/blog-posts/generate", isAdmin, async (req: Request, res:
   } catch (error: any) {
     console.error("[Admin] Error running content SEO agent:", error);
     res.status(500).json({ error: "Failed to generate content", details: error.message });
+  }
+});
+
+// ============================================================
+// BUSINESS MANAGEMENT — Provision, deprovision, subscription control
+// ============================================================
+
+/**
+ * POST /api/admin/businesses/:id/provision — Re-provision a business (Twilio + Vapi)
+ */
+router.post("/api/admin/businesses/:id/provision", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.id);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: "Business not found" });
+
+    console.log(`[Admin] Re-provisioning business ${businessId} (${business.name})`);
+    const { provisionBusiness } = await import("../services/businessProvisioningService");
+    const result = await provisionBusiness(businessId);
+
+    // Re-enable receptionist and restore subscription status if needed
+    if (result.success) {
+      const updates: any = { receptionistEnabled: true };
+      if (['expired', 'grace_period', 'suspended'].includes(business.subscriptionStatus || '')) {
+        updates.subscriptionStatus = 'trialing';
+      }
+      await storage.updateBusiness(businessId, updates);
+    }
+
+    res.json({ success: result.success, error: result.error, business: business.name });
+  } catch (error: any) {
+    console.error("[Admin] Provision error:", error);
+    res.status(500).json({ error: "Failed to provision", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/businesses/:id/deprovision — Deprovision a business (release Twilio + delete Vapi)
+ */
+router.post("/api/admin/businesses/:id/deprovision", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.id);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: "Business not found" });
+
+    console.log(`[Admin] Deprovisioning business ${businessId} (${business.name})`);
+    const { deprovisionBusiness } = await import("../services/businessProvisioningService");
+    await deprovisionBusiness(businessId);
+
+    await storage.updateBusiness(businessId, {
+      subscriptionStatus: 'canceled',
+      receptionistEnabled: false,
+    } as any);
+
+    res.json({ success: true, business: business.name });
+  } catch (error: any) {
+    console.error("[Admin] Deprovision error:", error);
+    res.status(500).json({ error: "Failed to deprovision", details: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/businesses/:id/detail — Full business detail view
+ */
+router.get("/api/admin/businesses/:id/detail", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.id);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: "Business not found" });
+
+    // Fetch related data in parallel
+    const [services, businessHours, staffMembers, receptionistConfig, customers, callLogs, invoices] = await Promise.all([
+      storage.getServices(businessId),
+      storage.getBusinessHours(businessId),
+      storage.getStaff(businessId),
+      storage.getReceptionistConfig(businessId),
+      storage.getCustomers(businessId),
+      storage.getCallLogs(businessId, {}),
+      storage.getInvoices(businessId),
+    ]);
+
+    // Owner info
+    const owner = await db.select().from(users).where(eq(users.businessId, businessId)).limit(1);
+
+    res.json({
+      business,
+      owner: owner[0] ? { id: owner[0].id, username: owner[0].username, email: owner[0].email, lastLogin: owner[0].lastLogin } : null,
+      services: services.length,
+      servicesList: services.map(s => ({ name: s.name, price: s.price, duration: s.duration })),
+      businessHours: businessHours.map(h => ({ day: h.day, open: h.open, close: h.close, isClosed: h.isClosed })),
+      staffCount: staffMembers.length,
+      hasReceptionist: !!receptionistConfig,
+      receptionistConfig: receptionistConfig ? {
+        greeting: receptionistConfig.greeting,
+        voiceId: receptionistConfig.voiceId,
+        assistantName: receptionistConfig.assistantName,
+        callRecordingEnabled: receptionistConfig.callRecordingEnabled,
+        voicemailEnabled: receptionistConfig.voicemailEnabled,
+      } : null,
+      customerCount: customers.length,
+      callCount: callLogs.length,
+      invoiceCount: invoices.length,
+      totalRevenue: invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + (i.total || 0), 0),
+    });
+  } catch (error: any) {
+    console.error("[Admin] Business detail error:", error);
+    res.status(500).json({ error: "Failed to fetch business detail", details: error.message });
+  }
+});
+
+// ============================================================
+// USER MANAGEMENT — Disable, enable, reset password, change role
+// ============================================================
+
+/**
+ * POST /api/admin/users/:id/disable — Disable a user account
+ */
+router.post("/api/admin/users/:id/disable", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: "Invalid user ID" });
+
+    // Don't let admin disable themselves
+    if (req.user && (req.user as any).id === userId) {
+      return res.status(400).json({ error: "Cannot disable your own account" });
+    }
+
+    await storage.updateUser(userId, { active: false } as any);
+    console.log(`[Admin] Disabled user ${userId}`);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to disable user", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/enable — Re-enable a disabled user account
+ */
+router.post("/api/admin/users/:id/enable", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: "Invalid user ID" });
+
+    await storage.updateUser(userId, { active: true } as any);
+    console.log(`[Admin] Enabled user ${userId}`);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to enable user", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/reset-password — Reset a user's password
+ */
+router.post("/api/admin/users/:id/reset-password", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: "Invalid user ID" });
+
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+
+    const hashed = await hashPassword(newPassword);
+    await storage.updateUser(userId, { password: hashed } as any);
+    console.log(`[Admin] Reset password for user ${userId}`);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to reset password", details: error.message });
+  }
+});
+
+/**
+ * PATCH /api/admin/users/:id/role — Change a user's role
+ */
+router.patch("/api/admin/users/:id/role", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: "Invalid user ID" });
+
+    const { role } = req.body;
+    if (!['user', 'staff', 'admin'].includes(role)) {
+      return res.status(400).json({ error: "Role must be 'user', 'staff', or 'admin'" });
+    }
+
+    // Don't let admin remove their own admin role
+    if (req.user && (req.user as any).id === userId && role !== 'admin') {
+      return res.status(400).json({ error: "Cannot change your own role" });
+    }
+
+    await storage.updateUser(userId, { role } as any);
+    console.log(`[Admin] Changed user ${userId} role to ${role}`);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to change role", details: error.message });
+  }
+});
+
+// ============================================================
+// MONITORING — Failed payments, provisioning failures, alerts
+// ============================================================
+
+/**
+ * GET /api/admin/alerts — Active platform alerts requiring attention
+ */
+router.get("/api/admin/alerts", isAdmin, async (req: Request, res: Response) => {
+  try {
+    // Failed payments (past_due for 3+ days)
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const failedPayments = await db.select({
+      id: businesses.id,
+      name: businesses.name,
+      status: businesses.subscriptionStatus,
+      phone: businesses.twilioPhoneNumber,
+    })
+      .from(businesses)
+      .where(or(
+        eq(businesses.subscriptionStatus, 'past_due'),
+        eq(businesses.subscriptionStatus, 'payment_failed')
+      ));
+
+    // Grace period businesses (trial expired, AI disabled)
+    const gracePeriod = await db.select({
+      id: businesses.id,
+      name: businesses.name,
+      phone: businesses.twilioPhoneNumber,
+      trialEndsAt: businesses.trialEndsAt,
+    })
+      .from(businesses)
+      .where(eq(businesses.subscriptionStatus, 'grace_period'));
+
+    // Businesses with no phone number (provisioning may have failed)
+    const noPhone = await db.select({
+      id: businesses.id,
+      name: businesses.name,
+      status: businesses.subscriptionStatus,
+      createdAt: businesses.createdAt,
+    })
+      .from(businesses)
+      .where(and(
+        isNull(businesses.twilioPhoneNumber),
+        or(
+          eq(businesses.subscriptionStatus, 'active'),
+          eq(businesses.subscriptionStatus, 'trialing')
+        )
+      ));
+
+    // Failed notifications (last 24h)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const failedNotifications = await db.select({
+      count: sql<number>`count(*)`,
+    })
+      .from(notificationLog)
+      .where(and(
+        eq(notificationLog.status, 'failed'),
+        gte(notificationLog.sentAt, oneDayAgo)
+      ));
+
+    const alerts = [];
+
+    for (const biz of failedPayments) {
+      alerts.push({
+        type: 'payment_failed',
+        severity: 'high',
+        businessId: biz.id,
+        businessName: biz.name,
+        message: `Payment ${biz.status === 'past_due' ? 'past due' : 'failed'} — may need manual intervention`,
+        action: 'Check Stripe dashboard or contact business owner',
+      });
+    }
+
+    for (const biz of gracePeriod) {
+      alerts.push({
+        type: 'grace_period',
+        severity: 'medium',
+        businessId: biz.id,
+        businessName: biz.name,
+        message: `Trial expired — AI disabled, phone number retained`,
+        action: 'Business needs to subscribe to restore AI',
+      });
+    }
+
+    for (const biz of noPhone) {
+      alerts.push({
+        type: 'provisioning_failed',
+        severity: 'high',
+        businessId: biz.id,
+        businessName: biz.name,
+        message: `Active/trialing business has no phone number — provisioning may have failed`,
+        action: 'Re-provision from business controls',
+      });
+    }
+
+    if (failedNotifications[0]?.count > 0) {
+      alerts.push({
+        type: 'notification_failures',
+        severity: 'low',
+        message: `${failedNotifications[0].count} failed notifications in the last 24 hours`,
+        action: 'Check Messages tab for details',
+      });
+    }
+
+    res.json({
+      alertCount: alerts.length,
+      alerts: alerts.sort((a, b) => {
+        const sev = { high: 0, medium: 1, low: 2 };
+        return (sev[a.severity as keyof typeof sev] || 2) - (sev[b.severity as keyof typeof sev] || 2);
+      }),
+    });
+  } catch (error: any) {
+    console.error("[Admin] Alerts error:", error);
+    res.status(500).json({ error: "Failed to fetch alerts", details: error.message });
   }
 });
 

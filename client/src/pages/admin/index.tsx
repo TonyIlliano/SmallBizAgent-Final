@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Link, Redirect } from "wouter";
@@ -9,7 +9,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -25,7 +34,8 @@ import {
   TrendingUp, TrendingDown, PieChart,
   Bot, Play, ChevronDown, ChevronUp, Bell,
   Brain, Target, Heart, Wrench, Zap, FileText, Star, Search, Share2,
-  Mail, MessageSquare, RefreshCw,
+  Mail, MessageSquare, RefreshCw, MoreHorizontal, Eye, Power, PowerOff,
+  UserX, UserCheck, KeyRound, ShieldAlert, AlertTriangle, Clock,
 } from "lucide-react";
 import { Fragment } from "react";
 
@@ -180,6 +190,52 @@ interface PlatformAgentsSummary {
   actionsByAgent: Array<{ agentType: string; count: number }>;
 }
 
+interface PlatformAlert {
+  severity: "high" | "medium" | "low";
+  businessId: number;
+  businessName: string;
+  type: string;
+  message: string;
+  suggestedAction: string;
+  createdAt?: string;
+}
+
+interface AlertsResponse {
+  alertCount: number;
+  alerts: PlatformAlert[];
+}
+
+interface BusinessDetail {
+  id: number;
+  name: string;
+  email: string;
+  phone: string | null;
+  type: string | null;
+  industry: string | null;
+  subscriptionStatus: string | null;
+  twilioPhoneNumber: string | null;
+  twilioPhoneNumberSid: string | null;
+  vapiAssistantId: string | null;
+  vapiPhoneNumberId: string | null;
+  bookingSlug: string | null;
+  receptionistEnabled: boolean | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  stripePlanId: string | null;
+  subscriptionStartDate: string | null;
+  trialEndsAt: string | null;
+  timezone: string | null;
+  createdAt: string | null;
+  ownerUsername: string | null;
+  ownerEmail: string | null;
+  callCount: number;
+  appointmentCount: number;
+  customerCount: number;
+  invoiceCount: number;
+  staffCount: number;
+  serviceCount: number;
+}
+
 // ── Main Component ──────────────────────────────────────────────────────
 
 const AdminDashboardPage = () => {
@@ -266,12 +322,16 @@ const AdminDashboardPage = () => {
 // ── Overview Tab ────────────────────────────────────────────────────────
 
 function OverviewTab() {
-  const { data: stats, isLoading: loadingStats } = useQuery<PlatformStats>({
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [secondsAgo, setSecondsAgo] = useState(0);
+
+  const { data: stats, isLoading: loadingStats, dataUpdatedAt: statsUpdatedAt } = useQuery<PlatformStats>({
     queryKey: ["/api/admin/stats"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/stats");
       return res.json();
     },
+    refetchInterval: 30000,
   });
 
   const { data: activityData, isLoading: loadingActivity } = useQuery<{ activity: ActivityItem[] }>({
@@ -280,6 +340,7 @@ function OverviewTab() {
       const res = await apiRequest("GET", "/api/admin/activity");
       return res.json();
     },
+    refetchInterval: 30000,
   });
 
   const { data: revenue } = useQuery<RevenueData>({
@@ -288,10 +349,56 @@ function OverviewTab() {
       const res = await apiRequest("GET", "/api/admin/revenue");
       return res.json();
     },
+    refetchInterval: 30000,
   });
+
+  const { data: alertsData } = useQuery<AlertsResponse>({
+    queryKey: ["/api/admin/alerts"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/alerts");
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  // Track last updated time
+  useEffect(() => {
+    if (statsUpdatedAt) {
+      setLastUpdated(new Date(statsUpdatedAt));
+    }
+  }, [statsUpdatedAt]);
+
+  // Update seconds ago counter every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSecondsAgo(Math.floor((Date.now() - lastUpdated.getTime()) / 1000));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [lastUpdated]);
+
+  const formatSecondsAgo = (secs: number) => {
+    if (secs < 5) return "just now";
+    if (secs < 60) return `${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    return `${mins}m ago`;
+  };
 
   return (
     <div className="space-y-6">
+      {/* Platform Alerts Banner */}
+      {alertsData && alertsData.alertCount > 0 && (
+        <AlertsBanner alerts={alertsData.alerts} alertCount={alertsData.alertCount} />
+      )}
+
+      {/* Auto-refresh indicator */}
+      <div className="flex justify-end">
+        <span className="text-xs text-muted-foreground flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          Last updated: {formatSecondsAgo(secondsAgo)}
+          <span className="text-muted-foreground/50 ml-1">(auto-refreshes every 30s)</span>
+        </span>
+      </div>
+
       {/* Stat Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatsCard
@@ -371,14 +478,179 @@ function OverviewTab() {
   );
 }
 
+// ── Alerts Banner ────────────────────────────────────────────────────────
+
+function AlertsBanner({ alerts, alertCount }: { alerts: PlatformAlert[]; alertCount: number }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const highAlerts = alerts.filter(a => a.severity === "high");
+  const medAlerts = alerts.filter(a => a.severity === "medium");
+  const lowAlerts = alerts.filter(a => a.severity === "low");
+
+  const bannerColor = highAlerts.length > 0
+    ? "border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800"
+    : medAlerts.length > 0
+      ? "border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800"
+      : "border-gray-300 bg-gray-50 dark:bg-gray-900/30 dark:border-gray-700";
+
+  const iconColor = highAlerts.length > 0 ? "text-red-600" : medAlerts.length > 0 ? "text-amber-600" : "text-gray-500";
+
+  return (
+    <Card className={bannerColor}>
+      <CardContent className="pt-4 pb-3">
+        <div
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className="flex items-center gap-3">
+            <ShieldAlert className={`h-5 w-5 ${iconColor}`} />
+            <div>
+              <p className="font-semibold text-sm">
+                {alertCount} Platform Alert{alertCount !== 1 ? "s" : ""}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {highAlerts.length > 0 && <span className="text-red-600 font-medium">{highAlerts.length} high</span>}
+                {highAlerts.length > 0 && medAlerts.length > 0 && " / "}
+                {medAlerts.length > 0 && <span className="text-amber-600 font-medium">{medAlerts.length} medium</span>}
+                {(highAlerts.length > 0 || medAlerts.length > 0) && lowAlerts.length > 0 && " / "}
+                {lowAlerts.length > 0 && <span className="text-gray-500">{lowAlerts.length} low</span>}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={highAlerts.length > 0 ? "destructive" : "secondary"} className="text-xs">
+              {alertCount}
+            </Badge>
+            {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </div>
+        </div>
+
+        {expanded && (
+          <div className="mt-4 space-y-2 max-h-80 overflow-y-auto">
+            {alerts.map((alert, i) => (
+              <AlertItem key={i} alert={alert} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AlertItem({ alert }: { alert: PlatformAlert }) {
+  const severityConfig = {
+    high: {
+      icon: <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />,
+      bg: "bg-red-100 dark:bg-red-900/30 border-red-200 dark:border-red-800",
+      textColor: "text-red-800 dark:text-red-300",
+      badge: "destructive" as const,
+    },
+    medium: {
+      icon: <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />,
+      bg: "bg-amber-100 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800",
+      textColor: "text-amber-800 dark:text-amber-300",
+      badge: "secondary" as const,
+    },
+    low: {
+      icon: <AlertCircle className="h-4 w-4 text-gray-500 flex-shrink-0 mt-0.5" />,
+      bg: "bg-gray-100 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700",
+      textColor: "text-gray-700 dark:text-gray-300",
+      badge: "outline" as const,
+    },
+  };
+
+  const config = severityConfig[alert.severity] || severityConfig.low;
+
+  return (
+    <div className={`flex items-start gap-3 rounded-lg border p-3 ${config.bg}`}>
+      {config.icon}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-sm font-medium ${config.textColor}`}>{alert.businessName}</span>
+          <Badge variant={config.badge} className="text-xs">{alert.severity}</Badge>
+          <Badge variant="outline" className="text-xs capitalize">{alert.type.replace(/_/g, " ")}</Badge>
+        </div>
+        <p className={`text-sm mt-0.5 ${config.textColor}`}>{alert.message}</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Suggested: {alert.suggestedAction}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Businesses Tab ──────────────────────────────────────────────────────
 
 function BusinessesTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [detailBusinessId, setDetailBusinessId] = useState<number | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: "provision" | "deprovision"; businessId: number; businessName: string } | null>(null);
+  const [subStatusBiz, setSubStatusBiz] = useState<{ id: number; name: string; currentStatus: string | null } | null>(null);
+
   const { data, isLoading, error } = useQuery<{ businesses: AdminBusiness[] }>({
     queryKey: ["/api/admin/businesses"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/businesses");
       return res.json();
+    },
+  });
+
+  // Business detail query — only fetches when dialog is open
+  const { data: businessDetail, isLoading: loadingDetail } = useQuery<BusinessDetail>({
+    queryKey: ["/api/admin/businesses", detailBusinessId, "detail"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/admin/businesses/${detailBusinessId}/detail`);
+      return res.json();
+    },
+    enabled: detailBusinessId !== null,
+  });
+
+  const provisionMutation = useMutation({
+    mutationFn: async (businessId: number) => {
+      const res = await apiRequest("POST", `/api/admin/businesses/${businessId}/provision`);
+      return res.json();
+    },
+    onSuccess: (_data, businessId) => {
+      toast({ title: "Business provisioned", description: `Business #${businessId} has been re-provisioned successfully.` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/businesses"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Provisioning failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deprovisionMutation = useMutation({
+    mutationFn: async (businessId: number) => {
+      const res = await apiRequest("POST", `/api/admin/businesses/${businessId}/deprovision`);
+      return res.json();
+    },
+    onSuccess: (_data, businessId) => {
+      toast({ title: "Business deprovisioned", description: `Business #${businessId} has been deprovisioned.` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/businesses"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Deprovisioning failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const subStatusMutation = useMutation({
+    mutationFn: async ({ businessId, status }: { businessId: number; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/businesses/${businessId}/subscription-status`, { status });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Subscription updated" });
+      setSubStatusBiz(null);
+      qc.invalidateQueries({ queryKey: ["/api/admin/businesses"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/revenue"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -400,86 +672,436 @@ function BusinessesTab() {
     );
   }
 
-  const businesses = data?.businesses || [];
+  const allBusinesses = data?.businesses || [];
+
+  // Apply filters
+  let businesses = allBusinesses;
+  if (searchQuery.trim()) {
+    const q = searchQuery.toLowerCase();
+    businesses = businesses.filter(b =>
+      b.name.toLowerCase().includes(q) ||
+      (b.ownerUsername && b.ownerUsername.toLowerCase().includes(q)) ||
+      (b.ownerEmail && b.ownerEmail.toLowerCase().includes(q)) ||
+      b.email.toLowerCase().includes(q)
+    );
+  }
+  if (statusFilter !== "all") {
+    businesses = businesses.filter(b => {
+      const status = b.subscriptionStatus || "inactive";
+      return status === statusFilter;
+    });
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>All Businesses ({businesses.length})</CardTitle>
-        <CardDescription>Every registered business on the platform</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Subscription</TableHead>
-              <TableHead className="text-right">Calls</TableHead>
-              <TableHead className="text-right">Appts</TableHead>
-              <TableHead>Created</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {businesses.length === 0 ? (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>All Businesses ({allBusinesses.length})</CardTitle>
+          <CardDescription>Every registered business on the platform</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* Search and Filter Bar */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search businesses..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Subscription status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="trialing">Trialing</SelectItem>
+                <SelectItem value="past_due">Past Due</SelectItem>
+                <SelectItem value="canceled">Canceled</SelectItem>
+                <SelectItem value="grace_period">Grace Period</SelectItem>
+                <SelectItem value="expired">Expired</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+            {(searchQuery || statusFilter !== "all") && (
+              <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(""); setStatusFilter("all"); }}>
+                Clear filters
+              </Button>
+            )}
+            {businesses.length !== allBusinesses.length && (
+              <span className="text-xs text-muted-foreground">
+                Showing {businesses.length} of {allBusinesses.length}
+              </span>
+            )}
+          </div>
+
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                  No businesses yet
-                </TableCell>
+                <TableHead>Name</TableHead>
+                <TableHead>Owner</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Subscription</TableHead>
+                <TableHead className="text-right">Calls</TableHead>
+                <TableHead className="text-right">Appts</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
               </TableRow>
-            ) : (
-              businesses.map((b) => (
-                <TableRow key={b.id}>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium">{b.name}</div>
-                      <div className="text-xs text-muted-foreground">{b.email}</div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm">{b.ownerUsername || "—"}</div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-sm capitalize">{b.industry || b.type || "—"}</span>
-                  </TableCell>
-                  <TableCell>
-                    {b.twilioPhoneNumber ? (
-                      <div className="flex items-center gap-1">
-                        <Phone className="h-3 w-3 text-emerald-500" />
-                        <span className="text-sm">{b.twilioPhoneNumber}</span>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">None</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <SubscriptionBadge status={b.subscriptionStatus} />
-                  </TableCell>
-                  <TableCell className="text-right font-medium">{b.callCount}</TableCell>
-                  <TableCell className="text-right font-medium">{b.appointmentCount}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {b.createdAt ? formatDate(b.createdAt) : "—"}
+            </TableHeader>
+            <TableBody>
+              {businesses.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                    {allBusinesses.length === 0 ? "No businesses yet" : "No businesses match your filters"}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+              ) : (
+                businesses.map((b) => (
+                  <TableRow key={b.id}>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">{b.name}</div>
+                        <div className="text-xs text-muted-foreground">{b.email}</div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm">{b.ownerUsername || "—"}</div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm capitalize">{b.industry || b.type || "—"}</span>
+                    </TableCell>
+                    <TableCell>
+                      {b.twilioPhoneNumber ? (
+                        <div className="flex items-center gap-1">
+                          <Phone className="h-3 w-3 text-emerald-500" />
+                          <span className="text-sm">{b.twilioPhoneNumber}</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">None</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <SubscriptionBadge status={b.subscriptionStatus} />
+                    </TableCell>
+                    <TableCell className="text-right font-medium">{b.callCount}</TableCell>
+                    <TableCell className="text-right font-medium">{b.appointmentCount}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {b.createdAt ? formatDate(b.createdAt) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => setDetailBusinessId(b.id)}>
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setConfirmAction({ type: "provision", businessId: b.id, businessName: b.name })}>
+                            <Power className="h-4 w-4 mr-2" />
+                            Re-provision
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setConfirmAction({ type: "deprovision", businessId: b.id, businessName: b.name })}
+                            className="text-red-600"
+                          >
+                            <PowerOff className="h-4 w-4 mr-2" />
+                            Deprovision
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => setSubStatusBiz({ id: b.id, name: b.name, currentStatus: b.subscriptionStatus })}>
+                            <DollarSign className="h-4 w-4 mr-2" />
+                            Change Subscription
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Business Detail Dialog */}
+      <Dialog open={detailBusinessId !== null} onOpenChange={(open) => !open && setDetailBusinessId(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Business Details</DialogTitle>
+            <DialogDescription>Full details for business #{detailBusinessId}</DialogDescription>
+          </DialogHeader>
+          {loadingDetail ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : businessDetail ? (
+            <div className="space-y-4 pt-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Business Name</p>
+                  <p className="font-semibold">{businessDetail.name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Owner</p>
+                  <p className="font-medium">{businessDetail.ownerUsername || "—"}</p>
+                  <p className="text-xs text-muted-foreground">{businessDetail.ownerEmail || ""}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Industry</p>
+                  <p className="text-sm capitalize">{businessDetail.industry || businessDetail.type || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Timezone</p>
+                  <p className="text-sm">{businessDetail.timezone || "—"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Subscription</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <SubscriptionBadge status={businessDetail.subscriptionStatus} />
+                    {businessDetail.stripePlanId && (
+                      <span className="text-xs text-muted-foreground">Plan: {businessDetail.stripePlanId}</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Trial Ends</p>
+                  <p className="text-sm">{businessDetail.trialEndsAt ? formatDate(businessDetail.trialEndsAt) : "—"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Phone</p>
+                  <p className="text-sm">{businessDetail.twilioPhoneNumber || "Not provisioned"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Vapi Assistant</p>
+                  <p className="text-sm font-mono text-xs">{businessDetail.vapiAssistantId ? businessDetail.vapiAssistantId.slice(0, 20) + "..." : "Not set"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Receptionist</p>
+                  <Badge variant={businessDetail.receptionistEnabled ? "success" : "secondary"}>
+                    {businessDetail.receptionistEnabled ? "Enabled" : "Disabled"}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Booking Slug</p>
+                  <p className="text-sm font-mono">{businessDetail.bookingSlug || "—"}</p>
+                </div>
+              </div>
+
+              <div className="border-t pt-3">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Usage Stats</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-lg font-bold">{businessDetail.callCount}</p>
+                    <p className="text-xs text-muted-foreground">Calls</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-lg font-bold">{businessDetail.appointmentCount}</p>
+                    <p className="text-xs text-muted-foreground">Appointments</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-lg font-bold">{businessDetail.customerCount}</p>
+                    <p className="text-xs text-muted-foreground">Customers</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-lg font-bold">{businessDetail.invoiceCount}</p>
+                    <p className="text-xs text-muted-foreground">Invoices</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-lg font-bold">{businessDetail.staffCount}</p>
+                    <p className="text-xs text-muted-foreground">Staff</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-lg font-bold">{businessDetail.serviceCount}</p>
+                    <p className="text-xs text-muted-foreground">Services</p>
+                  </div>
+                </div>
+              </div>
+
+              {businessDetail.stripeCustomerId && (
+                <div className="border-t pt-3">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Stripe</p>
+                  <p className="text-xs font-mono text-muted-foreground">Customer: {businessDetail.stripeCustomerId}</p>
+                  {businessDetail.stripeSubscriptionId && (
+                    <p className="text-xs font-mono text-muted-foreground">Subscription: {businessDetail.stripeSubscriptionId}</p>
+                  )}
+                </div>
+              )}
+
+              <div className="border-t pt-3">
+                <p className="text-xs text-muted-foreground">
+                  Created: {businessDetail.createdAt ? formatDate(businessDetail.createdAt) : "—"}
+                  {businessDetail.subscriptionStartDate && ` | Sub started: ${formatDate(businessDetail.subscriptionStartDate)}`}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground py-4">Could not load business details</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Provision/Deprovision Confirm Dialog */}
+      <AlertDialog open={confirmAction !== null} onOpenChange={(open) => !open && setConfirmAction(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction?.type === "provision" ? "Re-provision Business?" : "Deprovision Business?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.type === "provision"
+                ? `This will provision a Twilio phone number and Vapi assistant for "${confirmAction?.businessName}". This may incur costs.`
+                : `This will release the Twilio phone number and delete the Vapi assistant for "${confirmAction?.businessName}". The business will no longer receive AI calls.`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmAction) {
+                  if (confirmAction.type === "provision") {
+                    provisionMutation.mutate(confirmAction.businessId);
+                  } else {
+                    deprovisionMutation.mutate(confirmAction.businessId);
+                  }
+                  setConfirmAction(null);
+                }
+              }}
+              className={confirmAction?.type === "deprovision" ? "bg-red-600 hover:bg-red-700" : ""}
+            >
+              {confirmAction?.type === "provision" ? "Re-provision" : "Deprovision"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Change Subscription Status Dialog */}
+      <Dialog open={subStatusBiz !== null} onOpenChange={(open) => !open && setSubStatusBiz(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Subscription Status</DialogTitle>
+            <DialogDescription>
+              Update subscription status for "{subStatusBiz?.name}".
+              Current: {subStatusBiz?.currentStatus || "inactive"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            {["active", "trialing", "past_due", "canceled", "grace_period", "expired", "inactive"].map((status) => (
+              <Button
+                key={status}
+                variant={subStatusBiz?.currentStatus === status ? "default" : "outline"}
+                size="sm"
+                className="capitalize"
+                disabled={subStatusBiz?.currentStatus === status || subStatusMutation.isPending}
+                onClick={() => {
+                  if (subStatusBiz) {
+                    subStatusMutation.mutate({ businessId: subStatusBiz.id, status });
+                  }
+                }}
+              >
+                {subStatusMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                {status.replace(/_/g, " ")}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
 // ── Users Tab ───────────────────────────────────────────────────────────
 
 function UsersTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [resetPasswordUser, setResetPasswordUser] = useState<{ id: number; username: string } | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+
   const { data, isLoading } = useQuery<{ users: AdminUser[] }>({
     queryKey: ["/api/admin/users"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/users");
       return res.json();
+    },
+  });
+
+  const disableUserMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/disable`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "User disabled" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to disable user", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const enableUserMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/enable`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "User enabled" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to enable user", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: number; newPassword: string }) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/reset-password`, { newPassword });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Password reset", description: "The user's password has been changed." });
+      setResetPasswordUser(null);
+      setNewPassword("");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Password reset failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const changeRoleMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: number; role: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${userId}/role`, { role });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Role updated" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Role change failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -490,69 +1112,166 @@ function UsersTab() {
   const users = data?.users || [];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>All Users ({users.length})</CardTitle>
-        <CardDescription>Every registered user account on the platform</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Username</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Business</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Last Login</TableHead>
-              <TableHead>Created</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {users.length === 0 ? (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>All Users ({users.length})</CardTitle>
+          <CardDescription>Every registered user account on the platform</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                  No users yet
-                </TableCell>
+                <TableHead>Username</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Business</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Last Login</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
               </TableRow>
-            ) : (
-              users.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell className="font-medium">{u.username}</TableCell>
-                  <TableCell className="text-sm">{u.email}</TableCell>
-                  <TableCell>
-                    <RoleBadge role={u.role} />
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {u.businessName || <span className="text-muted-foreground">—</span>}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      {u.active !== false ? (
-                        <Badge variant="success" className="text-xs">Active</Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-xs">Inactive</Badge>
-                      )}
-                      {u.emailVerified && (
-                        <span title="Email verified">
-                          <CheckCircle className="h-3 w-3 text-emerald-500" />
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {u.lastLogin ? formatRelative(u.lastLogin) : "Never"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {u.createdAt ? formatDate(u.createdAt) : "—"}
+            </TableHeader>
+            <TableBody>
+              {users.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    No users yet
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+              ) : (
+                users.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell className="font-medium">{u.username}</TableCell>
+                    <TableCell className="text-sm">{u.email}</TableCell>
+                    <TableCell>
+                      <RoleBadge role={u.role} />
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {u.businessName || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {u.active !== false ? (
+                          <Badge variant="success" className="text-xs">Active</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">Inactive</Badge>
+                        )}
+                        {u.emailVerified && (
+                          <span title="Email verified">
+                            <CheckCircle className="h-3 w-3 text-emerald-500" />
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {u.lastLogin ? formatRelative(u.lastLogin) : "Never"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {u.createdAt ? formatDate(u.createdAt) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>User Actions</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {u.active !== false ? (
+                            <DropdownMenuItem
+                              onClick={() => disableUserMutation.mutate(u.id)}
+                              className="text-red-600"
+                            >
+                              <UserX className="h-4 w-4 mr-2" />
+                              Disable Account
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onClick={() => enableUserMutation.mutate(u.id)}>
+                              <UserCheck className="h-4 w-4 mr-2" />
+                              Enable Account
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => setResetPasswordUser({ id: u.id, username: u.username })}>
+                            <KeyRound className="h-4 w-4 mr-2" />
+                            Reset Password
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                              <Shield className="h-4 w-4 mr-2" />
+                              Change Role
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent>
+                              {["user", "staff", "admin"].map((role) => (
+                                <DropdownMenuItem
+                                  key={role}
+                                  onClick={() => changeRoleMutation.mutate({ userId: u.id, role })}
+                                  disabled={u.role === role}
+                                  className="capitalize"
+                                >
+                                  {role === u.role && <CheckCircle className="h-3 w-3 mr-2 text-emerald-500" />}
+                                  {role !== u.role && <span className="w-[20px]" />}
+                                  {role}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={resetPasswordUser !== null} onOpenChange={(open) => { if (!open) { setResetPasswordUser(null); setNewPassword(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for user "{resetPasswordUser?.username}".
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">New Password</label>
+              <Input
+                type="password"
+                placeholder="Enter new password (12+ chars, mixed case, number, special)"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Must be 12+ characters with uppercase, lowercase, number, and special character.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setResetPasswordUser(null); setNewPassword(""); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (resetPasswordUser && newPassword) {
+                  resetPasswordMutation.mutate({ userId: resetPasswordUser.id, newPassword });
+                }
+              }}
+              disabled={!newPassword || newPassword.length < 12 || resetPasswordMutation.isPending}
+            >
+              {resetPasswordMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Reset Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1642,7 +2361,16 @@ function SubscriptionBadge({ status }: { status: string | null }) {
   if (status === "past_due") {
     return <Badge variant="warning">Past Due</Badge>;
   }
-  return <Badge variant="secondary" className="capitalize">{status}</Badge>;
+  if (status === "grace_period") {
+    return <Badge variant="outline" className="text-amber-600 border-amber-300">Grace Period</Badge>;
+  }
+  if (status === "expired") {
+    return <Badge variant="destructive">Expired</Badge>;
+  }
+  if (status === "canceled") {
+    return <Badge variant="secondary" className="text-red-600">Canceled</Badge>;
+  }
+  return <Badge variant="secondary" className="capitalize">{status.replace(/_/g, " ")}</Badge>;
 }
 
 function RoleBadge({ role }: { role: string | null }) {
