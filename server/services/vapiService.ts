@@ -288,7 +288,7 @@ ${options?.staffSection || ''}
 
 1. GREET: You MUST call recognizeCaller as your VERY FIRST action — before doing ANYTHING else. Do not skip this step. Do not try to help the caller without calling recognizeCaller first. The firstMessage greeting plays automatically, but you still need recognizeCaller to identify who's calling.
    → If recognized: Use the greeting from recognizeCaller — it already includes their name and upcoming appointment if they have one. Say it naturally and then STOP. Do NOT add extra info like open/closed status, preferences, or history on top of it. Keep it to ONE short sentence + "What can I do for you?" The greeting is enough.
-   → If not recognized: "How can I help you today?" Ask for their name early.
+   → If not recognized: "How can I help you today?" Ask "May I get your name?" within your first 2 responses. When they give it, call updateCustomerInfo right away with their name and the customerId from recognizeCaller.
 
 2. UNDERSTAND: Listen to what they need.
    → Booking? Identify the service. Answer price questions first.
@@ -315,7 +315,7 @@ ${options?.staffSection || ''}
 
 DATES: Today is ${currentDate}. Never use 2023/2024/2025 dates. Pass exact customer words to checkAvailability. Use the date in the response when confirming. Say full date: "Thursday, March 20th" not just "Thursday".
 
-NAMES: Required for every booking. If recognized, use their name. If new caller, ask "May I get your name?" early. Never book without customerName. If caller corrects their name, call updateCustomerInfo immediately.
+NAMES: Required for every booking. If recognized, use their name. If new caller, ask "May I get your name?" early and then IMMEDIATELY call updateCustomerInfo with their first and last name + the customerId from recognizeCaller. Do this as soon as they tell you their name — don't wait until booking. Never book without customerName. If caller corrects their name, call updateCustomerInfo immediately.
 
 STAFF: If team members are listed above, ask "Do you have someone you usually see?" Use their staffId for checkAvailability and bookAppointment.
 
@@ -1127,7 +1127,7 @@ function getAssistantFunctions() {
     },
     {
       name: 'updateCustomerInfo',
-      description: 'Update caller\'s name or email when they correct it. Pass customerId from recognizeCaller.',
+      description: 'Save or update caller\'s name. Call immediately when a new caller tells you their name. Also use when a returning caller corrects their name. Pass customerId from recognizeCaller.',
       parameters: {
         type: 'object',
         properties: {

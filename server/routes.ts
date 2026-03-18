@@ -4762,8 +4762,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // ── Handle CANCEL keyword (cancel next upcoming appointment) ──
-      if (bodyTrimmed === 'CANCEL' && customer) {
+      // ── Handle CANCEL/CANCEL APPT keyword (cancel next upcoming appointment) ──
+      // Note: plain "CANCEL" is intercepted by Twilio Messaging Service as a reserved opt-out keyword.
+      // We handle both "CANCEL" (in case Twilio passes it through) and "CANCEL APPT" / "CANCEL APPOINTMENT" variants.
+      const isCancelRequest = bodyTrimmed === 'CANCEL' || bodyTrimmed === 'CANCEL APPT' || bodyTrimmed === 'CANCEL APPOINTMENT' || bodyTrimmed === 'CANCEL APT';
+      if (isCancelRequest && customer) {
         try {
           const appointments = await storage.getAppointmentsByCustomerId(customer.id);
           const now = new Date();
@@ -5109,7 +5112,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (From && business) {
             try {
               await twilioService.sendSms(From,
-                `Your appointment with ${business.name} is confirmed for ${decodeURIComponent(pendingTimeDescription || '')}. Reply RESCHEDULE or CANCEL to change.`
+                `Your appointment with ${business.name} is confirmed for ${decodeURIComponent(pendingTimeDescription || '')}. Reply RESCHEDULE or CANCEL APPT to change.`
               );
             } catch (smsError) {
               console.error('Error sending appointment confirmation SMS:', smsError);

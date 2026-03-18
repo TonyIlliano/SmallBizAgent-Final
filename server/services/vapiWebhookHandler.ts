@@ -1053,6 +1053,66 @@ async function getAvailableSlotsForDay(
 }
 
 /**
+ * Extract caller name from a Vapi transcript when the AI asked for it.
+ * Looks for patterns like "My name is John Smith", "It's John", "This is Tony Illiano", etc.
+ * Returns null if no name can be confidently extracted.
+ */
+function extractCallerNameFromTranscript(transcript: string): { firstName: string; lastName: string } | null {
+  if (!transcript || transcript.length < 20) return null;
+
+  // Normalize whitespace
+  const text = transcript.replace(/\s+/g, ' ');
+
+  // Common patterns where callers give their name (ordered by specificity)
+  const patterns = [
+    // "My name is John Smith" / "My name's John Smith"
+    /(?:my name(?:'s| is)) (\w+)(?:\s+(\w+))?/i,
+    // "This is John Smith" / "It's John Smith"
+    /(?:this is|it'?s) (\w+)(?:\s+(\w+))?/i,
+    // "I'm John Smith"
+    /(?:I'?m) (\w+)(?:\s+(\w+))?/i,
+    // "Yeah John" / "It's just John" (single name after being asked)
+    /(?:yeah|yes|sure|just|it's just) (\w+)\b/i,
+    // Direct response after AI asks for name: "John Smith" or "John"
+    // Only match if preceded by the AI asking for a name
+    /(?:name|who am I speaking|may I get your name).*?\n.*?(?:user|customer|caller):\s*(\w+)(?:\s+(\w+))?/i,
+  ];
+
+  // Words that should NOT be treated as names
+  const notNames = new Set([
+    'yeah', 'yes', 'no', 'sure', 'okay', 'ok', 'um', 'uh', 'hi', 'hello', 'hey',
+    'thanks', 'thank', 'good', 'great', 'fine', 'well', 'just', 'calling',
+    'about', 'need', 'want', 'would', 'like', 'can', 'could', 'the', 'a', 'an',
+    'looking', 'wondering', 'trying', 'interested', 'calling', 'morning', 'afternoon',
+    'here', 'there', 'back', 'appointment', 'booking', 'schedule', 'available',
+    'haircut', 'trim', 'cut', 'style', 'color', 'shave', 'wash', 'service'
+  ]);
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const firstName = match[1].trim();
+      const lastName = match[2]?.trim() || '';
+
+      // Validate: must be a real name (2+ chars, not a common word, starts with letter)
+      if (
+        firstName.length >= 2 &&
+        /^[A-Z]/i.test(firstName) &&
+        !notNames.has(firstName.toLowerCase()) &&
+        (!lastName || (!notNames.has(lastName.toLowerCase()) && /^[A-Z]/i.test(lastName)))
+      ) {
+        // Capitalize properly
+        const capFirst = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+        const capLast = lastName ? lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase() : '';
+        return { firstName: capFirst, lastName: capLast };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Parse a time slot string (e.g., "9:00 AM", "2:30 PM") into a 24-hour integer.
  */
 function parseSlotHour(slot: string): number {
@@ -3209,14 +3269,38 @@ async function recognizeCaller(
 
   if (!customer) {
     console.log(`[recognizeCaller] No customer found for phone=${callerPhone}, business=${businessId} — new caller`);
-    return {
-      result: {
-        recognized: false,
-        isNewCaller: true,
-        currentStatus,
-        message: 'How can I help you today?'
-      }
-    };
+    // Create customer record immediately so updateCustomerInfo can save their name mid-call
+    try {
+      const newCustomer = await storage.createCustomer({
+        businessId,
+        firstName: 'Caller',
+        lastName: callerPhone.replace(/\D/g, '').slice(-4), // Last 4 digits as placeholder
+        phone: callerPhone,
+        email: '',
+        address: '',
+        notes: 'Auto-created from phone call — name pending'
+      });
+      console.log(`[recognizeCaller] Created placeholder customer id=${newCustomer.id} for new caller ${callerPhone}`);
+      return {
+        result: {
+          recognized: false,
+          isNewCaller: true,
+          customerId: newCustomer.id,
+          currentStatus,
+          message: 'How can I help you today?'
+        }
+      };
+    } catch (createErr) {
+      console.error(`[recognizeCaller] Error creating placeholder customer:`, createErr);
+      return {
+        result: {
+          recognized: false,
+          isNewCaller: true,
+          currentStatus,
+          message: 'How can I help you today?'
+        }
+      };
+    }
   }
 
   console.log(`[recognizeCaller] Found customer: ${customer.firstName} ${customer.lastName} (id=${customer.id}) for phone=${callerPhone}`);
@@ -3885,24 +3969,36 @@ async function handleEndOfCall(
       console.error('Error logging call:', error);
     }
 
-    // Auto-create customer record for every caller so they appear in the CRM
-    // (bookAppointment already does this, but voicemails/inquiries/hangups don't)
+    // Auto-create customer record if not already created by recognizeCaller (edge case: no recognizeCaller call)
+    // Also try to extract caller name from transcript if still a placeholder
     if (callerPhone && callerPhone !== 'Unknown') {
       try {
         const existingCustomer = await storage.getCustomerByPhone(callerPhone, businessId);
         if (!existingCustomer) {
+          // Edge case: recognizeCaller wasn't called (very short call, error, etc.)
           await storage.createCustomer({
             businessId,
             firstName: 'Caller',
-            lastName: callerPhone.replace(/\D/g, '').slice(-4), // Last 4 digits as placeholder
+            lastName: callerPhone.replace(/\D/g, '').slice(-4),
             phone: callerPhone,
             email: '',
             address: '',
-            notes: 'Auto-created from phone call — update name after follow-up'
+            notes: 'Auto-created from phone call — name pending'
           });
+        } else if (existingCustomer.firstName === 'Caller' && message.transcript) {
+          // Customer exists but still has placeholder name — try extracting from transcript
+          const extractedName = extractCallerNameFromTranscript(message.transcript);
+          if (extractedName) {
+            console.log(`[handleEndOfCall] Extracted name "${extractedName.firstName} ${extractedName.lastName}" from transcript for customer ${existingCustomer.id}`);
+            await storage.updateCustomer(existingCustomer.id, {
+              firstName: extractedName.firstName,
+              lastName: extractedName.lastName || existingCustomer.lastName,
+              notes: existingCustomer.notes?.replace('name pending', 'name extracted from transcript') || ''
+            });
+          }
         }
       } catch (error) {
-        console.error('Error auto-creating customer from call:', error);
+        console.error('Error auto-creating/updating customer from call:', error);
       }
     }
 

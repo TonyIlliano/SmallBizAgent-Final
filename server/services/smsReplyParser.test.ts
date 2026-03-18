@@ -23,7 +23,7 @@ describe('smsReplyParser', () => {
 
     // ── Stop/unsubscribe ──
     it.each([
-      'STOP', 'stop', 'unsubscribe', 'CANCEL', 'quit', 'END',
+      'STOP', 'stop', 'unsubscribe', 'quit', 'END',
     ])('classifies "%s" as stop', (reply) => {
       expect(classifyReply(reply)).toBe('stop');
     });

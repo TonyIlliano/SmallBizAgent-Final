@@ -13,6 +13,7 @@ const { mockStorage, mockSendSms, mockLogAgentAction } = vi.hoisted(() => ({
     createSmsConversation: vi.fn(),
     updateSmsConversation: vi.fn(),
     getExpiredConversations: vi.fn(),
+    createNotificationLog: vi.fn(),
   },
   mockSendSms: vi.fn(),
   mockLogAgentAction: vi.fn(),

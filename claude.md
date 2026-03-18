@@ -530,6 +530,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 | Commit | Change |
 |--------|--------|
+| `c3665e4` | Add platform messages to admin + scope business messages to customers only |
+| `367b565` | Add message log to AI Agents: full SMS visibility for business owners |
 | `842052c` | Industry-aware morning brief + full schema sync + query optimization |
 | `87c4b43` | Upgrade zod 3.24.2 → 3.25.76 to enable LangGraph at runtime |
 | `4e247d1` | Fix production crash: convert LangGraph to dynamic imports |
@@ -581,8 +583,31 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `643ae0b` | SMS compliance: add CONFIRM handler + TCPA opt-out to all customer SMS |
 | `8ed6485` | TCPA compliance: opt-in welcome SMS + proper footer strategy |
 | `9163e10` | Fix STOP handler + Vapi call quality: STOP only opts out of marketing, switch Deepgram to English-only |
+| `d5e43ab` | Fix Vapi confirmAppointment tool registration |
+| `73eca02` | SMS CANCEL + RESCHEDULE keywords for appointment self-service |
 
 ### Recent changes (committed):
+
+#### New Caller Name Capture
+- **Goal**: Fix new callers showing up as "Caller 9926" / "Caller 1808" in CRM instead of their actual names. The AI asks for the name but had no mechanism to save it.
+- `server/services/vapiWebhookHandler.ts` — **recognizeCaller** now creates a placeholder customer record immediately for new callers (moved from end-of-call). Returns `customerId` so `updateCustomerInfo` can save the name mid-call.
+- `server/services/vapiWebhookHandler.ts` — **NEW**: `extractCallerNameFromTranscript()` helper function. Regex-based name extraction from transcript as a fallback when the AI didn't call `updateCustomerInfo`. Matches patterns like "My name is John Smith", "This is Tony", "I'm Sarah Jones". Filters common non-name words. Runs at end-of-call if customer still has placeholder name.
+- `server/services/vapiWebhookHandler.ts` — **handleEndOfCall** now checks if existing customer has placeholder name ("Caller") and attempts transcript extraction to update it. Still creates customer if none exists (edge case for very short calls).
+- `server/services/vapiService.ts` — **System prompt** strengthened: AI told to ask "May I get your name?" within first 2 responses for new callers, then IMMEDIATELY call `updateCustomerInfo` with the name and customerId from recognizeCaller.
+- `server/services/vapiService.ts` — **updateCustomerInfo tool description** updated to clarify it works for new callers (not just corrections).
+- `server/services/smsReplyParser.test.ts` — Removed CANCEL from STOP keyword test (CANCEL is now an appointment action, not opt-out).
+- `server/services/noShowAgentService.test.ts` — Added missing `createNotificationLog` mock that was causing test failure.
+
+#### Vapi confirmAppointment Tool Fix
+- **Goal**: Fix AI asking clarifying questions instead of confirming appointments when callers say "confirm"
+- `server/services/vapiService.ts` — Added `confirmAppointment` tool definition to `getAssistantFunctions()` (existed in webhook handler dispatch but was never registered with Vapi).
+
+#### SMS Appointment Self-Service (CANCEL + RESCHEDULE)
+- **Goal**: Let customers cancel or reschedule appointments by replying to SMS
+- `server/routes.ts` — Added CANCEL keyword handler (finds next appointment, marks cancelled, notifies orchestrator). Added RESCHEDULE handler (sends manage link or booking page URL). Removed CANCEL from STOP keywords.
+- `server/services/smsReplyParser.ts` — Removed 'cancel' from STOP_WORDS.
+- `server/services/notificationService.ts` — Updated all SMS templates to include CONFIRM/RESCHEDULE/CANCEL reply options.
+- `server/services/reminderService.ts` — Updated reminder SMS template with reply keywords.
 
 #### Stripe Subscription Lifecycle Fixes (Revenue-Critical)
 - **Goal**: Fix 3 critical bugs in the subscription lifecycle that could cause revenue loss or resource leaks.
@@ -847,4 +872,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 17, 2026. 346 tests passing (228 unit + 118 E2E). Zero TypeScript errors. 61 tables. Message Log moved from Settings to AI Agents > Messages tab. All 4 SMS agent services (follow-up, no-show, rebooking, estimate follow-up) now log to `notification_log` alongside `agent_activity_log` so business owners see every outbound message (agents + appointment reminders/confirmations) in one place. UI features: expandable rows (click to see full SMS text), type filter (All/Appointments/AI Agents/Other), agent message badge (purple bot icon), agent count in summary badges. Active conversations shown above the log, past conversations below. Tab renamed from "Conversations" to "Messages". Removed Notification Log tab from Settings page. STOP handler fixed: STOP only opts out of marketing messages (not transactional) — appointment reminders/confirmations still go through. All 5 STOP handlers + 7 agent opt-in checks updated to use marketingOptIn instead of smsOptIn. Suppression list no longer used for STOP (was blocking ALL sends). TCPA compliance: welcome SMS on opt-in, CONFIRM keyword handler, proper footer strategy (marketing only). Duplicate reminder fix: removed immediate-run-on-start, added 20-hour dedup. Real-time open/closed status: per-call computation via recognizeCaller instead of stale baked prompt. Prompt leakage fix: removed all sentence-length instructions that could be spoken aloud. Create/update drift fixes: endCallPhrases and maxTokens synced across both paths. Vapi call quality: Deepgram transcriber switched from multi→en (English-only, more reliable barge-in recovery), backgroundDenoisingEnabled, silence timeout 20→30s, ElevenLabs optimizeStreamingLatency 4→3 (fixes first-word clipping). Model: gpt-5-mini with ElevenLabs voice (opt level 3) + Deepgram nova-2 English STT.*
+*Last updated: March 17, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 61 tables. New caller name capture: recognizeCaller creates customer record immediately, AI instructed to call updateCustomerInfo with name, transcript-based extraction fallback at end-of-call. SMS self-service: CANCEL and RESCHEDULE keywords for appointment management via SMS reply. confirmAppointment tool registered with Vapi. CANCEL removed from STOP/opt-out keywords. Platform admin Messages tab. STOP handler: marketingOptIn-based. TCPA compliance: welcome SMS, CONFIRM handler, proper footers. Vapi: Deepgram nova-2 English STT, ElevenLabs opt level 3, gpt-5-mini.*

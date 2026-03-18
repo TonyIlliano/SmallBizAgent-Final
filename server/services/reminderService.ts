@@ -112,7 +112,7 @@ export async function sendAppointmentReminder(
     const contactNumber = business.twilioPhoneNumber || business.phone;
 
     // Compose the reminder message
-    const message = `Hi ${customer.firstName}! Reminder from ${business.name}: your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE, or CANCEL.`;
+    const message = `Hi ${customer.firstName}! Reminder from ${business.name}: your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE, or CANCEL APPT.`;
 
     // Send the SMS
     try {
