@@ -5,6 +5,7 @@ import { quotes, quoteItems, insertQuoteSchema, insertQuoteItemSchema } from "@s
 import { z } from "zod";
 import notificationService from "../services/notificationService";
 import { fireEvent } from "../services/webhookService";
+import { randomBytes } from "crypto";
 
 const router = Router();
 
@@ -520,8 +521,7 @@ router.post("/quotes/:id/generate-link", async (req, res) => {
     }
 
     // Generate a unique access token if one doesn't exist
-    const crypto = require("crypto");
-    const accessToken = existingQuote.accessToken || crypto.randomBytes(32).toString("hex");
+    const accessToken = existingQuote.accessToken || randomBytes(32).toString("hex");
 
     // Update the quote with the access token
     await storage.updateQuote(quoteId, { accessToken });

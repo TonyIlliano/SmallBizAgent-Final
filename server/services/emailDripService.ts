@@ -16,6 +16,7 @@
 import { storage } from "../storage";
 import { Business } from "@shared/schema";
 import { sendEmail } from "../emailService";
+import { createHmac } from "crypto";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -27,9 +28,8 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Build HMAC-signed one-click unsubscribe URL for a business */
 function unsubscribeUrl(businessId: number): string {
-  const crypto = require('crypto');
   const secret = process.env.SESSION_SECRET || process.env.ENCRYPTION_KEY || 'unsubscribe-secret';
-  const token = crypto.createHmac('sha256', secret)
+  const token = createHmac('sha256', secret)
     .update(`unsubscribe:${businessId}`)
     .digest('hex')
     .substring(0, 32);

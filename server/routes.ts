@@ -28,6 +28,7 @@ import {
 } from "@shared/schema";
 import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
 import { sanitizeBusiness } from './utils/sanitize';
+import { createHmac } from "crypto";
 
 // Setup authentication
 import {
@@ -4342,9 +4343,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).send("<h2>Invalid unsubscribe link.</h2>");
       }
 
-      const crypto = require('crypto');
       const secret = process.env.SESSION_SECRET || process.env.ENCRYPTION_KEY || 'unsubscribe-secret';
-      const expectedToken = crypto.createHmac('sha256', secret)
+      const expectedToken = createHmac('sha256', secret)
         .update(`unsubscribe:${businessId}`)
         .digest('hex')
         .substring(0, 32);

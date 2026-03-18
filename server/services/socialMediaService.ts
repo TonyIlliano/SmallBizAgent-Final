@@ -11,6 +11,7 @@ import { db } from "../db";
 import { calendarIntegrations, socialMediaPosts } from "@shared/schema";
 import { eq, and, desc, lte, or, isNull } from "drizzle-orm";
 import { encryptField, decryptField } from "../utils/encryption";
+import { randomBytes, createHash } from "crypto";
 
 // Platform-level tokens use businessId = 0 (not tied to a specific business)
 const PLATFORM_BUSINESS_ID = 0;
@@ -57,7 +58,6 @@ setInterval(() => {
  * Generate a cryptographically random PKCE code verifier (43-128 chars, URL-safe)
  */
 function generateCodeVerifier(): string {
-  const { randomBytes } = require('crypto');
   return randomBytes(32).toString('base64url');
 }
 
@@ -65,7 +65,6 @@ function generateCodeVerifier(): string {
  * Generate PKCE code challenge from verifier using S256 method
  */
 function generateCodeChallenge(verifier: string): string {
-  const { createHash } = require('crypto');
   return createHash('sha256').update(verifier).digest('base64url');
 }
 
