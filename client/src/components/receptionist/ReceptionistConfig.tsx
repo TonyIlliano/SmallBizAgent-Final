@@ -614,6 +614,18 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
               </div>
             </FormItem>
             
+            {form.formState.isDirty && (
+              <Alert className="border-amber-300 bg-amber-50">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-700 flex items-center justify-between">
+                  <span>You have unsaved changes. Click Save Configuration to apply them.</span>
+                  <Button type="submit" size="sm" disabled={isSubmitting} className="ml-4 shrink-0">
+                    {isSubmitting ? "Saving..." : "Save Now"}
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="flex justify-end">
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Saving..." : "Save Configuration"}
