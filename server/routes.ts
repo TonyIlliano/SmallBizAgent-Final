@@ -5596,6 +5596,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const messageType = req.body?.message?.type;
 
+      // ── Handle assistant-request: build transient assistant with pre-loaded caller data ──
+      if (messageType === 'assistant-request') {
+        const arStartTime = Date.now();
+        try {
+          const call = req.body?.message?.call || {};
+          const callerPhone = call?.customer?.number;
+
+          // Determine business ID
+          let arBusinessId: number | null = null;
+          const calledNumber = call?.phoneNumber?.number || call?.phoneNumber?.twilioPhoneNumber;
+          if (calledNumber) {
+            const matched = await db.select().from(businesses).where(eq(businesses.twilioPhoneNumber, calledNumber));
+            if (matched.length > 0) arBusinessId = matched[0].id;
+          }
+          if (!arBusinessId) {
+            // Try metadata or phoneNumberId
+            const metaBizId = call?.metadata?.businessId || call?.assistantOverrides?.metadata?.businessId;
+            if (metaBizId) arBusinessId = parseInt(metaBizId);
+          }
+          if (!arBusinessId) {
+            // Try vapiPhoneNumberId lookup
+            const vpnId = call?.phoneNumberId;
+            if (vpnId) {
+              const matched = await db.select().from(businesses).where(sql`vapi_phone_number_id = ${vpnId}`);
+              if (matched.length > 0) arBusinessId = matched[0].id;
+            }
+          }
+
+          if (!arBusinessId) {
+            console.error('[AssistantRequest] Could not determine business ID');
+            // Return assistantId fallback if available
+            if (call?.assistantId) return res.json({ assistantId: call.assistantId });
+            return res.json({ error: 'Could not determine business' });
+          }
+
+          const arBusiness = await storage.getBusiness(arBusinessId);
+          if (!arBusiness) {
+            console.error(`[AssistantRequest] Business ${arBusinessId} not found`);
+            return res.json({ error: 'Business not found' });
+          }
+
+          // Load business data in parallel
+          const [arServices, arHours, arConfig] = await Promise.all([
+            storage.getServices(arBusinessId),
+            storage.getBusinessHours(arBusinessId),
+            storage.getReceptionistConfig(arBusinessId),
+          ]);
+
+          // Build knowledge section
+          let arKnowledge = '';
+          try {
+            const { buildKnowledgeSection } = await import('./services/knowledgePromptBuilder');
+            arKnowledge = await buildKnowledgeSection(arBusinessId);
+          } catch {}
+
+          // Pre-load caller context (the key innovation)
+          let arCallerContext: string | null = null;
+          if (callerPhone) {
+            try {
+              const { buildCallerContext } = await import('./services/vapiWebhookHandler');
+              arCallerContext = await buildCallerContext(arBusinessId, callerPhone);
+            } catch (e) {
+              console.warn('[AssistantRequest] Caller context failed:', e);
+            }
+          }
+
+          // Build transient assistant config
+          const { buildAssistantConfig } = await import('./services/vapiService');
+          const arAssistantConfig = await buildAssistantConfig(arBusiness, arServices, arHours, arConfig, arKnowledge, arCallerContext);
+
+          const arElapsed = Date.now() - arStartTime;
+          console.log(`[AssistantRequest] Built transient assistant in ${arElapsed}ms for business ${arBusinessId} (${arBusiness.name})${arCallerContext ? ' — caller recognized' : ''}`);
+
+          return res.json({ assistant: arAssistantConfig });
+        } catch (arError: any) {
+          console.error(`[AssistantRequest] Error:`, arError);
+          // Fallback to stored assistant
+          const call = req.body?.message?.call || {};
+          if (call?.assistantId) {
+            console.log(`[AssistantRequest] Falling back to stored assistant`);
+            return res.json({ assistantId: call.assistantId });
+          }
+          return res.json({ error: 'Failed to build assistant' });
+        }
+      }
+
       // Handle tool-calls message type (Vapi's format)
       if (messageType === 'tool-calls') {
         // Vapi sends tool calls in both toolCallList and toolCalls (often duplicated)
