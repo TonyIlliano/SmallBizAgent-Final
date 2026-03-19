@@ -3493,43 +3493,6 @@ async function recognizeCaller(
 }
 
 /**
- * Build caller context string for injection into system prompt (assistant-request webhook).
- * Calls recognizeCaller internally, then formats the result as a text block.
- * This eliminates the need for the AI to call recognizeCaller as a tool.
- */
-export async function buildCallerContext(businessId: number, callerPhone: string): Promise<string | null> {
-  try {
-    const result = await recognizeCaller(businessId, callerPhone);
-    const data = result.result as any;
-
-    if (!data.recognized) {
-      // New caller — provide customerId for updateCustomerInfo
-      const parts = [`New caller (phone: ${callerPhone}).`];
-      if (data.customerId) parts.push(`customerId: ${data.customerId}`);
-      if (data.currentStatus) {
-        parts.push(`Business is currently ${data.currentStatus.isOpen ? 'OPEN' : 'CLOSED'}.`);
-        if (data.currentStatus.todayHours) parts.push(data.currentStatus.todayHours);
-      }
-      return parts.join(' ');
-    }
-
-    // Recognized caller — build rich context
-    const parts: string[] = [];
-    parts.push(`Recognized caller: ${data.customerName || data.firstName} (customerId: ${data.customerId}).`);
-    if (data.summary) parts.push(data.summary);
-    if (data.context) parts.push(`Context: ${data.context}.`);
-    if (data.currentStatus) {
-      parts.push(`Business is currently ${data.currentStatus.isOpen ? 'OPEN' : 'CLOSED'}.`);
-      if (data.currentStatus.todayHours) parts.push(data.currentStatus.todayHours);
-    }
-    return parts.join(' ');
-  } catch (error) {
-    console.error(`[buildCallerContext] Error for business ${businessId}, phone ${callerPhone}:`, error);
-    return null;
-  }
-}
-
-/**
  * Update customer information mid-call
  * Allows the AI to correct a customer's name or add email without requiring a booking
  */

@@ -24,8 +24,7 @@ import {
   appointments,
   services,
   auditLogs,
-  agentActivityLog,
-  businesses
+  agentActivityLog
 } from "@shared/schema";
 import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
 import { sanitizeBusiness } from './utils/sanitize';
@@ -5472,120 +5471,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching order history:", error);
       res.status(500).json({ error: "Failed to fetch order history" });
-    }
-  });
-
-  // ── Vapi assistant-request webhook ──
-  // Called BEFORE the call connects. We build a transient assistant with caller data
-  // pre-loaded into the system prompt so the AI knows who's calling instantly — no
-  // recognizeCaller tool call needed, no "hold on a sec" filler.
-  app.post("/api/vapi/assistant-request", async (req: Request, res: Response) => {
-    const startTime = Date.now();
-    try {
-      const call = req.body?.message?.call || req.body?.call;
-      const callerPhone = call?.customer?.number;
-      const phoneNumberId = call?.phoneNumberId;
-
-      // Look up which business this phone number belongs to
-      let businessId: number | null = null;
-      let business: any = null;
-
-      // Try metadata first (if Vapi passes businessId)
-      const metaBusinessId = call?.assistantOverrides?.metadata?.businessId || call?.metadata?.businessId;
-      if (metaBusinessId) {
-        businessId = parseInt(metaBusinessId);
-      }
-
-      if (!businessId) {
-        // Look up by the called phone number
-        const calledNumber = call?.phoneNumber?.number || call?.phoneNumber?.twilioPhoneNumber;
-        if (calledNumber) {
-          const matched = await db.select().from(businesses).where(eq(businesses.twilioPhoneNumber, calledNumber));
-          if (matched.length > 0) {
-            businessId = matched[0].id;
-          }
-        }
-      }
-
-      if (!businessId) {
-        // Last resort: try phoneNumberId via business_phone_numbers table
-        if (phoneNumberId) {
-          const phoneRecords = await db.select().from(businesses).where(sql`vapi_phone_number_id = ${phoneNumberId}`);
-          if (phoneRecords.length > 0) {
-            businessId = phoneRecords[0].id;
-          }
-        }
-      }
-
-      if (!businessId) {
-        console.error('[AssistantRequest] Could not determine business ID from call data');
-        // Fall back to stored assistant if we can't determine the business
-        const assistantId = call?.assistantId;
-        if (assistantId) {
-          return res.json({ assistantId });
-        }
-        return res.status(400).json({ error: 'Could not determine business' });
-      }
-
-      business = await storage.getBusiness(businessId);
-      if (!business) {
-        console.error(`[AssistantRequest] Business ${businessId} not found`);
-        return res.status(400).json({ error: 'Business not found' });
-      }
-
-      console.log(`[AssistantRequest] Building transient assistant for business ${businessId} (${business.name}), caller: ${callerPhone || 'unknown'}`);
-
-      // Load business data in parallel
-      const [servicesList, businessHoursList, rcConfig] = await Promise.all([
-        storage.getServices(businessId),
-        storage.getBusinessHours(businessId),
-        storage.getReceptionistConfig(businessId),
-      ]);
-
-      // Build knowledge section
-      let knowledgeSection = '';
-      try {
-        const { buildKnowledgeSection } = await import('./services/knowledgePromptBuilder');
-        knowledgeSection = await buildKnowledgeSection(businessId);
-      } catch (e) {
-        console.warn('[AssistantRequest] Could not load knowledge section:', e);
-      }
-
-      // Pre-load caller context (the key part — replaces recognizeCaller tool call)
-      let callerContext: string | null = null;
-      if (callerPhone) {
-        try {
-          const { buildCallerContext } = await import('./services/vapiWebhookHandler');
-          callerContext = await buildCallerContext(businessId, callerPhone);
-        } catch (e) {
-          console.warn('[AssistantRequest] Could not pre-load caller context:', e);
-        }
-      }
-
-      // Build the full assistant config with caller data injected
-      const { buildAssistantConfig } = await import('./services/vapiService');
-      const config = await buildAssistantConfig(business, servicesList, businessHoursList, rcConfig, knowledgeSection, callerContext);
-
-      const elapsed = Date.now() - startTime;
-      console.log(`[AssistantRequest] Built transient assistant in ${elapsed}ms for business ${businessId}${callerContext ? ' (caller recognized)' : ' (new caller)'}`);
-
-      // Return transient assistant — Vapi uses this config for this call only
-      res.json({ assistant: config });
-    } catch (error: any) {
-      const elapsed = Date.now() - startTime;
-      console.error(`[AssistantRequest] Error after ${elapsed}ms:`, error);
-
-      // Fallback: if anything fails, try to return the stored assistant ID
-      try {
-        const call = req.body?.message?.call || req.body?.call;
-        const assistantId = call?.assistantId;
-        if (assistantId) {
-          console.log(`[AssistantRequest] Falling back to stored assistant ${assistantId}`);
-          return res.json({ assistantId });
-        }
-      } catch {}
-
-      res.status(500).json({ error: 'Failed to build assistant' });
     }
   });
 
