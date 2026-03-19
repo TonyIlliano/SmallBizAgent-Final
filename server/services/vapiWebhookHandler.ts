@@ -3278,8 +3278,11 @@ async function recognizeCaller(
   businessId: number,
   callerPhone?: string
 ): Promise<FunctionResult> {
-  // Get real-time open/closed status (not stale from prompt)
-  const currentStatus = await getCurrentBusinessStatus(businessId);
+  // Get status + customer lookup in parallel (saves ~50ms vs sequential)
+  const [currentStatus, customer] = await Promise.all([
+    getCurrentBusinessStatus(businessId),
+    callerPhone ? storage.getCustomerByPhone(callerPhone, businessId) : Promise.resolve(null),
+  ]);
 
   if (!callerPhone) {
     console.log(`[recognizeCaller] No callerPhone for business ${businessId} — cannot identify caller`);
@@ -3291,9 +3294,6 @@ async function recognizeCaller(
       }
     };
   }
-
-  console.log(`[recognizeCaller] Looking up phone=${callerPhone} for business ${businessId}`);
-  const customer = await storage.getCustomerByPhone(callerPhone, businessId);
 
   if (!customer) {
     console.log(`[recognizeCaller] No customer found for phone=${callerPhone}, business=${businessId} — new caller`);
@@ -3333,12 +3333,23 @@ async function recognizeCaller(
 
   console.log(`[recognizeCaller] Found customer: ${customer.firstName} ${customer.lastName} (id=${customer.id}) for phone=${callerPhone}`);
 
-  // Fetch appointments + business info + services in parallel (all needed for greeting)
-  const [appointments, recogBusiness, allServices] = await Promise.all([
+  // ── Single parallel batch: fetch ALL caller data at once ──
+  // Previously 3 sequential await blocks (~500-600ms). Now 1 batch (~100-150ms).
+  const mem0Promise = searchMemory(businessId, customer.id, 'customer preferences history concerns', 5, 2000)
+    .catch(() => ''); // Never throws
+  const mem0Timeout = new Promise<string>((resolve) => setTimeout(() => resolve(''), 100)); // 100ms max for Mem0
+
+  const [appointments, recogBusiness, allServices, intelligenceResult, insightsResult, conversationalContext] = await Promise.all([
     storage.getAppointmentsByCustomerId(customer.id),
     getCachedBusiness(businessId),
     getCachedServices(businessId),
+    getLatestCustomerIntelligence(customer.id, businessId).catch(() => null),
+    storage.getCustomerInsights(customer.id, businessId).catch(() => null),
+    Promise.race([mem0Promise, mem0Timeout]),
   ]);
+
+  const intelligence = intelligenceResult;
+  const insights = insightsResult;
   const now = new Date();
 
   // Find upcoming appointments
@@ -3357,7 +3368,6 @@ async function recognizeCaller(
     .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
 
   let context = '';
-
   const recogTimezone = recogBusiness?.timezone || 'America/New_York';
 
   if (upcoming.length > 0) {
@@ -3375,36 +3385,6 @@ async function recognizeCaller(
     }
   } else if (recent.length > 0) {
     context = 'returning_customer';
-  }
-
-  // Fetch call intelligence + customer insights (local DB — fast)
-  // Mem0 is external API (500-1000ms) — don't block on it
-  let intelligence: any = null;
-  let insights: any = null;
-  let conversationalContext: string = '';
-
-  const [intelligenceResult, insightsResult] = await Promise.allSettled([
-    getLatestCustomerIntelligence(customer.id, businessId),
-    storage.getCustomerInsights(customer.id, businessId),
-  ]);
-
-  if (intelligenceResult.status === 'fulfilled') {
-    intelligence = intelligenceResult.value;
-  }
-
-  if (insightsResult.status === 'fulfilled') {
-    insights = insightsResult.value;
-  }
-
-  // Fire Mem0 search but don't wait — it's slow (external API) and not critical for greeting
-  // If it resolves fast enough, great; if not, summary is still rich from intelligence + insights
-  try {
-    const mem0Promise = searchMemory(businessId, customer.id, 'customer preferences history concerns', 5, 2000);
-    // Race against a 300ms timeout — if Mem0 responds in time, include it
-    const timeoutPromise = new Promise<string>((resolve) => setTimeout(() => resolve(''), 300));
-    conversationalContext = await Promise.race([mem0Promise, timeoutPromise]) || '';
-  } catch {
-    // Graceful degradation — Mem0 is optional enrichment
   }
 
   // Build a concise narrative summary combining all intelligence into natural language
