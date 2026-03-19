@@ -233,6 +233,21 @@ export async function provisionBusiness(
       provisioningCompletedAt: new Date()
     });
 
+    // Notify admin on provisioning failure
+    if (!results.success) {
+      try {
+        const { sendAdminAlert } = await import('./adminAlertService');
+        await sendAdminAlert({
+          type: 'provisioning_failed',
+          severity: 'high',
+          title: `Provisioning Failed: ${business?.name || `Business #${businessId}`}`,
+          details: { businessId, businessName: business?.name || 'Unknown', twilioOk: results.twilioProvisioned, vapiOk: results.vapiProvisioned, twilioError: results.twilioError || 'none', vapiError: results.vapiError || 'none' },
+        });
+      } catch (alertErr) {
+        console.error('[Provisioning] Admin alert failed:', alertErr);
+      }
+    }
+
     return results;
   } catch (error) {
     console.error(`Error provisioning business ID ${businessId}:`, error);

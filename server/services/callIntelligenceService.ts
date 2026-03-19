@@ -90,7 +90,7 @@ export async function analyzeCallIntelligence(
     const truncatedTranscript = transcript.substring(0, 15000);
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5.4-mini',
       temperature: 0.2,
       max_tokens: 1500,
       messages: [
@@ -171,7 +171,7 @@ Return valid JSON only. No markdown, no code blocks.`
       isNewCaller: extracted.isNewCaller,
       processingStatus: 'completed',
       processingError: null,
-      modelUsed: 'gpt-4o-mini',
+      modelUsed: 'gpt-5.4-mini',
       tokenCount,
     });
 

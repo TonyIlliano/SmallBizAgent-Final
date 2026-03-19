@@ -10,7 +10,12 @@ export type AuditAction =
   | 'data_export' | 'data_delete' | 'account_deleted'
   | 'phone_provisioned' | 'phone_released'
   | 'subscription_created' | 'subscription_cancelled'
-  | 'location_added' | 'location_switched';
+  | 'location_added' | 'location_switched'
+  | 'admin_provision' | 'admin_deprovision'
+  | 'admin_disable_user' | 'admin_enable_user'
+  | 'admin_reset_password' | 'admin_change_role'
+  | 'admin_change_subscription' | 'admin_extend_trial'
+  | 'admin_impersonate' | 'admin_stop_impersonation';
 
 export async function logAudit(params: {
   userId?: number | null;

@@ -687,6 +687,11 @@ async function runTrialExpirationCheck(): Promise<void> {
               } as any);
               graceStarted++;
               console.log(`[TrialExpiration] Business ${business.id} → grace_period (AI disabled, number kept). ${GRACE_PERIOD_DAYS - daysPastExpiry} days until deprovision.`);
+              // Notify admin
+              try {
+                const { sendAdminAlert } = await import('./adminAlertService');
+                await sendAdminAlert({ type: 'trial_expired', severity: 'medium', title: `Trial Expired: ${business.name}`, details: { businessId: business.id, businessName: business.name, daysUntilDeprovision: GRACE_PERIOD_DAYS - daysPastExpiry, email: business.email || 'N/A' } });
+              } catch (_) {}
             } catch (err) {
               console.error(`[TrialExpiration] Failed to update status for business ${business.id}:`, err);
             }
@@ -1539,6 +1544,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start morning brief (AI-powered daily summary for business owners)
     startMorningBriefScheduler();
 
+    // Start admin digest (daily platform summary for admin at 8am ET)
+    startAdminDigestScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -1671,6 +1679,30 @@ export function startMorningBriefScheduler(): void {
   console.log('Morning brief scheduler started (checks hourly)');
 }
 
+// ── Admin Digest (checks hourly, sends at 8am ET) ──
+
+export function startAdminDigestScheduler(): void {
+  const jobKey = 'admin-digest';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 60 * 60 * 1000; // Check every hour
+  const intervalId = setInterval(() => {
+    withReentryGuard('admin-digest', () =>
+      withAdvisoryLock('admin-digest', async () => {
+        try {
+          const { checkAndSendAdminDigest } = await import('./adminDigestService');
+          await checkAndSendAdminDigest();
+        } catch (error) {
+          console.error('[AdminDigest] Scheduler error:', error);
+        }
+      })
+    );
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log('Admin digest scheduler started (checks hourly, sends at 8am ET)');
+}
+
 export function stopAllSchedulers(): void {
   scheduledJobs.forEach((intervalId, jobKey) => {
     clearInterval(intervalId);
@@ -1703,6 +1735,7 @@ export default {
   startCustomerInsightsScheduler,
   startEngagementLockCleanupScheduler,
   startMorningBriefScheduler,
+  startAdminDigestScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

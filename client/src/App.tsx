@@ -200,6 +200,31 @@ function Router() {
   );
 }
 
+function ImpersonationBanner() {
+  const { user } = useAuth();
+  const imp = (user as any)?.impersonating;
+  if (!imp) return null;
+
+  const handleExit = async () => {
+    try {
+      await fetch('/api/admin/stop-impersonation', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+      window.location.href = '/admin';
+    } catch (e) {
+      console.error('Failed to stop impersonation:', e);
+    }
+  };
+
+  return (
+    <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-amber-950 px-4 py-2 flex items-center justify-center gap-3 text-sm font-medium shadow-md">
+      <span>Viewing as: <strong>{imp.businessName}</strong></span>
+      <button onClick={handleExit} className="bg-amber-700 text-white px-3 py-0.5 rounded text-xs font-semibold hover:bg-amber-800 transition-colors">
+        Exit
+      </button>
+    </div>
+  );
+}
+
 function App() {
   return (
     <ErrorBoundary>
@@ -211,6 +236,7 @@ function App() {
               <ServiceWorkerNotification />
               <PWAInstallPrompt />
               <ContextHelp />
+              <ImpersonationBanner />
               <Router />
             </SidebarProvider>
           </AuthProvider>

@@ -59,6 +59,19 @@ export interface AdminUser {
   createdAt: Date | null;
 }
 
+export interface MrrForecastMonth {
+  month: string;
+  projected: number;
+  optimistic: number;
+  pessimistic: number;
+}
+
+export interface MrrForecast {
+  months: MrrForecastMonth[];
+  growthRate: number; // monthly % growth
+  methodology: string;
+}
+
 export interface RevenueData {
   mrr: number;
   arr: number;
@@ -84,6 +97,7 @@ export interface RevenueData {
     businessCount: number;
     revenue: number;
   }>;
+  forecast: MrrForecast | null;
 }
 
 export interface ServiceStatus {
@@ -439,6 +453,9 @@ export async function getRevenueData(): Promise<RevenueData> {
     revenue: Math.round((planTierRevenue.get(p.planTier || "") || 0) * 100) / 100,
   }));
 
+  // Revenue forecast: linear regression on mrrTrend
+  const forecast = computeMrrForecast(mrrTrend);
+
   return {
     mrr: Math.round(mrr * 100) / 100,
     arr: Math.round(mrr * 12 * 100) / 100,
@@ -452,6 +469,59 @@ export async function getRevenueData(): Promise<RevenueData> {
     lifetimeValue,
     mrrTrend,
     planDistribution,
+    forecast,
+  };
+}
+
+/**
+ * Simple linear regression forecast for MRR.
+ * Uses the last 6 months of MRR data to project forward 3 months.
+ */
+function computeMrrForecast(mrrTrend: RevenueData['mrrTrend']): MrrForecast | null {
+  // Need at least 2 data points with non-zero MRR
+  const dataPoints = mrrTrend.filter(t => t.mrr > 0);
+  if (dataPoints.length < 2) {
+    return null;
+  }
+
+  // Linear regression: y = mx + b where x is month index, y is MRR
+  const n = dataPoints.length;
+  const xs = dataPoints.map((_, i) => i);
+  const ys = dataPoints.map(t => t.mrr);
+
+  const sumX = xs.reduce((a, b) => a + b, 0);
+  const sumY = ys.reduce((a, b) => a + b, 0);
+  const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
+  const sumXX = xs.reduce((a, x) => a + x * x, 0);
+
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+
+  // Growth rate as percentage
+  const lastMrr = ys[ys.length - 1];
+  const growthRate = lastMrr > 0 ? Math.round((slope / lastMrr) * 10000) / 100 : 0;
+
+  // Project 3 months forward
+  const months: MrrForecastMonth[] = [];
+  const lastMonth = dataPoints[dataPoints.length - 1].month;
+  const [lastYear, lastMo] = lastMonth.split('-').map(Number);
+
+  for (let i = 1; i <= 3; i++) {
+    const futureX = n - 1 + i;
+    const projected = Math.max(0, Math.round((slope * futureX + intercept) * 100) / 100);
+    const optimistic = Math.max(0, Math.round(projected * 1.2 * 100) / 100);
+    const pessimistic = Math.max(0, Math.round(projected * 0.8 * 100) / 100);
+
+    const mDate = new Date(lastYear, lastMo - 1 + i, 1);
+    const monthKey = `${mDate.getFullYear()}-${String(mDate.getMonth() + 1).padStart(2, '0')}`;
+
+    months.push({ month: monthKey, projected, optimistic, pessimistic });
+  }
+
+  return {
+    months,
+    growthRate,
+    methodology: `Linear regression on ${n}-month MRR trend`,
   };
 }
 

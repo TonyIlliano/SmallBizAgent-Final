@@ -166,7 +166,7 @@ Write a response:`;
   try {
     const openai = new OpenAI({ apiKey });
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5.4-mini',
       temperature: 0.7,
       max_tokens: 500,
       messages: [

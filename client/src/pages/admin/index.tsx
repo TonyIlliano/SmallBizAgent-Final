@@ -36,6 +36,7 @@ import {
   Brain, Target, Heart, Wrench, Zap, FileText, Star, Search, Share2,
   Mail, MessageSquare, RefreshCw, MoreHorizontal, Eye, Power, PowerOff,
   UserX, UserCheck, KeyRound, ShieldAlert, AlertTriangle, Clock,
+  ScrollText, LogIn,
 } from "lucide-react";
 import { Fragment } from "react";
 
@@ -105,6 +106,11 @@ interface RevenueData {
     businessCount: number;
     revenue: number;
   }>;
+  forecast: {
+    months: Array<{ month: string; projected: number; optimistic: number; pessimistic: number }>;
+    growthRate: number;
+    methodology: string;
+  } | null;
 }
 
 interface SystemHealth {
@@ -190,6 +196,13 @@ interface PlatformAgentsSummary {
   actionsByAgent: Array<{ agentType: string; count: number }>;
 }
 
+interface AlertAction {
+  label: string;
+  action: string;
+  businessId?: number;
+  email?: string;
+}
+
 interface PlatformAlert {
   severity: "high" | "medium" | "low";
   businessId: number;
@@ -198,6 +211,20 @@ interface PlatformAlert {
   message: string;
   suggestedAction: string;
   createdAt?: string;
+  actions?: AlertAction[];
+}
+
+interface AuditLogEntry {
+  id: number;
+  userId: number | null;
+  businessId: number | null;
+  action: string;
+  resource: string | null;
+  resourceId: number | null;
+  details: any;
+  ipAddress: string | null;
+  createdAt: string;
+  username: string;
 }
 
 interface AlertsResponse {
@@ -266,7 +293,7 @@ const AdminDashboardPage = () => {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="flex w-full overflow-x-auto md:grid md:w-full md:grid-cols-9 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        <TabsList className="flex w-full overflow-x-auto md:grid md:w-full md:grid-cols-10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <TabsTrigger value="overview" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <BarChart3 className="h-4 w-4" />
             Overview
@@ -303,6 +330,10 @@ const AdminDashboardPage = () => {
             <Server className="h-4 w-4" />
             System
           </TabsTrigger>
+          <TabsTrigger value="audit" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+            <ScrollText className="h-4 w-4" />
+            Audit Log
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview"><OverviewTab /></TabsContent>
@@ -314,6 +345,7 @@ const AdminDashboardPage = () => {
         <TabsContent value="content"><ContentTab /></TabsContent>
         <TabsContent value="costs"><CostsTab /></TabsContent>
         <TabsContent value="system"><SystemTab /></TabsContent>
+        <TabsContent value="audit"><AuditLogTab /></TabsContent>
       </Tabs>
     </PageLayout>
   );
@@ -571,11 +603,69 @@ function AlertItem({ alert }: { alert: PlatformAlert }) {
           <Badge variant="outline" className="text-xs capitalize">{alert.type.replace(/_/g, " ")}</Badge>
         </div>
         <p className={`text-sm mt-0.5 ${config.textColor}`}>{alert.message}</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Suggested: {alert.suggestedAction}
-        </p>
+        {alert.actions && alert.actions.length > 0 && (
+          <div className="flex gap-2 mt-2 flex-wrap">
+            {alert.actions.map((action, i) => (
+              <AlertActionButton key={i} action={action} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function AlertActionButton({ action }: { action: AlertAction }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const provisionMutation = useMutation({
+    mutationFn: async (businessId: number) => {
+      const res = await apiRequest("POST", `/api/admin/businesses/${businessId}/provision`);
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Re-provisioned" }); qc.invalidateQueries({ queryKey: ["/api/admin/alerts"] }); },
+    onError: (err: Error) => { toast({ title: "Failed", description: err.message, variant: "destructive" }); },
+  });
+
+  const extendTrialMutation = useMutation({
+    mutationFn: async (businessId: number) => {
+      const res = await apiRequest("POST", `/api/admin/businesses/${businessId}/extend-trial`);
+      return res.json();
+    },
+    onSuccess: (data: any) => { toast({ title: `Trial extended for ${data.business}` }); qc.invalidateQueries({ queryKey: ["/api/admin/alerts"] }); },
+    onError: (err: Error) => { toast({ title: "Failed", description: err.message, variant: "destructive" }); },
+  });
+
+  const handleClick = () => {
+    switch (action.action) {
+      case 'provision':
+        if (action.businessId) provisionMutation.mutate(action.businessId);
+        break;
+      case 'extend_trial':
+        if (action.businessId) extendTrialMutation.mutate(action.businessId);
+        break;
+      case 'contact':
+        if (action.email) window.open(`mailto:${action.email}?subject=SmallBizAgent%20Account%20Issue`, '_blank');
+        break;
+      case 'view_detail':
+        // Handled by parent via tab switch
+        break;
+      case 'view_messages':
+        // Scroll to messages tab
+        const trigger = document.querySelector('[value="messages"]') as HTMLElement;
+        trigger?.click();
+        break;
+    }
+  };
+
+  const isPending = provisionMutation.isPending || extendTrialMutation.isPending;
+
+  return (
+    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleClick} disabled={isPending}>
+      {isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+      {action.label}
+    </Button>
   );
 }
 
@@ -651,6 +741,21 @@ function BusinessesTab() {
     },
     onError: (err: Error) => {
       toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const impersonateMutation = useMutation({
+    mutationFn: async (businessId: number) => {
+      const res = await apiRequest("POST", `/api/admin/impersonate/${businessId}`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: `Viewing as ${data.businessName}` });
+      qc.invalidateQueries({ queryKey: ["/api/user"] });
+      window.location.href = '/dashboard';
+    },
+    onError: (err: Error) => {
+      toast({ title: "Impersonation failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -816,6 +921,10 @@ function BusinessesTab() {
                           >
                             <PowerOff className="h-4 w-4 mr-2" />
                             Deprovision
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => impersonateMutation.mutate(b.id)}>
+                            <LogIn className="h-4 w-4 mr-2" />
+                            View as Business
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => setSubStatusBiz({ id: b.id, name: b.name, currentStatus: b.subscriptionStatus })}>
@@ -1404,6 +1513,43 @@ function RevenueTab() {
                 </TableBody>
               </Table>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* MRR Forecast */}
+      {revenue.forecast && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-blue-500" />
+              MRR Forecast
+            </CardTitle>
+            <CardDescription>
+              {revenue.forecast.methodology} &bull; Monthly growth: {revenue.forecast.growthRate > 0 ? '+' : ''}{revenue.forecast.growthRate}%
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Month</TableHead>
+                  <TableHead className="text-right">Pessimistic</TableHead>
+                  <TableHead className="text-right">Projected</TableHead>
+                  <TableHead className="text-right">Optimistic</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {revenue.forecast.months.map((m) => (
+                  <TableRow key={m.month}>
+                    <TableCell className="font-medium">{m.month}</TableCell>
+                    <TableCell className="text-right text-red-600">${m.pessimistic.toFixed(2)}</TableCell>
+                    <TableCell className="text-right font-semibold">${m.projected.toFixed(2)}</TableCell>
+                    <TableCell className="text-right text-emerald-600">${m.optimistic.toFixed(2)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}
@@ -3197,6 +3343,129 @@ function ContentTab() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── Audit Log Tab ──────────────────────────────────────────────────────
+
+function AuditLogTab() {
+  const [page, setPage] = useState(1);
+  const [actionFilter, setActionFilter] = useState("all");
+  const limit = 30;
+
+  const { data, isLoading } = useQuery<{ logs: AuditLogEntry[]; total: number; page: number; limit: number }>({
+    queryKey: ["/api/admin/audit-logs", page, actionFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (actionFilter !== "all") params.set("action", actionFilter);
+      const res = await apiRequest("GET", `/api/admin/audit-logs?${params}`);
+      return res.json();
+    },
+  });
+
+  const totalPages = data ? Math.ceil(data.total / limit) : 0;
+
+  const ACTION_STYLES: Record<string, string> = {
+    admin_provision: "bg-emerald-100 text-emerald-800",
+    admin_deprovision: "bg-red-100 text-red-800",
+    admin_disable_user: "bg-red-100 text-red-800",
+    admin_enable_user: "bg-emerald-100 text-emerald-800",
+    admin_reset_password: "bg-amber-100 text-amber-800",
+    admin_change_role: "bg-blue-100 text-blue-800",
+    admin_change_subscription: "bg-purple-100 text-purple-800",
+    admin_extend_trial: "bg-blue-100 text-blue-800",
+    admin_impersonate: "bg-amber-100 text-amber-800",
+    admin_stop_impersonation: "bg-gray-100 text-gray-800",
+  };
+
+  const adminActions = [
+    "admin_provision", "admin_deprovision", "admin_disable_user", "admin_enable_user",
+    "admin_reset_password", "admin_change_role", "admin_change_subscription",
+    "admin_extend_trial", "admin_impersonate", "admin_stop_impersonation",
+    "login", "login_failed", "logout", "password_change", "settings_change",
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ScrollText className="h-5 w-5" />
+            Audit Log
+          </CardTitle>
+          <CardDescription>All admin and security actions with timestamps and IP addresses</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 mb-4">
+            <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="Filter by action" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Actions</SelectItem>
+                {adminActions.map(a => (
+                  <SelectItem key={a} value={a}>{a.replace(/_/g, ' ')}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {isLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+          ) : !data || data.logs.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No audit log entries found</p>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>User</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Resource</TableHead>
+                    <TableHead>Details</TableHead>
+                    <TableHead>IP</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.logs.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell className="text-xs whitespace-nowrap">
+                        {new Date(log.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </TableCell>
+                      <TableCell className="text-sm">{log.username}</TableCell>
+                      <TableCell>
+                        <Badge className={`text-xs ${ACTION_STYLES[log.action] || "bg-gray-100 text-gray-800"}`}>
+                          {log.action.replace(/_/g, ' ')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {log.resource ? `${log.resource} #${log.resourceId}` : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                        {log.details ? (typeof log.details === 'string' ? log.details : JSON.stringify(log.details)) : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{log.ipAddress || '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <span className="text-sm text-muted-foreground">{data.total} total entries</span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
+                    <span className="text-sm py-1.5">Page {page} of {totalPages}</span>
+                    <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

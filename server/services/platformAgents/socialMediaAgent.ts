@@ -131,7 +131,7 @@ async function generateWithOpenAI(
     : '';
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.4-mini',
     messages: [
       {
         role: 'system',
@@ -370,7 +370,7 @@ export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
             industry,
             details: {
               generatedVia: useOpenAI ? 'openai' : 'template',
-              model: useOpenAI ? 'gpt-4o-mini' : null,
+              model: useOpenAI ? 'gpt-5.4-mini' : null,
               contentType: contentType.type,
               ...(videoMeta ? { video: videoMeta } : {}),
             },

@@ -336,8 +336,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 | File | Mount Point | Purpose |
 |------|-------------|---------|
-| `adminRoutes` | `/api/admin/*` | Platform admin CRUD, stats, blog posts |
-| `analyticsRoutes` | `/api/analytics/*` | Business analytics queries |
+| `adminRoutes` | `/api/admin/*` | Platform admin CRUD, stats, blog posts, business controls, user management, alerts |
+| `analyticsRoutes` | `/api/analytics/*` | Business analytics queries, AI ROI |
 | `appointmentRoutes` | `/api/appointments/*` | Appointment CRUD |
 | `automationRoutes` | `/api/automations/*` | Agent config, activity logs |
 | `bookingRoutes` | `/api/booking/*` | Public booking, availability |
@@ -362,6 +362,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `recurring` | `/api/recurring/*` | Recurring schedules |
 | `import` | `/api/import/*` | Data import |
 | `embedRoutes` | `/api/embed/*` | Embedded booking widget |
+| `expressSetupRoutes` | `/api/onboarding/*` | Express onboarding (2-minute setup with auto-provisioning) |
 
 **Note:** Many routes are also defined inline in `server/routes.ts` (~6000 lines), especially auth, call logs, invoices, jobs, Twilio/Vapi webhooks.
 
@@ -370,6 +371,26 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `GET /api/call-intelligence/business/summary` — Aggregated call intelligence stats
 - `GET /api/customers/:id/insights` — Customer insights profile
 - `GET /api/customers/insights/high-risk` — High-risk customers for the business
+
+**AI ROI endpoint (analyticsRoutes.ts):**
+- `GET /api/analytics/ai-roi` — AI-attributed revenue funnel (calls → bookings → revenue, ROI, conversion rate)
+
+**Admin business/user management endpoints (adminRoutes.ts):**
+- `POST /api/admin/businesses/:id/provision` — Re-provision Twilio + Vapi for a business
+- `POST /api/admin/businesses/:id/deprovision` — Release resources and mark business canceled
+- `GET /api/admin/businesses/:id/detail` — Detailed business view (services, staff, hours, customers, calls, revenue, config)
+- `POST /api/admin/users/:id/disable` — Disable a user account
+- `POST /api/admin/users/:id/enable` — Enable a disabled user account
+- `POST /api/admin/users/:id/reset-password` — Admin password reset
+- `PATCH /api/admin/users/:id/role` — Change user role (user/staff/admin)
+- `GET /api/admin/alerts` — Platform alerts with quick-action buttons (failed payments, grace period, provisioning failures)
+- `POST /api/admin/businesses/:id/extend-trial` — Extend trial by 14 days, restore trialing status
+- `GET /api/admin/audit-logs` — Paginated, filterable admin audit log
+- `POST /api/admin/impersonate/:businessId` — Start impersonating a business (session-based)
+- `POST /api/admin/stop-impersonation` — Stop impersonating, restore admin context
+
+**Express onboarding endpoint (expressSetupRoutes.ts):**
+- `POST /api/onboarding/express-setup` — One-step business setup (create business, services, hours, provision Twilio+Vapi)
 
 ---
 
@@ -449,6 +470,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `VITE_GOOGLE_PLACES_API_KEY` | Google Places autocomplete (client) |
 | `VITE_STRIPE_PUBLIC_KEY` | Stripe publishable key (client) |
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (client) |
+| `SLACK_WEBHOOK_URL` | Slack incoming webhook for admin alerts (optional) |
+| `ADMIN_TIMEZONE` | Timezone for admin digest email, default `America/New_York` (optional) |
 
 ---
 
@@ -523,6 +546,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
   - **Customer insights nightly recalculation** (24h interval)
   - **Engagement lock cleanup** (15 min interval)
   - **Morning brief** (hourly check, sends at 7am per business timezone)
+  - **Admin digest** (hourly check, sends at 8am in ADMIN_TIMEZONE)
 
 ---
 
@@ -585,6 +609,16 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `9163e10` | Fix STOP handler + Vapi call quality: STOP only opts out of marketing, switch Deepgram to English-only |
 | `d5e43ab` | Fix Vapi confirmAppointment tool registration |
 | `73eca02` | SMS CANCEL + RESCHEDULE keywords for appointment self-service |
+| `06a84db` | Fix AI saying "9:30 AM 7 PM" instead of "9:30 AM to 7 PM" |
+| `df0340b` | Fix AI saying "Monday Friday" instead of "Monday through Friday" |
+| `a9c34ec` | Fix custom greeting being replaced instead of preserved |
+| `6a51f23` | Tie recording disclosure to Call Recording toggle, fix AI Insights gate |
+| `bedaaab` | Add unsaved changes warning to receptionist config form |
+| `ecc66d7` | Warn before navigating away with unsaved receptionist config changes |
+| `3d5a661` | Fix require('crypto') crash in ESM build (breaks drip emails, quotes, social) |
+| `ae9117c` | Add error boundaries, AI ROI card, help tooltips, and context help |
+| `cc061cb` | Add express onboarding: 2-minute setup with auto-provisioning |
+| `cf664cf` | Enhance admin dashboard: business controls, user management, live monitoring |
 
 ### Recent changes (uncommitted):
 
@@ -603,7 +637,103 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/services/vapiService.ts` — **Stale date warning**: System prompt date header changed from "TODAY:" to "TODAY (at assistant build time):" with explicit note that recognizeCaller's `currentStatus` has the real-time date and should always be preferred.
 - `server/services/vapiService.ts` — **AVAILABLE TOOLS list** reordered to group related tools logically (booking tools → info tools → customer tools → utility tools).
 
+#### Admin Power Tools — 6 Features
+- **Goal**: Give the platform admin full control with proactive alerting, impersonation, audit trail, revenue forecasting, and quick-action workflows.
+
+##### 1. Admin Audit Log
+- `server/services/auditService.ts` — Extended `AuditAction` type with 10 new admin actions: `admin_provision`, `admin_deprovision`, `admin_disable_user`, `admin_enable_user`, `admin_reset_password`, `admin_change_role`, `admin_change_subscription`, `admin_extend_trial`, `admin_impersonate`, `admin_stop_impersonation`.
+- `server/routes/adminRoutes.ts` — Added `logAudit()` + `getRequestContext()` calls to all 8 existing admin mutation endpoints (provision, deprovision, disable, enable, reset-password, change-role, change-subscription, extend-trial).
+- `server/routes/adminRoutes.ts` — **NEW**: `GET /api/admin/audit-logs?page=&limit=&action=&startDate=&endDate=` — paginated, filterable audit log query with username enrichment.
+- `client/src/pages/admin/index.tsx` — **NEW**: Audit Log tab (10th tab) with filterable table, action type dropdown, pagination, color-coded action badges.
+
+##### 2. Slack/Email Alerts for Critical Events
+- `server/services/adminAlertService.ts` — **NEW**: `sendAdminAlert(type, severity, title, details)` sends real-time alerts via email (to `ADMIN_NOTIFICATION_EMAIL`) and optionally Slack (via `SLACK_WEBHOOK_URL` incoming webhook). Never throws. Supports 4 alert types: `payment_failed`, `trial_expired`, `provisioning_failed`, `churn_risk_high`.
+- `server/services/subscriptionService.ts` — Hooked `sendAdminAlert('payment_failed')` into `handleInvoicePaymentFailedWithDunning()`.
+- `server/services/schedulerService.ts` — Hooked `sendAdminAlert('trial_expired')` into `runTrialExpirationCheck()` when a business transitions to grace_period.
+- `server/services/businessProvisioningService.ts` — Hooked `sendAdminAlert('provisioning_failed')` into `provisionBusiness()` when result.success is false.
+- `server/services/platformAgents/churnPredictionAgent.ts` — Hooked `sendAdminAlert('churn_risk_high')` when a business scores >= 70 churn risk.
+
+##### 3. Quick Actions from Alerts
+- `server/routes/adminRoutes.ts` — Alert data shape extended with `actions[]` array per alert: `payment_failed` → Contact Owner + View Details, `provisioning_failed` → Re-provision, `grace_period` → Extend Trial + Contact Owner, `notification_failures` → View Messages.
+- `server/routes/adminRoutes.ts` — **NEW**: `POST /api/admin/businesses/:id/extend-trial` — extends trial by 14 days, sets status to `trialing`, re-enables receptionist. Audit logged.
+- `client/src/pages/admin/index.tsx` — **NEW**: `AlertActionButton` component renders inline action buttons on each alert. "Re-provision" calls provision endpoint, "Contact Owner" opens mailto, "Extend Trial" calls extend-trial endpoint, "View Messages" switches tab.
+
+##### 4. Daily Admin Digest Email
+- `server/services/adminDigestService.ts` — **NEW**: Daily platform summary email sent at 8am in admin timezone. Gathers: new signups, expired trials, total calls, revenue collected, failed payments, high churn risk businesses, agent activity summary. HTML + plain text format with "Action Needed" section. Skips if zero activity.
+- `server/services/schedulerService.ts` — **NEW**: `startAdminDigestScheduler()` runs hourly, sends at 8am in `ADMIN_TIMEZONE` (default: America/New_York). Uses `withReentryGuard()` + `withAdvisoryLock()`.
+
+##### 5. Business Impersonation ("View as")
+- `server/routes/adminRoutes.ts` — **NEW**: `POST /api/admin/impersonate/:businessId` — stores impersonation in session (`req.session.impersonating`). `POST /api/admin/stop-impersonation` — clears session. Both audit logged.
+- `server/auth.ts` — **NEW**: Impersonation middleware after passport session. If `req.session.impersonating` and user is admin, overrides `req.user.businessId` for the request. All existing routes automatically scope to the impersonated business.
+- `server/auth.ts` — `GET /api/user` response includes `impersonating: { businessId, businessName, originalBusinessId }` when active, and overrides `businessId` in the response.
+- `client/src/App.tsx` — **NEW**: `ImpersonationBanner` component. Fixed amber banner at top: "Viewing as: [Business Name] — Exit". Calls stop-impersonation on exit, redirects to `/admin`.
+- `client/src/pages/admin/index.tsx` — "View as Business" menu item added to business dropdown. Calls impersonate endpoint, navigates to `/dashboard`.
+
+##### 6. Revenue Forecasting
+- `server/services/adminService.ts` — Extended `RevenueData` type with `forecast: MrrForecast | null`. Added `computeMrrForecast()` using linear regression on mrrTrend data. Projects 3 months forward with optimistic (+20%) and pessimistic (-20%) scenarios. Returns null if insufficient data.
+- `client/src/pages/admin/index.tsx` — **NEW**: MRR Forecast card in Revenue tab. Table showing month, pessimistic, projected, optimistic columns. Shows monthly growth rate % and methodology. Placed between MRR trend and Plan Distribution.
+
 ### Recent changes (committed):
+
+#### Admin Dashboard: Business Controls, User Management, Live Monitoring
+- **Goal**: Give the platform owner full control over businesses and users from the admin dashboard, plus real-time alerting for platform health.
+- `client/src/pages/admin/index.tsx` — **Businesses tab**: Search/filter by name and subscription status. Dropdown menu per business: View Details, Re-provision, Deprovision, Change Subscription Status. Business detail dialog showing services, staff, hours, customers, calls, revenue, receptionist config, and provisioning status.
+- `client/src/pages/admin/index.tsx` — **Users tab**: Dropdown menu per user: Disable/Enable Account, Reset Password, Change Role (user/staff/admin). Confirm dialogs for destructive actions. Safety: cannot disable own account or remove own admin role. Password reset with minimum length validation.
+- `client/src/pages/admin/index.tsx` — **Overview tab**: Platform Alerts banner showing failed payments, grace period businesses, provisioning failures, notification delivery failures. Alerts sorted by severity (high/medium/low) with color coding. Expandable details with suggested actions. Auto-refresh every 30 seconds. "Last updated: Xs ago" indicator. Improved SubscriptionBadge to handle grace_period, expired, canceled statuses.
+- `server/routes/adminRoutes.ts` — 8 new endpoints: `POST .../provision`, `POST .../deprovision`, `GET .../detail`, `POST .../disable`, `POST .../enable`, `POST .../reset-password`, `PATCH .../role`, `GET /api/admin/alerts`.
+
+#### Express Onboarding: 2-Minute Setup with Auto-Provisioning
+- **Goal**: Reduce onboarding friction — new users can go from signup to fully provisioned AI receptionist in 2 minutes.
+- `client/src/pages/onboarding/steps/welcome.tsx` — Welcome step now shows two paths: "Quick Setup (2 minutes)" (recommended) and "Detailed Setup (5-10 minutes)" (existing 9-step wizard).
+- `client/src/pages/onboarding/steps/express-setup.tsx` — **NEW**: Single-page form: business name, industry dropdown (19 options), phone, email, address. Shows provisioning progress animation. Redirects to dashboard with setup checklist for optional refinement.
+- `server/routes/expressSetupRoutes.ts` — **NEW**: `POST /api/onboarding/express-setup` — atomic endpoint that: creates business + links to user + sets 14-day trial, maps industry to template (12 templates, 5-10 services each), bulk-creates services from matched template, creates default Mon-Fri 9am-5pm business hours, fires Twilio + Vapi provisioning in background, marks onboarding complete. Industry-to-template mapping covers all 19 industry options.
+- `client/src/pages/onboarding/index.tsx` — Updated to handle express setup path selection from welcome step.
+- `server/routes.ts` — Mounted `expressSetupRoutes` at `/api/onboarding`.
+
+#### Error Boundaries, AI ROI Card, Help Tooltips, and Context Help
+- **Goal**: Three features to improve reliability (no more white screens), prove AI value (ROI funnel), and reduce support (inline help).
+- `client/src/components/ui/error-boundary.tsx` — **NEW**: ErrorBoundary class component with Sentry integration. Wraps entire App, public booking page, payment page, and portal invoice page. Shows "Something went wrong" with retry instead of white screens.
+- `client/src/App.tsx` — Wrapped root with ErrorBoundary.
+- `client/src/pages/book/[slug].tsx`, `client/src/pages/payment.tsx`, `client/src/pages/portal/invoice.tsx` — Wrapped with ErrorBoundary with customer-friendly fallback messages.
+- `server/services/analyticsService.ts` — **NEW**: `getAiRoiMetrics()` traces calls → bookings → revenue using call_intelligence data. Calculates ROI, conversion rate, avg revenue per booking.
+- `server/routes/analyticsRoutes.ts` — **NEW**: `GET /api/analytics/ai-roi` endpoint.
+- `client/src/components/dashboard/AiRoiCard.tsx` — **NEW**: Visual funnel card on dashboard showing AI-attributed calls, bookings, revenue, conversion rate, and ROI. Empty state for businesses with no calls yet.
+- `client/src/pages/dashboard.tsx` — Added AiRoiCard component.
+- `client/src/components/ui/help-tooltip.tsx` — **NEW**: HelpTooltip component (info icon + hover tooltip).
+- `client/src/components/ui/context-help.tsx` — **NEW**: ContextHelp with 4 new route entries (receptionist, agents, marketing, analytics).
+- `client/src/components/receptionist/ReceptionistConfig.tsx` — Added HelpTooltip to 9 config fields (greeting, voice, etc.).
+- `client/src/pages/automations/index.tsx` — Added FeatureTip to AI Agents page.
+
+#### Fix require('crypto') Crash in ESM Build
+- **Goal**: Fix production crash — `Dynamic require of 'crypto' is not supported` in ESM build. Broke all email drip campaigns, quote share links, social media OAuth PKCE, and email unsubscribe link verification.
+- `server/routes.ts`, `server/routes/quoteRoutes.ts`, `server/services/emailDripService.ts`, `server/services/socialMediaService.ts` — Replaced `require('crypto')` with ESM `import { ... } from "crypto"` in all 4 files.
+
+#### Unsaved Changes Warning for Receptionist Config
+- **Goal**: Prevent businesses from toggling settings (Call Recording, Voicemail, AI Insights) and leaving the page without saving — thinking they were active when they weren't.
+- `client/src/components/receptionist/ReceptionistConfig.tsx` — Added amber alert banner: "You have unsaved changes. Click Save Configuration to apply them." with inline "Save Now" shortcut button. Appears when any field is dirty.
+- `client/src/components/receptionist/ReceptionistConfig.tsx` — Added `beforeunload` handler triggering the browser's native "Leave page?" dialog when form has unsaved changes.
+
+#### Tie Recording Disclosure to Call Recording Toggle
+- **Goal**: Recording disclosure ("this call may be recorded") was always injected into the greeting regardless of the Call Recording setting. If recording was OFF, callers were falsely told they were being recorded.
+- `server/services/vapiService.ts` — `buildFirstMessage()` now takes `callRecordingEnabled` parameter — only injects recording disclosure when Call Recording is ON.
+- `client/src/components/receptionist/ReceptionistConfig.tsx` — AI Insights gate changed from checking greeting text for keywords to checking if Call Recording is enabled.
+- `client/src/components/receptionist/WeeklySuggestions.tsx` — Same gate update with backward compatibility.
+- `client/src/pages/receptionist/index.tsx` — Updated to pass recording setting.
+
+#### Fix Custom Greeting Replacement
+- **Goal**: `buildFirstMessage()` was stripping the business's custom closing question and replacing it with a generic one.
+- `server/services/vapiService.ts` — Now preserves the business's custom greeting text (e.g., "How may I help you today?") and only inserts the recording disclosure before the closing question without replacing it.
+
+#### Fix AI Time Range & Day Formatting for Voice
+- **Goal**: AI was saying "9:30 AM 7 PM" (dropping hyphen) and "Monday Friday" (listing all days individually).
+- `server/services/vapiService.ts`, `server/services/vapiWebhookHandler.ts` — Changed all time range formatting from `" - "` (hyphen) to `" to "` in 6 locations: `formatBusinessHoursFromDB()`, `isBusinessOpenNow()`, `getStaffSchedule()`, `getCurrentBusinessStatus()`.
+- `server/services/vapiService.ts` — Added `groupConsecutiveDays()` helper. Now groups consecutive days with same schedule: "Monday through Friday: 9:30 AM to 7 PM" instead of listing all 7 days individually.
+- `server/services/vapiWebhookHandler.ts` — Applied day grouping to `getBusinessHours()` and `getStaffSchedule()` responses. Staff time-off date ranges now use "through" instead of hyphens.
+
+#### Utility Scripts
+- `scripts/connect-phone-to-vapi.ts` — One-time script to connect an existing Twilio phone number to a Vapi assistant. Imports the phone to Vapi, updates `business_phone_numbers` and `businesses` tables.
+- `scripts/run-migrations-local.cjs` — CommonJS migration script for running column additions and table creation locally. Adds missing columns to `users` and `businesses` tables, creates `staff_time_off` table with indexes.
+- `scripts/reprovision-business.ts` — Updated: re-provisions admin's business with a specific Twilio phone number, creates Vapi assistant, re-enables receptionist.
 
 #### New Caller Name Capture
 - **Goal**: Fix new callers showing up as "Caller 9926" / "Caller 1808" in CRM instead of their actual names. The AI asks for the name but had no mechanism to save it.
@@ -838,6 +968,14 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Morning brief email | `server/services/morningBriefService.ts` |
 | Mem0 persistent memory | `server/services/mem0Service.ts` |
 | LangGraph agent graph | `server/services/agentGraph.ts` |
+| Express onboarding | `server/routes/expressSetupRoutes.ts` |
+| Express setup UI | `client/src/pages/onboarding/steps/express-setup.tsx` |
+| Error boundary | `client/src/components/ui/error-boundary.tsx` |
+| Help tooltips | `client/src/components/ui/help-tooltip.tsx` |
+| Context help | `client/src/components/ui/context-help.tsx` |
+| AI ROI card | `client/src/components/dashboard/AiRoiCard.tsx` |
+| Admin alert service | `server/services/adminAlertService.ts` |
+| Admin digest service | `server/services/adminDigestService.ts` |
 | Env vars reference | `.env.example` |
 | Package scripts | `package.json` |
 
@@ -889,4 +1027,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 17, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 61 tables. Vapi optimization: restored 5-beat call flow (stripped in prompt rewrite), added missing tool definitions (getEstimate, checkWaitTime, getServiceDetails), removed bare "Goodbye"/"Bye bye" from endCallPhrases, tuned timing (waitSeconds 0.5, onPunctuationSeconds 0.3, onNoPunctuationSeconds 0.6, numWordsToInterrupt 4), added stale date warning, restored instructions for AI to use recognizeCaller summary/Mem0/insights data. Vapi: Deepgram nova-2 English STT, ElevenLabs opt level 3, gpt-5-mini.*
+*Last updated: March 19, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 61 tables. Admin power tools (uncommitted): Slack/email alerts for critical events (payment failures, trial expirations, provisioning failures, high churn risk), business impersonation ("View as"), quick-action buttons on alerts (Re-provision, Extend Trial, Contact Owner), daily admin digest email (8am ET), full admin audit log with searchable tab, MRR revenue forecasting (3-month linear regression). New env vars: SLACK_WEBHOOK_URL, ADMIN_TIMEZONE. New files: adminAlertService.ts, adminDigestService.ts. All AI models upgraded from gpt-4o-mini/gpt-5-mini to gpt-5.4-mini across 10 service files (12 locations). Vapi: Deepgram nova-2 English STT, ElevenLabs opt level 3, gpt-5.4-mini.*

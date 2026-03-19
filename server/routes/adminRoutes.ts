@@ -10,9 +10,10 @@ import { isAdmin } from "../middleware/auth";
 import * as adminService from "../services/adminService";
 import { storage } from "../storage";
 import { db } from "../db";
-import { agentActivityLog, businesses, blogPosts, notificationLog, users } from "../../shared/schema";
+import { agentActivityLog, auditLogs, businesses, blogPosts, notificationLog, users } from "../../shared/schema";
 import { eq, sql, desc, and, gte, lte, inArray, isNull, or, ilike } from "drizzle-orm";
 import { hashPassword } from "../auth";
+import { logAudit, getRequestContext } from "../services/auditService";
 
 const router = Router();
 
@@ -206,6 +207,7 @@ router.patch("/api/admin/businesses/:id/subscription-status", isAdmin, async (re
       return res.status(404).json({ error: 'Business not found' });
     }
 
+    logAudit({ userId: (req.user as any).id, businessId, action: 'admin_change_subscription', resource: 'business', resourceId: businessId, details: { newStatus: status, businessName: updated.name }, ...getRequestContext(req) });
     res.json({ success: true, business: { id: updated.id, name: updated.name, subscriptionStatus: updated.subscriptionStatus } });
   } catch (error: any) {
     console.error("[Admin] Error updating subscription status:", error);
@@ -853,6 +855,7 @@ router.post("/api/admin/businesses/:id/provision", isAdmin, async (req: Request,
       await storage.updateBusiness(businessId, updates);
     }
 
+    logAudit({ userId: (req.user as any).id, businessId, action: 'admin_provision', resource: 'business', resourceId: businessId, details: { success: result.success, businessName: business.name }, ...getRequestContext(req) });
     res.json({ success: result.success, error: result.error, business: business.name });
   } catch (error: any) {
     console.error("[Admin] Provision error:", error);
@@ -880,6 +883,7 @@ router.post("/api/admin/businesses/:id/deprovision", isAdmin, async (req: Reques
       receptionistEnabled: false,
     } as any);
 
+    logAudit({ userId: (req.user as any).id, businessId, action: 'admin_deprovision', resource: 'business', resourceId: businessId, details: { businessName: business.name }, ...getRequestContext(req) });
     res.json({ success: true, business: business.name });
   } catch (error: any) {
     console.error("[Admin] Deprovision error:", error);
@@ -956,6 +960,7 @@ router.post("/api/admin/users/:id/disable", isAdmin, async (req: Request, res: R
     }
 
     await storage.updateUser(userId, { active: false } as any);
+    logAudit({ userId: (req.user as any).id, action: 'admin_disable_user', resource: 'user', resourceId: userId, details: { targetUserId: userId }, ...getRequestContext(req) });
     console.log(`[Admin] Disabled user ${userId}`);
     res.json({ success: true });
   } catch (error: any) {
@@ -972,6 +977,7 @@ router.post("/api/admin/users/:id/enable", isAdmin, async (req: Request, res: Re
     if (isNaN(userId)) return res.status(400).json({ error: "Invalid user ID" });
 
     await storage.updateUser(userId, { active: true } as any);
+    logAudit({ userId: (req.user as any).id, action: 'admin_enable_user', resource: 'user', resourceId: userId, details: { targetUserId: userId }, ...getRequestContext(req) });
     console.log(`[Admin] Enabled user ${userId}`);
     res.json({ success: true });
   } catch (error: any) {
@@ -994,6 +1000,7 @@ router.post("/api/admin/users/:id/reset-password", isAdmin, async (req: Request,
 
     const hashed = await hashPassword(newPassword);
     await storage.updateUser(userId, { password: hashed } as any);
+    logAudit({ userId: (req.user as any).id, action: 'admin_reset_password', resource: 'user', resourceId: userId, details: { targetUserId: userId }, ...getRequestContext(req) });
     console.log(`[Admin] Reset password for user ${userId}`);
     res.json({ success: true });
   } catch (error: any) {
@@ -1020,10 +1027,174 @@ router.patch("/api/admin/users/:id/role", isAdmin, async (req: Request, res: Res
     }
 
     await storage.updateUser(userId, { role } as any);
+    logAudit({ userId: (req.user as any).id, action: 'admin_change_role', resource: 'user', resourceId: userId, details: { targetUserId: userId, newRole: role }, ...getRequestContext(req) });
     console.log(`[Admin] Changed user ${userId} role to ${role}`);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: "Failed to change role", details: error.message });
+  }
+});
+
+// ============================================================
+// IMPERSONATION — "View as" a business
+// ============================================================
+
+/**
+ * POST /api/admin/impersonate/:businessId — Start impersonating a business
+ */
+router.post("/api/admin/impersonate/:businessId", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: "Business not found" });
+
+    const adminUser = req.user as any;
+    (req.session as any).impersonating = {
+      businessId: business.id,
+      businessName: business.name,
+      originalBusinessId: adminUser.businessId,
+    };
+
+    logAudit({ userId: adminUser.id, businessId, action: 'admin_impersonate', resource: 'business', resourceId: businessId, details: { businessName: business.name }, ...getRequestContext(req) });
+    req.session.save((err: any) => {
+      if (err) return res.status(500).json({ error: "Failed to save session" });
+      res.json({ success: true, businessId: business.id, businessName: business.name });
+    });
+  } catch (error: any) {
+    console.error("[Admin] Impersonate error:", error);
+    res.status(500).json({ error: "Failed to impersonate", details: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/stop-impersonation — Stop impersonating
+ */
+router.post("/api/admin/stop-impersonation", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const impersonating = (req.session as any).impersonating;
+    if (!impersonating) return res.json({ success: true });
+
+    const adminUser = req.user as any;
+    logAudit({ userId: adminUser.id, businessId: impersonating.businessId, action: 'admin_stop_impersonation', resource: 'business', resourceId: impersonating.businessId, details: { businessName: impersonating.businessName }, ...getRequestContext(req) });
+
+    delete (req.session as any).impersonating;
+    req.session.save((err: any) => {
+      if (err) return res.status(500).json({ error: "Failed to save session" });
+      res.json({ success: true });
+    });
+  } catch (error: any) {
+    console.error("[Admin] Stop impersonation error:", error);
+    res.status(500).json({ error: "Failed to stop impersonation", details: error.message });
+  }
+});
+
+// ============================================================
+// AUDIT LOG — Searchable admin action history
+// ============================================================
+
+/**
+ * GET /api/admin/audit-logs — Paginated, filterable audit log
+ */
+router.get("/api/admin/audit-logs", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const offset = (page - 1) * limit;
+    const actionFilter = req.query.action as string | undefined;
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+
+    const conditions = [];
+    if (actionFilter) {
+      conditions.push(eq(auditLogs.action, actionFilter));
+    }
+    if (startDate) {
+      conditions.push(gte(auditLogs.createdAt, startDate));
+    }
+    if (endDate) {
+      conditions.push(lte(auditLogs.createdAt, endDate));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [logs, countResult] = await Promise.all([
+      db.select({
+        id: auditLogs.id,
+        userId: auditLogs.userId,
+        businessId: auditLogs.businessId,
+        action: auditLogs.action,
+        resource: auditLogs.resource,
+        resourceId: auditLogs.resourceId,
+        details: auditLogs.details,
+        ipAddress: auditLogs.ipAddress,
+        createdAt: auditLogs.createdAt,
+      })
+        .from(auditLogs)
+        .where(whereClause)
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ count: sql<number>`count(*)` })
+        .from(auditLogs)
+        .where(whereClause),
+    ]);
+
+    // Enrich with usernames
+    const userIds = Array.from(new Set(logs.filter(l => l.userId).map(l => l.userId!)));
+    let userMap: Record<number, string> = {};
+    if (userIds.length > 0) {
+      const userRows = await db.select({ id: users.id, username: users.username }).from(users).where(inArray(users.id, userIds));
+      userMap = Object.fromEntries(userRows.map(u => [u.id, u.username]));
+    }
+
+    res.json({
+      logs: logs.map(l => ({ ...l, username: l.userId ? userMap[l.userId] || 'Unknown' : 'System' })),
+      total: Number(countResult[0]?.count || 0),
+      page,
+      limit,
+    });
+  } catch (error: any) {
+    console.error("[Admin] Audit logs error:", error);
+    res.status(500).json({ error: "Failed to fetch audit logs", details: error.message });
+  }
+});
+
+// ============================================================
+// TRIAL MANAGEMENT
+// ============================================================
+
+/**
+ * POST /api/admin/businesses/:id/extend-trial — Extend a business's trial by 14 days
+ */
+router.post("/api/admin/businesses/:id/extend-trial", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.id);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: "Business not found" });
+
+    const newTrialEnd = new Date();
+    newTrialEnd.setDate(newTrialEnd.getDate() + 14);
+
+    const updates: any = {
+      trialEndsAt: newTrialEnd,
+      subscriptionStatus: 'trialing',
+    };
+    // Re-enable receptionist if it was disabled during grace period
+    if (!business.receptionistEnabled) {
+      updates.receptionistEnabled = true;
+    }
+    await storage.updateBusiness(businessId, updates);
+
+    logAudit({ userId: (req.user as any).id, businessId, action: 'admin_extend_trial', resource: 'business', resourceId: businessId, details: { businessName: business.name, newTrialEnd: newTrialEnd.toISOString() }, ...getRequestContext(req) });
+    console.log(`[Admin] Extended trial for business ${businessId} (${business.name}) to ${newTrialEnd.toISOString()}`);
+    res.json({ success: true, business: business.name, newTrialEnd });
+  } catch (error: any) {
+    console.error("[Admin] Extend trial error:", error);
+    res.status(500).json({ error: "Failed to extend trial", details: error.message });
   }
 });
 
@@ -1089,6 +1260,14 @@ router.get("/api/admin/alerts", isAdmin, async (req: Request, res: Response) => 
 
     const alerts = [];
 
+    // Find owner emails for payment_failed businesses
+    const paymentBizIds = failedPayments.map(b => b.id);
+    let ownerEmailMap: Record<number, string> = {};
+    if (paymentBizIds.length > 0) {
+      const owners = await db.select({ businessId: users.businessId, email: users.email }).from(users).where(inArray(users.businessId, paymentBizIds));
+      ownerEmailMap = Object.fromEntries(owners.filter(o => o.businessId && o.email).map(o => [o.businessId!, o.email!]));
+    }
+
     for (const biz of failedPayments) {
       alerts.push({
         type: 'payment_failed',
@@ -1097,7 +1276,19 @@ router.get("/api/admin/alerts", isAdmin, async (req: Request, res: Response) => 
         businessName: biz.name,
         message: `Payment ${biz.status === 'past_due' ? 'past due' : 'failed'} — may need manual intervention`,
         action: 'Check Stripe dashboard or contact business owner',
+        actions: [
+          { label: 'Contact Owner', action: 'contact', email: ownerEmailMap[biz.id] || '' },
+          { label: 'View Details', action: 'view_detail', businessId: biz.id },
+        ],
       });
+    }
+
+    // Find owner emails for grace period businesses
+    const graceBizIds = gracePeriod.map(b => b.id);
+    let graceOwnerMap: Record<number, string> = {};
+    if (graceBizIds.length > 0) {
+      const owners = await db.select({ businessId: users.businessId, email: users.email }).from(users).where(inArray(users.businessId, graceBizIds));
+      graceOwnerMap = Object.fromEntries(owners.filter(o => o.businessId && o.email).map(o => [o.businessId!, o.email!]));
     }
 
     for (const biz of gracePeriod) {
@@ -1108,6 +1299,10 @@ router.get("/api/admin/alerts", isAdmin, async (req: Request, res: Response) => 
         businessName: biz.name,
         message: `Trial expired — AI disabled, phone number retained`,
         action: 'Business needs to subscribe to restore AI',
+        actions: [
+          { label: 'Extend Trial', action: 'extend_trial', businessId: biz.id },
+          { label: 'Contact Owner', action: 'contact', email: graceOwnerMap[biz.id] || '' },
+        ],
       });
     }
 
@@ -1119,6 +1314,9 @@ router.get("/api/admin/alerts", isAdmin, async (req: Request, res: Response) => 
         businessName: biz.name,
         message: `Active/trialing business has no phone number — provisioning may have failed`,
         action: 'Re-provision from business controls',
+        actions: [
+          { label: 'Re-provision', action: 'provision', businessId: biz.id },
+        ],
       });
     }
 
@@ -1128,6 +1326,9 @@ router.get("/api/admin/alerts", isAdmin, async (req: Request, res: Response) => 
         severity: 'low',
         message: `${failedNotifications[0].count} failed notifications in the last 24 hours`,
         action: 'Check Messages tab for details',
+        actions: [
+          { label: 'View Messages', action: 'view_messages' },
+        ],
       });
     }
 

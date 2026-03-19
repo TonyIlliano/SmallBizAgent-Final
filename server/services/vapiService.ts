@@ -1476,7 +1476,7 @@ export async function createAssistantForBusiness(
     name: `${business.name} Receptionist`,
     model: {
       provider: 'openai',
-      model: 'gpt-5-mini', // Smarter than gpt-4o-mini, still cost-effective for voice
+      model: 'gpt-5.4-mini', // 2x faster than gpt-5-mini, near-flagship reasoning, $0.75/1M input
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
       maxTokens: 350, // Cap response length for voice — prevents rambling while allowing natural responses
       systemPrompt: systemPrompt,
@@ -1684,7 +1684,7 @@ export async function updateAssistant(
         backgroundDenoisingEnabled: true,
         model: {
           provider: 'openai',
-          model: 'gpt-5-mini',
+          model: 'gpt-5.4-mini', // 2x faster than gpt-5-mini, near-flagship reasoning
           temperature: 0.6,
           maxTokens: 350, // Cap response length for voice — prevents rambling while allowing natural responses
           systemPrompt: systemPrompt,

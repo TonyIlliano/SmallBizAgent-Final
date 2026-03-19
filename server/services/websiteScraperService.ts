@@ -239,7 +239,7 @@ If no useful information can be extracted, return: []`;
   ];
 
   // Try models in order of preference, falling back if access is denied
-  const modelsToTry = ['gpt-5-mini', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'gpt-4.1'];
+  const modelsToTry = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4.1-mini', 'gpt-4o-mini'];
   let lastError: any = null;
 
   for (const model of modelsToTry) {

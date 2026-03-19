@@ -1132,6 +1132,19 @@ export class SubscriptionService {
         console.log(`[Dunning] No owner cell phone for business ${business.id} — skipping SMS notification`);
       }
 
+      // Notify platform admin
+      try {
+        const { sendAdminAlert } = await import('./adminAlertService');
+        await sendAdminAlert({
+          type: 'payment_failed',
+          severity: 'high',
+          title: `Payment Failed: ${business.name}`,
+          details: { businessId: business.id, businessName: business.name, attempt: `${attemptNumber}/3`, ownerEmail: business.email || 'N/A', gracePeriodEnds: gracePeriodEndsAt },
+        });
+      } catch (alertErr) {
+        console.error('[Dunning] Admin alert failed:', alertErr);
+      }
+
       // Update business with payment failure tracking
       await db.update(businesses)
         .set({

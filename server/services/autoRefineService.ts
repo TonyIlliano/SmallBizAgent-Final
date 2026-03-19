@@ -182,7 +182,7 @@ Based on all of the above, identify gaps and suggest improvements. Return a JSON
   // Call OpenAI
   const openai = new OpenAI({ apiKey });
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.4-mini',
     temperature: 0.3,
     max_completion_tokens: 4000,
     messages: [

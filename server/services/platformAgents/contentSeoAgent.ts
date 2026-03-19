@@ -117,7 +117,7 @@ async function generateBlogWithOpenAI(industry: string, format: typeof CONTENT_F
     : '';
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.4-mini',
     messages: [
       {
         role: 'system',
@@ -272,7 +272,7 @@ async function generateSocialPost(industry: string, useOpenAI: boolean): Promise
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: [
           {
             role: 'system',

@@ -163,6 +163,16 @@ export function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // Impersonation middleware: override businessId for impersonating admins
+  app.use((req: Request, _res: Response, next: any) => {
+    const impersonating = (req.session as any)?.impersonating;
+    if (impersonating && req.user && (req.user as any).role === 'admin') {
+      (req.user as any).businessId = impersonating.businessId;
+      (req.user as any).impersonating = impersonating;
+    }
+    next();
+  });
+
   // Configure passport to use local strategy
   passport.use(
     new LocalStrategy(async (username, password, done) => {
@@ -796,7 +806,22 @@ export function setupAuth(app: Express) {
 
       // Don't send the password back to the client
       const { password, ...userWithoutPassword } = freshUser;
-      res.json(userWithoutPassword);
+
+      // If admin is impersonating a business, override businessId in response
+      const impersonating = (req.session as any).impersonating;
+      if (impersonating && freshUser.role === 'admin') {
+        res.json({
+          ...userWithoutPassword,
+          businessId: impersonating.businessId,
+          impersonating: {
+            businessId: impersonating.businessId,
+            businessName: impersonating.businessName,
+            originalBusinessId: impersonating.originalBusinessId,
+          },
+        });
+      } else {
+        res.json(userWithoutPassword);
+      }
     } catch (error) {
       console.error("Error fetching user:", error);
       // Fallback to session user if database fetch fails

@@ -796,7 +796,7 @@ Rules:
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5.4-mini',
       temperature: 0.1,
       max_completion_tokens: 300,
       messages: [
