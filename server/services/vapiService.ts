@@ -303,10 +303,11 @@ ${options?.staffSection || ''}
 
 == THE CALL FLOW (5 beats) ==
 
-1. GREET: Call recognizeCaller as your VERY FIRST action — before doing anything else. The firstMessage greeting already played, so DO NOT repeat a greeting. Wait for recognizeCaller to return, then:
-   → Recognized: Greet by name. One sentence. Use the "summary" field to personalize — mention their upcoming appointment, preferences, or last visit naturally. Don't echo the summary word-for-word — weave it in.
-   → New caller: The greeting already invited them to share their need, so just wait for their reply. Get their name within your first 2 responses. When they give it, call updateCustomerInfo right away with their name and the customerId from recognizeCaller.
-   → Caller says "confirm" or "calling to confirm" → Call confirmAppointment(confirmed: true) immediately. Don't ask clarifying questions. Confirm and close.
+1. GREET: The firstMessage greeting already played. DO NOT repeat it.
+   → If CALLER CONTEXT section exists above: You already know who's calling. Use their name and context to personalize your first response. Do NOT call recognizeCaller — you already have the data.
+   → If NO caller context: Call recognizeCaller to identify them. Use the returned "summary" and "firstName" to personalize.
+   → New caller: Get their name within your first 2 responses. When they give it, call updateCustomerInfo right away with the customerId.
+   → Caller says "confirm" or "calling to confirm" → Call confirmAppointment(confirmed: true) immediately. Don't ask clarifying questions.
 
 2. UNDERSTAND: Listen to what they need.
    → Booking? Identify the service. Answer price questions first.
@@ -1400,20 +1401,19 @@ function buildNativeTools(
 }
 
 /**
- * Create or update a Vapi assistant for a business
+ * Build the full Vapi assistant config object (reusable for both stored + transient assistants).
+ * Optional callerContext injects pre-loaded caller data into the system prompt so the AI
+ * knows the caller before the call even starts — no recognizeCaller tool call needed.
  */
-export async function createAssistantForBusiness(
+export async function buildAssistantConfig(
   business: Business,
   services: Service[],
   businessHours?: any[],
   receptionistConfig?: ReceptionistConfig | null,
-  knowledgeSection?: string
-): Promise<{ assistantId: string; error?: string }> {
-  if (!VAPI_API_KEY) {
-    return { assistantId: '', error: 'Vapi API key not configured' };
-  }
-
-  // For restaurants, try to load cached menu data from connected POS (Square or Clover)
+  knowledgeSection?: string,
+  callerContext?: string | null,
+): Promise<any> {
+  // For restaurants, try to load cached menu data from connected POS
   let menuData: CachedMenu | null = null;
   const isRestaurant = business.industry?.toLowerCase()?.includes('restaurant');
   if (isRestaurant) {
@@ -1430,13 +1430,9 @@ export async function createAssistantForBusiness(
     }
   }
 
-  // Extract config values with sensible defaults
   const configVoiceId = receptionistConfig?.voiceId || 'paula';
   const configAssistantName = receptionistConfig?.assistantName || 'Alex';
-  // Extract config values with sensible defaults
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
-  // First message: greeting with conditional recording disclosure + engagement question.
-  // IMPORTANT: Must end with a question so the caller responds while recognizeCaller runs in background.
   const configGreeting = buildFirstMessage(business.name, receptionistConfig?.greeting, configRecordingEnabled);
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 10;
   const configVoicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
@@ -1446,12 +1442,11 @@ export async function createAssistantForBusiness(
     ? receptionistConfig.transferPhoneNumbers as string[]
     : [];
 
-  // Build native Vapi tools (endCall + transferCall)
   const nativeTools = buildNativeTools(transferPhoneNumbers, business.phone);
   const transferCallTool = nativeTools.find((t: any) => t.type === 'transferCall');
   const normalizedTransferNumbers = transferCallTool?.destinations?.map((d: any) => d.number) || [];
 
-  // Pre-load staff members to embed in the system prompt (eliminates getStaffMembers call at start)
+  // Pre-load staff members into system prompt
   let staffSection = '';
   try {
     const staffMembers = await storage.getStaff(business.id);
@@ -1467,7 +1462,7 @@ export async function createAssistantForBusiness(
     console.warn('Could not pre-load staff for system prompt:', e);
   }
 
-  const systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
+  let systemPrompt = generateSystemPrompt(business, services, businessHours, menuData, {
     assistantName: configAssistantName,
     customInstructions: configCustomInstructions,
     afterHoursMessage: configAfterHoursMessage,
@@ -1475,13 +1470,17 @@ export async function createAssistantForBusiness(
     staffSection,
   }, knowledgeSection, normalizedTransferNumbers);
 
-  // Build functions list — conditionally exclude leaveMessage if voicemail is disabled
+  // Inject pre-loaded caller context into the system prompt (from assistant-request webhook)
+  if (callerContext) {
+    systemPrompt += `\n\nCALLER CONTEXT (pre-loaded — do NOT call recognizeCaller, you already have this data):\n${callerContext}\n`;
+  }
+
   const baseFunctions = getAssistantFunctions();
   const functions = configVoicemailEnabled
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
 
-  const assistantConfig = {
+  return {
     name: `${business.name} Receptionist`,
     model: {
       provider: 'openai',
@@ -1561,6 +1560,23 @@ export async function createAssistantForBusiness(
       businessId: business.id.toString()
     }
   };
+}
+
+/**
+ * Create or update a Vapi assistant for a business
+ */
+export async function createAssistantForBusiness(
+  business: Business,
+  services: Service[],
+  businessHours?: any[],
+  receptionistConfig?: ReceptionistConfig | null,
+  knowledgeSection?: string
+): Promise<{ assistantId: string; error?: string }> {
+  if (!VAPI_API_KEY) {
+    return { assistantId: '', error: 'Vapi API key not configured' };
+  }
+
+  const assistantConfig = await buildAssistantConfig(business, services, businessHours, receptionistConfig, knowledgeSection);
 
   try {
     const response = await fetch(`${VAPI_BASE_URL}/assistant`, {
@@ -1935,6 +1951,7 @@ export async function createOutboundCall(
 }
 
 export default {
+  buildAssistantConfig,
   createAssistantForBusiness,
   updateAssistant,
   deleteAssistant,
