@@ -303,9 +303,10 @@ ${options?.staffSection || ''}
 
 == THE CALL FLOW (5 beats) ==
 
-1. GREET: The greeting already played and asked "How can I help you?" — wait for the caller to speak. When they tell you what they need, call recognizeCaller to identify them. Then respond using their name and the "summary" field to personalize naturally.
-   → If they give their name, call updateCustomerInfo immediately with the customerId from recognizeCaller.
-   → Caller says "confirm" or "calling to confirm" → Call confirmAppointment(confirmed: true) immediately. Don't ask clarifying questions.
+1. GREET: Call recognizeCaller as your VERY FIRST action — before doing anything else. The firstMessage greeting already played, so DO NOT repeat a greeting. Wait for recognizeCaller to return, then:
+   → Recognized: Greet by name. One sentence. Use the "summary" field to personalize — mention their upcoming appointment, preferences, or last visit naturally. Don't echo the summary word-for-word — weave it in.
+   → New caller: The greeting already invited them to share their need, so just wait for their reply. Get their name within your first 2 responses. When they give it, call updateCustomerInfo right away with their name and the customerId from recognizeCaller.
+   → Caller says "confirm" or "calling to confirm" → Call confirmAppointment(confirmed: true) immediately. Don't ask clarifying questions. Confirm and close.
 
 2. UNDERSTAND: Listen to what they need.
    → Booking? Identify the service. Answer price questions first.
