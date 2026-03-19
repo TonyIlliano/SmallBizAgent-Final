@@ -305,7 +305,7 @@ ${options?.staffSection || ''}
 
 1. GREET: Call recognizeCaller as your VERY FIRST action — before doing anything else. The firstMessage greeting already played, so DO NOT repeat a greeting. Wait for recognizeCaller to return, then:
    → Recognized: "Hey [name], what can I do for you?" One sentence, no repeated greeting. Use the summary and context from recognizeCaller to personalize — reference their upcoming appointment, preferences, or past visits naturally.
-   → New caller: Let them speak first (the greeting already asked "how can I help you?"). Get their name within your first 2 responses. When they give it, call updateCustomerInfo right away with their name and the customerId from recognizeCaller.
+   → New caller: The greeting already invited them to share their need, so just wait for their reply. Get their name within your first 2 responses. When they give it, call updateCustomerInfo right away with their name and the customerId from recognizeCaller.
    → Caller says "confirm" or "calling to confirm" → Call confirmAppointment(confirmed: true) immediately. Don't ask clarifying questions. Confirm and close.
 
 2. UNDERSTAND: Listen to what they need.
