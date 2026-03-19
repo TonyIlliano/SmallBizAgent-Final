@@ -1255,7 +1255,8 @@ async function checkAvailability(
     if (staffServiceIds.length > 0 && !staffServiceIds.includes(serviceId)) {
       // This staff member can't do this service — suggest eligible alternatives
       const allStaff = await getCachedStaff(businessId);
-      const serviceLookup = await storage.getService(serviceId);
+      const allSvcs = await getCachedServices(businessId);
+      const serviceLookup = allSvcs.find((s: any) => s.id === serviceId);
       const serviceLabel = serviceLookup?.name || 'that service';
       const staffLabel = staffMember ? staffMember.firstName : 'That team member';
 
@@ -1294,35 +1295,23 @@ async function checkAvailability(
     }
   }
 
-  // Get service duration if specified
-  // If no service specified, get the shortest service duration for this business
-  // This ensures we show all possible slots that could fit any service
-  let duration: number;
-  let serviceName: string | null = null;
+  // ── Batch all independent queries in parallel for speed ──
+  // These are all independent once staff is resolved. Running them sequentially
+  // added 400-800ms of unnecessary latency (8+ serial DB round-trips).
+  const [allServices, businessHours, appointments, staffHoursData] = await Promise.all([
+    getCachedServices(businessId),
+    getCachedBusinessHours(businessId),
+    resolvedStaffId
+      ? getAppointmentsOptimized(businessId, { staffId: resolvedStaffId })
+      : getAppointmentsOptimized(businessId),
+    resolvedStaffId
+      ? getCachedStaffHours(resolvedStaffId, businessId)
+      : Promise.resolve([]),
+  ]);
 
-  if (serviceId) {
-    const service = await storage.getService(serviceId);
-    if (service) {
-      duration = service.duration || 30;
-      serviceName = service.name;
-    } else {
-      duration = 30;
-    }
-  } else {
-    // No service specified - get the shortest service duration for this business
-    // This way we show all slots that could potentially fit any service
-    const allServices = await storage.getServices(businessId);
-    if (allServices.length > 0) {
-      const shortestDuration = Math.min(...allServices.map(s => s.duration || 30));
-      duration = shortestDuration;
-    } else {
-      duration = 30; // Fallback if no services configured
-    }
-  }
-
-  const businessHours = await getCachedBusinessHours(businessId);
   // Get slot interval from business settings (default 30 min)
   const slotIntervalMinutes = business.bookingSlotIntervalMinutes || 30;
+
   // If no business hours are configured, ask for callback instead
   if (businessHours.length === 0) {
     return {
@@ -1334,18 +1323,25 @@ async function checkAvailability(
     };
   }
 
-  // Get appointments - filter by staff if specified (optimized with date range limit)
-  let appointments;
-  if (resolvedStaffId) {
-    appointments = await getAppointmentsOptimized(businessId, { staffId: resolvedStaffId });
-  } else {
-    appointments = await getAppointmentsOptimized(businessId);
-  }
+  // Get service duration from cached services (no extra DB query)
+  let duration: number;
+  let serviceName: string | null = null;
 
-  // Get staff-specific hours if a staff member is selected
-  let staffHoursData: any[] = [];
-  if (resolvedStaffId) {
-    staffHoursData = await getCachedStaffHours(resolvedStaffId, businessId);
+  if (serviceId) {
+    const service = allServices.find((s: any) => s.id === serviceId);
+    if (service) {
+      duration = service.duration || 30;
+      serviceName = service.name;
+    } else {
+      duration = 30;
+    }
+  } else {
+    // No service specified — use shortest service duration to show all possible slots
+    if (allServices.length > 0) {
+      duration = Math.min(...allServices.map((s: any) => s.duration || 30));
+    } else {
+      duration = 30;
+    }
   }
 
   const staffLabel = staffMember ? staffMember.firstName : null;
@@ -2053,9 +2049,6 @@ async function bookAppointment(
       }
     }
 
-    const confirmationMsg = staffLabel
-      ? `Your appointment with ${staffLabel} has been booked for ${dateStr} at ${timeStr}. You'll receive a text confirmation shortly.`
-      : `Your appointment has been booked for ${dateStr} at ${timeStr}. You'll receive a text confirmation shortly.`;
 
     return {
       result: {
@@ -2064,7 +2057,7 @@ async function bookAppointment(
         jobId: createdJob?.id || null,
         staffId: resolvedStaffId,
         staffName: staffLabel,
-        confirmationMessage: confirmationMsg,
+        confirmed: true,
         date: dateStr,
         time: timeStr,
         service: params.serviceName || 'General appointment'
@@ -2176,16 +2169,10 @@ async function getServices(businessId: number): Promise<FunctionResult> {
       description: s.description
     }));
 
-    // Create a natural spoken list
-    const spokenList = activeServices.length <= 3
-      ? activeServices.map(s => `${s.name} for $${s.price}`).join(', ')
-      : activeServices.slice(0, 3).map(s => `${s.name} for $${s.price}`).join(', ') + `, and ${activeServices.length - 3} more`;
-
     return {
       result: {
         services: serviceList,
         count: activeServices.length,
-        message: `We offer: ${spokenList}. Would you like more details on any of these services, or would you like to schedule an appointment?`
       }
     };
   } catch (error) {
@@ -2227,22 +2214,10 @@ async function getStaffMembers(businessId: number): Promise<FunctionResult> {
       bio: s.bio || null
     }));
 
-    // Create natural spoken list
-    let spokenList: string;
-    if (activeStaff.length === 1) {
-      const s = activeStaff[0];
-      spokenList = s.specialty ? `${s.firstName}, our ${s.specialty}` : s.firstName;
-    } else if (activeStaff.length <= 3) {
-      spokenList = activeStaff.map(s => s.firstName).join(', ');
-    } else {
-      spokenList = activeStaff.slice(0, 3).map(s => s.firstName).join(', ') + `, and ${activeStaff.length - 3} more`;
-    }
-
     return {
       result: {
         staff: staffDetails,
         count: activeStaff.length,
-        message: `Our team includes ${spokenList}. Do you have someone you usually see, or would you like me to check who's available at your preferred time?`
       }
     };
   } catch (error) {
@@ -2251,7 +2226,6 @@ async function getStaffMembers(businessId: number): Promise<FunctionResult> {
       result: {
         staff: [],
         error: 'Failed to fetch staff members',
-        message: "I can still help you book an appointment. What day and time works for you?"
       }
     };
   }
@@ -2284,7 +2258,7 @@ async function getStaffSchedule(
       return {
         result: {
           found: false,
-          message: `I don't have anyone by that name. Our team includes ${staffNames}. Who would you like to know about?`
+          availableStaff: staffNames,
         }
       };
     }
@@ -2308,7 +2282,6 @@ async function getStaffSchedule(
           staffId: staffMember.id,
           usesBusinessHours: true,
           workingDays: workingDays,
-          message: `${staffMember.firstName} works during our regular business hours: ${groupConsecutiveDays(workingDays)}. Would you like to schedule an appointment with ${staffMember.firstName}?`
         }
       };
     }
@@ -2387,7 +2360,6 @@ async function getStaffSchedule(
         daysOff: daysOff,
         schedule: schedule,
         upcomingTimeOff: timeOffInfo.length > 0 ? timeOffInfo : undefined,
-        message: message
       }
     };
   } catch (error) {
@@ -2768,7 +2740,7 @@ async function getBusinessHours(businessId: number): Promise<FunctionResult> {
     return {
       result: {
         hours: 'Monday through Friday, 9 AM to 5 PM',
-        message: 'We are typically open Monday through Friday from 9 AM to 5 PM.'
+        isOpen: false,
       }
     };
   }
@@ -2856,7 +2828,6 @@ async function getBusinessHours(businessId: number): Promise<FunctionResult> {
       hours: hoursText,
       isOpen,
       statusMessage,
-      message: `${statusMessage} Our regular hours are: ${hoursText}`
     }
   };
 }
@@ -2920,7 +2891,6 @@ async function getEstimate(
       result: {
         estimateAvailable: false,
         services: services.map(s => ({ name: s.name, price: s.price })),
-        message: `I can give you pricing for our standard services. We offer: ${services.slice(0, 5).map(s => `${s.name} at $${s.price}`).join(', ')}. What service are you interested in?`
       }
     };
   }
@@ -2933,7 +2903,6 @@ async function getEstimate(
       services: matchedServices.map(s => ({ name: s.name, price: s.price, duration: s.duration })),
       totalEstimate,
       totalDuration,
-      message: `Based on what you've described, the estimate would be around $${totalEstimate}. That includes: ${serviceList}. The work typically takes about ${totalDuration} minutes. Would you like to schedule an appointment?`
     }
   };
 }
@@ -3387,42 +3356,24 @@ async function recognizeCaller(
     })
     .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
 
-  let greeting = `Hi ${customer.firstName}! Great to hear from you.`;
   let context = '';
 
   const recogTimezone = recogBusiness?.timezone || 'America/New_York';
 
   if (upcoming.length > 0) {
     const nextApt = upcoming[0];
-    const aptDate = new Date(nextApt.startDate);
-    const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: recogTimezone, weekday: 'long', month: 'long', day: 'numeric' });
-    const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: recogTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
-
-    // Look up service name from cached services list (no extra DB query)
-    let serviceName = '';
-    if (nextApt.serviceId) {
-      const service = allServices.find((s: any) => s.id === nextApt.serviceId);
-      if (service) serviceName = service.name;
-    }
-    const serviceNote = serviceName ? ` for ${serviceName}` : '';
-
-    // Check if appointment is today or tomorrow (timezone-aware comparison)
-    const aptLocalDate = getLocalDateString(aptDate, recogTimezone);
+    const aptLocalDate = getLocalDateString(new Date(nextApt.startDate), recogTimezone);
     const todayStr = getLocalDateString(now, recogTimezone);
     const tomorrowStr = getLocalDateString(new Date(now.getTime() + 86400000), recogTimezone);
 
     if (aptLocalDate === todayStr) {
-      greeting = `Hey ${customer.firstName}! I see you've got your ${serviceName || 'appointment'} today at ${timeStr}. Are you calling about that?`;
       context = 'appointment_today';
     } else if (aptLocalDate === tomorrowStr) {
-      greeting = `Hey ${customer.firstName}! You've got your ${serviceName || 'appointment'} tomorrow at ${timeStr}. What can I do for you?`;
       context = 'appointment_tomorrow';
     } else {
-      greeting = `Hey ${customer.firstName}! I see your next ${serviceName || 'appointment'} is ${dateStr} at ${timeStr}. What can I do for you?`;
       context = 'has_upcoming';
     }
   } else if (recent.length > 0) {
-    greeting = `Hey ${customer.firstName}! What can I do for you?`;
     context = 'returning_customer';
   }
 
@@ -3535,7 +3486,6 @@ async function recognizeCaller(
       firstName: customer.firstName,
       customerName: `${customer.firstName} ${customer.lastName}`,
       context,
-      greeting,
       summary,
       currentStatus,
     }
@@ -3619,7 +3569,6 @@ async function updateCustomerInfo(
         customerName: fullName,
         firstName: updatedCustomer.firstName,
         lastName: updatedCustomer.lastName,
-        message: `Got it, I've updated the name to ${fullName}.`
       }
     };
   } catch (error) {
@@ -3663,7 +3612,6 @@ async function getDirections(businessId: number): Promise<FunctionResult> {
       hasAddress: true,
       address,
       mapsUrl,
-      message: `We're located at ${address}. I can text you a link to get directions on your phone. Would you like that?`
     }
   };
 }
@@ -3699,7 +3647,6 @@ async function checkWaitTime(businessId: number): Promise<FunctionResult> {
     return {
       result: {
         isOpen: false,
-        message: "We're closed today, but I'd be happy to schedule you for our next available opening."
       }
     };
   }
@@ -3712,7 +3659,7 @@ async function checkWaitTime(businessId: number): Promise<FunctionResult> {
     return {
       result: {
         isOpen: false,
-        message: "We've closed for today. Would you like to schedule an appointment for tomorrow?"
+        closedForDay: true,
       }
     };
   }
@@ -3747,9 +3694,6 @@ async function checkWaitTime(businessId: number): Promise<FunctionResult> {
       nextAvailable: nextTimeStr,
       waitMinutes,
       appointmentsToday: todayAppointments.length,
-      message: waitMinutes <= 30
-        ? `We have availability right now! Our next open slot is at ${nextTimeStr}.`
-        : `Our next available slot is at ${nextTimeStr}, about ${Math.round(waitMinutes / 30) * 30} minutes from now. Would you like to book that?`
     }
   };
 }
@@ -3808,7 +3752,6 @@ async function confirmAppointment(
           confirmed: true,
           date: dateStr,
           time: timeStr,
-          message: `Your appointment for ${dateStr} at ${timeStr} is confirmed. We'll see you then! Is there anything else I can help with?`
         }
       };
     } else {
@@ -3819,7 +3762,6 @@ async function confirmAppointment(
           confirmed: false,
           currentDate: dateStr,
           currentTime: timeStr,
-          message: `No problem. Your current appointment is ${dateStr} at ${timeStr}. What day would work better for you?`
         }
       };
     }
@@ -3904,7 +3846,6 @@ async function getServiceDetails(
             duration: bestMatch.duration,
             description: bestMatch.description
           },
-          message: `${bestMatch.name} is $${bestMatch.price}${durationText}. ${bestMatch.description || ''} Would you like to schedule this service?`
         }
       };
     }
@@ -3915,7 +3856,6 @@ async function getServiceDetails(
       result: {
         found: false,
         availableServices: activeServices.map(s => ({ name: s.name, price: s.price })),
-        message: `I'm not sure about that specific service. We offer: ${serviceList}. Which one were you interested in?`
       }
     };
   } catch (error) {
@@ -3924,7 +3864,6 @@ async function getServiceDetails(
       result: {
         found: false,
         error: 'Failed to fetch service details',
-        message: "I'm having trouble looking up that service. Would you like me to have someone call you back with more information?"
       }
     };
   }

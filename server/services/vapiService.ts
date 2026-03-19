@@ -304,7 +304,7 @@ ${options?.staffSection || ''}
 == THE CALL FLOW (5 beats) ==
 
 1. GREET: Call recognizeCaller as your VERY FIRST action — before doing anything else. The firstMessage greeting already played, so DO NOT repeat a greeting. Wait for recognizeCaller to return, then:
-   → Recognized: "Hey [name], what can I do for you?" One sentence, no repeated greeting. Use the summary and context from recognizeCaller to personalize — reference their upcoming appointment, preferences, or past visits naturally.
+   → Recognized: Greet by name. One sentence. Use the "summary" field to personalize — mention their upcoming appointment, preferences, or last visit naturally. Don't echo the summary word-for-word — weave it in.
    → New caller: The greeting already invited them to share their need, so just wait for their reply. Get their name within your first 2 responses. When they give it, call updateCustomerInfo right away with their name and the customerId from recognizeCaller.
    → Caller says "confirm" or "calling to confirm" → Call confirmAppointment(confirmed: true) immediately. Don't ask clarifying questions. Confirm and close.
 
@@ -340,7 +340,7 @@ STAFF: If team members are listed above, ask "Do you have someone you usually se
 AFTER HOURS: If currentStatus says CLOSED, tell the caller the business is closed but you are STILL fully functional — book appointments, answer questions, give pricing. Say "We're closed for the evening, but I can absolutely help you book an appointment!"
 ${options?.voicemailEnabled !== false ? 'Only use leaveMessage if caller explicitly asks to leave a message for the owner.' : ''}
 
-WHILE TOOLS RUN: Stay silent while waiting for function results. Don't say "one moment", "hold on", or "let me check". The pause is brief and natural. When the result arrives, respond directly with the information.
+TOOL CALLS: When you need information, call the function. Don't announce it — no "let me check", "one moment", "hold on", "let me look that up", or "one second". Just call the function and respond with the result as if you already knew the answer.
 
 CONVERSATION STYLE:
 - Get to the point. Don't repeat information the caller already knows.
@@ -349,6 +349,15 @@ CONVERSATION STYLE:
 - If they only called for one thing and it's done, go straight to "Anything else?"
 - When the caller says "no that's it" or "I'm good", say your farewell immediately. Keep it short.
 - Never ask the same question twice in a call.
+- Don't narrate tool results. Bad: "So I checked and we have three slots available." Good: "I've got 10, 1, and 3:30. What works?"
+
+VOICE BREVITY: Short, punchy responses. One thought per sentence.
+Good: "Thursday? I've got 10, 1, and 3:30. What works?"
+Good: "Got it, Tony. You're booked for Thursday at 1 with Sarah."
+Good: "$45 for a men's cut, about 30 minutes."
+Bad: "I checked our availability for Thursday and I have several options available for you."
+Bad: "Great news! I was able to successfully book your appointment."
+Bad: "Based on the information in our system, the price for that service would be..."
 
 MULTILINGUAL: Match the caller's language. If they speak Spanish, respond entirely in Spanish.
 `;
@@ -1092,7 +1101,7 @@ function getAssistantFunctions() {
     },
     {
       name: 'recognizeCaller',
-      description: 'Identify returning caller. Call once at start. Returns greeting, summary, customer context, and currentStatus (real-time open/closed).',
+      description: 'Identify returning caller. Call once at start. Returns summary, customer context, and currentStatus (real-time open/closed).',
       parameters: { type: 'object', properties: {} }
     },
     {
@@ -1478,7 +1487,7 @@ export async function createAssistantForBusiness(
       provider: 'openai',
       model: 'gpt-5.4-mini', // 2x faster than gpt-5-mini, near-flagship reasoning, $0.75/1M input
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
-      maxTokens: 350, // Cap response length for voice — prevents rambling while allowing natural responses
+      maxTokens: 250, // Cap for voice — human receptionists use 10-25 words per response
       systemPrompt: systemPrompt,
       functions: [
         ...functions,
@@ -1686,7 +1695,7 @@ export async function updateAssistant(
           provider: 'openai',
           model: 'gpt-5.4-mini', // 2x faster than gpt-5-mini, near-flagship reasoning
           temperature: 0.6,
-          maxTokens: 350, // Cap response length for voice — prevents rambling while allowing natural responses
+          maxTokens: 250, // Cap for voice — human receptionists use 10-25 words per response
           systemPrompt: systemPrompt,
           functions: functions,
           tools: nativeTools,
