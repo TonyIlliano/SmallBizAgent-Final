@@ -208,10 +208,13 @@ function ImpersonationBanner() {
   const handleExit = async () => {
     try {
       await fetch('/api/admin/stop-impersonation', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+      // Wait for user data to refetch with impersonation cleared before navigating
+      await queryClient.refetchQueries({ queryKey: ['/api/user'] });
       window.location.href = '/admin';
     } catch (e) {
       console.error('Failed to stop impersonation:', e);
+      // Force reload as fallback
+      window.location.href = '/admin';
     }
   };
 
