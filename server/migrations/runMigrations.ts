@@ -1229,6 +1229,40 @@ async function fixExistingTables() {
     ON staff_time_off (business_id);
   `);
 
+  // Websites table (one-page sites from scanner/Stitch)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS websites (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      html_content TEXT,
+      domain_tier TEXT DEFAULT 'subdomain',
+      subdomain TEXT,
+      custom_domain TEXT,
+      domain_verified BOOLEAN DEFAULT false,
+      website_setup_requested BOOLEAN DEFAULT false,
+      stitch_prompt TEXT,
+      scan_data JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Unique indexes for website lookups
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS websites_business_id_unique
+    ON websites (business_id);
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS websites_subdomain_unique
+    ON websites (subdomain) WHERE subdomain IS NOT NULL;
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS websites_custom_domain_idx
+    ON websites (custom_domain) WHERE custom_domain IS NOT NULL;
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 

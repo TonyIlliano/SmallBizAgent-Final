@@ -158,6 +158,7 @@ import { registerZapierRoutes } from './routes/zapierRoutes';
 import { registerInventoryRoutes } from './routes/inventoryRoutes';
 import { registerAutomationRoutes } from './routes/automationRoutes';
 import { registerExpressSetupRoutes } from './routes/expressSetupRoutes';
+import { registerWebsiteBuilderRoutes } from './routes/websiteBuilderRoutes';
 import { fireEvent } from './services/webhookService';
 // Multi-line phone + multi-location routes
 import phoneRoutes from './routes/phoneRoutes';
@@ -251,6 +252,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register express onboarding routes
   registerExpressSetupRoutes(app);
+
+  // Register website builder routes (scanner, domains, site serving)
+  registerWebsiteBuilderRoutes(app);
 
   // Register admin dashboard routes
   app.use(adminRoutes);

@@ -42,7 +42,8 @@ import {
   CallIntelligence, InsertCallIntelligence, callIntelligence,
   CustomerInsightsRow, InsertCustomerInsights, customerInsights,
   CustomerEngagementLock, InsertCustomerEngagementLock, customerEngagementLock,
-  StaffTimeOff, InsertStaffTimeOff, staffTimeOff
+  StaffTimeOff, InsertStaffTimeOff, staffTimeOff,
+  Website, InsertWebsite, websites
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -388,6 +389,12 @@ export interface IStorage {
   // Website Scrape Cache
   getWebsiteScrapeCache(businessId: number): Promise<WebsiteScrapeCache | undefined>;
   upsertWebsiteScrapeCache(businessId: number, data: Partial<InsertWebsiteScrapeCache>): Promise<WebsiteScrapeCache>;
+
+  // Websites (one-page sites)
+  getWebsite(businessId: number): Promise<Website | undefined>;
+  getWebsiteBySubdomain(subdomain: string): Promise<Website | undefined>;
+  getWebsiteByCustomDomain(domain: string): Promise<Website | undefined>;
+  upsertWebsite(businessId: number, data: Partial<InsertWebsite>): Promise<Website>;
 
   // Restaurant Reservations
   getRestaurantReservations(businessId: number, params?: {
@@ -2549,6 +2556,45 @@ export class DatabaseStorage implements IStorage {
         eq(userBusinessAccess.businessId, businessId)
       ));
     return !!record;
+  }
+
+  // =================== Websites (one-page sites) ===================
+
+  async getWebsite(businessId: number): Promise<Website | undefined> {
+    const [website] = await db.select().from(websites)
+      .where(eq(websites.businessId, businessId));
+    return website;
+  }
+
+  async getWebsiteBySubdomain(subdomain: string): Promise<Website | undefined> {
+    const [website] = await db.select().from(websites)
+      .where(eq(websites.subdomain, subdomain));
+    return website;
+  }
+
+  async getWebsiteByCustomDomain(domain: string): Promise<Website | undefined> {
+    const [website] = await db.select().from(websites)
+      .where(and(
+        eq(websites.customDomain, domain),
+        eq(websites.domainVerified, true)
+      ));
+    return website;
+  }
+
+  async upsertWebsite(businessId: number, data: Partial<InsertWebsite>): Promise<Website> {
+    const existing = await this.getWebsite(businessId);
+    if (existing) {
+      const [updated] = await db.update(websites)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(websites.businessId, businessId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(websites)
+        .values({ businessId, ...data })
+        .returning();
+      return created;
+    }
   }
 }
 

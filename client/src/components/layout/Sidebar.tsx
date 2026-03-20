@@ -18,6 +18,7 @@ import {
   BarChart3,
   Megaphone,
   Zap,
+  Globe,
 } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -38,6 +39,7 @@ const allNavItems = [
   { path: "/analytics", label: "Analytics", icon: BarChart3, hideForRoles: ['staff'] as string[] },
   { path: "/marketing", label: "Marketing", icon: Megaphone, hideForRoles: ['staff'] as string[] },
   { path: "/ai-agents", label: "AI Agents", icon: Zap },
+  { path: "/website", label: "Website", icon: Globe, hideForRoles: ['staff'] as string[] },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 

@@ -1430,3 +1430,27 @@ export const staffTimeOff = pgTable("staff_time_off", {
 export const insertStaffTimeOffSchema = createInsertSchema(staffTimeOff).omit({ id: true, createdAt: true, updatedAt: true });
 export type StaffTimeOff = typeof staffTimeOff.$inferSelect;
 export type InsertStaffTimeOff = z.infer<typeof insertStaffTimeOffSchema>;
+
+// Websites — one-page sites built from scanner/Stitch prompt
+export const websites = pgTable("websites", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  htmlContent: text("html_content"),
+  domainTier: text("domain_tier").default("subdomain"), // subdomain, custom, purchased
+  subdomain: text("subdomain"),
+  customDomain: text("custom_domain"),
+  domainVerified: boolean("domain_verified").default(false),
+  websiteSetupRequested: boolean("website_setup_requested").default(false),
+  stitchPrompt: text("stitch_prompt"), // Last generated Stitch prompt
+  scanData: jsonb("scan_data"), // Last scan result (business_data object)
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  businessIdIdx: unique("websites_business_id_unique").on(table.businessId),
+  subdomainIdx: unique("websites_subdomain_unique").on(table.subdomain),
+  customDomainIdx: index("websites_custom_domain_idx").on(table.customDomain),
+}));
+
+export const insertWebsiteSchema = createInsertSchema(websites).omit({ id: true, createdAt: true, updatedAt: true });
+export type Website = typeof websites.$inferSelect;
+export type InsertWebsite = z.infer<typeof insertWebsiteSchema>;
