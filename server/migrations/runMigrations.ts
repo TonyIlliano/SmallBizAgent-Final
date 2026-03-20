@@ -1229,7 +1229,7 @@ async function fixExistingTables() {
     ON staff_time_off (business_id);
   `);
 
-  // Websites table (one-page sites from scanner/Stitch)
+  // Websites table (one-page sites generated via OpenAI)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS websites (
       id SERIAL PRIMARY KEY,
@@ -1240,8 +1240,9 @@ async function fixExistingTables() {
       custom_domain TEXT,
       domain_verified BOOLEAN DEFAULT false,
       website_setup_requested BOOLEAN DEFAULT false,
-      stitch_prompt TEXT,
+      customizations JSONB,
       scan_data JSONB,
+      generated_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -1262,6 +1263,16 @@ async function fixExistingTables() {
     CREATE INDEX IF NOT EXISTS websites_custom_domain_idx
     ON websites (custom_domain) WHERE custom_domain IS NOT NULL;
   `);
+
+  // Migrate websites table: drop stitch_prompt, add customizations + generated_at
+  try {
+    await pool.query(`ALTER TABLE websites ADD COLUMN IF NOT EXISTS customizations JSONB`);
+    await pool.query(`ALTER TABLE websites ADD COLUMN IF NOT EXISTS generated_at TIMESTAMP`);
+    // Drop stitch_prompt if it exists (replaced by OpenAI generation)
+    await pool.query(`ALTER TABLE websites DROP COLUMN IF EXISTS stitch_prompt`);
+  } catch (e: any) {
+    if (!e.message.includes('already exists')) console.log('websites migration note:', e.message);
+  }
 
   console.log('Finished checking/fixing existing tables');
 }

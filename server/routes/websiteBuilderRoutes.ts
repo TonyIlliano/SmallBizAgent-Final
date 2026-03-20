@@ -2,11 +2,11 @@
  * Website Builder Routes
  *
  * Endpoints for:
- * - Part 1: Business scanning + Stitch prompt generation
- * - Part 1b: Google Stitch AI generation (prompt → HTML)
+ * - Part 1: Business scanning + immediate website generation
  * - Part 2: Custom domain management (subdomain, custom, purchase stub)
  * - Part 3: Website CRUD + serving
  * - Part 4: Feature gate checks (plan-based)
+ * - Part 5: OpenAI website generation
  */
 
 import type { Express, Request, Response } from "express";
@@ -14,7 +14,7 @@ import { isAuthenticated } from "../middleware/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { scanBusinessUrl, scanBusinessByName } from "../services/businessScannerService";
-import { generateWithStitch, downloadStitchHtml, isStitchConfigured } from "../services/stitchService";
+import { generateWebsite, type WebsiteCustomizations } from "../services/websiteGenerationService";
 import { getUsageInfo } from "../services/usageService";
 import dns from "dns/promises";
 
@@ -36,6 +36,16 @@ const customDomainSchema = z.object({
 const saveHtmlSchema = z.object({
   html_content: z.string().min(1, "HTML content required"),
 });
+
+const customizationsSchema = z.object({
+  accent_color: z.string().optional(),
+  font_style: z.enum(['classic', 'modern', 'bold']).optional(),
+  hero_headline: z.string().optional(),
+  hero_image_url: z.string().optional(),
+  show_staff: z.boolean().optional(),
+  show_reviews: z.boolean().optional(),
+  show_hours: z.boolean().optional(),
+}).optional();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -86,13 +96,14 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
   };
 
   // ─────────────────────────────────────────────────────────
-  // Part 1: Business Scanner → Stitch Prompt
+  // Part 1: Business Scanner → Immediate Site Generation
   // ─────────────────────────────────────────────────────────
 
   /**
    * POST /api/website-builder/scan
    * Input: { url } OR { business_name, city }
-   * Output: { stitch_prompt, business_data }
+   * Scans business data, merges with DB profile, then generates site.
+   * Output: { website_id, preview_url, html }
    */
   app.post("/api/website-builder/scan", isAuthenticated, async (req: Request, res: Response) => {
     try {
@@ -106,46 +117,61 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
         return res.status(403).json({ error: "Website Builder is not available on your current plan" });
       }
 
-      let result;
+      let scanData;
 
       // Determine scan type
       if (req.body.url) {
         const parsed = scanUrlSchema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
-        result = await scanBusinessUrl(parsed.data.url);
+        const result = await scanBusinessUrl(parsed.data.url);
+        scanData = result.businessData;
       } else if (req.body.business_name && req.body.city) {
         const parsed = scanNameSchema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
-        result = await scanBusinessByName(parsed.data.business_name, parsed.data.city);
+        const result = await scanBusinessByName(parsed.data.business_name, parsed.data.city);
+        scanData = result.businessData;
       } else {
         return res.status(400).json({ error: "Provide either { url } or { business_name, city }" });
       }
 
-      // Persist scan data + stitch prompt on the website record
+      // Save scan data to website record
       await storage.upsertWebsite(businessId, {
-        stitchPrompt: result.stitchPrompt,
-        scanData: result.businessData as any,
+        scanData: scanData as any,
+      });
+
+      // Get existing customizations
+      const website = await storage.getWebsite(businessId);
+      const customizations = (website?.customizations as WebsiteCustomizations) || undefined;
+
+      // Generate website immediately
+      const result = await generateWebsite(businessId, customizations);
+
+      // Save generated HTML
+      const updatedWebsite = await storage.upsertWebsite(businessId, {
+        htmlContent: result.html,
+        generatedAt: result.generatedAt,
       });
 
       res.json({
-        stitch_prompt: result.stitchPrompt,
-        business_data: result.businessData,
+        website_id: updatedWebsite.id,
+        preview_url: updatedWebsite.subdomain ? `/sites/${updatedWebsite.subdomain}` : null,
+        html: result.html,
       });
     } catch (error: any) {
-      console.error("[WebsiteBuilder] Scan error:", error);
+      console.error("[WebsiteBuilder] Scan + generate error:", error);
       res.status(500).json({ error: error.message || "Scan failed" });
     }
   });
 
   // ─────────────────────────────────────────────────────────
-  // Part 1b: Google Stitch AI Generation
+  // Part 5: OpenAI Website Generation
   // ─────────────────────────────────────────────────────────
 
   /**
    * POST /api/website-builder/generate
-   * Takes a Stitch prompt (from scan) and sends it to Google Stitch AI
-   * to generate a complete one-page website. Downloads the HTML and
-   * saves it to the website record.
+   * Input: { business_id } (optional — defaults to authenticated user's business)
+   * Pulls all data from DB, generates website via OpenAI.
+   * Output: { html, generated_at }
    */
   app.post("/api/website-builder/generate", isAuthenticated, async (req: Request, res: Response) => {
     try {
@@ -159,52 +185,63 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
         return res.status(403).json({ error: "Website Builder is not available on your current plan" });
       }
 
-      // Check Stitch availability
-      if (!isStitchConfigured()) {
-        return res.status(503).json({ error: "Google Stitch is not configured. Copy the prompt and paste it into stitch.withgoogle.com manually." });
-      }
-
-      // Get the prompt — either from request body or from saved website
-      let prompt = req.body.prompt as string | undefined;
-      if (!prompt) {
+      // Get customizations from body or from saved website record
+      let customizations: WebsiteCustomizations | undefined;
+      if (req.body.customizations) {
+        const parsed = customizationsSchema.safeParse(req.body.customizations);
+        if (parsed.success && parsed.data) {
+          customizations = parsed.data;
+        }
+      } else {
         const website = await storage.getWebsite(businessId);
-        prompt = website?.stitchPrompt || undefined;
-      }
-      if (!prompt) {
-        return res.status(400).json({ error: "No prompt available. Run a business scan first." });
+        customizations = (website?.customizations as WebsiteCustomizations) || undefined;
       }
 
-      // Get business name for the project title
-      const business = await storage.getBusiness(businessId);
-      const projectTitle = business?.name || "SmallBizAgent Site";
+      // Generate website
+      const result = await generateWebsite(businessId, customizations);
 
-      // Generate with Stitch
-      const result = await generateWithStitch(prompt, projectTitle);
+      // Save generated HTML + customizations + timestamp
+      const websiteData: any = {
+        htmlContent: result.html,
+        generatedAt: result.generatedAt,
+      };
+      if (req.body.customizations) {
+        websiteData.customizations = req.body.customizations;
+      }
 
-      // Download the HTML content
-      const htmlContent = await downloadStitchHtml(result.htmlUrl);
-
-      // Save HTML to website record
-      await storage.upsertWebsite(businessId, { htmlContent });
+      const updatedWebsite = await storage.upsertWebsite(businessId, websiteData);
 
       res.json({
-        success: true,
-        htmlUrl: result.htmlUrl,
-        screenshotUrl: result.screenshotUrl,
-        htmlLength: htmlContent.length,
+        html: result.html,
+        generated_at: result.generatedAt,
+        preview_url: updatedWebsite.subdomain ? `/sites/${updatedWebsite.subdomain}` : null,
       });
     } catch (error: any) {
-      console.error("[WebsiteBuilder] Stitch generation error:", error);
+      console.error("[WebsiteBuilder] Generation error:", error);
       res.status(500).json({ error: error.message || "Website generation failed" });
     }
   });
 
   /**
-   * GET /api/website-builder/stitch-status
-   * Returns whether Stitch integration is available.
+   * PUT /api/website-builder/customizations
+   * Save customization preferences without regenerating.
    */
-  app.get("/api/website-builder/stitch-status", isAuthenticated, async (_req: Request, res: Response) => {
-    res.json({ available: isStitchConfigured() });
+  app.put("/api/website-builder/customizations", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      if (businessId === 0) return res.status(400).json({ error: "No business associated" });
+
+      const parsed = customizationsSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid customizations" });
+
+      await storage.upsertWebsite(businessId, {
+        customizations: parsed.data as any,
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // ─────────────────────────────────────────────────────────
@@ -249,6 +286,8 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
         domainTier: website?.domainTier || 'subdomain',
         websiteSetupRequested: website?.websiteSetupRequested || false,
         hasHtml: !!website?.htmlContent,
+        generatedAt: website?.generatedAt || null,
+        customizations: website?.customizations || null,
         features,
         planTier: usage.planTier,
       });
@@ -420,7 +459,7 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
 
       await storage.upsertWebsite(businessId, { websiteSetupRequested: true });
 
-      // Fire internal notification (console log — no new infra)
+      // Fire internal notification
       console.log(`[WebsiteBuilder] SETUP REQUESTED: Business ${businessId} (Elite plan) requested managed website setup`);
 
       res.json({ success: true, message: "Your website will be set up within 24 hours" });

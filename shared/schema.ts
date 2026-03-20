@@ -1431,7 +1431,7 @@ export const insertStaffTimeOffSchema = createInsertSchema(staffTimeOff).omit({ 
 export type StaffTimeOff = typeof staffTimeOff.$inferSelect;
 export type InsertStaffTimeOff = z.infer<typeof insertStaffTimeOffSchema>;
 
-// Websites — one-page sites built from scanner/Stitch prompt
+// Websites — one-page sites generated via OpenAI
 export const websites = pgTable("websites", {
   id: serial("id").primaryKey(),
   businessId: integer("business_id").notNull(),
@@ -1441,8 +1441,9 @@ export const websites = pgTable("websites", {
   customDomain: text("custom_domain"),
   domainVerified: boolean("domain_verified").default(false),
   websiteSetupRequested: boolean("website_setup_requested").default(false),
-  stitchPrompt: text("stitch_prompt"), // Last generated Stitch prompt
+  customizations: jsonb("customizations"), // { accent_color, font_style, hero_headline, hero_image_url, show_staff, show_reviews, show_hours }
   scanData: jsonb("scan_data"), // Last scan result (business_data object)
+  generatedAt: timestamp("generated_at"), // When the site was last generated
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

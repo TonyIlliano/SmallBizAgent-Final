@@ -12,14 +12,14 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Globe,
   Search,
-  Copy,
   RefreshCw,
   CheckCircle,
   XCircle,
@@ -29,6 +29,9 @@ import {
   ArrowUpCircle,
   Settings,
   Sparkles,
+  Palette,
+  AlertTriangle,
+  ArrowRight,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -39,12 +42,24 @@ interface DomainInfo {
   domainTier: string;
   websiteSetupRequested: boolean;
   hasHtml: boolean;
+  generatedAt: string | null;
+  customizations: WebsiteCustomizations | null;
   features: {
     websiteEnabled: boolean;
     customDomainEnabled: boolean;
     websiteManagedSetup: boolean;
   };
   planTier: string | null;
+}
+
+interface WebsiteCustomizations {
+  accent_color?: string;
+  font_style?: "classic" | "modern" | "bold";
+  hero_headline?: string;
+  hero_image_url?: string;
+  show_staff?: boolean;
+  show_reviews?: boolean;
+  show_hours?: boolean;
 }
 
 export default function WebsiteBuilder() {
@@ -60,6 +75,16 @@ export default function WebsiteBuilder() {
   // Custom domain input
   const [customDomainInput, setCustomDomainInput] = useState("");
 
+  // Customization state
+  const [accentColor, setAccentColor] = useState("");
+  const [fontStyle, setFontStyle] = useState<"classic" | "modern" | "bold">("classic");
+  const [heroHeadline, setHeroHeadline] = useState("");
+  const [heroImageUrl, setHeroImageUrl] = useState("");
+  const [showStaff, setShowStaff] = useState(true);
+  const [showReviews, setShowReviews] = useState(true);
+  const [showHours, setShowHours] = useState(true);
+  const [customizationsLoaded, setCustomizationsLoaded] = useState(false);
+
   // ── Queries ──
 
   const { data: domainInfo, isLoading: domainLoading } = useQuery<DomainInfo>({
@@ -70,7 +95,7 @@ export default function WebsiteBuilder() {
     },
   });
 
-  const { data: website } = useQuery({
+  const { data: website } = useQuery<any>({
     queryKey: ["/api/website-builder/site"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/website-builder/site");
@@ -78,10 +103,53 @@ export default function WebsiteBuilder() {
     },
   });
 
-  const { data: stitchStatus } = useQuery<{ available: boolean }>({
-    queryKey: ["/api/website-builder/stitch-status"],
+  // Load customizations from server once
+  if (domainInfo?.customizations && !customizationsLoaded) {
+    const c = domainInfo.customizations;
+    if (c.accent_color) setAccentColor(c.accent_color);
+    if (c.font_style) setFontStyle(c.font_style);
+    if (c.hero_headline) setHeroHeadline(c.hero_headline);
+    if (c.hero_image_url) setHeroImageUrl(c.hero_image_url);
+    if (c.show_staff !== undefined) setShowStaff(c.show_staff);
+    if (c.show_reviews !== undefined) setShowReviews(c.show_reviews);
+    if (c.show_hours !== undefined) setShowHours(c.show_hours);
+    setCustomizationsLoaded(true);
+  }
+
+  // Check what business data is incomplete
+  const { data: businessProfile } = useQuery<any>({
+    queryKey: ["/api/business/profile"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/website-builder/stitch-status");
+      const res = await apiRequest("GET", "/api/user");
+      const user = await res.json();
+      if (user.businessId) {
+        const bizRes = await apiRequest("GET", `/api/business/${user.businessId}`);
+        return bizRes.json();
+      }
+      return null;
+    },
+  });
+
+  const { data: services } = useQuery<any[]>({
+    queryKey: ["/api/services"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/services");
+      return res.json();
+    },
+  });
+
+  const { data: staffMembers } = useQuery<any[]>({
+    queryKey: ["/api/staff"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/staff");
+      return res.json();
+    },
+  });
+
+  const { data: businessHours } = useQuery<any[]>({
+    queryKey: ["/api/business-hours"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/business-hours");
       return res.json();
     },
   });
@@ -95,22 +163,25 @@ export default function WebsiteBuilder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
-      toast({ title: "Scan complete", description: "Stitch prompt generated successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
+      toast({ title: "Site generated", description: "Your website has been created and is now live" });
     },
     onError: (error: Error) => {
-      toast({ title: "Scan failed", description: error.message, variant: "destructive" });
+      toast({ title: "Generation failed", description: error.message, variant: "destructive" });
     },
   });
 
   const generateMutation = useMutation({
-    mutationFn: async (prompt?: string) => {
-      const res = await apiRequest("POST", "/api/website-builder/generate", prompt ? { prompt } : {});
+    mutationFn: async (customizations?: WebsiteCustomizations) => {
+      const res = await apiRequest("POST", "/api/website-builder/generate",
+        customizations ? { customizations } : {}
+      );
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
-      toast({ title: "Website generated", description: "Your site has been created and is now live" });
+      toast({ title: "Website generated", description: "Your site has been updated and is now live" });
     },
     onError: (error: Error) => {
       toast({ title: "Generation failed", description: error.message, variant: "destructive" });
@@ -122,7 +193,7 @@ export default function WebsiteBuilder() {
       const res = await apiRequest("POST", "/api/website-builder/set-custom-domain", { domain });
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
       toast({ title: "Domain saved", description: data.message });
     },
@@ -136,7 +207,7 @@ export default function WebsiteBuilder() {
       const res = await apiRequest("POST", "/api/website-builder/verify-domain");
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
       if (data.verified) {
         toast({ title: "Verified", description: "Domain verified successfully" });
@@ -154,7 +225,7 @@ export default function WebsiteBuilder() {
       const res = await apiRequest("POST", "/api/website-builder/request-setup");
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
       toast({ title: "Setup requested", description: data.message });
     },
@@ -175,17 +246,31 @@ export default function WebsiteBuilder() {
     }
   };
 
-  const handleCopyPrompt = () => {
-    const prompt = scanMutation.data?.stitch_prompt || website?.stitchPrompt;
-    if (prompt) {
-      navigator.clipboard.writeText(prompt);
-      toast({ title: "Copied", description: "Stitch prompt copied to clipboard" });
-    }
+  const handleRegenerate = () => {
+    if (!confirm("This will replace your current site. Continue?")) return;
+    const customizations: WebsiteCustomizations = {
+      accent_color: accentColor || undefined,
+      font_style: fontStyle,
+      hero_headline: heroHeadline || undefined,
+      hero_image_url: heroImageUrl || undefined,
+      show_staff: showStaff,
+      show_reviews: showReviews,
+      show_hours: showHours,
+    };
+    generateMutation.mutate(customizations);
   };
 
-  const handleGenerate = () => {
-    const prompt = scanMutation.data?.stitch_prompt || website?.stitchPrompt;
-    generateMutation.mutate(prompt || undefined);
+  const handleSaveAndRegenerate = () => {
+    const customizations: WebsiteCustomizations = {
+      accent_color: accentColor || undefined,
+      font_style: fontStyle,
+      hero_headline: heroHeadline || undefined,
+      hero_image_url: heroImageUrl || undefined,
+      show_staff: showStaff,
+      show_reviews: showReviews,
+      show_hours: showHours,
+    };
+    generateMutation.mutate(customizations);
   };
 
   if (domainLoading) {
@@ -199,8 +284,23 @@ export default function WebsiteBuilder() {
   }
 
   const features = domainInfo?.features;
-  const hasPrompt = !!(scanMutation.data?.stitch_prompt || website?.stitchPrompt);
-  const stitchAvailable = stitchStatus?.available ?? false;
+  const hasHtml = domainInfo?.hasHtml;
+  const isGenerating = scanMutation.isPending || generateMutation.isPending;
+
+  // Compute incomplete profile nudges
+  const nudges: Array<{ message: string; link: string; linkText: string }> = [];
+  if (!services || services.length === 0) {
+    nudges.push({ message: "Add your services in Settings to include them on your site", link: "/settings?tab=services", linkText: "Add Services" });
+  }
+  if (!businessHours || businessHours.length === 0) {
+    nudges.push({ message: "Add your hours in Settings to display them on your site", link: "/settings?tab=hours", linkText: "Add Hours" });
+  }
+  if (!staffMembers || staffMembers.length === 0) {
+    nudges.push({ message: "Add your team in Settings to feature them on your site", link: "/settings?tab=staff", linkText: "Add Staff" });
+  }
+  if (businessProfile && !businessProfile.bookingEnabled) {
+    nudges.push({ message: "Enable online booking in Settings to embed your booking page on your site", link: "/settings?tab=booking", linkText: "Enable Booking" });
+  }
 
   return (
     <PageLayout title="Website Builder">
@@ -216,7 +316,91 @@ export default function WebsiteBuilder() {
           </Alert>
         )}
 
-        {/* ── Domain Display ── */}
+        {/* ── Site Preview ── */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="h-5 w-5" />
+                  Your Website
+                </CardTitle>
+                <CardDescription>
+                  {hasHtml
+                    ? `Last generated: ${domainInfo?.generatedAt ? new Date(domainInfo.generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Unknown'}`
+                    : "Generate your site to see a preview"
+                  }
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                {hasHtml && domainInfo?.subdomain && (
+                  <Button size="sm" variant="outline" asChild className="gap-1">
+                    <a href={`/sites/${domainInfo.subdomain}`} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3 w-3" />
+                      View Live Site
+                    </a>
+                  </Button>
+                )}
+                {hasHtml && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRegenerate}
+                    disabled={isGenerating}
+                    className="gap-1"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                    Regenerate
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {hasHtml && domainInfo?.subdomain ? (
+              <div className="border rounded-lg overflow-hidden bg-white">
+                <iframe
+                  src={`/sites/${domainInfo.subdomain}`}
+                  width="100%"
+                  height="500"
+                  style={{ border: "none" }}
+                  title="Website preview"
+                />
+              </div>
+            ) : (
+              <div className="border-2 border-dashed rounded-lg p-12 text-center text-muted-foreground">
+                <Globe className="h-12 w-12 mx-auto mb-4 opacity-30" />
+                <p className="text-lg font-medium mb-2">No website generated yet</p>
+                <p className="text-sm mb-4">
+                  Use the scanner below to generate your site, or click Generate to build one from your current business profile.
+                </p>
+                <Button
+                  onClick={() => generateMutation.mutate(undefined)}
+                  disabled={isGenerating}
+                  size="lg"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Generate Your Site
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Domain Section ── */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -359,7 +543,7 @@ export default function WebsiteBuilder() {
               Business Scanner
             </CardTitle>
             <CardDescription>
-              Scan a business listing or website to auto-generate your one-page site
+              Scan a business listing to auto-generate your one-page site
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -399,126 +583,166 @@ export default function WebsiteBuilder() {
 
             <Button
               onClick={handleScan}
-              disabled={scanMutation.isPending}
+              disabled={isGenerating}
               className="w-full"
             >
               {scanMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Scanning...
+                  Scanning & Generating...
                 </>
               ) : (
                 <>
                   <Search className="h-4 w-4 mr-2" />
-                  Scan & Generate Prompt
+                  Scan & Generate Site
                 </>
               )}
             </Button>
           </CardContent>
         </Card>
 
-        {/* ── Stitch Prompt Output + Generate ── */}
-        {hasPrompt && (
+        {/* ── Customization Panel ── */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Palette className="h-5 w-5" />
+              Customize Your Site
+            </CardTitle>
+            <CardDescription>
+              Adjust colors, fonts, and sections — then regenerate
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Accent Color */}
+            <div className="space-y-2">
+              <Label>Accent Color</Label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={accentColor || "#C9A84C"}
+                  onChange={(e) => setAccentColor(e.target.value)}
+                  className="w-10 h-10 rounded border cursor-pointer"
+                />
+                <Input
+                  placeholder="#C9A84C"
+                  value={accentColor}
+                  onChange={(e) => setAccentColor(e.target.value)}
+                  className="max-w-[140px] font-mono text-sm"
+                />
+                <span className="text-xs text-muted-foreground">Leave blank for vertical preset default</span>
+              </div>
+            </div>
+
+            {/* Font Style */}
+            <div className="space-y-2">
+              <Label>Font Style</Label>
+              <div className="flex gap-2">
+                {(["classic", "modern", "bold"] as const).map((style) => (
+                  <Button
+                    key={style}
+                    variant={fontStyle === style ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFontStyle(style)}
+                    className="capitalize"
+                  >
+                    {style}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {fontStyle === "classic" && "Serif display font, editorial feel"}
+                {fontStyle === "modern" && "Clean sans-serif, minimal layout"}
+                {fontStyle === "bold" && "Heavy weight type, high contrast layout"}
+              </p>
+            </div>
+
+            {/* Hero Headline */}
+            <div className="space-y-2">
+              <Label>Hero Headline</Label>
+              <Input
+                placeholder="Leave blank to auto-generate"
+                value={heroHeadline}
+                onChange={(e) => setHeroHeadline(e.target.value)}
+              />
+            </div>
+
+            {/* Hero Image */}
+            <div className="space-y-2">
+              <Label>Hero Image URL</Label>
+              <Input
+                placeholder="https://example.com/hero.jpg"
+                value={heroImageUrl}
+                onChange={(e) => setHeroImageUrl(e.target.value)}
+              />
+            </div>
+
+            <Separator />
+
+            {/* Section Toggles */}
+            <div className="space-y-4">
+              <Label className="text-base">Sections</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="show-staff" className="text-sm font-normal">Show staff members</Label>
+                <Switch id="show-staff" checked={showStaff} onCheckedChange={setShowStaff} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="show-reviews" className="text-sm font-normal">Show rating and reviews</Label>
+                <Switch id="show-reviews" checked={showReviews} onCheckedChange={setShowReviews} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="show-hours" className="text-sm font-normal">Show hours</Label>
+                <Switch id="show-hours" checked={showHours} onCheckedChange={setShowHours} />
+              </div>
+            </div>
+
+            <Button
+              onClick={handleSaveAndRegenerate}
+              disabled={isGenerating}
+              className="w-full"
+              size="lg"
+            >
+              {generateMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Save & Regenerate
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* ── Incomplete Profile Nudges ── */}
+        {nudges.length > 0 && (
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Generated Stitch Prompt</CardTitle>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={handleCopyPrompt} className="gap-1">
-                    <Copy className="h-3 w-3" />
-                    Copy
-                  </Button>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Complete Your Profile
+              </CardTitle>
+              <CardDescription>
+                Add more info to make your website even better
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {nudges.map((nudge, i) => (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{nudge.message}</span>
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={handleScan}
-                    disabled={scanMutation.isPending}
-                    className="gap-1"
+                    variant="ghost"
+                    onClick={() => navigate(nudge.link)}
+                    className="gap-1 shrink-0"
                   >
-                    <RefreshCw className="h-3 w-3" />
-                    Regenerate
+                    {nudge.linkText}
+                    <ArrowRight className="h-3 w-3" />
                   </Button>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Textarea
-                readOnly
-                rows={12}
-                className="font-mono text-xs"
-                value={scanMutation.data?.stitch_prompt || website?.stitchPrompt || ""}
-              />
-
-              {/* Generate with Stitch or manual instructions */}
-              {stitchAvailable ? (
-                <Button
-                  onClick={handleGenerate}
-                  disabled={generateMutation.isPending}
-                  className="w-full"
-                  size="lg"
-                >
-                  {generateMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Generating with Google Stitch...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="h-4 w-4 mr-2" />
-                      Generate Website with Google Stitch
-                    </>
-                  )}
-                </Button>
-              ) : (
-                <div className="bg-muted/50 rounded-md p-4 space-y-2">
-                  <p className="text-sm font-medium">Next Step: Generate Your Website</p>
-                  <p className="text-xs text-muted-foreground">
-                    Copy the prompt above and paste it into{" "}
-                    <a
-                      href="https://stitch.withgoogle.com"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary underline"
-                    >
-                      Google Stitch
-                    </a>{" "}
-                    (free, no credit card required). Export as HTML, then upload it below.
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── Site Preview Link ── */}
-        {domainInfo?.hasHtml && domainInfo?.subdomain && (
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Your Live Site</p>
-                  <p className="text-xs text-muted-foreground">
-                    {domainInfo.customDomain && domainInfo.domainVerified
-                      ? domainInfo.customDomain
-                      : `${domainInfo.subdomain}.smallbizagent.ai`}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  asChild
-                  className="gap-1"
-                >
-                  <a
-                    href={`/sites/${domainInfo.subdomain}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    View Site
-                  </a>
-                </Button>
-              </div>
+              ))}
             </CardContent>
           </Card>
         )}

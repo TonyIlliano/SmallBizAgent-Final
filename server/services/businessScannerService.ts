@@ -2,10 +2,8 @@
  * Business Scanner Service
  *
  * Scrapes a Google Business Profile URL or searches by business name + city
- * to extract publicly available data, then generates a ready-to-use Stitch
- * prompt for building a one-page website.
- *
- * Reuses the existing websiteScraperService infrastructure (fetchPage, stripHtml).
+ * to extract publicly available data. Returns structured business data that
+ * can be merged with DB profile for website generation.
  */
 
 import OpenAI from 'openai';
@@ -13,35 +11,6 @@ import OpenAI from 'openai';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const FETCH_TIMEOUT = 15000;
-
-// ─── Vertical Design Presets ─────────────────────────────────────────────────
-
-const VERTICAL_PRESETS: Record<string, string> = {
-  barbershop: 'dark background, gold accents, Playfair Display serif, luxury/editorial feel',
-  barber: 'dark background, gold accents, Playfair Display serif, luxury/editorial feel',
-  salon: 'soft cream and blush tones, elegant minimal, script accent font',
-  hvac: 'clean industrial white, navy and orange, bold utilitarian',
-  plumbing: 'white and blue, large phone number dominant, high contrast',
-  landscaping: 'deep greens, earthy tones, organic layout',
-  restaurant: 'rich dark background, warm amber, menu-forward typography',
-  dental: 'clean white, calming blues, professional medical',
-  medical: 'clean white, calming blues, professional medical',
-  automotive: 'dark charcoal, bold red accents, industrial sans-serif',
-  electrical: 'navy and yellow, technical precision, bold headings',
-  cleaning: 'fresh white and green, airy spacing, modern sans-serif',
-  construction: 'concrete gray, safety orange, rugged bold type',
-  fitness: 'energetic dark, neon accents, impact typeface',
-  veterinary: 'warm earth tones, friendly rounded type, green accents',
-  default: 'clean modern, dark background, white text, accent color pulled from business category',
-};
-
-function getDesignPreset(businessType: string): string {
-  const key = businessType.toLowerCase().trim();
-  for (const [preset, value] of Object.entries(VERTICAL_PRESETS)) {
-    if (key.includes(preset)) return value;
-  }
-  return VERTICAL_PRESETS.default;
-}
 
 // ─── HTML Stripping (reuses pattern from websiteScraperService) ──────────────
 
@@ -141,16 +110,15 @@ Return a JSON object with these fields:
 
 If a field cannot be determined, use reasonable defaults or null. Return valid JSON only, no markdown.`;
 
-  const modelsToTry = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4.1-mini', 'gpt-4o-mini'];
+  const modelsToTry = ['gpt-5.4-mini', 'gpt-4o-mini'];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
     try {
-      const isGpt5 = model.startsWith('gpt-5');
       const response = await openai.chat.completions.create({
         model,
         temperature: 0.2,
-        ...(isGpt5 ? { max_completion_tokens: 2000 } : { max_tokens: 2000 }),
+        max_tokens: 2000,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Extract business data from this page content:\n\n${truncated}` },
@@ -188,60 +156,15 @@ If a field cannot be determined, use reasonable defaults or null. Return valid J
   throw new Error(`AI extraction failed: ${lastError?.message || 'Unknown error'}`);
 }
 
-// ─── Stitch Prompt Generator ─────────────────────────────────────────────────
-
-function generateStitchPrompt(data: BusinessScanData): string {
-  const preset = getDesignPreset(data.businessType);
-
-  const servicesBlock = data.services.length > 0
-    ? data.services.map(s => `- ${s.name}${s.price ? `: ${s.price}` : ''}`).join('\n')
-    : '- [Services not listed — fill in manually]';
-
-  const hoursBlock = data.hours.length > 0
-    ? data.hours.join('\n')
-    : '[Hours not available — fill in manually]';
-
-  const statsItems: string[] = [];
-  if (data.starRating) statsItems.push(`${data.starRating}-star rating`);
-  if (data.reviewCount) statsItems.push(`${data.reviewCount}+ reviews`);
-  statsItems.push('24/7 AI Receptionist');
-
-  const neighborhood = data.city || '[CITY]';
-
-  return `Design a premium one-page website for a ${data.businessType} called ${data.businessName} located in ${neighborhood}.
-
-Business details:
-- Phone: ${data.phone || '[PHONE NUMBER]'}
-- Address: ${data.address || '[ADDRESS]'}
-- Tagline: ${data.tagline || '[ONE LINE DESCRIPTION]'}
-
-Services and pricing:
-${servicesBlock}
-
-Hours:
-${hoursBlock}
-
-Design direction:
-- Aesthetic: ${preset}
-- Primary CTA: "Call or Text to Book — ${data.phone || '[PHONE]'}"
-- Must prominently feature: "AI Receptionist answers 24/7"
-- Footer attribution: "Powered by SmallBizAgent"
-
-Key sections: Hero with CTA, Stats bar (${statsItems.join(' / ')}), Services grid, Booking CTA strip, Hours + Location, Footer.
-
-Export as single HTML file with embedded CSS.`;
-}
-
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export interface ScanResult {
-  stitchPrompt: string;
   businessData: BusinessScanData;
 }
 
 /**
  * Scan a business URL (Google Business Profile, website, etc.)
- * and generate a Stitch prompt.
+ * and extract structured business data.
  */
 export async function scanBusinessUrl(url: string): Promise<ScanResult> {
   console.log(`[BusinessScanner] Scanning URL: ${url}`);
@@ -253,9 +176,7 @@ export async function scanBusinessUrl(url: string): Promise<ScanResult> {
   if (rawText.length < 50) throw new Error('Page returned too little content to extract business data');
 
   const businessData = await extractBusinessDataWithAI(rawText, { url });
-  const stitchPrompt = generateStitchPrompt(businessData);
-
-  return { stitchPrompt, businessData };
+  return { businessData };
 }
 
 /**
@@ -273,7 +194,7 @@ export async function scanBusinessByName(businessName: string, city: string): Pr
 
   // Google Maps may block scraping — fall back to generating from name/city only
   if (!html || stripHtml(html).length < 100) {
-    console.log('[BusinessScanner] Could not scrape search results, generating prompt from name/city only');
+    console.log('[BusinessScanner] Could not scrape search results, using name/city only');
     const fallbackData: BusinessScanData = {
       businessName,
       address: '',
@@ -287,12 +208,10 @@ export async function scanBusinessByName(businessName: string, city: string): Pr
       tagline: `Your trusted local business in ${city}`,
       photoUrls: [],
     };
-    return { stitchPrompt: generateStitchPrompt(fallbackData), businessData: fallbackData };
+    return { businessData: fallbackData };
   }
 
   const rawText = stripHtml(html);
   const businessData = await extractBusinessDataWithAI(rawText, { name: businessName, city });
-  const stitchPrompt = generateStitchPrompt(businessData);
-
-  return { stitchPrompt, businessData };
+  return { businessData };
 }

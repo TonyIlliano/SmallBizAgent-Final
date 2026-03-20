@@ -150,7 +150,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `/onboarding/subscription` | SubscriptionSelection | Plan selection |
 | `/payment` | Payment | Payment processing |
 | `/subscription-success` | SubscriptionSuccess | Post-payment confirmation |
-| `/website` | WebsiteBuilder | Website builder: scanner, domains, Stitch prompt, site serving |
+| `/website` | WebsiteBuilder | Website builder: scanner, OpenAI generation, customizations, domains, site serving |
 | `/staff/dashboard` | StaffDashboard | Staff-only view |
 
 ### Admin (admin role only)
@@ -274,7 +274,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 ### Website Builder
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `websites` | One-page sites from scanner/Stitch | businessId (unique), htmlContent, domainTier (subdomain/custom/purchased), subdomain (unique), customDomain, domainVerified, websiteSetupRequested, stitchPrompt, scanData (jsonb) |
+| `websites` | One-page sites generated via OpenAI | businessId (unique), htmlContent, domainTier (subdomain/custom/purchased), subdomain (unique), customDomain, domainVerified, websiteSetupRequested, customizations (jsonb), scanData (jsonb), generatedAt |
 
 ---
 
@@ -335,8 +335,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `morningBriefService` | Daily 7am email digest per business timezone. Covers calls, bookings, revenue, agent activity, attention items. Skipped if zero activity |
 | `mem0Service` | Persistent AI memory layer via Mem0 cloud. Stores conversational context from calls/events per customer. Enriches recognizeCaller() with memory search. Multi-tenant scoped: `b{businessId}_c{customerId}`. Graceful degradation if API key missing |
 | `agentGraph` | LangGraph.js state machine orchestration. Replaces switch/case dispatcher with proper state graph: check_lock → load_context → route → action → log_result. PostgreSQL checkpointing. Falls back to switch/case if LangGraph unavailable |
-| `businessScannerService` | Scrapes business URLs/Google Business Profiles, extracts structured data via OpenAI, generates Stitch prompts for one-page websites. Vertical design presets for 15+ industries |
-| `stitchService` | Google Stitch AI integration via `@google/stitch-sdk`. Creates Stitch projects, generates DESKTOP screens from text prompts, downloads resulting HTML. Lazy SDK loading, robust MCP response parsing. Graceful degradation if `STITCH_API_KEY` not set |
+| `businessScannerService` | Scrapes business URLs/Google Business Profiles, extracts structured data via OpenAI. Returns structured business data for website generation |
+| `websiteGenerationService` | Generates complete one-page websites via OpenAI (gpt-5.4-mini). Pulls all business data from DB (hours, services, staff, branding, booking), builds dynamic prompt, returns self-contained HTML with embedded CSS. 15+ vertical design presets. Customization overrides (accent color, font style, hero headline/image, section toggles) |
 
 ---
 
@@ -371,7 +371,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `import` | `/api/import/*` | Data import |
 | `embedRoutes` | `/api/embed/*` | Embedded booking widget |
 | `expressSetupRoutes` | `/api/onboarding/*` | Express onboarding (2-minute setup with auto-provisioning) |
-| `websiteBuilderRoutes` | `/api/website-builder/*`, `/sites/*` | Business scanner, Google Stitch AI generation, domain management, website serving, feature gates |
+| `websiteBuilderRoutes` | `/api/website-builder/*`, `/sites/*` | Business scanner, OpenAI website generation, domain management, website serving, feature gates |
 
 **Note:** Many routes are also defined inline in `server/routes.ts` (~6000 lines), especially auth, call logs, invoices, jobs, Twilio/Vapi webhooks.
 
@@ -402,8 +402,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `POST /api/onboarding/express-setup` — One-step business setup (create business, services, hours, provision Twilio+Vapi)
 
 **Website Builder endpoints (websiteBuilderRoutes.ts):**
-- `POST /api/website-builder/scan` — Scan business URL or name+city, extract data via OpenAI, generate Stitch prompt
-- `GET /api/website-builder/domain` — Get current domain info + feature gates for UI
+- `POST /api/website-builder/scan` — Scan business URL or name+city, extract data via OpenAI, then immediately generate website via OpenAI. Returns `{ website_id, preview_url, html }`
+- `POST /api/website-builder/generate` — Generate website from DB data via OpenAI (gpt-5.4-mini). Accepts optional `{ customizations }`. Returns `{ html, generated_at, preview_url }`
+- `PUT /api/website-builder/customizations` — Save customization preferences without regenerating
+- `GET /api/website-builder/domain` — Get current domain info + feature gates + customizations for UI
 - `POST /api/website-builder/set-custom-domain` — Set custom domain, return CNAME instructions (Professional+ plan)
 - `POST /api/website-builder/verify-domain` — DNS CNAME lookup to verify custom domain
 - `POST /api/website-builder/purchase-domain` — Stub (returns "coming soon")
@@ -493,7 +495,6 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (client) |
 | `SLACK_WEBHOOK_URL` | Slack incoming webhook for admin alerts (optional) |
 | `ADMIN_TIMEZONE` | Timezone for admin digest email, default `America/New_York` (optional) |
-| `STITCH_API_KEY` | Google Stitch AI API key for automated website generation. Free tier: 350 generations/month. Optional — falls back to manual copy-paste workflow |
 
 ---
 
@@ -646,49 +647,43 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
-#### Website Builder Feature Suite (4 parts)
-- **Goal**: Build a complete website builder that scans businesses, generates Stitch prompts for one-page websites, manages domains (subdomains + custom), stores/serves sites, and ties into existing Stripe billing with plan-based feature gates.
+#### Website Builder Overhaul — Remove Stitch, Replace with OpenAI Generation
+- **Goal**: Rip out all Google Stitch dependencies and replace with direct OpenAI (gpt-5.4-mini) website generation. Scanner now generates sites immediately instead of producing a copyable prompt. Full customization panel added.
 
-##### Part 1: Business Scanner → Stitch Prompt Generator
-- `server/services/businessScannerService.ts` — **NEW**: Scrapes business URLs or Google Business Profile pages using the same fetch+stripHtml pattern as `websiteScraperService.ts`. Sends raw text to OpenAI to extract structured data (name, address, phone, hours, services+pricing, ratings, business type, tagline, photos). Generates a Stitch prompt from a template with vertical design presets for 15+ industries (barbershop, salon, HVAC, plumbing, landscaping, restaurant, dental, medical, automotive, etc.). Falls back gracefully if scraping fails (generates prompt from name/city only).
-- `server/routes/websiteBuilderRoutes.ts` — `POST /api/website-builder/scan` accepts `{ url }` or `{ business_name, city }`. Returns `{ stitch_prompt, business_data }`. Persists scan data + prompt on the `websites` record.
+##### Stitch Removal
+- `server/services/stitchService.ts` — **DELETED**: Entire file removed.
+- `@google/stitch-sdk` — **UNINSTALLED**: npm dependency removed.
+- `STITCH_API_KEY` — **REMOVED**: No longer needed.
+- All Stitch prompt generation, Stitch API calls, MCP parsing, and fallback instructions removed from scanner, routes, and frontend.
+- `shared/schema.ts` — `stitchPrompt` column removed from `websites` table.
+- `server/migrations/runMigrations.ts` — Migration added to `DROP COLUMN IF EXISTS stitch_prompt`.
 
-##### Part 2: Custom Domain Management
-- `server/routes/websiteBuilderRoutes.ts` — Three domain tiers:
-  - **Subdomain (free)**: Auto-generated slug from business name with collision handling (-2, -3, etc.). Format: `[slug].smallbizagent.ai`.
-  - **Custom domain (Professional+ plan)**: `POST /api/website-builder/set-custom-domain` stores domain, returns CNAME instructions. `POST /api/website-builder/verify-domain` performs DNS CNAME lookup via `dns/promises`.
-  - **Purchased domain (stub)**: `POST /api/website-builder/purchase-domain` returns "coming soon".
-- `GET /api/website-builder/domain` — Returns current domain info + feature flags for the UI.
+##### New: OpenAI Website Generation Service
+- `server/services/websiteGenerationService.ts` — **NEW**: Generates complete one-page websites via OpenAI (gpt-5.4-mini). Pulls all business data from DB in parallel (business, hours, services, staff). Builds dynamic user message with every available field. System prompt with 15+ vertical design presets (barbershop, salon, HVAC, plumbing, landscaping, restaurant, dental, medical, automotive, electrical, cleaning, construction, fitness, veterinary). Supports customization overrides (accent_color, font_style, hero_headline, hero_image_url, show_staff, show_reviews, show_hours). Booking widget embedding (iframe) when booking_enabled. Returns self-contained HTML with embedded CSS. Validates output is actual HTML.
 
-##### Part 3: Website Storage + Serving
-- `shared/schema.ts` — **NEW TABLE**: `websites` with columns: id, businessId (unique), htmlContent, domainTier, subdomain (unique), customDomain, domainVerified, websiteSetupRequested, stitchPrompt, scanData (jsonb), createdAt, updatedAt.
-- `server/storage.ts` — 4 new methods: `getWebsite(businessId)`, `getWebsiteBySubdomain(subdomain)`, `getWebsiteByCustomDomain(domain)`, `upsertWebsite(businessId, data)`. Interface updated.
-- `server/migrations/runMigrations.ts` — CREATE TABLE + indexes for `websites`.
-- `GET /sites/:subdomain` — Public: serves HTML content for matching subdomain. Returns branded 404 page if not found.
-- `GET /api/website-builder/site`, `PUT /api/website-builder/site` — CRUD for website HTML content.
-- `POST /api/website-builder/request-setup` — Elite plan: flags managed setup, logs notification.
-- `client/src/pages/website-builder.tsx` — **NEW**: Dashboard page with domain display (subdomain/custom), scanner input (URL or name+city), Stitch prompt output (copyable textarea with regenerate), domain upgrade CTA (plan-dependent), Elite managed setup banner, live site preview link.
-- `client/src/App.tsx` — Added `/website` route (lazy-loaded, protected).
-- `client/src/components/layout/Sidebar.tsx` — Added "Website" nav item with Globe icon (hidden for staff).
+##### Updated: Business Scanner
+- `server/services/businessScannerService.ts` — **REWRITTEN**: Removed `generateStitchPrompt()` function, `ScanResult.stitchPrompt` field, and vertical design presets (moved to generation service). Scanner now returns only `{ businessData }`. Model updated to gpt-5.4-mini primary with gpt-4o-mini fallback.
 
-##### Part 4: Feature Gates (Plan-Based)
-- `server/routes/websiteBuilderRoutes.ts` — `getWebsiteFeatures(planTier)` maps plan tiers to feature flags:
-  - **Starter ($79)**: `websiteEnabled: true`, `customDomainEnabled: false`, `websiteManagedSetup: false`
-  - **Professional ($149)**: `websiteEnabled: true`, `customDomainEnabled: true`, `websiteManagedSetup: false`
-  - **Elite/Business ($249)**: `websiteEnabled: true`, `customDomainEnabled: true`, `websiteManagedSetup: true`
-  - **Founder**: all features enabled
-  - **Trial**: website enabled, custom domain disabled
-- No new Stripe products or Price IDs. Extends existing `getUsageInfo()` planTier check.
-- `GET /api/website-builder/features` — Returns feature flags for current plan.
-- Frontend shows locked custom domain input with upgrade CTA for Starter, full domain management for Professional+, managed setup button for Elite.
+##### Updated: Website Builder Routes
+- `server/routes/websiteBuilderRoutes.ts` — **REWRITTEN**:
+  - `POST /api/website-builder/scan` — Now scans AND generates in one step. Saves scan data, calls `generateWebsite()`, saves HTML, returns `{ website_id, preview_url, html }`.
+  - `POST /api/website-builder/generate` — New endpoint. Pulls all data from DB, accepts optional `{ customizations }`, generates via OpenAI, saves HTML + timestamp. Returns `{ html, generated_at, preview_url }`.
+  - `PUT /api/website-builder/customizations` — **NEW**: Save customization preferences without regenerating.
+  - `GET /api/website-builder/domain` — Now returns `generatedAt` and `customizations` fields.
+  - **REMOVED**: `GET /api/website-builder/stitch-status` (no longer needed).
+  - Added `customizationsSchema` Zod validation.
 
-##### Part 5: Google Stitch AI Integration (automated HTML generation)
-- **Goal**: Instead of users manually copying the Stitch prompt and pasting into stitch.withgoogle.com, integrate via the official `@google/stitch-sdk` to auto-generate the website HTML server-side.
-- `server/services/stitchService.ts` — **NEW**: Google Stitch integration via `@google/stitch-sdk`. Uses `StitchToolClient` to create projects, generate DESKTOP screens from text prompts, and download the resulting HTML. Lazy SDK loading (dynamic import). Robust MCP response parsing handles multiple response shapes (direct fields, nested content arrays, JSON strings). Downloads HTML from Stitch CDN URL. Exports: `generateWithStitch(prompt, projectTitle)`, `downloadStitchHtml(htmlUrl)`, `isStitchConfigured()`.
-- `server/routes/websiteBuilderRoutes.ts` — **NEW**: `POST /api/website-builder/generate` — Takes prompt from request body or saved website record, sends to Stitch, downloads HTML, saves to `websites.htmlContent`. Feature-gated. Returns `{ success, htmlUrl, screenshotUrl, htmlLength }`. `GET /api/website-builder/stitch-status` — Returns `{ available: boolean }` so frontend knows whether to show auto-generate button or manual instructions.
-- `client/src/pages/website-builder.tsx` — **UPDATED**: Added `generateMutation` calling `/api/website-builder/generate`. Added `stitchStatus` query. When Stitch is configured: shows "Generate Website with Google Stitch" button (Sparkles icon) below the prompt textarea. When not configured: shows fallback instructions linking to stitch.withgoogle.com for manual copy-paste. Invalidates both site and domain queries after generation so live site link appears immediately.
-- `package.json` — Added `@google/stitch-sdk` dependency.
-- New env var: `STITCH_API_KEY` (optional, free tier: 350 generations/month via Gemini 2.5 Flash).
+##### Updated: Website Builder UI
+- `client/src/pages/website-builder.tsx` — **REWRITTEN**:
+  - **Site Preview**: iframe showing live generated site at top. Empty state with "Generate Your Site" CTA. "Regenerate" button with confirmation dialog. "Last generated: [timestamp]" label. "View Live Site" link.
+  - **Scanner**: Button renamed to "Scan & Generate Site". Calls scan endpoint which generates immediately.
+  - **Customization Panel**: Accent color picker (color input + hex text), Font style toggle (Classic/Modern/Bold), Hero headline input, Hero image URL input, Section toggles (Show staff/Show reviews/Show hours) via Switch components. "Save & Regenerate" button.
+  - **Incomplete Profile Nudges**: Inline warnings with links when services/hours/staff/booking not set.
+  - **Removed**: Stitch prompt textarea, Copy button, stitch-status query, manual Stitch instructions, Google Stitch references.
+
+##### Updated: Database Schema
+- `shared/schema.ts` — `websites` table: removed `stitchPrompt`, added `customizations` (jsonb) and `generatedAt` (timestamp).
+- `server/migrations/runMigrations.ts` — Added migration to drop `stitch_prompt`, add `customizations` and `generated_at` columns to existing `websites` tables.
 
 #### Vapi AI Optimization — Restore Call Quality After Prompt Rewrite
 - **Goal**: Fix degraded AI behavior after commit `271306a` stripped the structured 5-beat call flow and key rules from the system prompt. The AI still received rich data (knowledge base, customer insights, Mem0 memory, upcoming appointments) but no longer had instructions on how to use it properly.
@@ -1053,7 +1048,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Admin alert service | `server/services/adminAlertService.ts` |
 | Admin digest service | `server/services/adminDigestService.ts` |
 | Business scanner service | `server/services/businessScannerService.ts` |
-| Google Stitch service | `server/services/stitchService.ts` |
+| Website generation service | `server/services/websiteGenerationService.ts` |
 | Website builder routes | `server/routes/websiteBuilderRoutes.ts` |
 | Website builder UI | `client/src/pages/website-builder.tsx` |
 | Env vars reference | `.env.example` |
@@ -1107,4 +1102,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 19, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 62 tables. Website Builder feature suite (uncommitted): Business scanner service (scrape URL/Google Business Profile → OpenAI extraction → Stitch prompt with 15+ vertical design presets), Google Stitch AI integration via @google/stitch-sdk (auto-generate HTML from prompt, download + save, fallback to manual copy-paste if API key not set), custom domain management (subdomain auto-gen + custom CNAME + DNS verification + purchase stub), website storage/serving (websites table, /sites/:subdomain public serving, branded 404), plan-based feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). New files: businessScannerService.ts, stitchService.ts, websiteBuilderRoutes.ts, website-builder.tsx. New table: websites. 12 new API endpoints. New env var: STITCH_API_KEY. New dep: @google/stitch-sdk. Sidebar nav updated with Website link.*
+*Last updated: March 19, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 62 tables. Website Builder overhaul (uncommitted): Replaced Google Stitch SDK with direct OpenAI generation (gpt-5.4-mini). Business scanner service (scrape URL/Google Business Profile → OpenAI extraction → structured data). Website generation service (OpenAI gpt-5.4-mini with comprehensive system prompt, 15+ vertical design presets, dynamic DB data, booking widget embedding, customization support). Custom domain management (subdomain auto-gen + custom CNAME + DNS verification + purchase stub). Website storage/serving (websites table, /sites/:subdomain public serving, branded 404). Plan-based feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). Customization panel (accent color, font style, hero headline/image, section toggles). Profile nudges (missing services/staff/hours warnings). New files: websiteGenerationService.ts. Deleted: stitchService.ts. Modified: businessScannerService.ts, websiteBuilderRoutes.ts, website-builder.tsx, schema.ts (websites table: removed stitchPrompt, added customizations + generatedAt). Removed dep: @google/stitch-sdk. Removed env var: STITCH_API_KEY.*
