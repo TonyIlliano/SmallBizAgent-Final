@@ -33,9 +33,6 @@ import {
   Palette,
   AlertTriangle,
   ArrowRight,
-  Code,
-  Save,
-  RotateCcw,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -60,7 +57,12 @@ interface WebsiteCustomizations {
   accent_color?: string;
   font_style?: "classic" | "modern" | "bold";
   hero_headline?: string;
+  hero_subheadline?: string;
   hero_image_url?: string;
+  cta_primary_text?: string;
+  cta_secondary_text?: string;
+  about_text?: string;
+  footer_message?: string;
   show_staff?: boolean;
   show_reviews?: boolean;
   show_hours?: boolean;
@@ -79,17 +81,19 @@ export default function WebsiteBuilder() {
   // Custom domain input
   const [customDomainInput, setCustomDomainInput] = useState("");
 
-  // HTML editor state
-  const [showHtmlEditor, setShowHtmlEditor] = useState(false);
-  const [htmlContent, setHtmlContent] = useState("");
-  const [htmlLoaded, setHtmlLoaded] = useState(false);
+  // Preview refresh key
   const [previewKey, setPreviewKey] = useState(0);
 
   // Customization state
   const [accentColor, setAccentColor] = useState("");
   const [fontStyle, setFontStyle] = useState<"classic" | "modern" | "bold">("classic");
   const [heroHeadline, setHeroHeadline] = useState("");
+  const [heroSubheadline, setHeroSubheadline] = useState("");
   const [heroImageUrl, setHeroImageUrl] = useState("");
+  const [ctaPrimaryText, setCtaPrimaryText] = useState("");
+  const [ctaSecondaryText, setCtaSecondaryText] = useState("");
+  const [aboutText, setAboutText] = useState("");
+  const [footerMessage, setFooterMessage] = useState("");
   const [showStaff, setShowStaff] = useState(true);
   const [showReviews, setShowReviews] = useState(true);
   const [showHours, setShowHours] = useState(true);
@@ -119,17 +123,16 @@ export default function WebsiteBuilder() {
     if (c.accent_color) setAccentColor(c.accent_color);
     if (c.font_style) setFontStyle(c.font_style);
     if (c.hero_headline) setHeroHeadline(c.hero_headline);
+    if (c.hero_subheadline) setHeroSubheadline(c.hero_subheadline);
     if (c.hero_image_url) setHeroImageUrl(c.hero_image_url);
+    if (c.cta_primary_text) setCtaPrimaryText(c.cta_primary_text);
+    if (c.cta_secondary_text) setCtaSecondaryText(c.cta_secondary_text);
+    if (c.about_text) setAboutText(c.about_text);
+    if (c.footer_message) setFooterMessage(c.footer_message);
     if (c.show_staff !== undefined) setShowStaff(c.show_staff);
     if (c.show_reviews !== undefined) setShowReviews(c.show_reviews);
     if (c.show_hours !== undefined) setShowHours(c.show_hours);
     setCustomizationsLoaded(true);
-  }
-
-  // Load HTML content into editor once
-  if (website?.htmlContent && !htmlLoaded) {
-    setHtmlContent(website.htmlContent);
-    setHtmlLoaded(true);
   }
 
   // Check what business data is incomplete
@@ -181,8 +184,7 @@ export default function WebsiteBuilder() {
       return res.json();
     },
     onSuccess: () => {
-      setHtmlLoaded(false); // reload editor content
-      setPreviewKey(k => k + 1); // refresh preview iframe
+      setPreviewKey(k => k + 1);
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
       toast({ title: "Site generated", description: "Your website has been created and is now live" });
@@ -200,8 +202,7 @@ export default function WebsiteBuilder() {
       return res.json();
     },
     onSuccess: () => {
-      setHtmlLoaded(false); // reload editor content
-      setPreviewKey(k => k + 1); // refresh preview iframe
+      setPreviewKey(k => k + 1);
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
       toast({ title: "Website generated", description: "Your site has been updated and is now live" });
@@ -257,23 +258,24 @@ export default function WebsiteBuilder() {
     },
   });
 
-  const saveHtmlMutation = useMutation({
-    mutationFn: async (html: string) => {
-      const res = await apiRequest("PUT", "/api/website-builder/site", { html_content: html });
-      return res.json();
-    },
-    onSuccess: () => {
-      setPreviewKey(k => k + 1); // refresh preview iframe
-      queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
-      toast({ title: "Saved", description: "Your website changes have been saved and are now live" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Save failed", description: error.message, variant: "destructive" });
-    },
-  });
+  // ── Helpers ──
 
-  // ── Handlers ──
+  function buildCustomizations(): WebsiteCustomizations {
+    return {
+      accent_color: accentColor || undefined,
+      font_style: fontStyle,
+      hero_headline: heroHeadline || undefined,
+      hero_subheadline: heroSubheadline || undefined,
+      hero_image_url: heroImageUrl || undefined,
+      cta_primary_text: ctaPrimaryText || undefined,
+      cta_secondary_text: ctaSecondaryText || undefined,
+      about_text: aboutText || undefined,
+      footer_message: footerMessage || undefined,
+      show_staff: showStaff,
+      show_reviews: showReviews,
+      show_hours: showHours,
+    };
+  }
 
   const handleScan = () => {
     if (scanUrl.trim()) {
@@ -287,29 +289,11 @@ export default function WebsiteBuilder() {
 
   const handleRegenerate = () => {
     if (!confirm("This will replace your current site. Continue?")) return;
-    const customizations: WebsiteCustomizations = {
-      accent_color: accentColor || undefined,
-      font_style: fontStyle,
-      hero_headline: heroHeadline || undefined,
-      hero_image_url: heroImageUrl || undefined,
-      show_staff: showStaff,
-      show_reviews: showReviews,
-      show_hours: showHours,
-    };
-    generateMutation.mutate(customizations);
+    generateMutation.mutate(buildCustomizations());
   };
 
   const handleSaveAndRegenerate = () => {
-    const customizations: WebsiteCustomizations = {
-      accent_color: accentColor || undefined,
-      font_style: fontStyle,
-      hero_headline: heroHeadline || undefined,
-      hero_image_url: heroImageUrl || undefined,
-      show_staff: showStaff,
-      show_reviews: showReviews,
-      show_hours: showHours,
-    };
-    generateMutation.mutate(customizations);
+    generateMutation.mutate(buildCustomizations());
   };
 
   if (domainLoading) {
@@ -439,78 +423,6 @@ export default function WebsiteBuilder() {
             )}
           </CardContent>
         </Card>
-
-        {/* ── HTML Editor ── */}
-        {hasHtml && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Code className="h-5 w-5" />
-                    Edit HTML
-                  </CardTitle>
-                  <CardDescription>
-                    Make direct changes to your website's HTML code
-                  </CardDescription>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    if (!showHtmlEditor && website?.htmlContent) {
-                      setHtmlContent(website.htmlContent);
-                    }
-                    setShowHtmlEditor(!showHtmlEditor);
-                  }}
-                  className="gap-1"
-                >
-                  <Code className="h-3 w-3" />
-                  {showHtmlEditor ? "Hide Editor" : "Show Editor"}
-                </Button>
-              </div>
-            </CardHeader>
-            {showHtmlEditor && (
-              <CardContent className="space-y-4">
-                <Textarea
-                  value={htmlContent}
-                  onChange={(e) => setHtmlContent(e.target.value)}
-                  className="font-mono text-xs min-h-[400px] leading-relaxed"
-                  placeholder="HTML content..."
-                />
-                <div className="flex gap-2 justify-end">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      if (website?.htmlContent) {
-                        setHtmlContent(website.htmlContent);
-                        toast({ title: "Reverted", description: "Editor reset to saved version" });
-                      }
-                    }}
-                    className="gap-1"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                    Revert
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => saveHtmlMutation.mutate(htmlContent)}
-                    disabled={saveHtmlMutation.isPending || htmlContent === website?.htmlContent}
-                    className="gap-1"
-                  >
-                    {saveHtmlMutation.isPending ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Save className="h-3 w-3" />
-                    )}
-                    Save Changes
-                  </Button>
-                </div>
-              </CardContent>
-            )}
-          </Card>
-        )}
 
         {/* ── Domain Section ── */}
         <Card>
@@ -721,78 +633,152 @@ export default function WebsiteBuilder() {
               Customize Your Site
             </CardTitle>
             <CardDescription>
-              Adjust colors, fonts, and sections — then regenerate
+              Adjust colors, text, and content — then regenerate
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Accent Color */}
-            <div className="space-y-2">
-              <Label>Accent Color</Label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="color"
-                  value={accentColor || "#C9A84C"}
-                  onChange={(e) => setAccentColor(e.target.value)}
-                  className="w-10 h-10 rounded border cursor-pointer"
-                />
-                <Input
-                  placeholder="#C9A84C"
-                  value={accentColor}
-                  onChange={(e) => setAccentColor(e.target.value)}
-                  className="max-w-[140px] font-mono text-sm"
-                />
-                <span className="text-xs text-muted-foreground">Leave blank for vertical preset default</span>
+
+            {/* ── Branding ── */}
+            <div className="space-y-4">
+              <Label className="text-base font-semibold">Branding</Label>
+
+              {/* Accent Color */}
+              <div className="space-y-2">
+                <Label className="text-sm">Accent Color</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={accentColor || "#C9A84C"}
+                    onChange={(e) => setAccentColor(e.target.value)}
+                    className="w-10 h-10 rounded border cursor-pointer"
+                  />
+                  <Input
+                    placeholder="#C9A84C"
+                    value={accentColor}
+                    onChange={(e) => setAccentColor(e.target.value)}
+                    className="max-w-[140px] font-mono text-sm"
+                  />
+                  <span className="text-xs text-muted-foreground">Leave blank for auto</span>
+                </div>
               </div>
-            </div>
 
-            {/* Font Style */}
-            <div className="space-y-2">
-              <Label>Font Style</Label>
-              <div className="flex gap-2">
-                {(["classic", "modern", "bold"] as const).map((style) => (
-                  <Button
-                    key={style}
-                    variant={fontStyle === style ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setFontStyle(style)}
-                    className="capitalize"
-                  >
-                    {style}
-                  </Button>
-                ))}
+              {/* Font Style */}
+              <div className="space-y-2">
+                <Label className="text-sm">Font Style</Label>
+                <div className="flex gap-2">
+                  {(["classic", "modern", "bold"] as const).map((style) => (
+                    <Button
+                      key={style}
+                      variant={fontStyle === style ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setFontStyle(style)}
+                      className="capitalize"
+                    >
+                      {style}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {fontStyle === "classic" && "Serif display font, editorial feel"}
+                  {fontStyle === "modern" && "Clean sans-serif, minimal layout"}
+                  {fontStyle === "bold" && "Heavy weight type, high contrast layout"}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {fontStyle === "classic" && "Serif display font, editorial feel"}
-                {fontStyle === "modern" && "Clean sans-serif, minimal layout"}
-                {fontStyle === "bold" && "Heavy weight type, high contrast layout"}
-              </p>
-            </div>
-
-            {/* Hero Headline */}
-            <div className="space-y-2">
-              <Label>Hero Headline</Label>
-              <Input
-                placeholder="Leave blank to auto-generate"
-                value={heroHeadline}
-                onChange={(e) => setHeroHeadline(e.target.value)}
-              />
-            </div>
-
-            {/* Hero Image */}
-            <div className="space-y-2">
-              <Label>Hero Image URL</Label>
-              <Input
-                placeholder="https://example.com/hero.jpg"
-                value={heroImageUrl}
-                onChange={(e) => setHeroImageUrl(e.target.value)}
-              />
             </div>
 
             <Separator />
 
-            {/* Section Toggles */}
+            {/* ── Hero Section ── */}
             <div className="space-y-4">
-              <Label className="text-base">Sections</Label>
+              <Label className="text-base font-semibold">Hero Section</Label>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Headline</Label>
+                <Input
+                  placeholder="Leave blank to auto-generate"
+                  value={heroHeadline}
+                  onChange={(e) => setHeroHeadline(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Subheadline</Label>
+                <Input
+                  placeholder="Leave blank to auto-generate"
+                  value={heroSubheadline}
+                  onChange={(e) => setHeroSubheadline(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Hero Image URL</Label>
+                <Input
+                  placeholder="https://example.com/hero.jpg"
+                  value={heroImageUrl}
+                  onChange={(e) => setHeroImageUrl(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* ── Call-to-Action Buttons ── */}
+            <div className="space-y-4">
+              <Label className="text-base font-semibold">Call-to-Action Buttons</Label>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Primary Button Text</Label>
+                <Input
+                  placeholder="Call or Text 24/7"
+                  value={ctaPrimaryText}
+                  onChange={(e) => setCtaPrimaryText(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">The main button visitors see first</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Booking Button Text</Label>
+                <Input
+                  placeholder="Book Online"
+                  value={ctaSecondaryText}
+                  onChange={(e) => setCtaSecondaryText(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Only shown if online booking is enabled</p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* ── Content ── */}
+            <div className="space-y-4">
+              <Label className="text-base font-semibold">Content</Label>
+
+              <div className="space-y-2">
+                <Label className="text-sm">About Your Business</Label>
+                <Textarea
+                  placeholder="Tell visitors what makes your business special..."
+                  value={aboutText}
+                  onChange={(e) => setAboutText(e.target.value)}
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">Short description shown on your site. Leave blank to auto-generate.</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Custom Footer Message</Label>
+                <Input
+                  placeholder="e.g. Proudly serving Baltimore since 2010"
+                  value={footerMessage}
+                  onChange={(e) => setFooterMessage(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* ── Section Toggles ── */}
+            <div className="space-y-4">
+              <Label className="text-base font-semibold">Sections</Label>
               <div className="flex items-center justify-between">
                 <Label htmlFor="show-staff" className="text-sm font-normal">Show staff members</Label>
                 <Switch id="show-staff" checked={showStaff} onCheckedChange={setShowStaff} />

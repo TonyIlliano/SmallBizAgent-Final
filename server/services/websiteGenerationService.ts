@@ -14,10 +14,20 @@ import { storage } from '../storage';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface WebsiteCustomizations {
+  // Style
   accent_color?: string;       // hex, overrides vertical preset
   font_style?: 'classic' | 'modern' | 'bold';
+  // Hero section
   hero_headline?: string;      // override auto-generated headline
+  hero_subheadline?: string;   // override auto-generated subheadline
   hero_image_url?: string;     // hero background/banner image
+  // CTA buttons
+  cta_primary_text?: string;   // default: "Call or Text 24/7"
+  cta_secondary_text?: string; // default: "Book Online"
+  // Content
+  about_text?: string;         // short about/intro paragraph
+  footer_message?: string;     // custom footer text above "Powered by SmallBizAgent"
+  // Section toggles
   show_staff?: boolean;        // default true
   show_reviews?: boolean;      // default true
   show_hours?: boolean;        // default true
@@ -59,13 +69,18 @@ Booking widget rules:
   - Phone number is the only CTA
   - No booking section included
 
-Customization overrides — apply if provided:
+Customization overrides — apply if provided (these are NON-NEGOTIABLE, use exact text):
 - accent_color: use this hex instead of vertical preset default
 - font_style classic: serif display font, editorial feel
 - font_style modern: clean sans-serif, minimal layout
 - font_style bold: heavy weight type, high contrast layout
 - hero_headline: use this exact text as the hero headline
+- hero_subheadline: use this exact text as the hero subheadline/subtitle
 - hero_image_url: use as hero background or banner image
+- cta_primary_text: use this exact text for the primary CTA button (replaces "Call or Text 24/7")
+- cta_secondary_text: use this exact text for the secondary/booking CTA button (replaces "Book Online")
+- about_text: add an "About" section after the hero using this exact paragraph text
+- footer_message: display this custom text in the footer above the "Powered by SmallBizAgent" line
 - show_staff false: omit staff section entirely
 - show_reviews false: omit rating and review count
 - show_hours false: omit hours section entirely
@@ -155,7 +170,12 @@ async function buildUserMessage(businessId: number, customizations?: WebsiteCust
   custLines.push(`- Accent color: ${cust.accent_color || 'use vertical preset default'}`);
   custLines.push(`- Font style: ${cust.font_style || 'classic'}`);
   custLines.push(`- Hero headline override: ${cust.hero_headline || 'null'}`);
+  custLines.push(`- Hero subheadline override: ${cust.hero_subheadline || 'null'}`);
   custLines.push(`- Hero image URL: ${cust.hero_image_url || 'null'}`);
+  custLines.push(`- Primary CTA button text: ${cust.cta_primary_text || 'Call or Text 24/7'}`);
+  custLines.push(`- Secondary CTA button text: ${cust.cta_secondary_text || 'Book Online'}`);
+  custLines.push(`- About text: ${cust.about_text || 'null'}`);
+  custLines.push(`- Footer message: ${cust.footer_message || 'null'}`);
   custLines.push(`- Show staff section: ${cust.show_staff !== false}`);
   custLines.push(`- Show reviews: ${cust.show_reviews !== false}`);
   custLines.push(`- Show hours: ${cust.show_hours !== false}`);
