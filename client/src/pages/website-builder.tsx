@@ -20,7 +20,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   Globe,
-  Search,
   RefreshCw,
   CheckCircle,
   XCircle,
@@ -33,6 +32,9 @@ import {
   Palette,
   AlertTriangle,
   ArrowRight,
+  Upload,
+  X,
+  ImageIcon,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -58,7 +60,6 @@ interface WebsiteCustomizations {
   font_style?: "classic" | "modern" | "bold";
   hero_headline?: string;
   hero_subheadline?: string;
-  hero_image_url?: string;
   cta_primary_text?: string;
   cta_secondary_text?: string;
   about_text?: string;
@@ -73,11 +74,6 @@ export default function WebsiteBuilder() {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
 
-  // Scanner inputs
-  const [scanUrl, setScanUrl] = useState("");
-  const [scanName, setScanName] = useState("");
-  const [scanCity, setScanCity] = useState("");
-
   // Custom domain input
   const [customDomainInput, setCustomDomainInput] = useState("");
 
@@ -89,7 +85,6 @@ export default function WebsiteBuilder() {
   const [fontStyle, setFontStyle] = useState<"classic" | "modern" | "bold">("classic");
   const [heroHeadline, setHeroHeadline] = useState("");
   const [heroSubheadline, setHeroSubheadline] = useState("");
-  const [heroImageUrl, setHeroImageUrl] = useState("");
   const [ctaPrimaryText, setCtaPrimaryText] = useState("");
   const [ctaSecondaryText, setCtaSecondaryText] = useState("");
   const [aboutText, setAboutText] = useState("");
@@ -124,7 +119,6 @@ export default function WebsiteBuilder() {
     if (c.font_style) setFontStyle(c.font_style);
     if (c.hero_headline) setHeroHeadline(c.hero_headline);
     if (c.hero_subheadline) setHeroSubheadline(c.hero_subheadline);
-    if (c.hero_image_url) setHeroImageUrl(c.hero_image_url);
     if (c.cta_primary_text) setCtaPrimaryText(c.cta_primary_text);
     if (c.cta_secondary_text) setCtaSecondaryText(c.cta_secondary_text);
     if (c.about_text) setAboutText(c.about_text);
@@ -177,22 +171,6 @@ export default function WebsiteBuilder() {
   });
 
   // ── Mutations ──
-
-  const scanMutation = useMutation({
-    mutationFn: async (body: Record<string, string>) => {
-      const res = await apiRequest("POST", "/api/website-builder/scan", body);
-      return res.json();
-    },
-    onSuccess: () => {
-      setPreviewKey(k => k + 1);
-      queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
-      toast({ title: "Site generated", description: "Your website has been created and is now live" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Generation failed", description: error.message, variant: "destructive" });
-    },
-  });
 
   const generateMutation = useMutation({
     mutationFn: async (customizations?: WebsiteCustomizations) => {
@@ -258,6 +236,35 @@ export default function WebsiteBuilder() {
     },
   });
 
+  const logoUploadMutation = useMutation({
+    mutationFn: async (data: { logoUrl: string }) => {
+      if (!businessProfile?.id) throw new Error("No business");
+      const res = await apiRequest("PUT", `/api/business/${businessProfile.id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/business/profile"] });
+      toast({ title: "Logo updated", description: "Your logo has been saved" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const staffPhotoMutation = useMutation({
+    mutationFn: async ({ staffId, photoUrl }: { staffId: number; photoUrl: string }) => {
+      const res = await apiRequest("PUT", `/api/staff/${staffId}`, { photoUrl });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
+      toast({ title: "Photo updated", description: "Staff photo has been saved" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   // ── Helpers ──
 
   function buildCustomizations(): WebsiteCustomizations {
@@ -266,7 +273,6 @@ export default function WebsiteBuilder() {
       font_style: fontStyle,
       hero_headline: heroHeadline || undefined,
       hero_subheadline: heroSubheadline || undefined,
-      hero_image_url: heroImageUrl || undefined,
       cta_primary_text: ctaPrimaryText || undefined,
       cta_secondary_text: ctaSecondaryText || undefined,
       about_text: aboutText || undefined,
@@ -276,16 +282,6 @@ export default function WebsiteBuilder() {
       show_hours: showHours,
     };
   }
-
-  const handleScan = () => {
-    if (scanUrl.trim()) {
-      scanMutation.mutate({ url: scanUrl.trim() });
-    } else if (scanName.trim() && scanCity.trim()) {
-      scanMutation.mutate({ business_name: scanName.trim(), city: scanCity.trim() });
-    } else {
-      toast({ title: "Missing input", description: "Enter a URL or business name + city", variant: "destructive" });
-    }
-  };
 
   const handleRegenerate = () => {
     if (!confirm("This will replace your current site. Continue?")) return;
@@ -308,7 +304,7 @@ export default function WebsiteBuilder() {
 
   const features = domainInfo?.features;
   const hasHtml = domainInfo?.hasHtml;
-  const isGenerating = scanMutation.isPending || generateMutation.isPending;
+  const isGenerating = generateMutation.isPending;
 
   // Compute incomplete profile nudges (only show after data has loaded)
   const nudges: Array<{ message: string; link: string; linkText: string }> = [];
@@ -400,7 +396,7 @@ export default function WebsiteBuilder() {
                 <Globe className="h-12 w-12 mx-auto mb-4 opacity-30" />
                 <p className="text-lg font-medium mb-2">No website generated yet</p>
                 <p className="text-sm mb-4">
-                  Use the scanner below to generate your site, or click Generate to build one from your current business profile.
+                  We'll use your business profile — name, services, hours, staff — to build your site.
                 </p>
                 <Button
                   onClick={() => generateMutation.mutate(undefined)}
@@ -559,72 +555,6 @@ export default function WebsiteBuilder() {
           </CardContent>
         </Card>
 
-        {/* ── Scanner ── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
-              Business Scanner
-            </CardTitle>
-            <CardDescription>
-              Scan a business listing to auto-generate your one-page site
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* URL scan */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Scan by URL</label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="https://www.google.com/maps/place/..."
-                  value={scanUrl}
-                  onChange={(e) => setScanUrl(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="text-center text-sm text-muted-foreground">— or —</div>
-
-            {/* Name + city scan */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Business Name</label>
-                <Input
-                  placeholder="Canton Barb Shop"
-                  value={scanName}
-                  onChange={(e) => setScanName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium">City</label>
-                <Input
-                  placeholder="Canton, OH"
-                  value={scanCity}
-                  onChange={(e) => setScanCity(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <Button
-              onClick={handleScan}
-              disabled={isGenerating}
-              className="w-full"
-            >
-              {scanMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Scanning & Generating...
-                </>
-              ) : (
-                <>
-                  <Search className="h-4 w-4 mr-2" />
-                  Scan & Generate Site
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
-
         {/* ── Customization Panel ── */}
         <Card>
           <CardHeader>
@@ -710,13 +640,77 @@ export default function WebsiteBuilder() {
                 />
               </div>
 
+              {/* Business Logo */}
               <div className="space-y-2">
-                <Label className="text-sm">Hero Image URL</Label>
-                <Input
-                  placeholder="https://example.com/hero.jpg"
-                  value={heroImageUrl}
-                  onChange={(e) => setHeroImageUrl(e.target.value)}
-                />
+                <Label className="text-sm">Business Logo</Label>
+                <div className="flex items-center gap-4">
+                  {businessProfile?.logoUrl ? (
+                    <div className="relative">
+                      <img
+                        src={businessProfile.logoUrl}
+                        alt="Business logo"
+                        className="h-16 w-16 rounded-lg object-contain border bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!businessProfile?.id) return;
+                          logoUploadMutation.mutate({ logoUrl: "" });
+                        }}
+                        className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="h-16 w-16 rounded-lg border-2 border-dashed border-muted-foreground/25 flex items-center justify-center">
+                      <ImageIcon className="h-6 w-6 text-muted-foreground/40" />
+                    </div>
+                  )}
+                  <div>
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.size > 500 * 1024) {
+                            toast({ title: "File too large", description: "Logo must be under 500KB", variant: "destructive" });
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const img = new Image();
+                            img.onload = () => {
+                              const canvas = document.createElement("canvas");
+                              const maxSize = 200;
+                              let w = img.width, h = img.height;
+                              if (w > maxSize || h > maxSize) {
+                                if (w > h) { h = (h / w) * maxSize; w = maxSize; }
+                                else { w = (w / h) * maxSize; h = maxSize; }
+                              }
+                              canvas.width = w;
+                              canvas.height = h;
+                              canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
+                              logoUploadMutation.mutate({ logoUrl: canvas.toDataURL("image/png", 0.9) });
+                            };
+                            img.src = reader.result as string;
+                          };
+                          reader.readAsDataURL(file);
+                          e.target.value = "";
+                        }}
+                      />
+                      <span className="inline-flex items-center gap-2 px-3 py-2 text-sm border rounded-md hover:bg-accent transition-colors">
+                        <Upload className="h-4 w-4" />
+                        {businessProfile?.logoUrl ? "Change Logo" : "Upload Logo"}
+                      </span>
+                    </label>
+                    <p className="text-xs text-muted-foreground mt-1">PNG, JPG, SVG, or WebP. Max 500KB.</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">Your logo appears on the generated website, invoices, and quotes.</p>
               </div>
             </div>
 
@@ -775,6 +769,82 @@ export default function WebsiteBuilder() {
             </div>
 
             <Separator />
+
+            {/* ── Team Photos ── */}
+            {staffMembers && staffMembers.length > 0 && (
+              <>
+                <div className="space-y-4">
+                  <Label className="text-base font-semibold">Team Photos</Label>
+                  <p className="text-xs text-muted-foreground">Upload photos for your team members. These appear in the "Meet the Team" section.</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    {staffMembers.filter((s: any) => s.active !== false).map((staff: any) => (
+                      <div key={staff.id} className="flex items-center gap-3">
+                        {staff.photoUrl ? (
+                          <div className="relative">
+                            <img
+                              src={staff.photoUrl}
+                              alt={`${staff.firstName} ${staff.lastName}`}
+                              className="h-12 w-12 rounded-full object-cover border"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => staffPhotoMutation.mutate({ staffId: staff.id, photoUrl: "" })}
+                              className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="cursor-pointer">
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                if (file.size > 500 * 1024) {
+                                  toast({ title: "File too large", description: "Photo must be under 500KB", variant: "destructive" });
+                                  return;
+                                }
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  const img = new Image();
+                                  img.onload = () => {
+                                    const canvas = document.createElement("canvas");
+                                    const size = 150;
+                                    canvas.width = size;
+                                    canvas.height = size;
+                                    const ctx = canvas.getContext("2d");
+                                    const minDim = Math.min(img.width, img.height);
+                                    const sx = (img.width - minDim) / 2;
+                                    const sy = (img.height - minDim) / 2;
+                                    ctx?.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
+                                    staffPhotoMutation.mutate({ staffId: staff.id, photoUrl: canvas.toDataURL("image/png", 0.9) });
+                                  };
+                                  img.src = reader.result as string;
+                                };
+                                reader.readAsDataURL(file);
+                                e.target.value = "";
+                              }}
+                            />
+                            <div className="h-12 w-12 rounded-full border-2 border-dashed border-muted-foreground/25 flex items-center justify-center hover:border-muted-foreground/50 transition-colors">
+                              <Upload className="h-4 w-4 text-muted-foreground/40" />
+                            </div>
+                          </label>
+                        )}
+                        <div className="text-sm">
+                          <p className="font-medium">{staff.firstName} {staff.lastName}</p>
+                          {staff.specialty && <p className="text-xs text-muted-foreground">{staff.specialty}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <Separator />
+              </>
+            )}
 
             {/* ── Section Toggles ── */}
             <div className="space-y-4">

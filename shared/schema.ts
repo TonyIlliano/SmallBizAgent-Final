@@ -1441,8 +1441,7 @@ export const websites = pgTable("websites", {
   customDomain: text("custom_domain"),
   domainVerified: boolean("domain_verified").default(false),
   websiteSetupRequested: boolean("website_setup_requested").default(false),
-  customizations: jsonb("customizations"), // { accent_color, font_style, hero_headline, hero_image_url, show_staff, show_reviews, show_hours }
-  scanData: jsonb("scan_data"), // Last scan result (business_data object)
+  customizations: jsonb("customizations"), // { accent_color, font_style, hero_headline, hero_subheadline, cta_primary_text, cta_secondary_text, about_text, footer_message, show_staff, show_reviews, show_hours }
   generatedAt: timestamp("generated_at"), // When the site was last generated
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

@@ -1241,7 +1241,6 @@ async function fixExistingTables() {
       domain_verified BOOLEAN DEFAULT false,
       website_setup_requested BOOLEAN DEFAULT false,
       customizations JSONB,
-      scan_data JSONB,
       generated_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -1268,8 +1267,9 @@ async function fixExistingTables() {
   try {
     await pool.query(`ALTER TABLE websites ADD COLUMN IF NOT EXISTS customizations JSONB`);
     await pool.query(`ALTER TABLE websites ADD COLUMN IF NOT EXISTS generated_at TIMESTAMP`);
-    // Drop stitch_prompt if it exists (replaced by OpenAI generation)
+    // Drop stitch_prompt and scan_data if they exist (no longer needed)
     await pool.query(`ALTER TABLE websites DROP COLUMN IF EXISTS stitch_prompt`);
+    await pool.query(`ALTER TABLE websites DROP COLUMN IF EXISTS scan_data`);
   } catch (e: any) {
     if (!e.message.includes('already exists')) console.log('websites migration note:', e.message);
   }

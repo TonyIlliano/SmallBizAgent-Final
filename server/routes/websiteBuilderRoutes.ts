@@ -2,32 +2,19 @@
  * Website Builder Routes
  *
  * Endpoints for:
- * - Part 1: Business scanning + immediate website generation
- * - Part 2: Custom domain management (subdomain, custom, purchase stub)
- * - Part 3: Website CRUD + serving
- * - Part 4: Feature gate checks (plan-based)
- * - Part 5: OpenAI website generation
+ * - Domain management (subdomain, custom, purchase stub)
+ * - Website CRUD + serving
+ * - Feature gate checks (plan-based)
+ * - OpenAI website generation
  */
 
 import type { Express, Request, Response } from "express";
 import { isAuthenticated } from "../middleware/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { scanBusinessUrl, scanBusinessByName } from "../services/businessScannerService";
 import { generateWebsite, type WebsiteCustomizations } from "../services/websiteGenerationService";
 import { getUsageInfo } from "../services/usageService";
 import dns from "dns/promises";
-
-// ─── Validation Schemas ──────────────────────────────────────────────────────
-
-const scanUrlSchema = z.object({
-  url: z.string().url("Valid URL required"),
-});
-
-const scanNameSchema = z.object({
-  business_name: z.string().min(1, "Business name required"),
-  city: z.string().min(1, "City required"),
-});
 
 const customDomainSchema = z.object({
   domain: z.string().min(3, "Domain required").max(253),
@@ -42,7 +29,6 @@ const customizationsSchema = z.object({
   font_style: z.enum(['classic', 'modern', 'bold']).optional(),
   hero_headline: z.string().optional(),
   hero_subheadline: z.string().optional(),
-  hero_image_url: z.string().optional(),
   cta_primary_text: z.string().optional(),
   cta_secondary_text: z.string().optional(),
   about_text: z.string().optional(),
@@ -101,75 +87,7 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
   };
 
   // ─────────────────────────────────────────────────────────
-  // Part 1: Business Scanner → Immediate Site Generation
-  // ─────────────────────────────────────────────────────────
-
-  /**
-   * POST /api/website-builder/scan
-   * Input: { url } OR { business_name, city }
-   * Scans business data, merges with DB profile, then generates site.
-   * Output: { website_id, preview_url, html }
-   */
-  app.post("/api/website-builder/scan", isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const businessId = getBusinessId(req);
-      if (businessId === 0) return res.status(400).json({ error: "No business associated" });
-
-      // Check feature gate
-      const usage = await getUsageInfo(businessId);
-      const features = getWebsiteFeatures(usage.planTier);
-      if (!features.websiteEnabled) {
-        return res.status(403).json({ error: "Website Builder is not available on your current plan" });
-      }
-
-      let scanData;
-
-      // Determine scan type
-      if (req.body.url) {
-        const parsed = scanUrlSchema.safeParse(req.body);
-        if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
-        const result = await scanBusinessUrl(parsed.data.url);
-        scanData = result.businessData;
-      } else if (req.body.business_name && req.body.city) {
-        const parsed = scanNameSchema.safeParse(req.body);
-        if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
-        const result = await scanBusinessByName(parsed.data.business_name, parsed.data.city);
-        scanData = result.businessData;
-      } else {
-        return res.status(400).json({ error: "Provide either { url } or { business_name, city }" });
-      }
-
-      // Save scan data to website record
-      await storage.upsertWebsite(businessId, {
-        scanData: scanData as any,
-      });
-
-      // Get existing customizations
-      const website = await storage.getWebsite(businessId);
-      const customizations = (website?.customizations as WebsiteCustomizations) || undefined;
-
-      // Generate website immediately
-      const result = await generateWebsite(businessId, customizations);
-
-      // Save generated HTML
-      const updatedWebsite = await storage.upsertWebsite(businessId, {
-        htmlContent: result.html,
-        generatedAt: result.generatedAt,
-      });
-
-      res.json({
-        website_id: updatedWebsite.id,
-        preview_url: updatedWebsite.subdomain ? `/sites/${updatedWebsite.subdomain}` : null,
-        html: result.html,
-      });
-    } catch (error: any) {
-      console.error("[WebsiteBuilder] Scan + generate error:", error);
-      res.status(500).json({ error: error.message || "Scan failed" });
-    }
-  });
-
-  // ─────────────────────────────────────────────────────────
-  // Part 5: OpenAI Website Generation
+  // Website Generation (OpenAI)
   // ─────────────────────────────────────────────────────────
 
   /**

@@ -20,7 +20,6 @@ export interface WebsiteCustomizations {
   // Hero section
   hero_headline?: string;      // override auto-generated headline
   hero_subheadline?: string;   // override auto-generated subheadline
-  hero_image_url?: string;     // hero background/banner image
   // CTA buttons
   cta_primary_text?: string;   // default: "Call or Text 24/7"
   cta_secondary_text?: string; // default: "Book Online"
@@ -76,7 +75,6 @@ Customization overrides — apply if provided (these are NON-NEGOTIABLE, use exa
 - font_style bold: heavy weight type, high contrast layout
 - hero_headline: use this exact text as the hero headline
 - hero_subheadline: use this exact text as the hero subheadline/subtitle
-- hero_image_url: use as hero background or banner image
 - cta_primary_text: use this exact text for the primary CTA button (replaces "Call or Text 24/7")
 - cta_secondary_text: use this exact text for the secondary/booking CTA button (replaces "Book Online")
 - about_text: add an "About" section after the hero using this exact paragraph text
@@ -171,7 +169,6 @@ async function buildUserMessage(businessId: number, customizations?: WebsiteCust
   custLines.push(`- Font style: ${cust.font_style || 'classic'}`);
   custLines.push(`- Hero headline override: ${cust.hero_headline || 'null'}`);
   custLines.push(`- Hero subheadline override: ${cust.hero_subheadline || 'null'}`);
-  custLines.push(`- Hero image URL: ${cust.hero_image_url || 'null'}`);
   custLines.push(`- Primary CTA button text: ${cust.cta_primary_text || 'Call or Text 24/7'}`);
   custLines.push(`- Secondary CTA button text: ${cust.cta_secondary_text || 'Book Online'}`);
   custLines.push(`- About text: ${cust.about_text || 'null'}`);

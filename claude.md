@@ -335,8 +335,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `morningBriefService` | Daily 7am email digest per business timezone. Covers calls, bookings, revenue, agent activity, attention items. Skipped if zero activity |
 | `mem0Service` | Persistent AI memory layer via Mem0 cloud. Stores conversational context from calls/events per customer. Enriches recognizeCaller() with memory search. Multi-tenant scoped: `b{businessId}_c{customerId}`. Graceful degradation if API key missing |
 | `agentGraph` | LangGraph.js state machine orchestration. Replaces switch/case dispatcher with proper state graph: check_lock → load_context → route → action → log_result. PostgreSQL checkpointing. Falls back to switch/case if LangGraph unavailable |
-| `businessScannerService` | Scrapes business URLs/Google Business Profiles, extracts structured data via OpenAI. Returns structured business data for website generation |
-| `websiteGenerationService` | Generates complete one-page websites via OpenAI (gpt-5.4-mini). Pulls all business data from DB (hours, services, staff, branding, booking), builds dynamic prompt, returns self-contained HTML with embedded CSS. 15+ vertical design presets. Customization overrides (accent color, font style, hero headline/image, section toggles) |
+| `websiteGenerationService` | Generates complete one-page websites via OpenAI (gpt-5.4-mini). Pulls all business data from DB (hours, services, staff, branding, booking), builds dynamic prompt, returns self-contained HTML with embedded CSS. 15+ vertical design presets. Customization overrides (accent color, font style, hero headline/subheadline, CTA texts, about text, footer message, section toggles) |
 
 ---
 
@@ -402,7 +401,6 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `POST /api/onboarding/express-setup` — One-step business setup (create business, services, hours, provision Twilio+Vapi)
 
 **Website Builder endpoints (websiteBuilderRoutes.ts):**
-- `POST /api/website-builder/scan` — Scan business URL or name+city, extract data via OpenAI, then immediately generate website via OpenAI. Returns `{ website_id, preview_url, html }`
 - `POST /api/website-builder/generate` — Generate website from DB data via OpenAI (gpt-5.4-mini). Accepts optional `{ customizations }`. Returns `{ html, generated_at, preview_url }`
 - `PUT /api/website-builder/customizations` — Save customization preferences without regenerating
 - `GET /api/website-builder/domain` — Get current domain info + feature gates + customizations for UI
@@ -1057,7 +1055,6 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | AI ROI card | `client/src/components/dashboard/AiRoiCard.tsx` |
 | Admin alert service | `server/services/adminAlertService.ts` |
 | Admin digest service | `server/services/adminDigestService.ts` |
-| Business scanner service | `server/services/businessScannerService.ts` |
 | Website generation service | `server/services/websiteGenerationService.ts` |
 | Website builder routes | `server/routes/websiteBuilderRoutes.ts` |
 | Website builder UI | `client/src/pages/website-builder.tsx` |
@@ -1112,4 +1109,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 20, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 62 tables. Website Builder overhaul (uncommitted): Replaced Google Stitch SDK with direct OpenAI generation (gpt-5.4-mini). Business scanner service (scrape URL/Google Business Profile → OpenAI extraction → structured data). Website generation service (OpenAI gpt-5.4-mini with comprehensive system prompt, 15+ vertical design presets, dynamic DB data, booking widget embedding, customization support). Custom domain management (subdomain auto-gen + custom CNAME + DNS verification + purchase stub). Website storage/serving (websites table, /sites/:subdomain public serving, branded 404). Plan-based feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). Customization panel (accent color, font style, hero headline/subheadline/image, CTA button texts, about text, footer message, section toggles). Profile nudges (missing services/staff/hours warnings). New files: websiteGenerationService.ts. Deleted: stitchService.ts. Modified: businessScannerService.ts, websiteBuilderRoutes.ts, website-builder.tsx, schema.ts (websites table: removed stitchPrompt, added customizations + generatedAt). Removed dep: @google/stitch-sdk. Removed env var: STITCH_API_KEY. Website Builder fixes (uncommitted): Booking iframe URL now uses APP_URL dynamically. /sites/ route CSP headers fixed for dashboard preview embedding. Hours nudge fixed (was querying wrong endpoint). Raw HTML editor removed (business owners can't code). Replaced with visual content customization fields: hero subheadline, CTA button texts, about text, footer message. Panel organized into Branding/Hero/CTA/Content/Sections groups.*
+*Last updated: March 20, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 62 tables. Website Builder (uncommitted): OpenAI generation (gpt-5.4-mini) with 15+ vertical design presets, dynamic DB data, booking widget embedding. Custom domain management (subdomain, custom CNAME, DNS verification). Feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). Customization panel (accent color, font style, hero headline/subheadline, CTA button texts, about text, footer message, section toggles). Logo upload + staff photo uploads in website builder. Profile nudges (missing services/staff/hours warnings). Scanner removed (unnecessary — all data comes from DB). hero_image_url removed (logo from business profile used instead). scanData column dropped. Deleted: stitchService.ts, businessScannerService.ts.*
