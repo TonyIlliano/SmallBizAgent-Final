@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -32,6 +33,9 @@ import {
   Palette,
   AlertTriangle,
   ArrowRight,
+  Code,
+  Save,
+  RotateCcw,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -75,6 +79,12 @@ export default function WebsiteBuilder() {
   // Custom domain input
   const [customDomainInput, setCustomDomainInput] = useState("");
 
+  // HTML editor state
+  const [showHtmlEditor, setShowHtmlEditor] = useState(false);
+  const [htmlContent, setHtmlContent] = useState("");
+  const [htmlLoaded, setHtmlLoaded] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
+
   // Customization state
   const [accentColor, setAccentColor] = useState("");
   const [fontStyle, setFontStyle] = useState<"classic" | "modern" | "bold">("classic");
@@ -116,6 +126,12 @@ export default function WebsiteBuilder() {
     setCustomizationsLoaded(true);
   }
 
+  // Load HTML content into editor once
+  if (website?.htmlContent && !htmlLoaded) {
+    setHtmlContent(website.htmlContent);
+    setHtmlLoaded(true);
+  }
+
   // Check what business data is incomplete
   const { data: businessProfile } = useQuery<any>({
     queryKey: ["/api/business/profile"],
@@ -146,12 +162,15 @@ export default function WebsiteBuilder() {
     },
   });
 
+  const businessId = businessProfile?.id;
   const { data: businessHours } = useQuery<any[]>({
-    queryKey: ["/api/business-hours"],
+    queryKey: ["/api/business-hours", businessId],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/business-hours");
+      if (!businessId) return [];
+      const res = await apiRequest("GET", `/api/business/${businessId}/hours`);
       return res.json();
     },
+    enabled: !!businessId,
   });
 
   // ── Mutations ──
@@ -162,6 +181,8 @@ export default function WebsiteBuilder() {
       return res.json();
     },
     onSuccess: () => {
+      setHtmlLoaded(false); // reload editor content
+      setPreviewKey(k => k + 1); // refresh preview iframe
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
       toast({ title: "Site generated", description: "Your website has been created and is now live" });
@@ -179,6 +200,8 @@ export default function WebsiteBuilder() {
       return res.json();
     },
     onSuccess: () => {
+      setHtmlLoaded(false); // reload editor content
+      setPreviewKey(k => k + 1); // refresh preview iframe
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
       toast({ title: "Website generated", description: "Your site has been updated and is now live" });
@@ -231,6 +254,22 @@ export default function WebsiteBuilder() {
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const saveHtmlMutation = useMutation({
+    mutationFn: async (html: string) => {
+      const res = await apiRequest("PUT", "/api/website-builder/site", { html_content: html });
+      return res.json();
+    },
+    onSuccess: () => {
+      setPreviewKey(k => k + 1); // refresh preview iframe
+      queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
+      toast({ title: "Saved", description: "Your website changes have been saved and are now live" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Save failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -287,15 +326,15 @@ export default function WebsiteBuilder() {
   const hasHtml = domainInfo?.hasHtml;
   const isGenerating = scanMutation.isPending || generateMutation.isPending;
 
-  // Compute incomplete profile nudges
+  // Compute incomplete profile nudges (only show after data has loaded)
   const nudges: Array<{ message: string; link: string; linkText: string }> = [];
-  if (!services || services.length === 0) {
+  if (services !== undefined && services.length === 0) {
     nudges.push({ message: "Add your services in Settings to include them on your site", link: "/settings?tab=services", linkText: "Add Services" });
   }
-  if (!businessHours || businessHours.length === 0) {
+  if (businessId && businessHours !== undefined && businessHours.length === 0) {
     nudges.push({ message: "Add your hours in Settings to display them on your site", link: "/settings?tab=hours", linkText: "Add Hours" });
   }
-  if (!staffMembers || staffMembers.length === 0) {
+  if (staffMembers !== undefined && staffMembers.length === 0) {
     nudges.push({ message: "Add your team in Settings to feature them on your site", link: "/settings?tab=staff", linkText: "Add Staff" });
   }
   if (businessProfile && !businessProfile.bookingEnabled) {
@@ -364,6 +403,7 @@ export default function WebsiteBuilder() {
             {hasHtml && domainInfo?.subdomain ? (
               <div className="border rounded-lg overflow-hidden bg-white">
                 <iframe
+                  key={previewKey}
                   src={`/sites/${domainInfo.subdomain}`}
                   width="100%"
                   height="500"
@@ -399,6 +439,78 @@ export default function WebsiteBuilder() {
             )}
           </CardContent>
         </Card>
+
+        {/* ── HTML Editor ── */}
+        {hasHtml && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Code className="h-5 w-5" />
+                    Edit HTML
+                  </CardTitle>
+                  <CardDescription>
+                    Make direct changes to your website's HTML code
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (!showHtmlEditor && website?.htmlContent) {
+                      setHtmlContent(website.htmlContent);
+                    }
+                    setShowHtmlEditor(!showHtmlEditor);
+                  }}
+                  className="gap-1"
+                >
+                  <Code className="h-3 w-3" />
+                  {showHtmlEditor ? "Hide Editor" : "Show Editor"}
+                </Button>
+              </div>
+            </CardHeader>
+            {showHtmlEditor && (
+              <CardContent className="space-y-4">
+                <Textarea
+                  value={htmlContent}
+                  onChange={(e) => setHtmlContent(e.target.value)}
+                  className="font-mono text-xs min-h-[400px] leading-relaxed"
+                  placeholder="HTML content..."
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (website?.htmlContent) {
+                        setHtmlContent(website.htmlContent);
+                        toast({ title: "Reverted", description: "Editor reset to saved version" });
+                      }
+                    }}
+                    className="gap-1"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Revert
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => saveHtmlMutation.mutate(htmlContent)}
+                    disabled={saveHtmlMutation.isPending || htmlContent === website?.htmlContent}
+                    className="gap-1"
+                  >
+                    {saveHtmlMutation.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Save className="h-3 w-3" />
+                    )}
+                    Save Changes
+                  </Button>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        )}
 
         {/* ── Domain Section ── */}
         <Card>

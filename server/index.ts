@@ -145,6 +145,13 @@ app.use('/book', (_req, res, next) => {
   next();
 });
 
+// Allow generated websites to be previewed in dashboard iframe and embed booking
+app.use('/sites', (_req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https: http://localhost:*");
+  next();
+});
+
 // CORS - Configure allowed origins
 // In production, BASE_URL / APP_URL should be set to your Railway custom domain
 // localhost entries only used in development (see CORS handler below)

@@ -48,7 +48,8 @@ Booking widget rules:
 - If booking_enabled is true and booking_slug is provided:
   - Add a "Book Online" section between Services and Hours
   - Embed the booking widget using this exact iframe:
-    <iframe src="https://smallbizagent.ai/book/{booking_slug}" width="100%" height="650px" frameborder="0" style="border-radius:12px; border: none;"></iframe>
+    <iframe src="{booking_url}" width="100%" height="650px" frameborder="0" style="border-radius:12px; border: none;"></iframe>
+  - The booking_url will be provided in the user message — use it exactly as given
   - Add "Book Online" as a secondary CTA button in the hero and nav alongside the phone CTA
   - Phone CTA is always primary: "Call or Text 24/7"
   - Booking CTA is secondary: "Book Online"
@@ -177,6 +178,7 @@ Brand Primary Color: ${business.brandColor || 'null'}
 Booking:
 - Booking Enabled: ${business.bookingEnabled || false}
 - Booking Slug: ${business.bookingSlug || 'null'}
+- Booking URL: ${business.bookingEnabled && business.bookingSlug ? `${process.env.APP_URL || 'https://smallbizagent.ai'}/book/${business.bookingSlug}` : 'null'}
 
 Hours (from DB — actual stored values):
 ${hoursLines.length > 0 ? hoursLines.join('\n') : 'No hours set — omit hours section'}
