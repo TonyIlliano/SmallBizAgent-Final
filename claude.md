@@ -554,6 +554,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 | Commit | Change |
 |--------|--------|
+| `d37ba5b` | Add logout button to mobile bottom nav |
+| `87e86d4` | 4x faster recognizeCaller: single parallel batch (~150ms vs ~600ms) |
 | `c3665e4` | Add platform messages to admin + scope business messages to customers only |
 | `367b565` | Add message log to AI Agents: full SMS visibility for business owners |
 | `842052c` | Industry-aware morning brief + full schema sync + query optimization |
@@ -674,6 +676,14 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `client/src/pages/admin/index.tsx` — **NEW**: MRR Forecast card in Revenue tab. Table showing month, pessimistic, projected, optimistic columns. Shows monthly growth rate % and methodology. Placed between MRR trend and Plan Distribution.
 
 ### Recent changes (committed):
+
+#### Logout Button on Mobile Bottom Nav
+- **Goal**: Make logout easily accessible on mobile without navigating through the sidebar.
+- `client/src/components/BottomNav.tsx` — Replaced the "More" tab (which opened the sidebar) with a "Logout" tab using `LogOut` icon. Tapping it calls the logout mutation, shows a spinner while processing, and redirects to `/auth`. The sidebar remains accessible from the hamburger icon in the top header.
+
+#### 4x Faster recognizeCaller (~150ms vs ~600ms)
+- **Goal**: Reduce Vapi call startup latency by batching all recognizeCaller DB queries into a single parallel `Promise.all`.
+- `server/services/vapiWebhookHandler.ts` — Consolidated sequential DB lookups (customer, business, appointments, services, insights, intelligence, Mem0 memory) into a single `Promise.all` batch. Reduced recognizeCaller execution time from ~600ms to ~150ms. All data still returned in the same response shape.
 
 #### Admin Dashboard: Business Controls, User Management, Live Monitoring
 - **Goal**: Give the platform owner full control over businesses and users from the admin dashboard, plus real-time alerting for platform health.
@@ -1027,4 +1037,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 19, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 61 tables. Admin power tools (uncommitted): Slack/email alerts for critical events (payment failures, trial expirations, provisioning failures, high churn risk), business impersonation ("View as"), quick-action buttons on alerts (Re-provision, Extend Trial, Contact Owner), daily admin digest email (8am ET), full admin audit log with searchable tab, MRR revenue forecasting (3-month linear regression). New env vars: SLACK_WEBHOOK_URL, ADMIN_TIMEZONE. New files: adminAlertService.ts, adminDigestService.ts. All AI models upgraded from gpt-4o-mini/gpt-5-mini to gpt-5.4-mini across 10 service files (12 locations). Vapi: Deepgram nova-2 English STT, ElevenLabs opt level 3, gpt-5.4-mini.*
+*Last updated: March 19, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 61 tables. Recent: Logout button added to mobile bottom nav (replaces "More" tab, sidebar still via hamburger). 4x faster recognizeCaller (~150ms via single Promise.all batch). Admin power tools (uncommitted): Slack/email alerts for critical events (payment failures, trial expirations, provisioning failures, high churn risk), business impersonation ("View as"), quick-action buttons on alerts (Re-provision, Extend Trial, Contact Owner), daily admin digest email (8am ET), full admin audit log with searchable tab, MRR revenue forecasting (3-month linear regression). New env vars: SLACK_WEBHOOK_URL, ADMIN_TIMEZONE. New files: adminAlertService.ts, adminDigestService.ts. All AI models upgraded from gpt-4o-mini/gpt-5-mini to gpt-5.4-mini across 10 service files (12 locations). Vapi: Deepgram nova-2 English STT, ElevenLabs opt level 3, gpt-5.4-mini.*
