@@ -364,19 +364,27 @@ export class GoogleBusinessProfileService {
         return [];
       }
 
-      console.log(`[GBP] listAccounts: fetching accounts for business ${businessId}`);
+      // Log token prefix to verify it's not null/malformed
+      const creds = oauth2Client.credentials;
+      const tokenPreview = creds.access_token ? creds.access_token.substring(0, 20) + '...' : 'NULL';
+      console.log(`[GBP] listAccounts: fetching accounts for business ${businessId}, token prefix=${tokenPreview}`);
       let accounts: GBPAccount[] = [];
 
-      // Use raw HTTP request to ensure we hit the correct endpoint directly.
-      // The googleapis discovery client can sometimes fail silently.
+      // Strategy: try 3 endpoints in order of preference:
+      // 1. v1 Account Management API (current/recommended)
+      // 2. v4 legacy API (deprecated but still functional — works when v1 has 0 quota)
+      // 3. Wildcard locations (bypasses accounts entirely)
+
+      // ── Attempt 1: v1 Account Management API ──
       try {
+        console.log(`[GBP] listAccounts attempt 1: v1 mybusinessaccountmanagement API`);
         const response = await oauth2Client.request({
           url: 'https://mybusinessaccountmanagement.googleapis.com/v1/accounts',
           method: 'GET',
         });
 
         const data = response.data as any;
-        console.log(`[GBP] listAccounts raw response for business ${businessId}: status=${response.status}, data=${JSON.stringify(data).substring(0, 500)}`);
+        console.log(`[GBP] listAccounts v1 response for business ${businessId}: status=${response.status}, data=${JSON.stringify(data).substring(0, 500)}`);
 
         accounts = (data.accounts || []).map((account: any) => ({
           name: account.name || '',
@@ -385,17 +393,42 @@ export class GoogleBusinessProfileService {
           role: account.role || '',
         }));
       } catch (accountsErr: any) {
-        console.error(`[GBP] accounts.list failed for business ${businessId}: ${accountsErr?.message || accountsErr}, code=${accountsErr?.code}, status=${accountsErr?.response?.status}, responseData=${JSON.stringify(accountsErr?.response?.data || {}).substring(0, 500)}`);
-        // Don't throw yet — try wildcard fallback below
+        console.error(`[GBP] v1 accounts.list failed for business ${businessId}: ${accountsErr?.message || accountsErr}, code=${accountsErr?.code}, status=${accountsErr?.response?.status}, responseData=${JSON.stringify(accountsErr?.response?.data || {}).substring(0, 500)}`);
       }
 
-      // If accounts.list returned empty, try the wildcard endpoint to find locations directly.
-      // This handles cases where:
-      // - My Business Account Management API has 0 quota (not approved separately)
-      // - Business is in an organization account structure
-      // - Account hierarchy doesn't expose accounts via accounts.list
+      // ── Attempt 2: v4 legacy API (deprecated but still works) ──
+      // The v1 Account Management API can return empty when quota = 0 (requires separate approval).
+      // The v4 API is deprecated but still functional and doesn't have this restriction.
       if (accounts.length === 0) {
-        console.log(`[GBP] listAccounts: 0 accounts found, trying wildcard locations endpoint (accounts/-/locations)`);
+        try {
+          console.log(`[GBP] listAccounts attempt 2: v4 legacy mybusiness API (deprecated fallback)`);
+          const v4Response = await oauth2Client.request({
+            url: 'https://mybusiness.googleapis.com/v4/accounts',
+            method: 'GET',
+          });
+
+          const v4Data = v4Response.data as any;
+          console.log(`[GBP] listAccounts v4 response for business ${businessId}: status=${v4Response.status}, data=${JSON.stringify(v4Data).substring(0, 500)}`);
+
+          accounts = (v4Data.accounts || []).map((account: any) => ({
+            name: account.name || '',
+            accountName: account.accountName || account.name || '',
+            type: account.type || '',
+            role: account.role || '',
+          }));
+
+          if (accounts.length > 0) {
+            console.log(`[GBP] v4 legacy API returned ${accounts.length} accounts for business ${businessId} (v1 returned empty)`);
+          }
+        } catch (v4Err: any) {
+          console.error(`[GBP] v4 accounts.list also failed for business ${businessId}: ${v4Err?.message || v4Err}, code=${v4Err?.code}, status=${v4Err?.response?.status}, responseData=${JSON.stringify(v4Err?.response?.data || {}).substring(0, 500)}`);
+        }
+      }
+
+      // ── Attempt 3: Wildcard locations endpoint ──
+      // Bypasses accounts entirely — finds locations directly regardless of account hierarchy.
+      if (accounts.length === 0) {
+        console.log(`[GBP] listAccounts attempt 3: wildcard locations endpoint (accounts/-/locations)`);
         try {
           const locResponse = await oauth2Client.request({
             url: 'https://mybusinessbusinessinformation.googleapis.com/v1/accounts/-/locations?readMask=name,title',
