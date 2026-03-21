@@ -21,8 +21,15 @@ import {
   Loader2, RefreshCw, Star, MessageSquare, FileText, BarChart3,
   ExternalLink, CheckCircle2, XCircle, AlertTriangle, ArrowUpRight,
   ArrowDownLeft, Flag, Send, Sparkles, Globe, MapPin, Phone, Clock,
-  Building2, Unlink, ChevronLeft, ChevronRight,
+  Building2, Unlink, ChevronLeft, ChevronRight, Settings, Info,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Link } from "wouter";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +48,18 @@ interface BusinessInfo {
   info: Record<string, any> | null;
   conflicts: { field: string; localValue: string | null; gbpValue: string | null; detectedAt: string }[];
   cached: boolean;
+  autoPopulated?: string[];
+  localBusiness?: {
+    name: string | null;
+    phone: string | null;
+    website: string | null;
+    description: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+  } | null;
+  hasLocalHours?: boolean;
 }
 
 interface ReviewsResponse {
@@ -241,9 +260,17 @@ function OverviewTab({ businessId, status, onDisconnect }: { businessId: number;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/gbp"] });
+      const parts: string[] = [];
+      if (data.autoPopulated?.length > 0) {
+        parts.push(`${data.autoPopulated.length} field${data.autoPopulated.length !== 1 ? "s" : ""} imported from Google`);
+      }
+      parts.push(`${data.reviewsSynced} reviews synced`);
+      if (data.conflicts?.length > 0) {
+        parts.push(`${data.conflicts.length} conflict${data.conflicts.length !== 1 ? "s" : ""} detected`);
+      }
       toast({
         title: "Sync Complete",
-        description: `${data.reviewsSynced} reviews synced, ${data.conflicts?.length || 0} conflicts detected.`,
+        description: parts.join(", ") + ".",
       });
     },
     onError: (error: Error) => {
@@ -426,48 +453,92 @@ function BusinessInfoTab({ businessId }: { businessId: number }) {
 
   const conflicts = data?.conflicts || [];
   const info = data?.info;
+  const local = data?.localBusiness;
+  const hasLocalHours = data?.hasLocalHours || false;
+
+  // Build local address string
+  const localAddress = [local?.address, local?.city, local?.state, local?.zip].filter(Boolean).join(", ");
 
   const fields = [
-    { key: "phone", label: "Phone", icon: Phone, localValue: "From your profile", gbpValue: info?.phone },
-    { key: "website", label: "Website", icon: Globe, localValue: "From your profile", gbpValue: info?.websiteUri },
-    { key: "description", label: "Description", icon: FileText, localValue: "From your profile", gbpValue: info?.description },
-    { key: "address", label: "Address", icon: MapPin, localValue: "From your profile", gbpValue: info?.address?.addressLines?.join(", ") },
-    { key: "hours", label: "Business Hours", icon: Clock, localValue: "From your settings", gbpValue: info?.regularHours ? "Set on Google" : "Not set" },
+    { key: "phone", label: "Phone", icon: Phone, localValue: local?.phone || null, gbpValue: info?.phone || null, settingsTab: "profile" },
+    { key: "website", label: "Website", icon: Globe, localValue: local?.website || null, gbpValue: info?.websiteUri || null, settingsTab: "profile" },
+    { key: "description", label: "Description", icon: FileText, localValue: local?.description || null, gbpValue: info?.description || null, settingsTab: "profile" },
+    { key: "address", label: "Address", icon: MapPin, localValue: localAddress || null, gbpValue: info?.address?.addressLines?.join(", ") || null, settingsTab: "profile" },
+    { key: "hours", label: "Business Hours", icon: Clock, localValue: hasLocalHours ? "Set" : null, gbpValue: info?.regularHours ? "Set on Google" : null, settingsTab: "hours" },
   ];
+
+  // Count "Not Set" fields (where local value is empty)
+  const notSetFields = fields.filter(f => !f.localValue);
+  const pushableFields = fields.filter(f => !!f.localValue && !conflicts.find(c => c.field === f.key));
 
   return (
     <div className="space-y-4 mt-4">
+      {/* Incomplete profile banner */}
+      {notSetFields.length >= 2 && (
+        <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
+          <Info className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-blue-800 dark:text-blue-200 flex items-center justify-between flex-wrap gap-3">
+            <span>
+              <strong>{notSetFields.length} field{notSetFields.length !== 1 ? "s" : ""}</strong> in your profile
+              {notSetFields.length === 5 ? " are" : notSetFields.length === 1 ? " is" : " are"} not set.
+              Complete your profile to improve your Google ranking and push data to your listing.
+            </span>
+            <Link href="/settings?tab=profile">
+              <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/30">
+                <Settings className="h-3.5 w-3.5 mr-1.5" />
+                Complete Your Profile
+              </Button>
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Business Information</h3>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => pushMutation.mutate(["phone", "website", "description", "address", "hours"])}
-          disabled={pushMutation.isPending}
-        >
-          {pushMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowUpRight className="h-4 w-4 mr-2" />}
-          Push All to Google
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => pushMutation.mutate(pushableFields.map(f => f.key))}
+                  disabled={pushMutation.isPending || pushableFields.length === 0}
+                >
+                  {pushMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowUpRight className="h-4 w-4 mr-2" />}
+                  Push All to Google
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {pushableFields.length === 0 && (
+              <TooltipContent>
+                <p>No fields to push. Add your business info in Settings first.</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
-      {fields.map(({ key, label, icon: Icon, gbpValue }) => {
+      {fields.map(({ key, label, icon: Icon, localValue, gbpValue, settingsTab }) => {
         const conflict = conflicts.find(c => c.field === key);
-        const status = conflict ? "conflict" : gbpValue ? "synced" : "not_set";
+        const isLocalEmpty = !localValue;
+        const status = conflict ? "conflict" : (localValue || gbpValue) ? "synced" : "not_set";
+        const displayStatus = isLocalEmpty && !conflict ? "not_set" : status;
 
         return (
           <Card key={key} className={`border-border bg-card ${conflict ? "border-amber-300 dark:border-amber-700" : ""}`}>
             <CardContent className="pt-4 pb-4">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className={`p-2 rounded-full mt-0.5 ${status === "conflict" ? "bg-amber-100 dark:bg-amber-900/30" : status === "synced" ? "bg-green-100 dark:bg-green-900/30" : "bg-gray-100 dark:bg-gray-900/30"}`}>
-                    <Icon className={`h-4 w-4 ${status === "conflict" ? "text-amber-600" : status === "synced" ? "text-green-600" : "text-gray-400"}`} />
+                  <div className={`p-2 rounded-full mt-0.5 ${displayStatus === "conflict" ? "bg-amber-100 dark:bg-amber-900/30" : displayStatus === "synced" ? "bg-green-100 dark:bg-green-900/30" : "bg-gray-100 dark:bg-gray-900/30"}`}>
+                    <Icon className={`h-4 w-4 ${displayStatus === "conflict" ? "text-amber-600" : displayStatus === "synced" ? "text-green-600" : "text-gray-400"}`} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="font-medium">{label}</p>
-                      {status === "synced" && <Badge variant="outline" className="text-green-600 border-green-200 text-xs">In Sync</Badge>}
-                      {status === "conflict" && <Badge variant="outline" className="text-amber-600 border-amber-200 text-xs">Conflict</Badge>}
-                      {status === "not_set" && <Badge variant="outline" className="text-gray-400 text-xs">Not Set</Badge>}
+                      {displayStatus === "synced" && <Badge variant="outline" className="text-green-600 border-green-200 text-xs">In Sync</Badge>}
+                      {displayStatus === "conflict" && <Badge variant="outline" className="text-amber-600 border-amber-200 text-xs">Conflict</Badge>}
+                      {displayStatus === "not_set" && <Badge variant="outline" className="text-gray-400 text-xs">Not Set</Badge>}
                     </div>
                     {conflict && (
                       <div className="mt-2 space-y-1 text-sm">
@@ -475,8 +546,16 @@ function BusinessInfoTab({ businessId }: { businessId: number }) {
                         <p><span className="text-muted-foreground">Google:</span> {conflict.gbpValue || "—"}</p>
                       </div>
                     )}
-                    {!conflict && gbpValue && (
-                      <p className="text-sm text-muted-foreground mt-1 truncate">{String(gbpValue)}</p>
+                    {!conflict && localValue && key !== "hours" && (
+                      <p className="text-sm text-muted-foreground mt-1 truncate">{String(localValue)}</p>
+                    )}
+                    {!conflict && key === "hours" && localValue && (
+                      <p className="text-sm text-muted-foreground mt-1">Hours configured in SmallBizAgent</p>
+                    )}
+                    {!conflict && isLocalEmpty && gbpValue && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Available on Google: <span className="italic">{key === "hours" ? "Hours set on Google" : String(gbpValue).substring(0, 80)}{String(gbpValue).length > 80 ? "..." : ""}</span>
+                      </p>
                     )}
                   </div>
                 </div>
@@ -503,7 +582,7 @@ function BusinessInfoTab({ businessId }: { businessId: number }) {
                       </Button>
                     </>
                   )}
-                  {!conflict && (
+                  {!conflict && !isLocalEmpty && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -513,6 +592,25 @@ function BusinessInfoTab({ businessId }: { businessId: number }) {
                       <ArrowUpRight className="h-3 w-3 mr-1" />
                       Push
                     </Button>
+                  )}
+                  {!conflict && isLocalEmpty && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Link href={`/settings?tab=${settingsTab}`}>
+                              <Button variant="outline" size="sm" className="text-muted-foreground">
+                                <Settings className="h-3 w-3 mr-1" />
+                                Add in Settings
+                              </Button>
+                            </Link>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Add this field in your business Settings before pushing to Google.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
                 </div>
               </div>

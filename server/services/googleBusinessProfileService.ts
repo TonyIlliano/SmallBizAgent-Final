@@ -843,6 +843,10 @@ export class GoogleBusinessProfileService {
       for (const field of fields) {
         switch (field) {
           case 'phone': {
+            if (!business.phone) {
+              console.log(`[GBP] Skipping push of empty phone for business ${businessId}`);
+              break;
+            }
             requestBody.phoneNumbers = { primaryPhone: business.phone };
             updateMaskParts.push('phoneNumbers');
             break;
@@ -852,18 +856,30 @@ export class GoogleBusinessProfileService {
             const siteUrl = website?.subdomain
               ? `${process.env.APP_URL || 'https://smallbizagent.ai'}/sites/${website.subdomain}`
               : business.website;
+            if (!siteUrl) {
+              console.log(`[GBP] Skipping push of empty website for business ${businessId}`);
+              break;
+            }
             requestBody.websiteUri = siteUrl;
             updateMaskParts.push('websiteUri');
             break;
           }
           case 'description': {
+            if (!business.description) {
+              console.log(`[GBP] Skipping push of empty description for business ${businessId}`);
+              break;
+            }
             requestBody.profile = { description: business.description };
             updateMaskParts.push('profile');
             break;
           }
           case 'address': {
+            if (!business.address) {
+              console.log(`[GBP] Skipping push of empty address for business ${businessId}`);
+              break;
+            }
             requestBody.storefrontAddress = {
-              addressLines: business.address ? [business.address] : [],
+              addressLines: [business.address],
               locality: business.city || '',
               administrativeArea: business.state || '',
               postalCode: business.zip || '',
@@ -889,6 +905,8 @@ export class GoogleBusinessProfileService {
                 }));
               requestBody.regularHours = { periods };
               updateMaskParts.push('regularHours');
+            } else {
+              console.log(`[GBP] Skipping push of empty hours for business ${businessId}`);
             }
             break;
           }
@@ -921,31 +939,105 @@ export class GoogleBusinessProfileService {
   }
 
   /**
-   * Full sync: pull from GBP → compare with local DB → detect conflicts → cache.
+   * Full sync: pull from GBP → auto-populate empty local fields → detect conflicts → cache.
+   * When a local field is empty and GBP has data, the GBP value is written directly to the local DB.
+   * When both sides have data that differs, a conflict is created for the user to resolve.
    */
-  async syncBusinessData(businessId: number): Promise<{ conflicts: GBPFieldConflict[]; info: GBPBusinessInfo | null }> {
+  async syncBusinessData(businessId: number): Promise<{ conflicts: GBPFieldConflict[]; info: GBPBusinessInfo | null; autoPopulated: string[] }> {
     try {
       const gbpInfo = await this.getBusinessInfo(businessId);
-      if (!gbpInfo) return { conflicts: [], info: null };
+      if (!gbpInfo) return { conflicts: [], info: null, autoPopulated: [] };
 
       const business = await storage.getBusiness(businessId);
-      if (!business) return { conflicts: [], info: gbpInfo };
+      if (!business) return { conflicts: [], info: gbpInfo, autoPopulated: [] };
 
       const conflicts: GBPFieldConflict[] = [];
+      const autoPopulated: string[] = [];
       const now = new Date().toISOString();
+      const updates: Record<string, any> = {};
 
-      // Compare fields
-      if (gbpInfo.phone && business.phone && gbpInfo.phone !== business.phone) {
-        conflicts.push({ field: 'phone', localValue: business.phone, gbpValue: gbpInfo.phone, detectedAt: now });
+      // ── Phone ──
+      if (gbpInfo.phone) {
+        if (!business.phone) {
+          updates.phone = gbpInfo.phone;
+          autoPopulated.push('phone');
+        } else if (gbpInfo.phone !== business.phone) {
+          conflicts.push({ field: 'phone', localValue: business.phone, gbpValue: gbpInfo.phone, detectedAt: now });
+        }
       }
-      if (gbpInfo.name && business.name && gbpInfo.name !== business.name) {
-        conflicts.push({ field: 'name', localValue: business.name, gbpValue: gbpInfo.name, detectedAt: now });
+
+      // ── Business Name ──
+      if (gbpInfo.name) {
+        if (!business.name) {
+          updates.name = gbpInfo.name;
+          autoPopulated.push('name');
+        } else if (gbpInfo.name !== business.name) {
+          conflicts.push({ field: 'name', localValue: business.name, gbpValue: gbpInfo.name, detectedAt: now });
+        }
       }
-      if (gbpInfo.websiteUri && business.website && gbpInfo.websiteUri !== business.website) {
-        conflicts.push({ field: 'website', localValue: business.website, gbpValue: gbpInfo.websiteUri, detectedAt: now });
+
+      // ── Website ──
+      if (gbpInfo.websiteUri) {
+        if (!business.website) {
+          updates.website = gbpInfo.websiteUri;
+          autoPopulated.push('website');
+        } else if (gbpInfo.websiteUri !== business.website) {
+          conflicts.push({ field: 'website', localValue: business.website, gbpValue: gbpInfo.websiteUri, detectedAt: now });
+        }
       }
-      if (gbpInfo.description && business.description && gbpInfo.description !== business.description) {
-        conflicts.push({ field: 'description', localValue: business.description, gbpValue: gbpInfo.description, detectedAt: now });
+
+      // ── Description ──
+      if (gbpInfo.description) {
+        if (!business.description) {
+          updates.description = gbpInfo.description;
+          autoPopulated.push('description');
+        } else if (gbpInfo.description !== business.description) {
+          conflicts.push({ field: 'description', localValue: business.description, gbpValue: gbpInfo.description, detectedAt: now });
+        }
+      }
+
+      // ── Address (populate city/state/zip from GBP structured address) ──
+      if (gbpInfo.address) {
+        const gbpAddress = gbpInfo.address;
+        const addressLines = gbpAddress.addressLines || [];
+        const gbpStreet = addressLines.join(', ');
+        const gbpCity = gbpAddress.locality || '';
+        const gbpState = gbpAddress.administrativeArea || '';
+        const gbpZip = gbpAddress.postalCode || '';
+
+        if (gbpStreet && !business.address) {
+          updates.address = gbpStreet;
+          autoPopulated.push('address');
+        }
+        if (gbpCity && !business.city) {
+          updates.city = gbpCity;
+        }
+        if (gbpState && !business.state) {
+          updates.state = gbpState;
+        }
+        if (gbpZip && !business.zip) {
+          updates.zip = gbpZip;
+        }
+      }
+
+      // ── Auto-populate: write GBP data to local business profile ──
+      if (Object.keys(updates).length > 0) {
+        await storage.updateBusiness(businessId, updates);
+        console.log(`[GBP] Auto-populated fields for business ${businessId}: ${autoPopulated.join(', ')} (+ city/state/zip if empty)`);
+      }
+
+      // ── Auto-populate hours if local has none ──
+      if (gbpInfo.regularHours?.periods?.length > 0) {
+        const localHours = await storage.getBusinessHours(businessId);
+        if (localHours.length === 0) {
+          try {
+            await this.importGbpHours(businessId, gbpInfo.regularHours.periods);
+            autoPopulated.push('hours');
+            console.log(`[GBP] Auto-populated business hours for business ${businessId}`);
+          } catch (hoursErr: any) {
+            console.error(`[GBP] Error importing hours for business ${businessId}:`, hoursErr?.message || hoursErr);
+          }
+        }
       }
 
       // Cache results in stored data
@@ -963,11 +1055,52 @@ export class GoogleBusinessProfileService {
         .set({ gbpLastSyncedAt: new Date() })
         .where(eq(businesses.id, businessId));
 
-      console.log(`[GBP] Synced business data for ${businessId}: ${conflicts.length} conflicts`);
-      return { conflicts, info: gbpInfo };
+      console.log(`[GBP] Synced business data for ${businessId}: ${conflicts.length} conflicts, ${autoPopulated.length} auto-populated`);
+      return { conflicts, info: gbpInfo, autoPopulated };
     } catch (error: any) {
       console.error('[GBP] Error syncing business data:', error?.message || error);
-      return { conflicts: [], info: null };
+      return { conflicts: [], info: null, autoPopulated: [] };
+    }
+  }
+
+  /**
+   * Import GBP hours into local business_hours table.
+   * Maps GBP period format (openDay/openTime/closeDay/closeTime) to local format (day/open/close).
+   */
+  private async importGbpHours(businessId: number, periods: any[]): Promise<void> {
+    const dayMap: Record<string, string> = {
+      MONDAY: 'monday', TUESDAY: 'tuesday', WEDNESDAY: 'wednesday',
+      THURSDAY: 'thursday', FRIDAY: 'friday', SATURDAY: 'saturday', SUNDAY: 'sunday',
+    };
+
+    // Group periods by day
+    const hoursByDay = new Map<string, { open: string; close: string }>();
+    for (const period of periods) {
+      const day = dayMap[period.openDay] || period.openDay?.toLowerCase();
+      if (!day) continue;
+
+      // GBP hours format: { hours: 9, minutes: 0 } or "09:00"
+      const openTime = typeof period.openTime === 'string'
+        ? period.openTime
+        : `${String(period.openTime?.hours || 0).padStart(2, '0')}:${String(period.openTime?.minutes || 0).padStart(2, '0')}`;
+      const closeTime = typeof period.closeTime === 'string'
+        ? period.closeTime
+        : `${String(period.closeTime?.hours || 0).padStart(2, '0')}:${String(period.closeTime?.minutes || 0).padStart(2, '0')}`;
+
+      hoursByDay.set(day, { open: openTime, close: closeTime });
+    }
+
+    // Insert hours for all 7 days
+    const allDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    for (const day of allDays) {
+      const hours = hoursByDay.get(day);
+      await storage.createBusinessHours({
+        businessId,
+        day,
+        open: hours?.open || '09:00',
+        close: hours?.close || '17:00',
+        isClosed: !hours, // If GBP has no period for this day, mark as closed
+      });
     }
   }
 

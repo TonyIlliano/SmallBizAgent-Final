@@ -58,6 +58,44 @@ router.get('/google/callback', async (req, res) => {
 
     await gbpService.handleCallback(code, state);
 
+    // Fire-and-forget: auto-select location if only one, then run initial sync
+    const businessId = parseInt(state);
+    if (!isNaN(businessId)) {
+      (async () => {
+        try {
+          // Small delay to ensure token is fully persisted before syncing
+          await new Promise(resolve => setTimeout(resolve, 1500));
+
+          // Try to auto-select the first account/location if there's only one
+          const storedData = await gbpService.getStoredData(businessId);
+          if (!storedData?.selectedLocation) {
+            try {
+              const accounts = await gbpService.listAccounts(businessId);
+              if (accounts.length === 1) {
+                const locations = await gbpService.listLocations(businessId, accounts[0].name);
+                if (locations.length === 1) {
+                  await gbpService.saveSelectedLocation(businessId, accounts[0], locations[0]);
+                  console.log(`[GBP] Auto-selected location "${locations[0].title}" for business ${businessId}`);
+                }
+              }
+            } catch (autoSelectErr: any) {
+              console.error(`[GBP] Auto-select location error:`, autoSelectErr?.message || autoSelectErr);
+            }
+          }
+
+          // Now try syncing (will only work if a location is selected)
+          const result = await gbpService.syncBusinessData(businessId);
+          if (result.info) {
+            console.log(`[GBP] Initial sync after connect for business ${businessId}: ${result.autoPopulated.length} fields auto-populated, ${result.conflicts.length} conflicts`);
+          }
+          // Also sync reviews on initial connect
+          await gbpService.syncReviews(businessId);
+        } catch (syncErr: any) {
+          console.error(`[GBP] Initial sync error for business ${businessId}:`, syncErr?.message || syncErr);
+        }
+      })();
+    }
+
     res.send(`
       <html>
         <body style="font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb;">
@@ -153,6 +191,11 @@ router.post('/set-booking-link/:businessId', isAuthenticated, async (req, res) =
 
     // Save selected account/location and booking link name
     await gbpService.saveSelectedLocation(businessId, account, location, placeActionLink.name);
+
+    // Fire-and-forget: sync business data now that a location is selected
+    gbpService.syncBusinessData(businessId).catch((err: any) => {
+      console.error(`[GBP] Post-location-select sync error:`, err?.message || err);
+    });
 
     res.json({ success: true, placeActionLink, bookingUrl });
   } catch (error: any) {
@@ -321,6 +364,7 @@ router.post('/sync/:businessId', isAuthenticated, async (req, res) => {
       success: true,
       conflicts: syncResult.conflicts,
       businessInfo: syncResult.info,
+      autoPopulated: syncResult.autoPopulated,
       reviewsSynced: reviewResult.synced,
       reviewsFlagged: reviewResult.flagged,
     });
@@ -339,17 +383,45 @@ router.get('/business-info/:businessId', isAuthenticated, async (req, res) => {
 
     // Return cached if available and fresh (< 1 hour), otherwise fetch live
     if (storedData?.cachedBusinessInfo) {
+      // Also fetch the local business data so the frontend can show actual local values
+      const business = await storage.getBusiness(businessId);
+      const businessHours = await storage.getBusinessHours(businessId);
       res.json({
         info: storedData.cachedBusinessInfo,
         conflicts: storedData.conflicts || [],
         cached: true,
+        localBusiness: business ? {
+          name: business.name,
+          phone: business.phone,
+          website: business.website,
+          description: business.description,
+          address: business.address,
+          city: business.city,
+          state: business.state,
+          zip: business.zip,
+        } : null,
+        hasLocalHours: businessHours.length > 0,
       });
     } else {
       const result = await gbpService.syncBusinessData(businessId);
+      const business = await storage.getBusiness(businessId);
+      const businessHours = await storage.getBusinessHours(businessId);
       res.json({
         info: result.info,
         conflicts: result.conflicts,
+        autoPopulated: result.autoPopulated,
         cached: false,
+        localBusiness: business ? {
+          name: business.name,
+          phone: business.phone,
+          website: business.website,
+          description: business.description,
+          address: business.address,
+          city: business.city,
+          state: business.state,
+          zip: business.zip,
+        } : null,
+        hasLocalHours: businessHours.length > 0,
       });
     }
   } catch (error: any) {
