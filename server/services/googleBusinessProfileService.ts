@@ -277,6 +277,23 @@ export class GoogleBusinessProfileService {
       }
     });
 
+    // If token is expired, force a refresh before returning
+    if (isExpired && decryptedRefreshToken) {
+      try {
+        console.log(`[GBP] Token expired for business ${businessId}, forcing refresh...`);
+        const { credentials } = await oauth2Client.refreshAccessToken();
+        oauth2Client.setCredentials(credentials);
+        console.log(`[GBP] Token refresh successful for business ${businessId}, new expiry: ${credentials.expiry_date ? new Date(credentials.expiry_date).toISOString() : 'unknown'}`);
+      } catch (refreshErr: any) {
+        console.error(`[GBP] Token refresh FAILED for business ${businessId}: ${refreshErr?.message || refreshErr}`);
+        // If refresh fails, the token is likely revoked — return null to indicate not connected
+        if (refreshErr?.message?.includes('invalid_grant') || refreshErr?.response?.data?.error === 'invalid_grant') {
+          console.error(`[GBP] Refresh token revoked for business ${businessId}. User needs to reconnect.`);
+          return null;
+        }
+      }
+    }
+
     return oauth2Client;
   }
 

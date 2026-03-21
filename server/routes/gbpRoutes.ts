@@ -139,6 +139,57 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
+// Debug GBP connection (returns detailed diagnostic info)
+router.get('/debug/:businessId', isAuthenticated, async (req, res) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const diagnostics: any = { businessId, timestamp: new Date().toISOString() };
+
+    // 1. Check integration row exists
+    const connected = await gbpService.isConnected(businessId);
+    diagnostics.connected = connected;
+
+    // 2. Check stored data
+    const storedData = await gbpService.getStoredData(businessId);
+    diagnostics.storedData = storedData ? {
+      hasSelectedAccount: !!storedData.selectedAccount,
+      hasSelectedLocation: !!storedData.selectedLocation,
+      selectedLocationTitle: storedData.selectedLocation?.title || null,
+      selectedLocationName: storedData.selectedLocation?.name || null,
+      dataKeys: Object.keys(storedData),
+    } : null;
+
+    if (!connected) {
+      diagnostics.message = 'Not connected to GBP';
+      return res.json(diagnostics);
+    }
+
+    // 3. Try listing accounts
+    try {
+      const accounts = await gbpService.listAccounts(businessId);
+      diagnostics.accounts = { count: accounts.length, accounts };
+    } catch (accErr: any) {
+      diagnostics.accounts = { error: accErr?.message || String(accErr) };
+    }
+
+    // 4. If we have accounts, try listing locations for the first one
+    if (diagnostics.accounts?.count > 0) {
+      try {
+        const locations = await gbpService.listLocations(businessId, diagnostics.accounts.accounts[0].name);
+        diagnostics.locations = { count: locations.length, locations };
+      } catch (locErr: any) {
+        diagnostics.locations = { error: locErr?.message || String(locErr) };
+      }
+    }
+
+    res.json(diagnostics);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // List GBP accounts
 router.get('/accounts/:businessId', isAuthenticated, async (req, res) => {
   try {
