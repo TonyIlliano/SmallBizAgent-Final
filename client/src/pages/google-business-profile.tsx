@@ -208,19 +208,6 @@ export default function GoogleBusinessProfilePage() {
     );
   }
 
-  // ── Connected but no location selected — show location selector ──
-  if (!status.data?.selectedLocation) {
-    return (
-      <PageLayout title="Google Business Profile">
-        <div className="max-w-2xl mx-auto">
-          <LocationSelector businessId={businessId!} onSelected={() => {
-            queryClient.invalidateQueries({ queryKey: ["/api/gbp/status", businessId] });
-          }} />
-        </div>
-      </PageLayout>
-    );
-  }
-
   return (
     <PageLayout title="Google Business Profile">
       <Tabs defaultValue="overview" className="w-full">
@@ -460,9 +447,18 @@ function OverviewTab({ businessId, status, onDisconnect }: { businessId: number;
 
   const conflicts = status.data?.conflicts || [];
   const locationTitle = status.data?.selectedLocation?.title || "Connected";
+  const hasLocation = !!status.data?.selectedLocation;
 
   return (
     <div className="space-y-6 mt-4">
+      {/* Location selector banner — shown when connected but no location picked */}
+      {!hasLocation && (
+        <LocationSelector businessId={businessId} onSelected={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/gbp/status", businessId] });
+          queryClient.invalidateQueries({ queryKey: ["/api/gbp"] });
+        }} />
+      )}
+
       {/* Connection status */}
       <Card className="border-border bg-card">
         <CardContent className="pt-6">
@@ -477,7 +473,7 @@ function OverviewTab({ businessId, status, onDisconnect }: { businessId: number;
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
+              <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending || !hasLocation}>
                 {syncMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                 Sync Now
               </Button>
