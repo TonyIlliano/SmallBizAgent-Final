@@ -145,6 +145,7 @@ import squareRoutes from "./routes/squareRoutes";
 import heartlandRoutes from "./routes/heartlandRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import gbpRoutes from "./routes/gbpRoutes";
+import { GoogleBusinessProfileService } from "./services/googleBusinessProfileService";
 import socialMediaRoutes from "./routes/socialMediaRoutes";
 
 // Import analytics routes
@@ -479,6 +480,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           validatedData.phone || validatedData.address || validatedData.city || validatedData.state || validatedData.zip ||
           validatedData.restaurantPickupEnabled !== undefined || validatedData.restaurantDeliveryEnabled !== undefined) {
         vapiProvisioningService.debouncedUpdateVapiAssistant(id);
+      }
+
+      // Fire-and-forget GBP sync to detect conflicts (pull only, no auto-push)
+      if (validatedData.name || validatedData.phone || validatedData.address || validatedData.description || validatedData.website) {
+        const gbpSvc = new GoogleBusinessProfileService();
+        gbpSvc.isConnected(id).then(connected => {
+          if (connected) gbpSvc.syncBusinessData(id).catch(() => {});
+        }).catch(() => {});
       }
 
       res.json(sanitizeBusiness(business));
@@ -825,6 +834,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (business?.vapiAssistantId) {
           vapiProvisioningService.debouncedUpdateVapiAssistant(hours.businessId);
         }
+      }
+
+      // Fire-and-forget GBP sync when hours change
+      if (hours.businessId) {
+        const gbpSvc = new GoogleBusinessProfileService();
+        gbpSvc.isConnected(hours.businessId).then(connected => {
+          if (connected) gbpSvc.syncBusinessData(hours.businessId).catch(() => {});
+        }).catch(() => {});
       }
 
       res.json(hours);

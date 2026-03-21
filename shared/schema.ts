@@ -142,6 +142,7 @@ export const businesses = pgTable("businesses", {
   subscriptionPeriodEnd: timestamp("subscription_period_end"),
   subscriptionEndDate: timestamp("subscription_end_date"),
   trialEndsAt: timestamp("trial_ends_at"),
+  gbpLastSyncedAt: timestamp("gbp_last_synced_at"), // Last time GBP data was synced
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -1454,3 +1455,47 @@ export const websites = pgTable("websites", {
 export const insertWebsiteSchema = createInsertSchema(websites).omit({ id: true, createdAt: true, updatedAt: true });
 export type Website = typeof websites.$inferSelect;
 export type InsertWebsite = z.infer<typeof insertWebsiteSchema>;
+
+// GBP Reviews — synced from Google Business Profile
+export const gbpReviews = pgTable("gbp_reviews", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  gbpReviewId: text("gbp_review_id").notNull(), // External GBP review ID (unique)
+  reviewerName: text("reviewer_name"),
+  reviewerPhotoUrl: text("reviewer_photo_url"),
+  rating: integer("rating"), // 1-5 stars
+  reviewText: text("review_text"),
+  reviewDate: timestamp("review_date"),
+  replyText: text("reply_text"),
+  replyDate: timestamp("reply_date"),
+  flagged: boolean("flagged").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  gbpReviewIdIdx: unique("gbp_reviews_gbp_review_id_unique").on(table.gbpReviewId),
+  businessIdIdx: index("gbp_reviews_business_id_idx").on(table.businessId),
+}));
+
+export const insertGbpReviewSchema = createInsertSchema(gbpReviews).omit({ id: true, createdAt: true, updatedAt: true });
+export type GbpReview = typeof gbpReviews.$inferSelect;
+export type InsertGbpReview = z.infer<typeof insertGbpReviewSchema>;
+
+// GBP Posts — local posts synced to Google Business Profile
+export const gbpPosts = pgTable("gbp_posts", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  content: text("content").notNull(),
+  callToAction: text("call_to_action"), // e.g., "BOOK", "LEARN_MORE", "CALL"
+  callToActionUrl: text("call_to_action_url"),
+  status: text("status").default("draft"), // draft, published, failed
+  gbpPostId: text("gbp_post_id"), // External GBP post ID after publishing
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  businessIdIdx: index("gbp_posts_business_id_idx").on(table.businessId),
+}));
+
+export const insertGbpPostSchema = createInsertSchema(gbpPosts).omit({ id: true, createdAt: true, updatedAt: true });
+export type GbpPost = typeof gbpPosts.$inferSelect;
+export type InsertGbpPost = z.infer<typeof insertGbpPostSchema>;

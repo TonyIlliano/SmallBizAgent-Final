@@ -151,6 +151,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `/payment` | Payment | Payment processing |
 | `/subscription-success` | SubscriptionSuccess | Post-payment confirmation |
 | `/website` | WebsiteBuilder | Website builder: scanner, OpenAI generation, customizations, domains, site serving |
+| `/google-business-profile` | GoogleBusinessProfilePage | GBP dashboard: sync, business info, reviews, posts, SEO score |
 | `/staff/dashboard` | StaffDashboard | Staff-only view |
 
 ### Admin (admin role only)
@@ -162,13 +163,13 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ---
 
-## Database Schema (62 Tables)
+## Database Schema (64 Tables)
 
 ### Core
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `users` | User accounts | username, email, password, role (user/staff/admin), businessId, emailVerified, twoFactorEnabled |
-| `businesses` | Business profiles | name, industry, type, phone, timezone, bookingSlug, twilioPhoneNumber, vapiAssistantId, subscriptionStatus, stripeCustomerId, all POS tokens |
+| `businesses` | Business profiles | name, industry, type, phone, timezone, bookingSlug, twilioPhoneNumber, vapiAssistantId, subscriptionStatus, stripeCustomerId, gbpLastSyncedAt, all POS tokens |
 | `business_hours` | Operating hours | businessId, day, open, close, isClosed |
 | `business_groups` | Multi-location groups | ownerUserId, stripeSubscriptionId, multiLocationDiscountPercent |
 | `business_phone_numbers` | Multiple Twilio numbers | businessId, twilioPhoneNumber, twilioPhoneNumberSid, vapiPhoneNumberId, isPrimary |
@@ -271,6 +272,12 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `password_reset_tokens` | Password reset flow | userId, token, expiresAt, used |
 | `website_scrape_cache` | Scraped website content for knowledge | businessId, url, structuredKnowledge |
 
+### Google Business Profile
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `gbp_reviews` | Synced GBP reviews | businessId, gbpReviewId (unique), reviewerName, reviewerPhotoUrl, rating (1-5), reviewText, reviewDate, replyText, replyDate, flagged (bool), createdAt, updatedAt |
+| `gbp_posts` | GBP local posts (drafts + published) | businessId, content, callToAction, callToActionUrl, status (draft/published/failed), gbpPostId, publishedAt, createdAt, updatedAt |
+
 ### Website Builder
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
@@ -336,6 +343,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `mem0Service` | Persistent AI memory layer via Mem0 cloud. Stores conversational context from calls/events per customer. Enriches recognizeCaller() with memory search. Multi-tenant scoped: `b{businessId}_c{customerId}`. Graceful degradation if API key missing |
 | `agentGraph` | LangGraph.js state machine orchestration. Replaces switch/case dispatcher with proper state graph: check_lock → load_context → route → action → log_result. PostgreSQL checkpointing. Falls back to switch/case if LangGraph unavailable |
 | `websiteGenerationService` | Generates complete one-page websites via OpenAI (gpt-5.4-mini). Pulls all business data from DB (hours, services, staff, branding, booking), builds dynamic prompt, returns self-contained HTML with embedded CSS. 15+ vertical design presets. Customization overrides (accent color, font style, hero headline/subheadline, CTA texts, about text, footer message, section toggles) |
+| `googleBusinessProfileService` | Full bi-directional GBP sync. OAuth via `calendarIntegrations` (provider='google-business-profile'). Business info pull/push with conflict detection. Review sync + auto-flag low ratings. Local post creation/publishing. SEO score calculation (100-point, 12 criteria). `runGbpSync()` for scheduler. GBP API v1 (business info) + v4 (reviews/posts) |
 
 ---
 
@@ -363,7 +371,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `webhookRoutes` | `/api/webhooks/*` | Webhook management |
 | `zapierRoutes` | `/api/zapier/*` | Zapier integration |
 | `exportRoutes` | `/api/export/*` | CSV data export |
-| `gbpRoutes` | `/api/gbp/*` | Google Business Profile |
+| `gbpRoutes` | `/api/gbp/*` | Google Business Profile: OAuth, sync, reviews, posts, SEO score, conflict resolution |
 | `inventoryRoutes` | `/api/inventory/*` | Inventory management |
 | `locationRoutes` | `/api/locations/*` | Multi-location |
 | `recurring` | `/api/recurring/*` | Recurring schedules |
@@ -412,6 +420,20 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `POST /api/website-builder/request-setup` — Elite plan: flag managed setup requested
 - `GET /api/website-builder/features` — Feature flags for current plan
 - `GET /sites/:subdomain` — Public: serve HTML for subdomain
+
+**Google Business Profile endpoints (gbpRoutes.ts):**
+- `POST /api/gbp/sync/:businessId` — Full sync from GBP (business info + reviews)
+- `GET /api/gbp/business-info/:businessId` — Get cached/fresh business info
+- `POST /api/gbp/push/:businessId` — Push specified fields to GBP (requires `{ fields: [...] }`)
+- `POST /api/gbp/resolve-conflict/:businessId` — Resolve a field conflict (keep_local or keep_gbp)
+- `POST /api/gbp/reviews/sync/:businessId` — Batch review sync from GBP
+- `GET /api/gbp/reviews/:businessId` — List local reviews (supports ?flagged, ?page, ?limit)
+- `POST /api/gbp/reviews/:reviewId/reply` — Reply to a review on GBP
+- `POST /api/gbp/reviews/:reviewId/suggest-reply` — AI reply suggestion via OpenAI
+- `POST /api/gbp/posts/generate/:businessId` — AI-generate a GBP post draft
+- `POST /api/gbp/posts/publish/:businessId` — Publish draft to GBP
+- `GET /api/gbp/posts/:businessId` — List posts (drafts + published)
+- `GET /api/gbp/seo-score/:businessId` — Calculate SEO score (100-point, 12 criteria)
 
 ---
 
@@ -568,6 +590,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
   - **Engagement lock cleanup** (15 min interval)
   - **Morning brief** (hourly check, sends at 7am per business timezone)
   - **Admin digest** (hourly check, sends at 8am in ADMIN_TIMEZONE)
+  - **GBP sync** (24h interval, syncs business info + reviews for all connected businesses)
 
 ---
 
@@ -644,6 +667,37 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `cf664cf` | Enhance admin dashboard: business controls, user management, live monitoring |
 
 ### Recent changes (uncommitted):
+
+#### Google Business Profile Integration — Full Bi-Directional Sync
+- **Goal**: Expand existing GBP integration (OAuth, booking links, phone management) into full bi-directional sync with business info pull/push, conflict detection, review management, local posts, SEO scoring, and website builder integration.
+
+##### Schema + Migrations
+- `shared/schema.ts` — Added `gbpLastSyncedAt` timestamp column to `businesses` table. Created `gbpReviews` table (id, businessId, gbpReviewId unique, reviewerName, reviewerPhotoUrl, rating 1-5, reviewText, reviewDate, replyText, replyDate, flagged, createdAt, updatedAt). Created `gbpPosts` table (id, businessId, content, callToAction, callToActionUrl, status draft/published/failed, gbpPostId, publishedAt, createdAt, updatedAt). Added insert schemas and types for both.
+- `server/migrations/runMigrations.ts` — Added migrations: ALTER TABLE businesses ADD COLUMN gbp_last_synced_at, CREATE TABLE gbp_reviews with unique index on gbp_review_id, CREATE TABLE gbp_posts with index on business_id.
+
+##### Storage Layer
+- `server/storage.ts` — Added 8 new methods to IStorage + DatabaseStorage: `getGbpReviews(businessId, filters?)`, `getGbpReviewByGbpId(gbpReviewId)`, `upsertGbpReview(entry)`, `updateGbpReview(id, data)`, `countGbpReviews(businessId, filters?)`, `getGbpPosts(businessId, filters?)`, `createGbpPost(entry)`, `updateGbpPost(id, data)`. Reviews support filters: flagged, minRating, maxRating, hasReply, limit, offset.
+
+##### Service Layer Expansion
+- `server/services/googleBusinessProfileService.ts` — Extended `GBPStoredData` interface with `cachedBusinessInfo`, `conflicts`, `syncMetadata`. Added `GBPBusinessInfo` and `GBPFieldConflict` interfaces. 8 new methods: `getBusinessInfo()` (GBP v1 API readMask), `updateBusinessInfo()` (locations.patch with computed updateMask), `syncBusinessData()` (pull→compare→conflict detect→cache→update gbpLastSyncedAt), `syncReviews()` (batch fetch→upsert→auto-flag rating≤2), `createLocalPost()` (GBP v4 localPosts), `listLocalPosts()`, `calculateSeoScore()` (100-point, 12 criteria), `getConnectedBusinessIds()`. Exported `runGbpSync()` function for scheduler.
+
+##### New Routes (12 endpoints)
+- `server/routes/gbpRoutes.ts` — 12 new endpoints: POST `/sync/:businessId`, GET `/business-info/:businessId`, POST `/push/:businessId`, POST `/resolve-conflict/:businessId`, POST `/reviews/sync/:businessId`, GET `/reviews/:businessId`, POST `/reviews/:reviewId/reply`, POST `/reviews/:reviewId/suggest-reply` (AI via OpenAI), POST `/posts/generate/:businessId` (AI draft), POST `/posts/publish/:businessId`, GET `/posts/:businessId`, GET `/seo-score/:businessId`.
+
+##### Post-Save Hooks
+- `server/routes.ts` — After business profile update (PUT /api/business/:id) and hours update (PUT /api/business-hours/:id): fire-and-forget `syncBusinessData` to detect conflicts (does NOT auto-push to GBP).
+
+##### Scheduler
+- `server/services/schedulerService.ts` — Added `startGbpSyncScheduler()`: 24h interval, `withReentryGuard('gbp-sync')` + `withAdvisoryLock('gbp-sync')`, calls `runGbpSync()` (iterates all connected businesses with 2s pause). Registered in `startAllSchedulers()`.
+
+##### Frontend — GBP Dashboard Page
+- `client/src/pages/google-business-profile.tsx` — **NEW** (~700 lines). 5-tab layout: Overview (connection status, stats, sync now, conflicts banner), Business Info (field-by-field local vs GBP comparison, per-field push/resolve), Reviews (summary bar, filters, review cards with AI suggest reply, pagination), Posts (AI generate, draft edit/publish, published history), SEO Score (circular progress, categorized checklist, actionable suggestions). OAuth popup flow with postMessage listener.
+- `client/src/App.tsx` — Registered route at `/google-business-profile` with lazy loading.
+- `client/src/components/layout/Sidebar.tsx` — Added nav item: `{ path: "/google-business-profile", label: "Google", icon: MapPin, hideForRoles: ['staff'] }`.
+
+##### Settings + Website Builder Integration
+- `client/src/components/settings/GoogleBusinessProfile.tsx` — Added "Dashboard" link button when connected.
+- `client/src/pages/website-builder.tsx` — After website generation: if GBP connected, shows "Push site URL to Google?" banner with confirm. Calls POST `/api/gbp/push/:businessId` with `{ fields: ['website'] }`.
 
 #### Website Builder Overhaul — Remove Stitch, Replace with OpenAI Generation
 - **Goal**: Rip out all Google Stitch dependencies and replace with direct OpenAI (gpt-5.4-mini) website generation. Scanner now generates sites immediately instead of producing a copyable prompt. Full customization panel added.
@@ -1058,6 +1112,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Website generation service | `server/services/websiteGenerationService.ts` |
 | Website builder routes | `server/routes/websiteBuilderRoutes.ts` |
 | Website builder UI | `client/src/pages/website-builder.tsx` |
+| GBP service | `server/services/googleBusinessProfileService.ts` |
+| GBP routes | `server/routes/gbpRoutes.ts` |
+| GBP dashboard UI | `client/src/pages/google-business-profile.tsx` |
+| GBP settings card | `client/src/components/settings/GoogleBusinessProfile.tsx` |
 | Env vars reference | `.env.example` |
 | Package scripts | `package.json` |
 
@@ -1109,4 +1167,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 20, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 62 tables. Website Builder (uncommitted): OpenAI generation (gpt-5.4-mini) with 15+ vertical design presets, dynamic DB data, booking widget embedding. Custom domain management (subdomain, custom CNAME, DNS verification). Feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). Customization panel (accent color, font style, hero headline/subheadline, CTA button texts, about text, footer message, section toggles). Logo upload + staff photo uploads in website builder. Profile nudges (missing services/staff/hours warnings). Scanner removed (unnecessary — all data comes from DB). hero_image_url removed (logo from business profile used instead). scanData column dropped. Deleted: stitchService.ts, businessScannerService.ts.*
+*Last updated: March 20, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 64 tables. Google Business Profile (uncommitted): Full bi-directional sync — business info pull/push with conflict detection, review management with AI reply suggestions, local post creation/publishing with AI generation, SEO score (100-point, 12 criteria). 5-tab dashboard page (Overview, Business Info, Reviews, Posts, SEO Score). 12 new API endpoints. 24h sync scheduler. Post-save hooks (fire-and-forget sync on business/hours update). Website builder GBP push integration. Website Builder (uncommitted): OpenAI generation (gpt-5.4-mini) with 15+ vertical design presets, dynamic DB data, booking widget embedding. Custom domain management (subdomain, custom CNAME, DNS verification). Feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). Customization panel (accent color, font style, hero headline/subheadline, CTA button texts, about text, footer message, section toggles). Logo upload + staff photo uploads in website builder. Profile nudges (missing services/staff/hours warnings). Scanner removed (unnecessary — all data comes from DB). hero_image_url removed (logo from business profile used instead). scanData column dropped. Deleted: stitchService.ts, businessScannerService.ts.*

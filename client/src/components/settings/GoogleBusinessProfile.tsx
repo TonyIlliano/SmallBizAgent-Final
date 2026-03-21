@@ -11,8 +11,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Loader2, CheckCircle2, ExternalLink, MapPin, Building2, Link2, AlertCircle, XCircle, Phone, PhoneForwarded, Undo2,
+  Loader2, CheckCircle2, ExternalLink, MapPin, Building2, Link2, AlertCircle, XCircle, Phone, PhoneForwarded, Undo2, ArrowRight,
 } from 'lucide-react';
+import { Link } from 'wouter';
 import { queryClient } from '@/lib/queryClient';
 
 interface GBPAccount {
@@ -319,12 +320,22 @@ export function GoogleBusinessProfile({ businessId, bookingEnabled, bookingSlug,
               </CardDescription>
             </div>
           </div>
-          {status?.connected && (
-            <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
-              <CheckCircle2 className="h-3 w-3 mr-1" />
-              Connected
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            {status?.connected && (
+              <>
+                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Connected
+                </Badge>
+                <Link href="/google-business-profile">
+                  <Button variant="outline" size="sm">
+                    <ArrowRight className="h-3 w-3 mr-1" />
+                    Dashboard
+                  </Button>
+                </Link>
+              </>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

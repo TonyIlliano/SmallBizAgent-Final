@@ -67,6 +67,7 @@ const MarketingPage = lazyWithRetry(() => import("@/pages/marketing"));
 const AutomationsPage = lazyWithRetry(() => import("@/pages/automations/index"));
 const Settings = lazyWithRetry(() => import("@/pages/settings"));
 const WebsiteBuilder = lazyWithRetry(() => import("@/pages/website-builder"));
+const GoogleBusinessProfilePage = lazyWithRetry(() => import("@/pages/google-business-profile"));
 const CalendarSettings = lazyWithRetry(() => import("@/pages/settings/calendar"));
 const PWAInstallationGuide = lazyWithRetry(() => import("@/pages/settings/pwa-installation"));
 const RecurringSchedules = lazyWithRetry(() => import("@/pages/recurring/index"));
@@ -167,6 +168,7 @@ function Router() {
         <ProtectedRoute path="/ai-agents" component={AutomationsPage} />
         <ProtectedRoute path="/recurring" component={RecurringSchedules} />
         <ProtectedRoute path="/website" component={WebsiteBuilder} />
+        <ProtectedRoute path="/google-business-profile" component={GoogleBusinessProfilePage} />
         <ProtectedRoute path="/settings" component={Settings} />
         <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />
         <ProtectedRoute path="/settings/pwa-installation" component={PWAInstallationGuide} />

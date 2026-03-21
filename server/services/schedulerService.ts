@@ -1473,6 +1473,26 @@ export function startPlatformAgentsScheduler(): void {
   }
 }
 
+// ── GBP Sync (runs every 24 hours) ──
+
+export function startGbpSyncScheduler(): void {
+  // Run every 24 hours (86400000ms)
+  setInterval(async () => {
+    await withReentryGuard('gbp-sync', async () => {
+      await withAdvisoryLock('gbp-sync', async () => {
+        try {
+          const { runGbpSync } = await import('./googleBusinessProfileService');
+          await runGbpSync();
+        } catch (error) {
+          console.error('[Scheduler] GBP sync error:', error);
+        }
+      });
+    });
+  }, 24 * 60 * 60 * 1000);
+
+  console.log('[Scheduler] GBP sync scheduler started (24h interval)');
+}
+
 /**
  * Start schedulers for all active businesses
  */
@@ -1546,6 +1566,9 @@ export async function startAllSchedulers(): Promise<void> {
 
     // Start admin digest (daily platform summary for admin at 8am ET)
     startAdminDigestScheduler();
+
+    // Start GBP sync (syncs business info + reviews from Google Business Profile every 24h)
+    startGbpSyncScheduler();
 
     console.log('All schedulers started');
   } catch (error) {
@@ -1736,6 +1759,7 @@ export default {
   startEngagementLockCleanupScheduler,
   startMorningBriefScheduler,
   startAdminDigestScheduler,
+  startGbpSyncScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

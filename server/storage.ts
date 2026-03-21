@@ -43,7 +43,9 @@ import {
   CustomerInsightsRow, InsertCustomerInsights, customerInsights,
   CustomerEngagementLock, InsertCustomerEngagementLock, customerEngagementLock,
   StaffTimeOff, InsertStaffTimeOff, staffTimeOff,
-  Website, InsertWebsite, websites
+  Website, InsertWebsite, websites,
+  GbpReview, InsertGbpReview, gbpReviews,
+  GbpPost, InsertGbpPost, gbpPosts
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -433,6 +435,18 @@ export interface IStorage {
   addUserBusinessAccess(data: InsertUserBusinessAccess): Promise<UserBusinessAccess>;
   removeUserBusinessAccess(userId: number, businessId: number): Promise<void>;
   hasBusinessAccess(userId: number, businessId: number): Promise<boolean>;
+
+  // GBP Reviews
+  getGbpReviews(businessId: number, filters?: { flagged?: boolean; minRating?: number; maxRating?: number; hasReply?: boolean; limit?: number; offset?: number }): Promise<GbpReview[]>;
+  getGbpReviewByGbpId(gbpReviewId: string): Promise<GbpReview | undefined>;
+  upsertGbpReview(data: InsertGbpReview): Promise<GbpReview>;
+  updateGbpReview(id: number, data: Partial<GbpReview>): Promise<GbpReview>;
+  countGbpReviews(businessId: number, filters?: { flagged?: boolean; hasReply?: boolean }): Promise<number>;
+
+  // GBP Posts
+  getGbpPosts(businessId: number, filters?: { status?: string; limit?: number; offset?: number }): Promise<GbpPost[]>;
+  createGbpPost(data: InsertGbpPost): Promise<GbpPost>;
+  updateGbpPost(id: number, data: Partial<GbpPost>): Promise<GbpPost>;
 }
 
 // Database storage implementation
@@ -2595,6 +2609,126 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return created;
     }
+  }
+
+  // =================== GBP Reviews ===================
+
+  async getGbpReviews(businessId: number, filters?: { flagged?: boolean; minRating?: number; maxRating?: number; hasReply?: boolean; limit?: number; offset?: number }): Promise<GbpReview[]> {
+    const conditions = [eq(gbpReviews.businessId, businessId)];
+
+    if (filters?.flagged !== undefined) {
+      conditions.push(eq(gbpReviews.flagged, filters.flagged));
+    }
+    if (filters?.minRating !== undefined) {
+      conditions.push(gte(gbpReviews.rating, filters.minRating));
+    }
+    if (filters?.maxRating !== undefined) {
+      conditions.push(lte(gbpReviews.rating, filters.maxRating));
+    }
+    if (filters?.hasReply === true) {
+      conditions.push(sql`${gbpReviews.replyText} IS NOT NULL`);
+    } else if (filters?.hasReply === false) {
+      conditions.push(isNull(gbpReviews.replyText));
+    }
+
+    let query = db.select().from(gbpReviews)
+      .where(and(...conditions))
+      .orderBy(desc(gbpReviews.reviewDate));
+
+    if (filters?.limit) {
+      query = query.limit(filters.limit) as typeof query;
+    }
+    if (filters?.offset) {
+      query = query.offset(filters.offset) as typeof query;
+    }
+
+    return query;
+  }
+
+  async getGbpReviewByGbpId(gbpReviewId: string): Promise<GbpReview | undefined> {
+    const [review] = await db.select().from(gbpReviews)
+      .where(eq(gbpReviews.gbpReviewId, gbpReviewId));
+    return review;
+  }
+
+  async upsertGbpReview(data: InsertGbpReview): Promise<GbpReview> {
+    const existing = await this.getGbpReviewByGbpId(data.gbpReviewId);
+    if (existing) {
+      const [updated] = await db.update(gbpReviews)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(gbpReviews.gbpReviewId, data.gbpReviewId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(gbpReviews)
+        .values(data)
+        .returning();
+      return created;
+    }
+  }
+
+  async updateGbpReview(id: number, data: Partial<GbpReview>): Promise<GbpReview> {
+    const [updated] = await db.update(gbpReviews)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(gbpReviews.id, id))
+      .returning();
+    return updated;
+  }
+
+  async countGbpReviews(businessId: number, filters?: { flagged?: boolean; hasReply?: boolean }): Promise<number> {
+    const conditions = [eq(gbpReviews.businessId, businessId)];
+
+    if (filters?.flagged !== undefined) {
+      conditions.push(eq(gbpReviews.flagged, filters.flagged));
+    }
+    if (filters?.hasReply === true) {
+      conditions.push(sql`${gbpReviews.replyText} IS NOT NULL`);
+    } else if (filters?.hasReply === false) {
+      conditions.push(isNull(gbpReviews.replyText));
+    }
+
+    const [result] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(gbpReviews)
+      .where(and(...conditions));
+    return result?.count ?? 0;
+  }
+
+  // =================== GBP Posts ===================
+
+  async getGbpPosts(businessId: number, filters?: { status?: string; limit?: number; offset?: number }): Promise<GbpPost[]> {
+    const conditions = [eq(gbpPosts.businessId, businessId)];
+
+    if (filters?.status) {
+      conditions.push(eq(gbpPosts.status, filters.status));
+    }
+
+    let query = db.select().from(gbpPosts)
+      .where(and(...conditions))
+      .orderBy(desc(gbpPosts.createdAt));
+
+    if (filters?.limit) {
+      query = query.limit(filters.limit) as typeof query;
+    }
+    if (filters?.offset) {
+      query = query.offset(filters.offset) as typeof query;
+    }
+
+    return query;
+  }
+
+  async createGbpPost(data: InsertGbpPost): Promise<GbpPost> {
+    const [created] = await db.insert(gbpPosts)
+      .values(data)
+      .returning();
+    return created;
+  }
+
+  async updateGbpPost(id: number, data: Partial<GbpPost>): Promise<GbpPost> {
+    const [updated] = await db.update(gbpPosts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(gbpPosts.id, id))
+      .returning();
+    return updated;
   }
 }
 

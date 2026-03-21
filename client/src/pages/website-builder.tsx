@@ -93,6 +93,7 @@ export default function WebsiteBuilder() {
   const [showReviews, setShowReviews] = useState(true);
   const [showHours, setShowHours] = useState(true);
   const [customizationsLoaded, setCustomizationsLoaded] = useState(false);
+  const [showGbpPush, setShowGbpPush] = useState(false);
 
   // ── Queries ──
 
@@ -160,6 +161,18 @@ export default function WebsiteBuilder() {
   });
 
   const businessId = businessProfile?.id;
+
+  // Check if GBP is connected (for push prompt after generation)
+  const { data: gbpStatus } = useQuery<{ connected: boolean }>({
+    queryKey: ["/api/gbp/status", businessId],
+    queryFn: async () => {
+      const res = await fetch(`/api/gbp/status/${businessId}`, { credentials: "include" });
+      if (!res.ok) return { connected: false };
+      return res.json();
+    },
+    enabled: !!businessId,
+  });
+
   const { data: businessHours } = useQuery<any[]>({
     queryKey: ["/api/business-hours", businessId],
     queryFn: async () => {
@@ -184,9 +197,27 @@ export default function WebsiteBuilder() {
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/site"] });
       queryClient.invalidateQueries({ queryKey: ["/api/website-builder/domain"] });
       toast({ title: "Website generated", description: "Your site has been updated and is now live" });
+      // If GBP connected, prompt to push website URL to Google
+      if (gbpStatus?.connected) {
+        setShowGbpPush(true);
+      }
     },
     onError: (error: Error) => {
       toast({ title: "Generation failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const gbpPushMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/gbp/push/${businessId}`, { fields: ["website"] });
+      return res.json();
+    },
+    onSuccess: () => {
+      setShowGbpPush(false);
+      toast({ title: "Website URL pushed to Google", description: "Your Google listing now links to your website." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Push failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -331,6 +362,33 @@ export default function WebsiteBuilder() {
             <Settings className="h-4 w-4" />
             <AlertDescription>
               Your website setup is in progress. Our team will have it ready within 24 hours.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* ── GBP Push Prompt ── */}
+        {showGbpPush && (
+          <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
+            <Globe className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-blue-800 dark:text-blue-200">
+                Push your website URL to Google Business Profile?
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => gbpPushMutation.mutate()}
+                  disabled={gbpPushMutation.isPending}
+                  className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                >
+                  {gbpPushMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <ArrowUpCircle className="h-3 w-3 mr-1" />}
+                  Push to Google
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowGbpPush(false)} className="text-blue-600">
+                  Dismiss
+                </Button>
+              </div>
             </AlertDescription>
           </Alert>
         )}

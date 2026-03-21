@@ -7,7 +7,7 @@
  */
 
 import { db } from '../db';
-import { calendarIntegrations } from '@shared/schema';
+import { calendarIntegrations, businesses } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
 import { google } from 'googleapis';
 import { storage } from '../storage';
@@ -66,12 +66,33 @@ function starRatingToNumber(starRating: string): number {
   return map[starRating] ?? 0;
 }
 
+export interface GBPBusinessInfo {
+  name?: string;
+  address?: any;
+  phone?: string;
+  websiteUri?: string;
+  description?: string;
+  categories?: any;
+  regularHours?: any;
+  profile?: { description?: string };
+}
+
+export interface GBPFieldConflict {
+  field: string;
+  localValue: string | null;
+  gbpValue: string | null;
+  detectedAt: string;
+}
+
 export interface GBPStoredData {
   selectedAccount?: GBPAccount;
   selectedLocation?: GBPLocation;
   bookingLinkName?: string;
   originalPhone?: string; // Saved before we replace it with the AI number
   aiPhoneSet?: boolean;   // True if we've replaced the phone with the Twilio number
+  cachedBusinessInfo?: GBPBusinessInfo;
+  conflicts?: GBPFieldConflict[];
+  syncMetadata?: { lastReviewSyncedAt?: string; fieldsLastPushed?: string };
 }
 
 function createOAuth2Client() {
@@ -693,4 +714,454 @@ export class GoogleBusinessProfileService {
       return null;
     }
   }
+
+  // ─── Business Info Sync ──────────────────────────────────────────────────────
+
+  /**
+   * Fetch full business info from GBP (name, address, phone, hours, description, category, website).
+   */
+  async getBusinessInfo(businessId: number): Promise<GBPBusinessInfo | null> {
+    try {
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) return null;
+
+      const storedData = await this.getStoredData(businessId);
+      if (!storedData?.selectedLocation) return null;
+
+      const locationName = storedData.selectedLocation.name;
+      const mybusinessInfo = google.mybusinessbusinessinformation({
+        version: 'v1',
+        auth: oauth2Client,
+      });
+
+      const response = await mybusinessInfo.locations.get({
+        name: locationName,
+        readMask: 'name,title,storefrontAddress,websiteUri,phoneNumbers,regularHours,profile,categories',
+      });
+
+      const loc = response.data;
+      return {
+        name: loc.title || undefined,
+        address: loc.storefrontAddress || undefined,
+        phone: loc.phoneNumbers?.primaryPhone || undefined,
+        websiteUri: loc.websiteUri || undefined,
+        description: loc.profile?.description || undefined,
+        categories: loc.categories || undefined,
+        regularHours: loc.regularHours || undefined,
+      };
+    } catch (error: any) {
+      console.error('[GBP] Error fetching business info:', error?.message || error);
+      throw error;
+    }
+  }
+
+  /**
+   * Push specified fields from local DB to GBP location via locations.patch.
+   */
+  async updateBusinessInfo(businessId: number, fields: string[]): Promise<boolean> {
+    try {
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) throw new Error('Not connected to Google Business Profile');
+
+      const storedData = await this.getStoredData(businessId);
+      if (!storedData?.selectedLocation) throw new Error('No GBP location selected');
+
+      const locationName = storedData.selectedLocation.name;
+      const business = await storage.getBusiness(businessId);
+      if (!business) throw new Error('Business not found');
+
+      const mybusinessInfo = google.mybusinessbusinessinformation({
+        version: 'v1',
+        auth: oauth2Client,
+      });
+
+      const requestBody: any = {};
+      const updateMaskParts: string[] = [];
+
+      for (const field of fields) {
+        switch (field) {
+          case 'phone': {
+            requestBody.phoneNumbers = { primaryPhone: business.phone };
+            updateMaskParts.push('phoneNumbers');
+            break;
+          }
+          case 'website': {
+            const website = await storage.getWebsite(businessId);
+            const siteUrl = website?.subdomain
+              ? `${process.env.APP_URL || 'https://smallbizagent.ai'}/sites/${website.subdomain}`
+              : business.website;
+            requestBody.websiteUri = siteUrl;
+            updateMaskParts.push('websiteUri');
+            break;
+          }
+          case 'description': {
+            requestBody.profile = { description: business.description };
+            updateMaskParts.push('profile');
+            break;
+          }
+          case 'address': {
+            requestBody.storefrontAddress = {
+              addressLines: business.address ? [business.address] : [],
+              locality: business.city || '',
+              administrativeArea: business.state || '',
+              postalCode: business.zip || '',
+              regionCode: 'US',
+            };
+            updateMaskParts.push('storefrontAddress');
+            break;
+          }
+          case 'hours': {
+            const hours = await storage.getBusinessHours(businessId);
+            if (hours.length > 0) {
+              const dayMap: Record<string, string> = {
+                monday: 'MONDAY', tuesday: 'TUESDAY', wednesday: 'WEDNESDAY',
+                thursday: 'THURSDAY', friday: 'FRIDAY', saturday: 'SATURDAY', sunday: 'SUNDAY',
+              };
+              const periods = hours
+                .filter(h => !h.isClosed && h.open && h.close)
+                .map(h => ({
+                  openDay: dayMap[h.day.toLowerCase()] || h.day.toUpperCase(),
+                  openTime: h.open,
+                  closeDay: dayMap[h.day.toLowerCase()] || h.day.toUpperCase(),
+                  closeTime: h.close,
+                }));
+              requestBody.regularHours = { periods };
+              updateMaskParts.push('regularHours');
+            }
+            break;
+          }
+        }
+      }
+
+      if (updateMaskParts.length === 0) return false;
+
+      await mybusinessInfo.locations.patch({
+        name: locationName,
+        updateMask: updateMaskParts.join(','),
+        requestBody,
+      });
+
+      // Update sync metadata
+      await this.updateStoredData(businessId, {
+        ...storedData,
+        syncMetadata: {
+          ...storedData.syncMetadata,
+          fieldsLastPushed: new Date().toISOString(),
+        },
+      });
+
+      console.log(`[GBP] Pushed fields [${fields.join(', ')}] to GBP for business ${businessId}`);
+      return true;
+    } catch (error: any) {
+      console.error('[GBP] Error pushing business info:', error?.message || error);
+      throw error;
+    }
+  }
+
+  /**
+   * Full sync: pull from GBP → compare with local DB → detect conflicts → cache.
+   */
+  async syncBusinessData(businessId: number): Promise<{ conflicts: GBPFieldConflict[]; info: GBPBusinessInfo | null }> {
+    try {
+      const gbpInfo = await this.getBusinessInfo(businessId);
+      if (!gbpInfo) return { conflicts: [], info: null };
+
+      const business = await storage.getBusiness(businessId);
+      if (!business) return { conflicts: [], info: gbpInfo };
+
+      const conflicts: GBPFieldConflict[] = [];
+      const now = new Date().toISOString();
+
+      // Compare fields
+      if (gbpInfo.phone && business.phone && gbpInfo.phone !== business.phone) {
+        conflicts.push({ field: 'phone', localValue: business.phone, gbpValue: gbpInfo.phone, detectedAt: now });
+      }
+      if (gbpInfo.name && business.name && gbpInfo.name !== business.name) {
+        conflicts.push({ field: 'name', localValue: business.name, gbpValue: gbpInfo.name, detectedAt: now });
+      }
+      if (gbpInfo.websiteUri && business.website && gbpInfo.websiteUri !== business.website) {
+        conflicts.push({ field: 'website', localValue: business.website, gbpValue: gbpInfo.websiteUri, detectedAt: now });
+      }
+      if (gbpInfo.description && business.description && gbpInfo.description !== business.description) {
+        conflicts.push({ field: 'description', localValue: business.description, gbpValue: gbpInfo.description, detectedAt: now });
+      }
+
+      // Cache results in stored data
+      const storedData = await this.getStoredData(businessId);
+      if (storedData) {
+        await this.updateStoredData(businessId, {
+          ...storedData,
+          cachedBusinessInfo: gbpInfo,
+          conflicts,
+        });
+      }
+
+      // Update last synced timestamp on business
+      await db.update(businesses)
+        .set({ gbpLastSyncedAt: new Date() })
+        .where(eq(businesses.id, businessId));
+
+      console.log(`[GBP] Synced business data for ${businessId}: ${conflicts.length} conflicts`);
+      return { conflicts, info: gbpInfo };
+    } catch (error: any) {
+      console.error('[GBP] Error syncing business data:', error?.message || error);
+      return { conflicts: [], info: null };
+    }
+  }
+
+  // ─── Review Sync ──────────────────────────────────────────────────────────────
+
+  /**
+   * Batch fetch reviews from GBP and upsert into local gbp_reviews table.
+   * Auto-flags reviews with rating <= 2.
+   */
+  async syncReviews(businessId: number): Promise<{ synced: number; flagged: number }> {
+    try {
+      const reviews = await this.listReviews(businessId);
+      let synced = 0;
+      let flagged = 0;
+
+      for (const review of reviews) {
+        const isLowRating = (review.rating ?? 0) <= 2;
+        if (isLowRating) flagged++;
+
+        await storage.upsertGbpReview({
+          businessId,
+          gbpReviewId: review.reviewId,
+          reviewerName: review.reviewerName,
+          reviewerPhotoUrl: null,
+          rating: review.rating,
+          reviewText: review.comment || null,
+          reviewDate: review.createTime ? new Date(review.createTime) : null,
+          replyText: review.hasReply ? '(reply exists on GBP)' : null,
+          replyDate: null,
+          flagged: isLowRating,
+        });
+        synced++;
+      }
+
+      // Update sync metadata
+      const storedData = await this.getStoredData(businessId);
+      if (storedData) {
+        await this.updateStoredData(businessId, {
+          ...storedData,
+          syncMetadata: {
+            ...storedData.syncMetadata,
+            lastReviewSyncedAt: new Date().toISOString(),
+          },
+        });
+      }
+
+      console.log(`[GBP] Synced ${synced} reviews for business ${businessId} (${flagged} flagged)`);
+      return { synced, flagged };
+    } catch (error: any) {
+      console.error('[GBP] Error syncing reviews:', error?.message || error);
+      return { synced: 0, flagged: 0 };
+    }
+  }
+
+  // ─── Local Posts ──────────────────────────────────────────────────────────────
+
+  /**
+   * Publish a local post to GBP via the v4 API.
+   */
+  async createLocalPost(
+    businessId: number,
+    content: string,
+    cta?: { actionType: string; url: string }
+  ): Promise<{ success: boolean; gbpPostId?: string }> {
+    try {
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) throw new Error('Not connected to Google Business Profile');
+
+      const storedData = await this.getStoredData(businessId);
+      if (!storedData?.selectedAccount || !storedData?.selectedLocation) {
+        throw new Error('No GBP location selected');
+      }
+
+      const accountName = storedData.selectedAccount.name;
+      const locationName = storedData.selectedLocation.name;
+
+      const postBody: any = {
+        languageCode: 'en',
+        summary: content,
+        topicType: 'STANDARD',
+      };
+
+      if (cta) {
+        postBody.callToAction = {
+          actionType: cta.actionType,
+          url: cta.url,
+        };
+      }
+
+      const url = `https://mybusiness.googleapis.com/v4/${accountName}/${locationName}/localPosts`;
+      const res = await oauth2Client.request({
+        url,
+        method: 'POST',
+        data: postBody,
+      });
+
+      const postData = res.data as any;
+      console.log(`[GBP] Published local post for business ${businessId}`);
+      return { success: true, gbpPostId: postData.name };
+    } catch (error: any) {
+      console.error('[GBP] Error creating local post:', error?.message || error);
+      throw error;
+    }
+  }
+
+  /**
+   * List recent local posts from GBP.
+   */
+  async listLocalPosts(businessId: number): Promise<any[]> {
+    try {
+      const oauth2Client = await this.getAuthenticatedClient(businessId);
+      if (!oauth2Client) return [];
+
+      const storedData = await this.getStoredData(businessId);
+      if (!storedData?.selectedAccount || !storedData?.selectedLocation) return [];
+
+      const accountName = storedData.selectedAccount.name;
+      const locationName = storedData.selectedLocation.name;
+
+      const url = `https://mybusiness.googleapis.com/v4/${accountName}/${locationName}/localPosts`;
+      const res = await oauth2Client.request({ url });
+      const data = res.data as any;
+      return data.localPosts || [];
+    } catch (error: any) {
+      console.error('[GBP] Error listing local posts:', error?.message || error);
+      return [];
+    }
+  }
+
+  // ─── SEO Score ────────────────────────────────────────────────────────────────
+
+  /**
+   * Calculate a local SEO score (0-100) based on GBP completeness, reviews, and posts.
+   */
+  async calculateSeoScore(businessId: number): Promise<{
+    score: number;
+    breakdown: { category: string; label: string; points: number; maxPoints: number; met: boolean }[];
+  }> {
+    try {
+      const business = await storage.getBusiness(businessId);
+      const storedData = await this.getStoredData(businessId);
+      const reviewCount = await storage.countGbpReviews(businessId);
+      const posts = await storage.getGbpPosts(businessId, { status: 'published', limit: 10 });
+
+      const breakdown: { category: string; label: string; points: number; maxPoints: number; met: boolean }[] = [];
+      let score = 0;
+
+      // GBP Connected (10 pts)
+      const connected = !!storedData?.selectedLocation;
+      breakdown.push({ category: 'connection', label: 'Google Business Profile connected', points: connected ? 10 : 0, maxPoints: 10, met: connected });
+      if (connected) score += 10;
+
+      // Business name set (5 pts)
+      const hasName = !!business?.name;
+      breakdown.push({ category: 'profile', label: 'Business name set', points: hasName ? 5 : 0, maxPoints: 5, met: hasName });
+      if (hasName) score += 5;
+
+      // Phone set (5 pts)
+      const hasPhone = !!business?.phone;
+      breakdown.push({ category: 'profile', label: 'Phone number set', points: hasPhone ? 5 : 0, maxPoints: 5, met: hasPhone });
+      if (hasPhone) score += 5;
+
+      // Address set (5 pts)
+      const hasAddress = !!business?.address;
+      breakdown.push({ category: 'profile', label: 'Address set', points: hasAddress ? 5 : 0, maxPoints: 5, met: hasAddress });
+      if (hasAddress) score += 5;
+
+      // Description set (10 pts)
+      const hasDesc = !!business?.description;
+      breakdown.push({ category: 'profile', label: 'Business description added', points: hasDesc ? 10 : 0, maxPoints: 10, met: hasDesc });
+      if (hasDesc) score += 10;
+
+      // Website set (5 pts)
+      const hasWebsite = !!business?.website || !!(await storage.getWebsite(businessId))?.subdomain;
+      breakdown.push({ category: 'profile', label: 'Website linked', points: hasWebsite ? 5 : 0, maxPoints: 5, met: hasWebsite });
+      if (hasWebsite) score += 5;
+
+      // Business hours set (10 pts)
+      const hours = await storage.getBusinessHours(businessId);
+      const hasHours = hours.length > 0;
+      breakdown.push({ category: 'profile', label: 'Business hours set', points: hasHours ? 10 : 0, maxPoints: 10, met: hasHours });
+      if (hasHours) score += 10;
+
+      // Booking link active (5 pts)
+      const hasBooking = !!storedData?.bookingLinkName;
+      breakdown.push({ category: 'engagement', label: 'Booking link on Google', points: hasBooking ? 5 : 0, maxPoints: 5, met: hasBooking });
+      if (hasBooking) score += 5;
+
+      // Has reviews (15 pts: 5 for any, 10 for 5+, 15 for 10+)
+      const reviewPts = reviewCount >= 10 ? 15 : reviewCount >= 5 ? 10 : reviewCount > 0 ? 5 : 0;
+      breakdown.push({ category: 'reviews', label: `${reviewCount} review${reviewCount !== 1 ? 's' : ''} (10+ ideal)`, points: reviewPts, maxPoints: 15, met: reviewCount >= 10 });
+      score += reviewPts;
+
+      // Review response rate (10 pts)
+      const repliedCount = await storage.countGbpReviews(businessId, { hasReply: true });
+      const responseRate = reviewCount > 0 ? repliedCount / reviewCount : 0;
+      const responsePts = responseRate >= 0.8 ? 10 : responseRate >= 0.5 ? 5 : 0;
+      breakdown.push({ category: 'reviews', label: `${Math.round(responseRate * 100)}% reviews replied to (80%+ ideal)`, points: responsePts, maxPoints: 10, met: responseRate >= 0.8 });
+      score += responsePts;
+
+      // Recent posts (15 pts: 5 for any, 10 for 2+, 15 for 4+)
+      const recentPostCount = posts.length;
+      const postPts = recentPostCount >= 4 ? 15 : recentPostCount >= 2 ? 10 : recentPostCount > 0 ? 5 : 0;
+      breakdown.push({ category: 'posts', label: `${recentPostCount} recent post${recentPostCount !== 1 ? 's' : ''} (4+ ideal)`, points: postPts, maxPoints: 15, met: recentPostCount >= 4 });
+      score += postPts;
+
+      // Logo set (5 pts)
+      const hasLogo = !!business?.logoUrl;
+      breakdown.push({ category: 'profile', label: 'Logo uploaded', points: hasLogo ? 5 : 0, maxPoints: 5, met: hasLogo });
+      if (hasLogo) score += 5;
+
+      return { score: Math.min(score, 100), breakdown };
+    } catch (error: any) {
+      console.error('[GBP] Error calculating SEO score:', error?.message || error);
+      return { score: 0, breakdown: [] };
+    }
+  }
+
+  /**
+   * Get all businessIds that have GBP connected (for scheduled sync).
+   */
+  async getConnectedBusinessIds(): Promise<number[]> {
+    try {
+      const integrations = await db.select({ businessId: calendarIntegrations.businessId })
+        .from(calendarIntegrations)
+        .where(eq(calendarIntegrations.provider, PROVIDER));
+      return integrations.map(i => i.businessId);
+    } catch (error) {
+      console.error('[GBP] Error getting connected business IDs:', error);
+      return [];
+    }
+  }
+}
+
+/**
+ * Run GBP sync for all connected businesses.
+ * Called by the scheduler every 24 hours.
+ */
+export async function runGbpSync(): Promise<void> {
+  const gbpService = new GoogleBusinessProfileService();
+  const businessIds = await gbpService.getConnectedBusinessIds();
+
+  console.log(`[GBP Sync] Starting sync for ${businessIds.length} connected businesses`);
+
+  for (const businessId of businessIds) {
+    try {
+      await gbpService.syncBusinessData(businessId);
+      await gbpService.syncReviews(businessId);
+    } catch (error: any) {
+      console.error(`[GBP Sync] Error syncing business ${businessId}:`, error?.message || error);
+    }
+    // Rate limit: 2s pause between businesses
+    if (businessIds.indexOf(businessId) < businessIds.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+
+  console.log(`[GBP Sync] Completed sync for ${businessIds.length} businesses`);
 }

@@ -1274,6 +1274,59 @@ async function fixExistingTables() {
     if (!e.message.includes('already exists')) console.log('websites migration note:', e.message);
   }
 
+  // GBP last synced timestamp on businesses
+  await addColumnIfNotExists('businesses', 'gbp_last_synced_at', 'TIMESTAMP');
+
+  // GBP Reviews table (synced from Google Business Profile)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gbp_reviews (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      gbp_review_id TEXT NOT NULL,
+      reviewer_name TEXT,
+      reviewer_photo_url TEXT,
+      rating INTEGER,
+      review_text TEXT,
+      review_date TIMESTAMP,
+      reply_text TEXT,
+      reply_date TIMESTAMP,
+      flagged BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS gbp_reviews_gbp_review_id_unique
+    ON gbp_reviews (gbp_review_id);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS gbp_reviews_business_id_idx
+    ON gbp_reviews (business_id);
+  `);
+
+  // GBP Posts table (local posts synced to Google Business Profile)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gbp_posts (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      call_to_action TEXT,
+      call_to_action_url TEXT,
+      status TEXT DEFAULT 'draft',
+      gbp_post_id TEXT,
+      published_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS gbp_posts_business_id_idx
+    ON gbp_posts (business_id);
+  `);
+
   console.log('Finished checking/fixing existing tables');
 }
 
