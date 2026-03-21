@@ -134,6 +134,10 @@ function invalidateCache(businessId: number): void {
   });
 }
 
+export function clearGbpCache(): void {
+  gbpCache.clear();
+}
+
 // Periodic cleanup of expired entries
 setInterval(() => {
   const now = Date.now();
@@ -241,11 +245,15 @@ export class GoogleBusinessProfileService {
     const decryptedAccessToken = decryptField(integration[0].accessToken);
     const decryptedRefreshToken = decryptField(integration[0].refreshToken);
 
+    const expiresAt = integration[0].expiresAt ? integration[0].expiresAt.getTime() : undefined;
+    const isExpired = expiresAt ? expiresAt < Date.now() : false;
+    console.log(`[GBP] getAuthenticatedClient for business ${businessId}: hasAccessToken=${!!decryptedAccessToken}, hasRefreshToken=${!!decryptedRefreshToken}, tokenExpired=${isExpired}, expiresAt=${expiresAt ? new Date(expiresAt).toISOString() : 'none'}`);
+
     const oauth2Client = createOAuth2Client();
     oauth2Client.setCredentials({
       access_token: decryptedAccessToken,
       refresh_token: decryptedRefreshToken,
-      expiry_date: integration[0].expiresAt ? integration[0].expiresAt.getTime() : undefined,
+      expiry_date: expiresAt,
     });
 
     // Auto-refresh tokens when they expire
@@ -320,17 +328,26 @@ export class GoogleBusinessProfileService {
     try {
       const cacheKey = `gbp:${businessId}:accounts`;
       const cached = getCached<GBPAccount[]>(cacheKey);
-      if (cached) return cached;
+      if (cached) {
+        console.log(`[GBP] listAccounts cache hit for business ${businessId}: ${cached.length} accounts`);
+        return cached;
+      }
 
       const oauth2Client = await this.getAuthenticatedClient(businessId);
-      if (!oauth2Client) return [];
+      if (!oauth2Client) {
+        console.log(`[GBP] listAccounts: no authenticated client for business ${businessId}`);
+        return [];
+      }
 
+      console.log(`[GBP] listAccounts: calling mybusinessaccountmanagement.accounts.list for business ${businessId}`);
       const mybusiness = google.mybusinessaccountmanagement({
         version: 'v1',
         auth: oauth2Client,
       });
 
       const response = await mybusiness.accounts.list();
+
+      console.log(`[GBP] listAccounts raw response for business ${businessId}: status=${response.status}, accounts=${JSON.stringify(response.data.accounts?.length ?? 'undefined')}, data keys=${Object.keys(response.data || {}).join(',')}`);
 
       const accounts = (response.data.accounts || []).map((account: any) => ({
         name: account.name || '',
@@ -339,10 +356,15 @@ export class GoogleBusinessProfileService {
         role: account.role || '',
       }));
 
-      setCache(cacheKey, accounts, CACHE_TTL_MS);
+      // Only cache non-empty results — empty could be a transient issue
+      if (accounts.length > 0) {
+        setCache(cacheKey, accounts, CACHE_TTL_MS);
+      } else {
+        console.log(`[GBP] listAccounts: API returned 0 accounts for business ${businessId}. Raw data: ${JSON.stringify(response.data).substring(0, 500)}`);
+      }
       return accounts;
     } catch (error: any) {
-      console.error('Error listing GBP accounts:', error);
+      console.error(`[GBP] listAccounts error for business ${businessId}:`, error?.message || error, `code=${error?.code}, status=${error?.response?.status}`);
       if (error.code === 403 || error.code === 401) {
         throw new Error('Google Business Profile API access not enabled or insufficient permissions. Please verify API access in Google Cloud Console.');
       }
@@ -376,7 +398,10 @@ export class GoogleBusinessProfileService {
         websiteUri: location.websiteUri,
       }));
 
-      setCache(cacheKey, locations, CACHE_TTL_MS);
+      // Only cache non-empty results — empty could be a transient issue
+      if (locations.length > 0) {
+        setCache(cacheKey, locations, CACHE_TTL_MS);
+      }
       return locations;
     } catch (error: any) {
       console.error('Error listing GBP locations:', error);

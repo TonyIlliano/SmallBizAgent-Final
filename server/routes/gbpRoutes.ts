@@ -68,19 +68,28 @@ router.get('/google/callback', async (req, res) => {
 
           // Try to auto-select the first account/location if there's only one
           const storedData = await gbpService.getStoredData(businessId);
+          console.log(`[GBP] Callback auto-select: storedData?.selectedLocation = ${JSON.stringify(storedData?.selectedLocation || null)}`);
           if (!storedData?.selectedLocation) {
             try {
               const accounts = await gbpService.listAccounts(businessId);
+              console.log(`[GBP] Callback auto-select: ${accounts.length} accounts found`);
               if (accounts.length === 1) {
                 const locations = await gbpService.listLocations(businessId, accounts[0].name);
+                console.log(`[GBP] Callback auto-select: ${locations.length} locations found for ${accounts[0].name}`);
                 if (locations.length === 1) {
                   await gbpService.saveSelectedLocation(businessId, accounts[0], locations[0]);
                   console.log(`[GBP] Auto-selected location "${locations[0].title}" for business ${businessId}`);
+                } else {
+                  console.log(`[GBP] Auto-select skipped: ${locations.length} locations (need exactly 1)`);
                 }
+              } else {
+                console.log(`[GBP] Auto-select skipped: ${accounts.length} accounts (need exactly 1)`);
               }
             } catch (autoSelectErr: any) {
               console.error(`[GBP] Auto-select location error:`, autoSelectErr?.message || autoSelectErr);
             }
+          } else {
+            console.log(`[GBP] Auto-select skipped: location already selected — ${storedData.selectedLocation.title}`);
           }
 
           // Now try syncing (will only work if a location is selected)
