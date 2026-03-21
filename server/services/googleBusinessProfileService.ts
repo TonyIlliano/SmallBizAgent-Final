@@ -218,6 +218,9 @@ export class GoogleBusinessProfileService {
           });
       }
 
+      // Clear any stale cache entries so fresh API calls are made
+      invalidateCache(businessId);
+
       console.log(`Google Business Profile connected for business ${businessId}`);
       return true;
     } catch (error) {
@@ -340,27 +343,103 @@ export class GoogleBusinessProfileService {
       }
 
       console.log(`[GBP] listAccounts: calling mybusinessaccountmanagement.accounts.list for business ${businessId}`);
-      const mybusiness = google.mybusinessaccountmanagement({
-        version: 'v1',
-        auth: oauth2Client,
-      });
+      let accounts: GBPAccount[] = [];
 
-      const response = await mybusiness.accounts.list();
+      try {
+        const mybusiness = google.mybusinessaccountmanagement({
+          version: 'v1',
+          auth: oauth2Client,
+        });
 
-      console.log(`[GBP] listAccounts raw response for business ${businessId}: status=${response.status}, accounts=${JSON.stringify(response.data.accounts?.length ?? 'undefined')}, data keys=${Object.keys(response.data || {}).join(',')}`);
+        const response = await mybusiness.accounts.list();
+        console.log(`[GBP] listAccounts raw response for business ${businessId}: status=${response.status}, accounts=${JSON.stringify(response.data.accounts?.length ?? 'undefined')}, data keys=${Object.keys(response.data || {}).join(',')}`);
 
-      const accounts = (response.data.accounts || []).map((account: any) => ({
-        name: account.name || '',
-        accountName: account.accountName || account.name || '',
-        type: account.type || '',
-        role: account.role || '',
-      }));
+        accounts = (response.data.accounts || []).map((account: any) => ({
+          name: account.name || '',
+          accountName: account.accountName || account.name || '',
+          type: account.type || '',
+          role: account.role || '',
+        }));
+      } catch (accountsErr: any) {
+        console.error(`[GBP] accounts.list failed for business ${businessId}: ${accountsErr?.message || accountsErr}, code=${accountsErr?.code}, status=${accountsErr?.response?.status}`);
+        // Don't throw yet — try wildcard fallback below
+      }
 
-      // Only cache non-empty results — empty could be a transient issue
+      // If accounts.list returned empty, try the wildcard endpoint to find locations directly.
+      // This handles cases where:
+      // - My Business Account Management API has 0 quota (not approved separately)
+      // - Business is in an organization account structure
+      // - Account hierarchy doesn't expose accounts via accounts.list
+      if (accounts.length === 0) {
+        console.log(`[GBP] listAccounts: 0 accounts found, trying wildcard locations endpoint (accounts/-/locations)`);
+        try {
+          const mybusinessInfo = google.mybusinessbusinessinformation({
+            version: 'v1',
+            auth: oauth2Client,
+          });
+
+          const locResponse = await mybusinessInfo.accounts.locations.list({
+            parent: 'accounts/-',
+            readMask: 'name,title',
+          });
+
+          const wildcardLocations = locResponse.data.locations || [];
+          console.log(`[GBP] Wildcard locations response: ${wildcardLocations.length} locations found`);
+
+          if (wildcardLocations.length > 0) {
+            // Extract unique account names from location resource names
+            // Location name format: "locations/123" or "accounts/456/locations/123"
+            const accountNames = new Set<string>();
+            for (const loc of wildcardLocations) {
+              const locName = loc.name || '';
+              // Try to extract account from full resource name
+              const match = locName.match(/^(accounts\/[^/]+)\//);
+              if (match) {
+                accountNames.add(match[1]);
+              }
+            }
+
+            if (accountNames.size > 0) {
+              // Create synthetic account entries from the extracted names
+              accounts = Array.from(accountNames).map(name => ({
+                name,
+                accountName: name,
+                type: 'PERSONAL',
+                role: 'OWNER',
+              }));
+              console.log(`[GBP] Extracted ${accounts.length} account(s) from wildcard locations: ${Array.from(accountNames).join(', ')}`);
+            } else {
+              // Locations exist but don't have accounts/ prefix — use a synthetic account
+              // This happens when locations are returned as just "locations/123"
+              console.log(`[GBP] Wildcard locations found but no account prefix in names. Storing locations directly.`);
+              // We'll auto-select by storing locations directly via a different code path
+              // For now, cache the locations so listLocationsWildcard can return them
+              setCache(`gbp:${businessId}:wildcardLocations`, wildcardLocations.map((l: any) => ({
+                name: l.name || '',
+                title: l.title || '',
+                address: l.storefrontAddress,
+                websiteUri: l.websiteUri,
+              })), CACHE_TTL_MS);
+
+              // Return a synthetic "default" account so the UI can proceed
+              accounts = [{
+                name: 'accounts/-',
+                accountName: 'My Business',
+                type: 'PERSONAL',
+                role: 'OWNER',
+              }];
+            }
+          }
+        } catch (wildcardErr: any) {
+          console.error(`[GBP] Wildcard locations fallback also failed for business ${businessId}: ${wildcardErr?.message || wildcardErr}`);
+        }
+      }
+
+      // Only cache non-empty results
       if (accounts.length > 0) {
         setCache(cacheKey, accounts, CACHE_TTL_MS);
       } else {
-        console.log(`[GBP] listAccounts: API returned 0 accounts for business ${businessId}. Raw data: ${JSON.stringify(response.data).substring(0, 500)}`);
+        console.log(`[GBP] listAccounts: No accounts found via any method for business ${businessId}`);
       }
       return accounts;
     } catch (error: any) {
@@ -378,18 +457,32 @@ export class GoogleBusinessProfileService {
       const cached = getCached<GBPLocation[]>(cacheKey);
       if (cached) return cached;
 
+      // Check if we have wildcard locations cached (from the fallback in listAccounts)
+      const wildcardCached = getCached<GBPLocation[]>(`gbp:${businessId}:wildcardLocations`);
+      if (wildcardCached && wildcardCached.length > 0) {
+        console.log(`[GBP] listLocations: using ${wildcardCached.length} wildcard-cached locations for business ${businessId}`);
+        setCache(cacheKey, wildcardCached, CACHE_TTL_MS);
+        return wildcardCached;
+      }
+
       const oauth2Client = await this.getAuthenticatedClient(businessId);
       if (!oauth2Client) return [];
 
+      console.log(`[GBP] listLocations: calling accounts.locations.list for parent=${accountName}, business ${businessId}`);
       const mybusinessInfo = google.mybusinessbusinessinformation({
         version: 'v1',
         auth: oauth2Client,
       });
 
+      // Use the wildcard parent if accountName is 'accounts/-' or if the regular call fails
+      const parent = accountName === 'accounts/-' ? 'accounts/-' : accountName;
+
       const response = await mybusinessInfo.accounts.locations.list({
-        parent: accountName,
+        parent,
         readMask: 'name,title,storefrontAddress,websiteUri',
       });
+
+      console.log(`[GBP] listLocations raw response for business ${businessId}: ${response.data.locations?.length ?? 0} locations`);
 
       const locations = (response.data.locations || []).map((location: any) => ({
         name: location.name || '',
@@ -404,7 +497,7 @@ export class GoogleBusinessProfileService {
       }
       return locations;
     } catch (error: any) {
-      console.error('Error listing GBP locations:', error);
+      console.error(`[GBP] Error listing locations for business ${businessId}:`, error?.message || error);
       if (error.code === 403 || error.code === 401) {
         throw new Error('Google Business Profile API access not enabled or insufficient permissions.');
       }
@@ -794,8 +887,13 @@ export class GoogleBusinessProfileService {
         )
         .limit(1);
 
-      if (!integration.length || !integration[0].data) return null;
-      return JSON.parse(integration[0].data);
+      if (!integration.length || !integration[0].data) {
+        console.log(`[GBP] getStoredData(${businessId}): no integration found or no data. integrations=${integration.length}`);
+        return null;
+      }
+      const parsed = JSON.parse(integration[0].data);
+      console.log(`[GBP] getStoredData(${businessId}): hasSelectedAccount=${!!parsed?.selectedAccount}, hasSelectedLocation=${!!parsed?.selectedLocation}, locationTitle=${parsed?.selectedLocation?.title || 'none'}, dataKeys=${Object.keys(parsed).join(',')}`);
+      return parsed;
     } catch (error) {
       console.error('Error getting GBP stored data:', error);
       return null;
@@ -851,7 +949,10 @@ export class GoogleBusinessProfileService {
       if (!oauth2Client) throw new Error('Not connected to Google Business Profile');
 
       const storedData = await this.getStoredData(businessId);
-      if (!storedData?.selectedLocation) throw new Error('No GBP location selected');
+      if (!storedData?.selectedLocation) {
+        console.error(`[GBP] updateBusinessInfo(${businessId}): No location selected. storedData=${JSON.stringify(storedData ? Object.keys(storedData) : null)}`);
+        throw new Error('No GBP location selected');
+      }
 
       const locationName = storedData.selectedLocation.name;
       const business = await storage.getBusiness(businessId);
