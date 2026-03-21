@@ -56,11 +56,13 @@ router.get('/google/callback', async (req, res) => {
       return res.status(400).json({ error: 'Missing required parameters' });
     }
 
+    console.log(`[GBP] OAuth callback received: code length=${code.length}, state=${state}`);
     await gbpService.handleCallback(code, state);
 
     // Fire-and-forget: auto-select location if only one, then run initial sync
     const businessId = parseInt(state);
     if (!isNaN(businessId)) {
+      console.log(`[GBP] Starting fire-and-forget auto-select for business ${businessId}`);
       (async () => {
         try {
           // Small delay to ensure token is fully persisted before syncing
@@ -68,14 +70,16 @@ router.get('/google/callback', async (req, res) => {
 
           // Try to auto-select the first account/location if there's only one
           const storedData = await gbpService.getStoredData(businessId);
-          console.log(`[GBP] Callback auto-select: storedData?.selectedLocation = ${JSON.stringify(storedData?.selectedLocation || null)}`);
+          console.log(`[GBP] Callback auto-select step 1: storedData keys=${storedData ? Object.keys(storedData).join(',') : 'null'}, hasSelectedLocation=${!!storedData?.selectedLocation}`);
           if (!storedData?.selectedLocation) {
             try {
+              console.log(`[GBP] Callback auto-select step 2: calling listAccounts...`);
               const accounts = await gbpService.listAccounts(businessId);
-              console.log(`[GBP] Callback auto-select: ${accounts.length} accounts found`);
+              console.log(`[GBP] Callback auto-select step 2 result: ${accounts.length} accounts found: ${JSON.stringify(accounts.map(a => a.name))}`);
               if (accounts.length === 1) {
+                console.log(`[GBP] Callback auto-select step 3: calling listLocations for ${accounts[0].name}...`);
                 const locations = await gbpService.listLocations(businessId, accounts[0].name);
-                console.log(`[GBP] Callback auto-select: ${locations.length} locations found for ${accounts[0].name}`);
+                console.log(`[GBP] Callback auto-select step 3 result: ${locations.length} locations found: ${JSON.stringify(locations.map(l => ({ name: l.name, title: l.title })))}`);
                 if (locations.length === 1) {
                   await gbpService.saveSelectedLocation(businessId, accounts[0], locations[0]);
                   console.log(`[GBP] Auto-selected location "${locations[0].title}" for business ${businessId}`);
@@ -86,21 +90,21 @@ router.get('/google/callback', async (req, res) => {
                 console.log(`[GBP] Auto-select skipped: ${accounts.length} accounts (need exactly 1)`);
               }
             } catch (autoSelectErr: any) {
-              console.error(`[GBP] Auto-select location error:`, autoSelectErr?.message || autoSelectErr);
+              console.error(`[GBP] Auto-select location error:`, autoSelectErr?.message || autoSelectErr, autoSelectErr?.stack?.split('\n').slice(0,3).join('\n'));
             }
           } else {
             console.log(`[GBP] Auto-select skipped: location already selected — ${storedData.selectedLocation.title}`);
           }
 
           // Now try syncing (will only work if a location is selected)
+          console.log(`[GBP] Callback auto-select step 4: starting syncBusinessData...`);
           const result = await gbpService.syncBusinessData(businessId);
-          if (result.info) {
-            console.log(`[GBP] Initial sync after connect for business ${businessId}: ${result.autoPopulated.length} fields auto-populated, ${result.conflicts.length} conflicts`);
-          }
+          console.log(`[GBP] Initial sync after connect for business ${businessId}: info=${!!result.info}, autoPopulated=${result.autoPopulated.length}, conflicts=${result.conflicts.length}`);
           // Also sync reviews on initial connect
           await gbpService.syncReviews(businessId);
+          console.log(`[GBP] Callback auto-select COMPLETE for business ${businessId}`);
         } catch (syncErr: any) {
-          console.error(`[GBP] Initial sync error for business ${businessId}:`, syncErr?.message || syncErr);
+          console.error(`[GBP] Initial sync error for business ${businessId}:`, syncErr?.message || syncErr, syncErr?.stack?.split('\n').slice(0,3).join('\n'));
         }
       })();
     }

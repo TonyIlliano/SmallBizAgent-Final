@@ -176,8 +176,11 @@ export class GoogleBusinessProfileService {
         throw new Error('Invalid state parameter');
       }
 
+      console.log(`[GBP] handleCallback: exchanging code for tokens, businessId=${businessId}`);
       const oauth2Client = createOAuth2Client();
       const { tokens } = await oauth2Client.getToken(code);
+
+      console.log(`[GBP] handleCallback: token exchange result — hasAccessToken=${!!tokens.access_token}, hasRefreshToken=${!!tokens.refresh_token}, expiresIn=${tokens.expiry_date ? Math.round((tokens.expiry_date - Date.now()) / 1000) + 's' : 'unknown'}, scope=${tokens.scope || 'not reported'}`);
 
       if (!tokens.access_token) {
         throw new Error('No access token received from Google');
@@ -204,10 +207,12 @@ export class GoogleBusinessProfileService {
       };
 
       if (existingIntegration.length > 0) {
+        console.log(`[GBP] handleCallback: updating existing integration row (id=${existingIntegration[0].id}) for business ${businessId}`);
         await db.update(calendarIntegrations)
           .set(tokenData)
           .where(eq(calendarIntegrations.id, existingIntegration[0].id));
       } else {
+        console.log(`[GBP] handleCallback: inserting new integration row for business ${businessId}`);
         await db.insert(calendarIntegrations)
           .values({
             businessId,
@@ -221,10 +226,10 @@ export class GoogleBusinessProfileService {
       // Clear any stale cache entries so fresh API calls are made
       invalidateCache(businessId);
 
-      console.log(`Google Business Profile connected for business ${businessId}`);
+      console.log(`[GBP] handleCallback: SUCCESS — GBP connected for business ${businessId}`);
       return true;
     } catch (error) {
-      console.error('Error handling GBP callback:', error);
+      console.error('[GBP] handleCallback: FAILED —', error);
       throw error;
     }
   }
