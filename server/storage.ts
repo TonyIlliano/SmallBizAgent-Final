@@ -439,9 +439,11 @@ export interface IStorage {
   // GBP Reviews
   getGbpReviews(businessId: number, filters?: { flagged?: boolean; minRating?: number; maxRating?: number; hasReply?: boolean; limit?: number; offset?: number }): Promise<GbpReview[]>;
   getGbpReviewByGbpId(gbpReviewId: string): Promise<GbpReview | undefined>;
+  getGbpReviewById(id: number): Promise<GbpReview | undefined>;
   upsertGbpReview(data: InsertGbpReview): Promise<GbpReview>;
   updateGbpReview(id: number, data: Partial<GbpReview>): Promise<GbpReview>;
   countGbpReviews(businessId: number, filters?: { flagged?: boolean; hasReply?: boolean }): Promise<number>;
+  getGbpReviewStats(businessId: number): Promise<{ total: number; avgRating: number; responseRate: number; flaggedCount: number }>;
 
   // GBP Posts
   getGbpPosts(businessId: number, filters?: { status?: string; limit?: number; offset?: number }): Promise<GbpPost[]>;
@@ -2651,6 +2653,12 @@ export class DatabaseStorage implements IStorage {
     return review;
   }
 
+  async getGbpReviewById(id: number): Promise<GbpReview | undefined> {
+    const [review] = await db.select().from(gbpReviews)
+      .where(eq(gbpReviews.id, id));
+    return review;
+  }
+
   async upsertGbpReview(data: InsertGbpReview): Promise<GbpReview> {
     const existing = await this.getGbpReviewByGbpId(data.gbpReviewId);
     if (existing) {
@@ -2691,6 +2699,25 @@ export class DatabaseStorage implements IStorage {
       .from(gbpReviews)
       .where(and(...conditions));
     return result?.count ?? 0;
+  }
+
+  async getGbpReviewStats(businessId: number): Promise<{ total: number; avgRating: number; responseRate: number; flaggedCount: number }> {
+    const [result] = await db.select({
+      total: sql<number>`count(*)::int`,
+      avgRating: sql<number>`coalesce(avg(${gbpReviews.rating})::numeric(3,1), 0)`,
+      withReply: sql<number>`count(case when ${gbpReviews.replyText} is not null then 1 end)::int`,
+      flaggedCount: sql<number>`count(case when ${gbpReviews.flagged} = true then 1 end)::int`,
+    })
+      .from(gbpReviews)
+      .where(eq(gbpReviews.businessId, businessId));
+
+    const total = result?.total ?? 0;
+    return {
+      total,
+      avgRating: Math.round(Number(result?.avgRating ?? 0) * 10) / 10,
+      responseRate: total > 0 ? Math.round(((result?.withReply ?? 0) / total) * 100) : 0,
+      flaggedCount: result?.flaggedCount ?? 0,
+    };
   }
 
   // =================== GBP Posts ===================

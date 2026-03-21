@@ -466,32 +466,19 @@ router.get('/reviews/:businessId', isAuthenticated, async (req, res) => {
     if (req.query.minRating) filters.minRating = parseInt(req.query.minRating as string);
     if (req.query.maxRating) filters.maxRating = parseInt(req.query.maxRating as string);
 
-    const [reviews, total] = await Promise.all([
+    const [reviews, total, summary] = await Promise.all([
       storage.getGbpReviews(businessId, filters),
       storage.countGbpReviews(businessId, {
         flagged: filters.flagged,
         hasReply: filters.hasReply,
       }),
+      storage.getGbpReviewStats(businessId),
     ]);
-
-    // Calculate summary stats
-    const allReviews = await storage.getGbpReviews(businessId);
-    const totalAll = allReviews.length;
-    const avgRating = totalAll > 0 ? allReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / totalAll : 0;
-    const responseRate = totalAll > 0
-      ? allReviews.filter(r => r.replyText).length / totalAll
-      : 0;
-    const flaggedCount = allReviews.filter(r => r.flagged).length;
 
     res.json({
       reviews,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-      summary: {
-        total: totalAll,
-        avgRating: Math.round(avgRating * 10) / 10,
-        responseRate: Math.round(responseRate * 100),
-        flaggedCount,
-      },
+      summary,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -509,12 +496,10 @@ router.post('/reviews/:reviewId/reply', isAuthenticated, async (req, res) => {
       return res.status(400).json({ error: 'comment is required' });
     }
 
-    // Get the local review to find GBP review resource name
-    const reviews = await storage.getGbpReviews(0); // We need to look up by ID
-    // Actually we should query by ID directly - get businessId from the review
-    const allReviews = await storage.getGbpReviews(req.user?.businessId || 0);
-    const review = allReviews.find(r => r.id === reviewId);
+    // Get the local review by ID
+    const review = await storage.getGbpReviewById(reviewId);
     if (!review) return res.status(404).json({ error: 'Review not found' });
+    if (review.businessId !== req.user?.businessId) return res.status(403).json({ error: 'Access denied' });
 
     const businessId = review.businessId;
 
@@ -540,9 +525,9 @@ router.post('/reviews/:reviewId/suggest-reply', isAuthenticated, async (req, res
     if (isNaN(reviewId)) return res.status(400).json({ error: "Invalid review ID" });
 
     const businessId = req.user?.businessId || 0;
-    const allReviews = await storage.getGbpReviews(businessId);
-    const review = allReviews.find(r => r.id === reviewId);
+    const review = await storage.getGbpReviewById(reviewId);
     if (!review) return res.status(404).json({ error: 'Review not found' });
+    if (review.businessId !== businessId) return res.status(403).json({ error: 'Access denied' });
 
     const business = await storage.getBusiness(businessId);
 

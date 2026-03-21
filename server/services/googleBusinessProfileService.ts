@@ -102,6 +102,46 @@ export interface GBPStoredData {
   syncMetadata?: { lastReviewSyncedAt?: string; fieldsLastPushed?: string };
 }
 
+// ── In-memory cache for GBP API responses ──
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+const gbpCache = new Map<string, CacheEntry<any>>();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours for accounts/locations
+const CACHE_TTL_SHORT_MS = 15 * 60 * 1000; // 15 minutes for business info
+
+function getCached<T>(key: string): T | null {
+  const entry = gbpCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    gbpCache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCache<T>(key: string, data: T, ttlMs: number = CACHE_TTL_MS): void {
+  gbpCache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+function invalidateCache(businessId: number): void {
+  Array.from(gbpCache.keys()).forEach(key => {
+    if (key.startsWith(`gbp:${businessId}:`)) {
+      gbpCache.delete(key);
+    }
+  });
+}
+
+// Periodic cleanup of expired entries
+setInterval(() => {
+  const now = Date.now();
+  Array.from(gbpCache.entries()).forEach(([key, entry]) => {
+    if (now > entry.expiresAt) gbpCache.delete(key);
+  });
+}, 15 * 60 * 1000);
+
 function createOAuth2Client() {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     throw new Error('Google credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
@@ -267,6 +307,7 @@ export class GoogleBusinessProfileService {
           )
         );
 
+      invalidateCache(businessId);
       console.log(`Google Business Profile disconnected for business ${businessId}`);
       return true;
     } catch (error) {
@@ -277,6 +318,10 @@ export class GoogleBusinessProfileService {
 
   async listAccounts(businessId: number): Promise<GBPAccount[]> {
     try {
+      const cacheKey = `gbp:${businessId}:accounts`;
+      const cached = getCached<GBPAccount[]>(cacheKey);
+      if (cached) return cached;
+
       const oauth2Client = await this.getAuthenticatedClient(businessId);
       if (!oauth2Client) return [];
 
@@ -287,12 +332,15 @@ export class GoogleBusinessProfileService {
 
       const response = await mybusiness.accounts.list();
 
-      return (response.data.accounts || []).map((account: any) => ({
+      const accounts = (response.data.accounts || []).map((account: any) => ({
         name: account.name || '',
         accountName: account.accountName || account.name || '',
         type: account.type || '',
         role: account.role || '',
       }));
+
+      setCache(cacheKey, accounts, CACHE_TTL_MS);
+      return accounts;
     } catch (error: any) {
       console.error('Error listing GBP accounts:', error);
       if (error.code === 403 || error.code === 401) {
@@ -304,6 +352,10 @@ export class GoogleBusinessProfileService {
 
   async listLocations(businessId: number, accountName: string): Promise<GBPLocation[]> {
     try {
+      const cacheKey = `gbp:${businessId}:locations:${accountName}`;
+      const cached = getCached<GBPLocation[]>(cacheKey);
+      if (cached) return cached;
+
       const oauth2Client = await this.getAuthenticatedClient(businessId);
       if (!oauth2Client) return [];
 
@@ -317,12 +369,15 @@ export class GoogleBusinessProfileService {
         readMask: 'name,title,storefrontAddress,websiteUri',
       });
 
-      return (response.data.locations || []).map((location: any) => ({
+      const locations = (response.data.locations || []).map((location: any) => ({
         name: location.name || '',
         title: location.title || '',
         address: location.storefrontAddress,
         websiteUri: location.websiteUri,
       }));
+
+      setCache(cacheKey, locations, CACHE_TTL_MS);
+      return locations;
     } catch (error: any) {
       console.error('Error listing GBP locations:', error);
       if (error.code === 403 || error.code === 401) {
