@@ -171,7 +171,7 @@ router.get('/debug/:businessId', isAuthenticated, async (req, res) => {
       const accounts = await gbpService.listAccounts(businessId);
       diagnostics.accounts = { count: accounts.length, accounts };
     } catch (accErr: any) {
-      diagnostics.accounts = { error: accErr?.message || String(accErr) };
+      diagnostics.accounts = { error: accErr?.message || String(accErr), code: accErr?.code, status: accErr?.response?.status };
     }
 
     // 4. If we have accounts, try listing locations for the first one
@@ -180,9 +180,15 @@ router.get('/debug/:businessId', isAuthenticated, async (req, res) => {
         const locations = await gbpService.listLocations(businessId, diagnostics.accounts.accounts[0].name);
         diagnostics.locations = { count: locations.length, locations };
       } catch (locErr: any) {
-        diagnostics.locations = { error: locErr?.message || String(locErr) };
+        diagnostics.locations = { error: locErr?.message || String(locErr), code: locErr?.code };
       }
     }
+
+    // 5. Check if the GBP scheduler has seen this business
+    try {
+      const connectedIds = await gbpService.getConnectedBusinessIds();
+      diagnostics.inSchedulerPool = connectedIds.includes(businessId);
+    } catch (e) {}
 
     res.json(diagnostics);
   } catch (error: any) {

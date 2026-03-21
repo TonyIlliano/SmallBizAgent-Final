@@ -359,26 +359,28 @@ export class GoogleBusinessProfileService {
         return [];
       }
 
-      console.log(`[GBP] listAccounts: calling mybusinessaccountmanagement.accounts.list for business ${businessId}`);
+      console.log(`[GBP] listAccounts: fetching accounts for business ${businessId}`);
       let accounts: GBPAccount[] = [];
 
+      // Use raw HTTP request to ensure we hit the correct endpoint directly.
+      // The googleapis discovery client can sometimes fail silently.
       try {
-        const mybusiness = google.mybusinessaccountmanagement({
-          version: 'v1',
-          auth: oauth2Client,
+        const response = await oauth2Client.request({
+          url: 'https://mybusinessaccountmanagement.googleapis.com/v1/accounts',
+          method: 'GET',
         });
 
-        const response = await mybusiness.accounts.list();
-        console.log(`[GBP] listAccounts raw response for business ${businessId}: status=${response.status}, accounts=${JSON.stringify(response.data.accounts?.length ?? 'undefined')}, data keys=${Object.keys(response.data || {}).join(',')}`);
+        const data = response.data as any;
+        console.log(`[GBP] listAccounts raw response for business ${businessId}: status=${response.status}, data=${JSON.stringify(data).substring(0, 500)}`);
 
-        accounts = (response.data.accounts || []).map((account: any) => ({
+        accounts = (data.accounts || []).map((account: any) => ({
           name: account.name || '',
           accountName: account.accountName || account.name || '',
           type: account.type || '',
           role: account.role || '',
         }));
       } catch (accountsErr: any) {
-        console.error(`[GBP] accounts.list failed for business ${businessId}: ${accountsErr?.message || accountsErr}, code=${accountsErr?.code}, status=${accountsErr?.response?.status}`);
+        console.error(`[GBP] accounts.list failed for business ${businessId}: ${accountsErr?.message || accountsErr}, code=${accountsErr?.code}, status=${accountsErr?.response?.status}, responseData=${JSON.stringify(accountsErr?.response?.data || {}).substring(0, 500)}`);
         // Don't throw yet — try wildcard fallback below
       }
 
@@ -390,17 +392,14 @@ export class GoogleBusinessProfileService {
       if (accounts.length === 0) {
         console.log(`[GBP] listAccounts: 0 accounts found, trying wildcard locations endpoint (accounts/-/locations)`);
         try {
-          const mybusinessInfo = google.mybusinessbusinessinformation({
-            version: 'v1',
-            auth: oauth2Client,
+          const locResponse = await oauth2Client.request({
+            url: 'https://mybusinessbusinessinformation.googleapis.com/v1/accounts/-/locations?readMask=name,title',
+            method: 'GET',
           });
 
-          const locResponse = await mybusinessInfo.accounts.locations.list({
-            parent: 'accounts/-',
-            readMask: 'name,title',
-          });
-
-          const wildcardLocations = locResponse.data.locations || [];
+          const locData = locResponse.data as any;
+          console.log(`[GBP] Wildcard locations raw response: ${JSON.stringify(locData).substring(0, 500)}`);
+          const wildcardLocations = locData.locations || [];
           console.log(`[GBP] Wildcard locations response: ${wildcardLocations.length} locations found`);
 
           if (wildcardLocations.length > 0) {
