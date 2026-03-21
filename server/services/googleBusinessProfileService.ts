@@ -15,7 +15,14 @@ import { encryptField, decryptField } from '../utils/encryption';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GBP_REDIRECT_URI = process.env.GBP_REDIRECT_URI || '/api/gbp/google/callback';
+
+function getGbpRedirectUri(): string {
+  if (process.env.GBP_REDIRECT_URI) return process.env.GBP_REDIRECT_URI;
+  const baseUrl = process.env.APP_URL || process.env.BASE_URL;
+  if (baseUrl) return `${baseUrl.replace(/\/$/, '')}/api/gbp/google/callback`;
+  // Fallback for local dev only
+  return 'http://localhost:5000/api/gbp/google/callback';
+}
 
 const PROVIDER = 'google-business-profile';
 
@@ -99,7 +106,7 @@ function createOAuth2Client() {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     throw new Error('Google credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
   }
-  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GBP_REDIRECT_URI);
+  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, getGbpRedirectUri());
 }
 
 export class GoogleBusinessProfileService {
