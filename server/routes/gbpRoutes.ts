@@ -203,6 +203,39 @@ router.post('/set-booking-link/:businessId', isAuthenticated, async (req, res) =
   }
 });
 
+// Select a GBP account + location (does NOT require booking to be enabled)
+router.post('/select-location/:businessId', isAuthenticated, async (req, res) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) {
+      return res.status(400).json({ error: "Invalid business ID" });
+    }
+    const { account, location } = req.body;
+
+    if (!account || !location || !account.name || !location.name) {
+      return res.status(400).json({ error: 'account and location objects are required (each with a name property)' });
+    }
+
+    // Save selected account/location (no booking link)
+    await gbpService.saveSelectedLocation(businessId, account, location);
+
+    // Fire-and-forget: sync business data + reviews now that a location is selected
+    (async () => {
+      try {
+        const syncResult = await gbpService.syncBusinessData(businessId);
+        console.log(`[GBP] Post-location-select sync: ${syncResult.autoPopulated.length} auto-populated, ${syncResult.conflicts.length} conflicts`);
+        await gbpService.syncReviews(businessId);
+      } catch (err: any) {
+        console.error(`[GBP] Post-location-select sync error:`, err?.message || err);
+      }
+    })();
+
+    res.json({ success: true, selectedLocation: location });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get current phone numbers for a GBP location
 router.get('/phone-numbers/:businessId', isAuthenticated, async (req, res) => {
   try {

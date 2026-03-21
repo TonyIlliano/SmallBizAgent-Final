@@ -18,6 +18,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Loader2, RefreshCw, Star, MessageSquare, FileText, BarChart3,
   ExternalLink, CheckCircle2, XCircle, AlertTriangle, ArrowUpRight,
   ArrowDownLeft, Flag, Send, Sparkles, Globe, MapPin, Phone, Clock,
@@ -201,6 +208,19 @@ export default function GoogleBusinessProfilePage() {
     );
   }
 
+  // ── Connected but no location selected — show location selector ──
+  if (!status.data?.selectedLocation) {
+    return (
+      <PageLayout title="Google Business Profile">
+        <div className="max-w-2xl mx-auto">
+          <LocationSelector businessId={businessId!} onSelected={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/gbp/status", businessId] });
+          }} />
+        </div>
+      </PageLayout>
+    );
+  }
+
   return (
     <PageLayout title="Google Business Profile">
       <Tabs defaultValue="overview" className="w-full">
@@ -244,6 +264,146 @@ export default function GoogleBusinessProfilePage() {
         </TabsContent>
       </Tabs>
     </PageLayout>
+  );
+}
+
+// ─── Location Selector ──────────────────────────────────────────────────────
+
+function LocationSelector({ businessId, onSelected }: { businessId: number; onSelected: () => void }) {
+  const { toast } = useToast();
+  const [selectedAccountName, setSelectedAccountName] = useState<string>("");
+  const [selectedLocationName, setSelectedLocationName] = useState<string>("");
+
+  // Fetch accounts
+  const { data: accounts, isLoading: accountsLoading } = useQuery<{ name: string; accountName: string; type: string; role: string }[]>({
+    queryKey: ["/api/gbp/accounts", businessId],
+    queryFn: async () => {
+      const res = await fetch(`/api/gbp/accounts/${businessId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch accounts");
+      return res.json();
+    },
+    enabled: !!businessId,
+  });
+
+  // Auto-select single account
+  useEffect(() => {
+    if (accounts?.length === 1 && !selectedAccountName) {
+      setSelectedAccountName(accounts[0].name);
+    }
+  }, [accounts, selectedAccountName]);
+
+  // Fetch locations for selected account
+  const { data: locations, isLoading: locationsLoading } = useQuery<{ name: string; title: string; address?: any; websiteUri?: string }[]>({
+    queryKey: ["/api/gbp/locations", businessId, selectedAccountName],
+    queryFn: async () => {
+      const res = await fetch(`/api/gbp/locations/${businessId}?account=${encodeURIComponent(selectedAccountName)}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch locations");
+      return res.json();
+    },
+    enabled: !!businessId && !!selectedAccountName,
+  });
+
+  // Auto-select single location
+  useEffect(() => {
+    if (locations?.length === 1 && !selectedLocationName) {
+      setSelectedLocationName(locations[0].name);
+    }
+  }, [locations, selectedLocationName]);
+
+  const selectMutation = useMutation({
+    mutationFn: async () => {
+      const account = accounts?.find(a => a.name === selectedAccountName);
+      const location = locations?.find(l => l.name === selectedLocationName);
+      if (!account || !location) throw new Error("Please select an account and location");
+      const res = await apiRequest("POST", `/api/gbp/select-location/${businessId}`, { account, location });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Location Selected", description: "Your Google Business Profile location is now connected. Syncing data..." });
+      onSelected();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="text-center">
+        <div className="mx-auto p-4 rounded-full bg-green-100 dark:bg-green-900/30 w-fit mb-4">
+          <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+        </div>
+        <CardTitle className="text-xl">Select Your Business Location</CardTitle>
+        <CardDescription>
+          Your Google account is connected. Now select the business location you want to manage.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Account selector */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Google Account</label>
+          {accountsLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading accounts...
+            </div>
+          ) : accounts && accounts.length > 0 ? (
+            <Select value={selectedAccountName} onValueChange={(val) => { setSelectedAccountName(val); setSelectedLocationName(""); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select an account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map(account => (
+                  <SelectItem key={account.name} value={account.name}>
+                    {account.accountName || account.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-sm text-muted-foreground">No Google Business accounts found. Make sure your Google account has access to a Business Profile.</p>
+          )}
+        </div>
+
+        {/* Location selector */}
+        {selectedAccountName && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Business Location</label>
+            {locationsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading locations...
+              </div>
+            ) : locations && locations.length > 0 ? (
+              <Select value={selectedLocationName} onValueChange={setSelectedLocationName}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a location" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map(location => (
+                    <SelectItem key={location.name} value={location.name}>
+                      {location.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-sm text-muted-foreground">No locations found for this account.</p>
+            )}
+          </div>
+        )}
+
+        {/* Confirm button */}
+        <div className="flex justify-center pt-2">
+          <Button
+            onClick={() => selectMutation.mutate()}
+            disabled={!selectedAccountName || !selectedLocationName || selectMutation.isPending}
+            className="w-full sm:w-auto"
+          >
+            {selectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <MapPin className="h-4 w-4 mr-2" />}
+            Connect Location
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
