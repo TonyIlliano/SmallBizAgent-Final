@@ -207,9 +207,12 @@ router.get('/accounts/:businessId', isAuthenticated, async (req, res) => {
     if (isNaN(businessId)) {
       return res.status(400).json({ error: "Invalid business ID" });
     }
+    console.log(`[GBP] GET /accounts/${businessId} — request received`);
     const accounts = await gbpService.listAccounts(businessId);
+    console.log(`[GBP] GET /accounts/${businessId} — returning ${accounts.length} accounts`);
     res.json(accounts);
   } catch (error: any) {
+    console.error(`[GBP] GET /accounts/${businessId} — error: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
