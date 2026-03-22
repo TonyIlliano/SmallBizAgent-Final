@@ -48,6 +48,7 @@ const allNavItems = [
 const adminNavItems = [
   { path: "/admin", label: "Admin Dashboard", icon: Shield },
   { path: "/admin/phone-management", label: "Phone Management", icon: Phone },
+  { path: "/admin/social-media", label: "Social Media", icon: Megaphone },
 ];
 
 // Robot SVG matching the Small Business Agent logo
