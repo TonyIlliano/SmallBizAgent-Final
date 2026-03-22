@@ -8,8 +8,8 @@
 import { Router, Request, Response } from "express";
 import { isAdmin } from "../middleware/auth";
 import { db } from "../db";
-import { socialMediaPosts } from "../../shared/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { socialMediaPosts, videoBriefs } from "../../shared/schema";
+import { eq, desc, sql, and } from "drizzle-orm";
 
 const router = Router();
 
@@ -35,6 +35,40 @@ router.get('/status', isAdmin, async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /posts/winners — List winner posts (for generate-from-winners and video-brief)
+ * Query params: ?platform=&industry=
+ */
+router.get('/posts/winners', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { platform, industry } = req.query;
+
+    const conditions = [
+      eq(socialMediaPosts.status, 'published'),
+      eq(socialMediaPosts.isWinner, true),
+    ];
+
+    if (platform && typeof platform === 'string') {
+      conditions.push(eq(socialMediaPosts.platform, platform));
+    }
+    if (industry && typeof industry === 'string') {
+      conditions.push(eq(socialMediaPosts.industry, industry));
+    }
+
+    const winners = await db
+      .select()
+      .from(socialMediaPosts)
+      .where(and(...conditions))
+      .orderBy(desc(socialMediaPosts.engagementScore))
+      .limit(20);
+
+    res.json(winners);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error fetching winners:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /:platform/auth-url — Generate OAuth URL for a platform
  */
 router.get('/:platform/auth-url', isAdmin, async (req: Request, res: Response) => {
@@ -48,6 +82,9 @@ router.get('/:platform/auth-url', isAdmin, async (req: Request, res: Response) =
     const { socialMediaService } = await import("../services/socialMediaService");
     const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     const url = await socialMediaService.getAuthUrl(platform, baseUrl);
+    if (!url) {
+      return res.status(501).json({ error: `${platform} is not configured yet. OAuth credentials are missing on the server.` });
+    }
     res.json({ url });
   } catch (error: any) {
     console.error('[SocialMedia] Error generating auth URL:', error);
@@ -463,6 +500,355 @@ router.get('/video-available', isAdmin, async (req: Request, res: Response) => {
     res.json({ available: isVideoGenerationAvailable() });
   } catch (error: any) {
     res.json({ available: false });
+  }
+});
+
+// ── Performance Review: Engagement Metrics + Winners ──────────────────
+
+/**
+ * PUT /posts/:id/metrics — Save engagement metrics for a published post
+ * Body: { likes, comments, shares, saves, reach }
+ */
+router.put('/posts/:id/metrics', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid post ID' });
+
+    const { likes = 0, comments = 0, shares = 0, saves = 0, reach = 0 } = req.body;
+
+    // Validate all are non-negative numbers
+    const metrics = { likes: Number(likes), comments: Number(comments), shares: Number(shares), saves: Number(saves), reach: Number(reach) };
+    for (const [key, val] of Object.entries(metrics)) {
+      if (isNaN(val) || val < 0) {
+        return res.status(400).json({ error: `${key} must be a non-negative number` });
+      }
+    }
+
+    // Verify post exists and is published
+    const [post] = await db.select().from(socialMediaPosts).where(eq(socialMediaPosts.id, id)).limit(1);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    if (post.status !== 'published') return res.status(400).json({ error: 'Metrics can only be set on published posts' });
+
+    // Compute engagement score: (saves×3 + shares×2 + comments×1.5 + likes×1) / max(reach, 1)
+    const engagementScore = (metrics.saves * 3 + metrics.shares * 2 + metrics.comments * 1.5 + metrics.likes) / Math.max(metrics.reach, 1);
+
+    const [updated] = await db
+      .update(socialMediaPosts)
+      .set({ ...metrics, engagementScore, updatedAt: new Date() })
+      .where(eq(socialMediaPosts.id, id))
+      .returning();
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error updating metrics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /posts/:id/winner — Toggle winner status on a published post
+ */
+router.post('/posts/:id/winner', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid post ID' });
+
+    const [post] = await db.select().from(socialMediaPosts).where(eq(socialMediaPosts.id, id)).limit(1);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    if (post.status !== 'published') return res.status(400).json({ error: 'Only published posts can be marked as winners' });
+
+    const [updated] = await db
+      .update(socialMediaPosts)
+      .set({ isWinner: !post.isWinner, updatedAt: new Date() })
+      .where(eq(socialMediaPosts.id, id))
+      .returning();
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error toggling winner:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Generate from Winners ─────────────────────────────────────────────
+
+/**
+ * POST /generate-from-winners — Generate posts modeled after winner content
+ * Body: { vertical: string, platform: string, count?: number }
+ */
+router.post('/generate-from-winners', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { vertical, platform, count = 5 } = req.body;
+
+    if (!vertical || typeof vertical !== 'string') {
+      return res.status(400).json({ error: 'vertical is required' });
+    }
+    if (!platform || !isValidPlatform(platform)) {
+      return res.status(400).json({ error: `platform must be one of: ${VALID_PLATFORMS.join(', ')}` });
+    }
+    const postCount = Math.min(Math.max(Number(count) || 5, 1), 10);
+
+    // Fetch winner posts
+    const winners = await db
+      .select()
+      .from(socialMediaPosts)
+      .where(and(
+        eq(socialMediaPosts.isWinner, true),
+        eq(socialMediaPosts.status, 'published'),
+      ))
+      .orderBy(desc(socialMediaPosts.engagementScore))
+      .limit(10);
+
+    if (winners.length === 0) {
+      return res.status(400).json({ error: 'No winner posts found. Mark some published posts as winners first.' });
+    }
+
+    // Build prompt with winner examples as few-shot training
+    const winnerExamples = winners
+      .map((w, i) => {
+        const content = w.editedContent || w.content;
+        const score = w.engagementScore ? ` (engagement score: ${(w.engagementScore * 100).toFixed(2)}%)` : '';
+        return `Example ${i + 1} [${w.platform}${w.industry ? ` | ${w.industry}` : ''}]${score}:\n${content}`;
+      })
+      .join('\n\n');
+
+    const OpenAI = (await import('openai')).default;
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-5.4-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a social media strategist for SmallBizAgent (smallbizagent.ai) — an AI-powered business management platform for small service businesses. The platform includes AI voice reception, SMS automation, CRM, scheduling, invoicing, and marketing tools.
+
+Analyze these top-performing posts and create ${postCount} new ${platform} posts targeting ${vertical} business owners. Model them after what made the winners work — their hook style, tone, structure, and emotional triggers.
+
+Top-performing posts:
+${winnerExamples}
+
+Each post must follow this structure:
+- Line 1: Pain-first hook that stops the scroll
+- Body: Specific scenario, stat, or outcome relevant to ${vertical}
+- End: One CTA tied to SmallBizAgent
+
+Rotate through these content pillars across the posts:
+1. Pain Amplification  2. Feature in Context  3. Social Proof / Outcome  4. Education  5. Behind the Build
+
+Return ONLY valid JSON array. No markdown, no explanation:
+[{ "pillar": "...", "content": "full post text", "hashtags": ["tag1", "tag2"] }]`,
+        },
+      ],
+      temperature: 0.85,
+      max_tokens: 2000,
+    });
+
+    const text = response.choices?.[0]?.message?.content || '';
+    const clean = text.replace(/```json|```/g, '').trim();
+    let generated: Array<{ pillar: string; content: string; hashtags: string[] }>;
+
+    try {
+      generated = JSON.parse(clean);
+    } catch {
+      return res.status(500).json({ error: 'Failed to parse AI response. Try again.' });
+    }
+
+    // Insert all as drafts
+    let draftsGenerated = 0;
+    for (const post of generated) {
+      const hashtagString = post.hashtags?.length ? '\n\n' + post.hashtags.map(h => `#${h}`).join(' ') : '';
+      await db.insert(socialMediaPosts).values({
+        platform,
+        content: post.content + hashtagString,
+        industry: vertical.toLowerCase(),
+        agentType: 'platform:social_media',
+        status: 'draft',
+        details: {
+          generatedVia: 'winner_training',
+          pillar: post.pillar,
+          sourceWinners: winners.map(w => w.id),
+          model: 'gpt-5.4-mini',
+        },
+      });
+      draftsGenerated++;
+    }
+
+    res.json({ draftsGenerated, sourceWinners: winners.length });
+  } catch (error: any) {
+    console.error('[SocialMedia] Error generating from winners:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Video Brief Generator ─────────────────────────────────────────────
+
+/**
+ * POST /video-brief — Generate a video ad brief via OpenAI
+ * Body: { vertical: string, platform: string, pillar?: string, useWinners?: boolean }
+ */
+router.post('/video-brief', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { vertical, platform, pillar, useWinners = false } = req.body;
+
+    if (!vertical || typeof vertical !== 'string') {
+      return res.status(400).json({ error: 'vertical is required' });
+    }
+    if (!platform || typeof platform !== 'string') {
+      return res.status(400).json({ error: 'platform is required' });
+    }
+
+    // Optionally fetch winner posts for inspiration
+    let winnerContext = '';
+    let winnerIds: number[] = [];
+    if (useWinners) {
+      const winners = await db
+        .select()
+        .from(socialMediaPosts)
+        .where(and(eq(socialMediaPosts.isWinner, true), eq(socialMediaPosts.status, 'published')))
+        .orderBy(desc(socialMediaPosts.engagementScore))
+        .limit(5);
+
+      if (winners.length > 0) {
+        winnerIds = winners.map(w => w.id);
+        winnerContext = `\n\nTop-performing post content for tone/style reference:\n${winners.map(w => `- "${(w.editedContent || w.content).slice(0, 200)}"`).join('\n')}`;
+      }
+    }
+
+    const pillarLabel = pillar || 'Pain Amplification';
+
+    const OpenAI = (await import('openai')).default;
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-5.4-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a social media video ad strategist for SmallBizAgent (smallbizagent.ai) — an AI-powered platform for small service businesses (AI voice reception, SMS automation, CRM, scheduling, invoicing, marketing).
+
+Create a split-screen video ad brief targeting ${vertical} owners on ${platform}.
+
+Content pillar: ${pillarLabel}
+${winnerContext}
+
+Video format:
+- TOP HALF: Screen recording of SmallBizAgent UI in action
+- BOTTOM HALF: B-roll lifestyle footage of a ${vertical.toLowerCase()} professional working, hands busy, phone untouched
+- Duration: 15–30 seconds
+- Hook must land in first 2 seconds
+
+Return ONLY valid JSON, no markdown:
+{
+  "hook": "First 2-second attention-grabbing text/voiceover",
+  "voiceover": "Full spoken script (null if text-only)",
+  "screen_sequence": [
+    { "duration": "X sec", "clip": "What to show on screen", "note": "UI details" }
+  ],
+  "broll": "Description of the lifestyle footage to source",
+  "caption": "Full social media caption",
+  "hashtags": ["tag1", "tag2", "tag3"],
+  "cta_overlay": "Text shown in last 3 seconds",
+  "boost_targeting": "One-line Meta ad targeting summary",
+  "boost_budget": "$X/day",
+  "stock_search_terms": ["search term 1", "search term 2"],
+  "estimated_duration": 25
+}`,
+        },
+      ],
+      temperature: 0.8,
+      max_tokens: 1500,
+    });
+
+    const text = response.choices?.[0]?.message?.content || '';
+    const clean = text.replace(/```json|```/g, '').trim();
+    let briefData: any;
+
+    try {
+      briefData = JSON.parse(clean);
+    } catch {
+      return res.status(500).json({ error: 'Failed to parse AI response. Try again.' });
+    }
+
+    // Save to database
+    const [brief] = await db
+      .insert(videoBriefs)
+      .values({
+        vertical,
+        platform,
+        pillar: pillarLabel,
+        briefData,
+        sourceWinnerIds: winnerIds.length > 0 ? winnerIds : null,
+      })
+      .returning();
+
+    res.json(brief);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error generating video brief:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /video-briefs — List video briefs
+ * Query params: ?vertical=&platform=
+ */
+router.get('/video-briefs', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { vertical, platform } = req.query;
+    const conditions: any[] = [];
+
+    if (vertical && typeof vertical === 'string') {
+      conditions.push(eq(videoBriefs.vertical, vertical));
+    }
+    if (platform && typeof platform === 'string') {
+      conditions.push(eq(videoBriefs.platform, platform));
+    }
+
+    const briefs = conditions.length > 0
+      ? await db.select().from(videoBriefs).where(and(...conditions)).orderBy(desc(videoBriefs.createdAt)).limit(50)
+      : await db.select().from(videoBriefs).orderBy(desc(videoBriefs.createdAt)).limit(50);
+
+    res.json(briefs);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error fetching video briefs:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /video-briefs/:id — Get a single video brief
+ */
+router.get('/video-briefs/:id', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid brief ID' });
+
+    const [brief] = await db.select().from(videoBriefs).where(eq(videoBriefs.id, id)).limit(1);
+    if (!brief) return res.status(404).json({ error: 'Brief not found' });
+
+    res.json(brief);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error fetching video brief:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /video-briefs/:id — Delete a video brief
+ */
+router.delete('/video-briefs/:id', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid brief ID' });
+
+    const [brief] = await db.select().from(videoBriefs).where(eq(videoBriefs.id, id)).limit(1);
+    if (!brief) return res.status(404).json({ error: 'Brief not found' });
+
+    await db.delete(videoBriefs).where(eq(videoBriefs.id, id));
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[SocialMedia] Error deleting video brief:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -2,6 +2,9 @@
  * Social Media Management — Admin Page
  *
  * Connect social accounts, review AI-generated drafts, approve & publish.
+ * Performance review: track engagement, mark winners, generate from winners.
+ * Video briefs: AI-generated split-screen video ad briefs.
+ * Ad targeting: Meta targeting cheat sheet.
  * Platform-level only (admin).
  */
 
@@ -22,10 +25,13 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Loader2, CheckCircle, XCircle, ExternalLink, Play, Pencil, Trash2,
+  Loader2, CheckCircle, XCircle, ExternalLink, Pencil, Trash2,
   Send, Eye, RefreshCw, Link2, Unlink, Shield, Share2, Video, FileText,
+  Star, BarChart3, Copy, ChevronDown, ChevronUp, Clapperboard, Target,
 } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -50,8 +56,39 @@ interface SocialPost {
   details: any;
   rejectionReason: string | null;
   editedContent: string | null;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  reach: number;
+  engagementScore: number;
+  isWinner: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+interface VideoBriefData {
+  hook: string;
+  voiceover: string | null;
+  screen_sequence: Array<{ duration: string; clip: string; note?: string }>;
+  broll: string;
+  caption: string;
+  hashtags: string[];
+  cta_overlay: string;
+  boost_targeting: string;
+  boost_budget: string;
+  stock_search_terms: string[];
+  estimated_duration?: number;
+}
+
+interface VideoBrief {
+  id: number;
+  vertical: string;
+  platform: string;
+  pillar: string | null;
+  briefData: VideoBriefData;
+  sourceWinnerIds: number[] | null;
+  createdAt: string;
 }
 
 // Platform metadata
@@ -61,6 +98,20 @@ const PLATFORMS = [
   { id: 'instagram', name: 'Instagram', color: 'bg-gradient-to-r from-purple-500 to-pink-500 text-white', icon: '📷' },
   { id: 'linkedin', name: 'LinkedIn', color: 'bg-blue-700 text-white', icon: 'in' },
 ] as const;
+
+const VERTICALS = [
+  "Barbershops", "Salons", "HVAC", "Plumbing", "Landscaping", "Electrical",
+  "Cleaning", "Construction", "Automotive", "Dental", "Medical", "Veterinary",
+  "Fitness", "Restaurant", "Retail", "Professional Services",
+];
+
+const CONTENT_PILLARS = [
+  { id: "pain", label: "Pain Amplification" },
+  { id: "feature", label: "Feature in Context" },
+  { id: "proof", label: "Social Proof / Outcome" },
+  { id: "education", label: "Education" },
+  { id: "behind", label: "Behind the Build" },
+];
 
 // ── Main Component ──────────────────────────────────────────────────────
 
@@ -98,6 +149,12 @@ export default function SocialMediaAdminPage() {
 
         {/* Post Management */}
         <PostManagementSection />
+
+        {/* Video Briefs */}
+        <VideoBriefSection />
+
+        {/* Ad Targeting Reference */}
+        <AdTargetingReference />
       </div>
     </PageLayout>
   );
@@ -139,6 +196,10 @@ function ConnectedAccountsSection() {
       return data.url;
     },
     onSuccess: (url) => {
+      if (!url) {
+        toast({ title: "Not configured", description: "This platform's OAuth credentials are not set up on the server yet.", variant: "destructive" });
+        return;
+      }
       window.open(url, "_blank", "width=600,height=700");
     },
     onError: (err: Error) => {
@@ -236,6 +297,18 @@ function ConnectedAccountsSection() {
 
 function PostManagementSection() {
   const { toast } = useToast();
+  const [showWinnerGenDialog, setShowWinnerGenDialog] = useState(false);
+  const [winnerGenVertical, setWinnerGenVertical] = useState("Barbershops");
+  const [winnerGenPlatform, setWinnerGenPlatform] = useState("instagram");
+  const [winnerGenCount, setWinnerGenCount] = useState(5);
+
+  const { data: winners } = useQuery<SocialPost[]>({
+    queryKey: ["/api/social-media/posts/winners"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/social-media/posts/winners");
+      return res.json();
+    },
+  });
 
   const generateMutation = useMutation({
     mutationFn: async () => {
@@ -254,26 +327,65 @@ function PostManagementSection() {
     },
   });
 
+  const generateFromWinnersMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/social-media/generate-from-winners", {
+        vertical: winnerGenVertical,
+        platform: winnerGenPlatform,
+        count: winnerGenCount,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
+      setShowWinnerGenDialog(false);
+      toast({
+        title: "Content generated from winners!",
+        description: `Created ${data.draftsGenerated || 0} new draft posts modeled after ${data.sourceWinners || 0} winner posts.`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const winnerCount = winners?.length || 0;
+
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <CardTitle>Content Queue</CardTitle>
             <CardDescription>AI-generated posts for review and publishing</CardDescription>
           </div>
-          <Button
-            onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending}
-            className="flex items-center gap-2"
-          >
-            {generateMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            Generate Content
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowWinnerGenDialog(true)}
+              disabled={winnerCount === 0}
+              className="flex items-center gap-2"
+              title={winnerCount === 0 ? "Mark some published posts as winners first" : `Generate from ${winnerCount} winner posts`}
+            >
+              <Star className="h-4 w-4" />
+              Generate from Winners
+              {winnerCount > 0 && (
+                <Badge variant="secondary" className="ml-1 bg-amber-100 text-amber-800">{winnerCount}</Badge>
+              )}
+            </Button>
+            <Button
+              onClick={() => generateMutation.mutate()}
+              disabled={generateMutation.isPending}
+              className="flex items-center gap-2"
+            >
+              {generateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Generate Content
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -290,6 +402,72 @@ function PostManagementSection() {
           <TabsContent value="rejected"><PostsTable status="rejected" /></TabsContent>
         </Tabs>
       </CardContent>
+
+      {/* Generate from Winners Dialog */}
+      <Dialog open={showWinnerGenDialog} onOpenChange={setShowWinnerGenDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Star className="h-5 w-5 text-amber-500" />
+              Generate from Winner Posts
+            </DialogTitle>
+            <DialogDescription>
+              Create new posts modeled after your top-performing content. {winnerCount} winner{winnerCount !== 1 ? "s" : ""} available as training signal.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Target Vertical</Label>
+              <select
+                value={winnerGenVertical}
+                onChange={(e) => setWinnerGenVertical(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {VERTICALS.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Platform</Label>
+              <select
+                value={winnerGenPlatform}
+                onChange={(e) => setWinnerGenPlatform(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {PLATFORMS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Number of Posts (1-10)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={winnerGenCount}
+                onChange={(e) => setWinnerGenCount(Math.min(10, Math.max(1, Number(e.target.value) || 5)))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWinnerGenDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => generateFromWinnersMutation.mutate()}
+              disabled={generateFromWinnersMutation.isPending}
+              className="flex items-center gap-2"
+            >
+              {generateFromWinnersMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Star className="h-4 w-4" />
+              )}
+              Generate {winnerGenCount} Posts
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -301,6 +479,8 @@ function PostsTable({ status }: { status: string }) {
   const [editingPost, setEditingPost] = useState<SocialPost | null>(null);
   const [editContent, setEditContent] = useState("");
   const [viewingPost, setViewingPost] = useState<SocialPost | null>(null);
+  const [metricsPost, setMetricsPost] = useState<SocialPost | null>(null);
+  const [metricsForm, setMetricsForm] = useState({ likes: 0, comments: 0, shares: 0, saves: 0, reach: 0 });
   const videoPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Clean up video polling interval on unmount
@@ -335,13 +515,9 @@ function PostsTable({ status }: { status: string }) {
     },
     onSuccess: (_data, postId) => {
       toast({ title: "Video generation started", description: "Rendering in progress — this page will update automatically when the video is ready (~30-60 seconds)." });
-      // Clear any existing poll before starting a new one
-      if (videoPollIntervalRef.current) {
-        clearInterval(videoPollIntervalRef.current);
-      }
-      // Poll every 10s for up to 5 minutes until the post has a video
+      if (videoPollIntervalRef.current) clearInterval(videoPollIntervalRef.current);
       let attempts = 0;
-      const maxAttempts = 30; // 30 × 10s = 5 minutes
+      const maxAttempts = 30;
       videoPollIntervalRef.current = setInterval(async () => {
         attempts++;
         try {
@@ -351,7 +527,7 @@ function PostsTable({ status }: { status: string }) {
             clearInterval(videoPollIntervalRef.current!);
             videoPollIntervalRef.current = null;
             queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
-            toast({ title: "Video ready! 🎬", description: "Your video has been generated. Click the eye icon to preview it." });
+            toast({ title: "Video ready!", description: "Your video has been generated. Click the eye icon to preview it." });
           } else if (attempts >= maxAttempts) {
             clearInterval(videoPollIntervalRef.current!);
             videoPollIntervalRef.current = null;
@@ -359,7 +535,6 @@ function PostsTable({ status }: { status: string }) {
             toast({ title: "Video may still be processing", description: "Refresh the page to check status.", variant: "destructive" });
           }
         } catch {
-          // Silently retry — the server might be busy
           if (attempts >= maxAttempts) {
             clearInterval(videoPollIntervalRef.current!);
             videoPollIntervalRef.current = null;
@@ -428,6 +603,34 @@ function PostsTable({ status }: { status: string }) {
     },
   });
 
+  const metricsMutation = useMutation({
+    mutationFn: async ({ postId, metrics }: { postId: number; metrics: typeof metricsForm }) => {
+      const res = await apiRequest("PUT", `/api/social-media/posts/${postId}/metrics`, metrics);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts/winners"] });
+      setMetricsPost(null);
+      toast({ title: "Metrics saved", description: "Engagement score computed." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to save metrics", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const winnerMutation = useMutation({
+    mutationFn: async (postId: number) => {
+      const res = await apiRequest("POST", `/api/social-media/posts/${postId}/winner`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts/winners"] });
+      toast({ title: data.isWinner ? "Marked as winner" : "Winner status removed" });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-8">
@@ -456,6 +659,7 @@ function PostsTable({ status }: { status: string }) {
             <TableHead>Platform</TableHead>
             <TableHead>Content</TableHead>
             <TableHead>Industry</TableHead>
+            {status === "published" && <TableHead>Engagement</TableHead>}
             <TableHead>{status === "published" ? "Published" : "Created"}</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -486,6 +690,11 @@ function PostsTable({ status }: { status: string }) {
                     {post.editedContent && (
                       <span className="text-xs text-amber-600">(edited)</span>
                     )}
+                    {post.isWinner && (
+                      <Badge className="text-xs bg-amber-100 text-amber-800 border-amber-300 flex items-center gap-1">
+                        <Star className="h-3 w-3 fill-amber-500" /> Winner
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-sm truncate">{displayContent.slice(0, 120)}...</p>
                 </TableCell>
@@ -494,6 +703,17 @@ function PostsTable({ status }: { status: string }) {
                     <Badge variant="outline" className="capitalize text-xs">{post.industry}</Badge>
                   ) : "—"}
                 </TableCell>
+                {status === "published" && (
+                  <TableCell>
+                    {post.engagementScore > 0 ? (
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {(post.engagementScore * 100).toFixed(2)}%
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                )}
                 <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                   {formatDate(status === "published" ? post.publishedAt : post.createdAt)}
                 </TableCell>
@@ -507,7 +727,6 @@ function PostsTable({ status }: { status: string }) {
                     {/* Draft actions */}
                     {status === "draft" && (
                       <>
-                        {/* Generate Video button (only for text posts when Shotstack is configured) */}
                         {post.mediaType !== 'video' && videoAvailability?.available && (
                           <Button
                             size="sm"
@@ -569,13 +788,44 @@ function PostsTable({ status }: { status: string }) {
                       </Button>
                     )}
 
-                    {/* Published — external link */}
-                    {status === "published" && post.externalPostId && (
-                      <Button size="sm" variant="ghost" asChild>
-                        <a href={getExternalUrl(post.platform, post.externalPostId)} target="_blank" rel="noopener">
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      </Button>
+                    {/* Published actions — metrics, winner toggle, external link */}
+                    {status === "published" && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="Enter Metrics"
+                          onClick={() => {
+                            setMetricsPost(post);
+                            setMetricsForm({
+                              likes: post.likes || 0,
+                              comments: post.comments || 0,
+                              shares: post.shares || 0,
+                              saves: post.saves || 0,
+                              reach: post.reach || 0,
+                            });
+                          }}
+                        >
+                          <BarChart3 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className={post.isWinner ? "text-amber-500" : "text-muted-foreground"}
+                          title={post.isWinner ? "Remove winner" : "Mark as winner"}
+                          onClick={() => winnerMutation.mutate(post.id)}
+                          disabled={winnerMutation.isPending}
+                        >
+                          <Star className={`h-4 w-4 ${post.isWinner ? "fill-amber-500" : ""}`} />
+                        </Button>
+                        {post.externalPostId && (
+                          <Button size="sm" variant="ghost" asChild>
+                            <a href={getExternalUrl(post.platform, post.externalPostId)} target="_blank" rel="noopener">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        )}
+                      </>
                     )}
 
                     {/* Delete for drafts/rejected */}
@@ -613,7 +863,6 @@ function PostsTable({ status }: { status: string }) {
               {viewingPost?.industry && `Industry: ${viewingPost.industry}`}
             </DialogDescription>
           </DialogHeader>
-          {/* Video Preview */}
           {viewingPost?.mediaType === 'video' && viewingPost?.mediaUrl && (
             <div className="rounded-lg overflow-hidden border bg-black">
               <video
@@ -685,7 +934,504 @@ function PostsTable({ status }: { status: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Metrics Dialog */}
+      <Dialog open={!!metricsPost} onOpenChange={() => setMetricsPost(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Enter Engagement Metrics
+            </DialogTitle>
+            <DialogDescription>
+              Enter the engagement metrics from the platform for this post.
+              Score: (Saves×3 + Shares×2 + Comments×1.5 + Likes) ÷ Reach
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-5 gap-3 py-2">
+            {(["likes", "comments", "shares", "saves", "reach"] as const).map((field) => (
+              <div key={field} className="space-y-1">
+                <Label className="text-xs capitalize">{field}</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={metricsForm[field]}
+                  onChange={(e) => setMetricsForm(prev => ({ ...prev, [field]: Number(e.target.value) || 0 }))}
+                  className="text-center font-mono"
+                />
+              </div>
+            ))}
+          </div>
+          {metricsForm.reach > 0 && (
+            <div className="text-sm text-center text-muted-foreground">
+              Preview score: <span className="font-mono font-semibold text-foreground">
+                {(((metricsForm.saves * 3 + metricsForm.shares * 2 + metricsForm.comments * 1.5 + metricsForm.likes) / Math.max(metricsForm.reach, 1)) * 100).toFixed(2)}%
+              </span>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMetricsPost(null)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (metricsPost) {
+                  metricsMutation.mutate({ postId: metricsPost.id, metrics: metricsForm });
+                }
+              }}
+              disabled={metricsMutation.isPending}
+            >
+              {metricsMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Metrics"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+// ── Video Brief Section ──────────────────────────────────────────────────
+
+function VideoBriefSection() {
+  const { toast } = useToast();
+  const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [viewingBrief, setViewingBrief] = useState<VideoBrief | null>(null);
+  const [briefVertical, setBriefVertical] = useState("Barbershops");
+  const [briefPlatform, setBriefPlatform] = useState("Instagram Reels");
+  const [briefPillar, setBriefPillar] = useState("pain");
+  const [useWinners, setUseWinners] = useState(true);
+
+  const { data: briefs, isLoading } = useQuery<VideoBrief[]>({
+    queryKey: ["/api/social-media/video-briefs"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/social-media/video-briefs");
+      return res.json();
+    },
+  });
+
+  const generateBriefMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/social-media/video-brief", {
+        vertical: briefVertical,
+        platform: briefPlatform,
+        pillar: CONTENT_PILLARS.find(p => p.id === briefPillar)?.label || briefPillar,
+        useWinners,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/video-briefs"] });
+      setShowGenerateDialog(false);
+      setViewingBrief(data);
+      toast({ title: "Video brief generated!" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Brief generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteBriefMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/social-media/video-briefs/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/video-briefs"] });
+      toast({ title: "Brief deleted" });
+    },
+  });
+
+  const copyBrief = (brief: VideoBrief) => {
+    const b = brief.briefData;
+    const text = `VIDEO AD BRIEF — SmallBizAgent
+Platform: ${brief.platform} | Vertical: ${brief.vertical} | Pillar: ${brief.pillar}
+
+HOOK: ${b.hook}
+VOICEOVER: ${b.voiceover || "None"}
+CTA OVERLAY: ${b.cta_overlay}
+
+SCREEN SEQUENCE:
+${b.screen_sequence?.map((s, i) => `${i + 1}. [${s.duration}] ${s.clip}${s.note ? ` — ${s.note}` : ""}`).join("\n") || "N/A"}
+
+B-ROLL: ${b.broll}
+
+CAPTION:
+${b.caption}
+
+HASHTAGS: ${b.hashtags?.map(h => `#${h}`).join(" ") || "N/A"}
+
+BOOST: ${b.boost_targeting} · ${b.boost_budget}
+STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
+
+    navigator.clipboard.writeText(text);
+    toast({ title: "Brief copied to clipboard" });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Clapperboard className="h-5 w-5" />
+              Video Briefs
+            </CardTitle>
+            <CardDescription>AI-generated split-screen video ad briefs</CardDescription>
+          </div>
+          <Button
+            onClick={() => setShowGenerateDialog(true)}
+            className="flex items-center gap-2"
+          >
+            <Clapperboard className="h-4 w-4" />
+            Generate Brief
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : !briefs || briefs.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            No video briefs yet. Click "Generate Brief" to create your first one.
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {briefs.map((brief) => (
+              <div
+                key={brief.id}
+                className="border rounded-lg p-4 hover:border-primary/50 transition-colors cursor-pointer"
+                onClick={() => setViewingBrief(brief)}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <Badge variant="outline" className="text-xs">{brief.vertical}</Badge>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      title="Copy brief"
+                      onClick={(e) => { e.stopPropagation(); copyBrief(brief); }}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 text-red-400"
+                      title="Delete"
+                      onClick={(e) => { e.stopPropagation(); deleteBriefMutation.mutate(brief.id); }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-sm font-medium truncate">"{brief.briefData.hook}"</p>
+                <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                  <span>{brief.platform}</span>
+                  <span>·</span>
+                  <span>{brief.pillar}</span>
+                  <span>·</span>
+                  <span>{formatDate(brief.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      {/* Generate Brief Dialog */}
+      <Dialog open={showGenerateDialog} onOpenChange={setShowGenerateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clapperboard className="h-5 w-5" />
+              Generate Video Ad Brief
+            </DialogTitle>
+            <DialogDescription>
+              Create a split-screen video ad brief: SmallBizAgent UI on top, lifestyle b-roll on bottom.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Target Vertical</Label>
+              <select
+                value={briefVertical}
+                onChange={(e) => setBriefVertical(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {VERTICALS.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Platform</Label>
+              <select
+                value={briefPlatform}
+                onChange={(e) => setBriefPlatform(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {["Instagram Reels", "Facebook Video", "TikTok", "YouTube Shorts", "General"].map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Content Pillar</Label>
+              <select
+                value={briefPillar}
+                onChange={(e) => setBriefPillar(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {CONTENT_PILLARS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="useWinners"
+                checked={useWinners}
+                onChange={(e) => setUseWinners(e.target.checked)}
+                className="rounded border-input"
+              />
+              <Label htmlFor="useWinners" className="text-sm font-normal">
+                Use winner posts as tone/style reference
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGenerateDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => generateBriefMutation.mutate()}
+              disabled={generateBriefMutation.isPending}
+              className="flex items-center gap-2"
+            >
+              {generateBriefMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Clapperboard className="h-4 w-4" />
+              )}
+              Generate Brief
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Brief Dialog */}
+      <Dialog open={!!viewingBrief} onOpenChange={() => setViewingBrief(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clapperboard className="h-5 w-5" />
+              Video Brief: {viewingBrief?.vertical}
+            </DialogTitle>
+            <DialogDescription>
+              {viewingBrief?.platform} · {viewingBrief?.pillar} · {formatDate(viewingBrief?.createdAt || null)}
+            </DialogDescription>
+          </DialogHeader>
+
+          {viewingBrief && (
+            <div className="space-y-4">
+              {/* Hook */}
+              <div className="bg-muted/50 rounded-lg p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Hook (First 2 Seconds)</p>
+                <p className="text-lg font-bold">"{viewingBrief.briefData.hook}"</p>
+                {viewingBrief.briefData.voiceover && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Voiceover: <em>"{viewingBrief.briefData.voiceover}"</em>
+                  </p>
+                )}
+              </div>
+
+              {/* Screen Sequence + B-Roll */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="border rounded-lg p-4">
+                  <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-3">Top Half — Screen Recording</p>
+                  <div className="space-y-2">
+                    {viewingBrief.briefData.screen_sequence?.map((s, i) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="text-xs font-mono text-blue-500 font-semibold min-w-[40px]">{s.duration}</span>
+                        <div>
+                          <p className="text-sm">{s.clip}</p>
+                          {s.note && <p className="text-xs text-muted-foreground">{s.note}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="border rounded-lg p-4">
+                  <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-3">Bottom Half — B-Roll</p>
+                  <p className="text-sm">{viewingBrief.briefData.broll}</p>
+                  {viewingBrief.briefData.stock_search_terms?.length > 0 && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-2">Stock Search Terms</p>
+                      <div className="flex flex-wrap gap-1">
+                        {viewingBrief.briefData.stock_search_terms.map((t) => (
+                          <Badge key={t} variant="secondary" className="text-xs">"{t}"</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* CTA + Caption */}
+              <div className="border rounded-lg p-4">
+                <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-2">CTA Overlay (Last 3 Seconds)</p>
+                <p className="font-semibold text-emerald-700 mb-3">{viewingBrief.briefData.cta_overlay}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Caption</p>
+                <p className="text-sm whitespace-pre-wrap">{viewingBrief.briefData.caption}</p>
+                {viewingBrief.briefData.hashtags?.length > 0 && (
+                  <p className="text-sm text-blue-500 mt-2">
+                    {viewingBrief.briefData.hashtags.map(h => `#${h}`).join(" ")}
+                  </p>
+                )}
+              </div>
+
+              {/* Boost */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">{viewingBrief.briefData.boost_targeting}</span>
+                <span className="font-mono font-bold text-emerald-700">{viewingBrief.briefData.boost_budget}</span>
+              </div>
+
+              <Button
+                variant="outline"
+                className="w-full flex items-center gap-2"
+                onClick={() => copyBrief(viewingBrief)}
+              >
+                <Copy className="h-4 w-4" />
+                Copy Full Brief
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ── Ad Targeting Reference ──────────────────────────────────────────────
+
+const AD_TARGETING = {
+  interests: [
+    "Small business owner", "Barbershop", "Hair salon", "HVAC services",
+    "Landscaping", "Booksy", "StyleSeat", "Square Appointments",
+    "Jobber", "Service business", "Entrepreneurship",
+  ],
+  behaviors: [
+    "Small business owners", "Business page admins",
+    "Engaged shoppers", "Mobile business",
+  ],
+  demographics: {
+    age: "28–55",
+    locations: "United States",
+    jobTitles: ["Owner", "Founder", "Self-employed", "Independent contractor"],
+  },
+  budget: "$5–20/day per boosted post",
+  objective: "Lead generation → Demo booking",
+  cta: "Book Now → smallbizagent.ai/demo",
+};
+
+function AdTargetingReference() {
+  const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+
+  const copyTargeting = () => {
+    const text = `AD TARGETING — SmallBizAgent
+Objective: Lead Generation → Demo Booking
+CTA: Book Now → smallbizagent.ai/demo
+Budget: ${AD_TARGETING.budget}
+
+INTERESTS: ${AD_TARGETING.interests.join(", ")}
+BEHAVIORS: ${AD_TARGETING.behaviors.join(", ")}
+AGE: ${AD_TARGETING.demographics.age}
+LOCATIONS: ${AD_TARGETING.demographics.locations}
+JOB TITLES: ${AD_TARGETING.demographics.jobTitles.join(", ")}`;
+
+    navigator.clipboard.writeText(text);
+    toast({ title: "Targeting sheet copied to clipboard" });
+  };
+
+  return (
+    <Card>
+      <CardHeader className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Target className="h-5 w-5" />
+            <CardTitle className="text-base">Ad Targeting Cheat Sheet</CardTitle>
+          </div>
+          {expanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+        </div>
+        <CardDescription>Meta ad targeting parameters for SmallBizAgent's audience</CardDescription>
+      </CardHeader>
+      {expanded && (
+        <CardContent className="space-y-4">
+          {/* Objective banner */}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-1">Campaign Objective</p>
+              <p className="font-semibold">{AD_TARGETING.objective}</p>
+              <p className="text-xs text-muted-foreground mt-1">{AD_TARGETING.cta}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Daily Budget</p>
+              <p className="text-xl font-bold font-mono text-amber-600">{AD_TARGETING.budget}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Interests */}
+            <div className="border rounded-lg p-4">
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-3">Interests</p>
+              <div className="flex flex-wrap gap-1.5">
+                {AD_TARGETING.interests.map((i) => (
+                  <Badge key={i} variant="secondary" className="text-xs">{i}</Badge>
+                ))}
+              </div>
+            </div>
+
+            {/* Behaviors + Demographics */}
+            <div className="border rounded-lg p-4">
+              <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-3">Behaviors</p>
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {AD_TARGETING.behaviors.map((b) => (
+                  <Badge key={b} variant="secondary" className="text-xs">{b}</Badge>
+                ))}
+              </div>
+              <div className="border-t pt-3">
+                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2">Demographics</p>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Age</span>
+                    <span className="font-mono">{AD_TARGETING.demographics.age}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Location</span>
+                    <span>{AD_TARGETING.demographics.locations}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Job Titles */}
+          <div className="border rounded-lg p-4">
+            <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-3">Job Titles to Target</p>
+            <div className="flex flex-wrap gap-1.5">
+              {AD_TARGETING.demographics.jobTitles.map((t) => (
+                <Badge key={t} variant="outline" className="text-xs border-red-200 text-red-700">{t}</Badge>
+              ))}
+            </div>
+          </div>
+
+          <Button variant="outline" className="flex items-center gap-2" onClick={copyTargeting}>
+            <Copy className="h-4 w-4" />
+            Copy Full Targeting Sheet
+          </Button>
+        </CardContent>
+      )}
+    </Card>
   );
 }
 

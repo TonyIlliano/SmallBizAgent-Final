@@ -130,6 +130,27 @@ async function generateWithOpenAI(
     ? `\n\nReal platform stats you can reference (use sparingly and naturally):\n${platformFacts.map(f => `- ${f}`).join('\n')}`
     : '';
 
+  // Query winner posts for this platform to use as few-shot training examples
+  let winnerSection = '';
+  try {
+    const winners = await db
+      .select()
+      .from(socialMediaPosts)
+      .where(and(
+        eq(socialMediaPosts.isWinner, true),
+        eq(socialMediaPosts.status, 'published'),
+        eq(socialMediaPosts.platform, platform),
+      ))
+      .orderBy(desc(socialMediaPosts.engagementScore))
+      .limit(3);
+
+    if (winners.length > 0) {
+      winnerSection = `\n\nThese are your top-performing ${platform} posts. Model your new content after their style, tone, and structure:\n${winners.map((w, i) => `Winner ${i + 1} (engagement: ${((w.engagementScore || 0) * 100).toFixed(1)}%):\n"${(w.editedContent || w.content).slice(0, 300)}"`).join('\n\n')}`;
+    }
+  } catch {
+    // Ignore errors — winner training is a bonus, not required
+  }
+
   const response = await openai.chat.completions.create({
     model: 'gpt-5.4-mini',
     messages: [
@@ -145,7 +166,7 @@ Constraints:
 - Target audience: small business owners in the ${industry} industry
 - Highlight how AI receptionists, automated booking, and smart follow-ups help ${industry} businesses
 - Be genuine and helpful, not salesy
-- If platform stats are provided, weave them in naturally (don't list them robotically)${factsSection}
+- If platform stats are provided, weave them in naturally (don't list them robotically)${factsSection}${winnerSection}
 
 Respond with ONLY the post text. No quotes, no labels, no explanation.`,
       },

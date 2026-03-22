@@ -212,7 +212,7 @@ router.get('/accounts/:businessId', isAuthenticated, async (req, res) => {
     console.log(`[GBP] GET /accounts/${businessId} — returning ${accounts.length} accounts`);
     res.json(accounts);
   } catch (error: any) {
-    console.error(`[GBP] GET /accounts/${businessId} — error: ${error.message}`);
+    console.error(`[GBP] GET /accounts — error: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });

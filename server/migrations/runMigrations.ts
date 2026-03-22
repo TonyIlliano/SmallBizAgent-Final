@@ -1052,6 +1052,28 @@ async function fixExistingTables() {
     );
   `);
 
+  // Engagement metrics for published social media posts (Performance Review feature)
+  await addColumnIfNotExists('social_media_posts', 'likes', 'INTEGER DEFAULT 0');
+  await addColumnIfNotExists('social_media_posts', 'comments', 'INTEGER DEFAULT 0');
+  await addColumnIfNotExists('social_media_posts', 'shares', 'INTEGER DEFAULT 0');
+  await addColumnIfNotExists('social_media_posts', 'saves', 'INTEGER DEFAULT 0');
+  await addColumnIfNotExists('social_media_posts', 'reach', 'INTEGER DEFAULT 0');
+  await addColumnIfNotExists('social_media_posts', 'engagement_score', 'REAL DEFAULT 0');
+  await addColumnIfNotExists('social_media_posts', 'is_winner', 'BOOLEAN DEFAULT false');
+
+  // Create video_briefs table (AI-generated video ad briefs)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS video_briefs (
+      id SERIAL PRIMARY KEY,
+      vertical TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      pillar TEXT,
+      brief_data JSONB NOT NULL,
+      source_winner_ids JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Create blog_posts table (AI-generated blog content for platform SEO)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blog_posts (

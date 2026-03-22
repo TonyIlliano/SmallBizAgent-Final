@@ -163,7 +163,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ---
 
-## Database Schema (64 Tables)
+## Database Schema (65 Tables)
 
 ### Core
 | Table | Purpose | Key Columns |
@@ -232,7 +232,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 ### Social Media & Marketing
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `social_media_posts` | Generated social posts | platform, content, mediaUrl, mediaType, status (draft/approved/published/rejected), industry, details (jsonb) |
+| `social_media_posts` | Generated social posts | platform, content, mediaUrl, mediaType, status (draft/approved/published/rejected), industry, details (jsonb), likes, comments, shares, saves, reach, engagementScore, isWinner |
+| `video_briefs` | AI-generated video ad briefs | vertical, platform, pillar, briefData (jsonb), sourceWinnerIds (jsonb) |
 | `blog_posts` | Generated blog articles | title, slug, body, industry, targetKeywords, status, generatedVia (openai/template) |
 | `marketing_campaigns` | Email/SMS campaigns | businessId, type, channel, template, status |
 
@@ -361,7 +362,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `cloverRoutes` | `/api/clover/*` | Clover POS OAuth, menu, orders |
 | `squareRoutes` | `/api/square/*` | Square POS integration |
 | `heartlandRoutes` | `/api/heartland/*` | Heartland POS integration |
-| `socialMediaRoutes` | `/api/social-media/*` | Social posts, video gen, OAuth, publishing |
+| `socialMediaRoutes` | `/api/social-media/*` | Social posts, video gen, OAuth, publishing, engagement metrics, winners, generate-from-winners, video briefs |
 | `subscriptionRoutes` | `/api/subscriptions/*` | Plans, billing portal, promo codes |
 | `stripeConnectRoutes` | `/api/stripe-connect/*` | Stripe Connect for payments |
 | `phoneRoutes` | `/api/phone/*` | Twilio number provisioning |
@@ -805,6 +806,35 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/services/adminService.ts` — Extended `RevenueData` type with `forecast: MrrForecast | null`. Added `computeMrrForecast()` using linear regression on mrrTrend data. Projects 3 months forward with optimistic (+20%) and pessimistic (-20%) scenarios. Returns null if insufficient data.
 - `client/src/pages/admin/index.tsx` — **NEW**: MRR Forecast card in Revenue tab. Table showing month, pessimistic, projected, optimistic columns. Shows monthly growth rate % and methodology. Placed between MRR trend and Plan Distribution.
 
+#### Social Media Performance Engine — Metrics, Winners, AI Generation, Video Briefs
+- **Goal**: Add performance tracking, winner-based AI content generation, video ad brief generation, and ad targeting reference to the admin social media dashboard. Replaces ideas from a standalone SocialMediaEngine.jsx (rejected for security/architecture reasons) with proper integration into the existing system.
+
+##### Schema + Migrations
+- `shared/schema.ts` — Added 7 engagement columns to `socialMediaPosts` table: `likes`, `comments`, `shares`, `saves`, `reach` (all integer, default 0), `engagementScore` (real, default 0), `isWinner` (boolean, default false). Created `videoBriefs` table (id, vertical, platform, pillar, briefData jsonb, sourceWinnerIds jsonb, createdAt). Added insert schema and types.
+- `server/migrations/runMigrations.ts` — Added 7 `addColumnIfNotExists` calls for engagement columns on `social_media_posts`. Added `CREATE TABLE IF NOT EXISTS video_briefs`.
+
+##### Backend Routes (`server/routes/socialMediaRoutes.ts`)
+- `GET /posts/winners` — List winner posts with optional platform/industry filters. Registered BEFORE `/:platform/auth-url` to avoid route conflict.
+- `PUT /posts/:id/metrics` — Save engagement metrics (likes, comments, shares, saves, reach). Computes `engagementScore` server-side: `(saves×3 + shares×2 + comments×1.5 + likes) / max(reach, 1)`. Validates post is published.
+- `POST /posts/:id/winner` — Toggle `isWinner` on a published post.
+- `POST /generate-from-winners` — Body: `{ vertical, platform, count? }`. Fetches winners, builds OpenAI prompt with winner examples as few-shot training, generates `count` posts (default 5), inserts as drafts with `details.generatedVia: 'winner_training'`. Returns `{ draftsGenerated, sourceWinners }`.
+- `POST /video-brief` — Body: `{ vertical, platform, pillar?, useWinners? }`. Generates structured video ad brief (hook, voiceover, screen sequence, b-roll, CTA, caption, hashtags, boost targeting, stock search terms) via OpenAI. Saves to `video_briefs` table. Returns the brief.
+- `GET /video-briefs` — List briefs with optional vertical/platform filters.
+- `GET /video-briefs/:id` — Get single brief.
+- `DELETE /video-briefs/:id` — Delete a brief.
+- **Fix**: Auth-url endpoint now returns 501 with descriptive error when OAuth credentials are missing (previously returned empty URL causing blank popup window).
+
+##### Social Media Agent Enhancement (`server/services/platformAgents/socialMediaAgent.ts`)
+- `generateWithOpenAI()` enhanced: queries up to 3 winner posts matching current platform (ordered by `engagementScore` desc). If winners exist, appends to system prompt as few-shot training examples. Backward compatible — prompt unchanged when no winners exist. Wrapped in try/catch so winner training is a bonus, not a requirement.
+
+##### Frontend (`client/src/pages/admin/social-media.tsx`)
+- **SocialPost interface** updated with 7 new engagement fields.
+- **Published tab**: Engagement score badge per post. BarChart3 icon → "Enter Metrics" dialog (5 number inputs: Likes, Comments, Shares, Saves, Reach with live score preview). Star icon → toggle winner (gold fill when active).
+- **"Generate from Winners" button** in PostManagementSection header. Opens dialog with vertical dropdown (16 industries), platform dropdown (4 platforms), count slider (1-10). Disabled with message when no winners exist. Shows winner count badge.
+- **VideoBriefSection**: Card with brief grid. "Generate Brief" dialog: vertical, platform, content pillar (Pain Amplification/Feature in Context/Social Proof/Education/Behind the Build), "use winner posts" checkbox. Brief cards show vertical, platform, pillar, date, hook preview. View dialog: structured display of all fields with "Copy Full Brief" button. Delete action per brief.
+- **AdTargetingReference**: Collapsible card (starts collapsed). Meta ad targeting cheat sheet: interest tags, behavior tags, demographics, job titles, budget guidance. "Copy Full Targeting Sheet" button.
+- New imports: Star, BarChart3, Copy, ChevronDown, ChevronUp, Clapperboard, Target (lucide-react); Input, Label (shadcn/ui).
+
 ### Recent changes (committed):
 
 #### Logout Button on Mobile Bottom Nav
@@ -1174,4 +1204,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 21, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 64 tables. Google Business Profile (uncommitted): Full bi-directional sync — business info pull/push with conflict detection, review management with AI reply suggestions, local post creation/publishing with AI generation, SEO score (100-point, 12 criteria). 5-tab dashboard page (Overview, Business Info, Reviews, Posts, SEO Score). 14 API endpoints (12 new + debug + select-location). 24h sync scheduler. Post-save hooks (fire-and-forget sync on business/hours update). Website builder GBP push integration. GBP debugging: raw HTTP for accounts API (bypasses googleapis discovery), wildcard location fallback (accounts/-/locations), forced token refresh on expiry, diagnostic debug endpoint, step-by-step [GBP] logging on OAuth callback flow, LocationSelector component for manual account/location selection. Website Builder (uncommitted): OpenAI generation (gpt-5.4-mini) with 15+ vertical design presets, dynamic DB data, booking widget embedding. Custom domain management (subdomain, custom CNAME, DNS verification). Feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). Customization panel (accent color, font style, hero headline/subheadline, CTA button texts, about text, footer message, section toggles). Logo upload + staff photo uploads in website builder. Profile nudges (missing services/staff/hours warnings). Scanner removed (unnecessary — all data comes from DB). hero_image_url removed (logo from business profile used instead). scanData column dropped. Deleted: stitchService.ts, businessScannerService.ts.*
+*Last updated: March 22, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 65 tables. Social Media Performance Engine (uncommitted): Engagement metrics (likes, comments, shares, saves, reach) + scoring + winner marking on published posts. Generate-from-winners: AI content generation using winner posts as few-shot training examples. Video brief generator: structured video ad briefs via OpenAI (hook, voiceover, screen sequence, b-roll, CTA, caption, hashtags, boost targeting). Ad targeting reference: static Meta targeting cheat sheet. 8 new API endpoints. `videoBriefs` table added. Social media agent enhanced with winner training. Google Business Profile (uncommitted): Full bi-directional sync — business info pull/push with conflict detection, review management with AI reply suggestions, local post creation/publishing with AI generation, SEO score (100-point, 12 criteria). 5-tab dashboard page (Overview, Business Info, Reviews, Posts, SEO Score). 14 API endpoints (12 new + debug + select-location). 24h sync scheduler. Post-save hooks (fire-and-forget sync on business/hours update). Website builder GBP push integration. GBP debugging: raw HTTP for accounts API (bypasses googleapis discovery), wildcard location fallback (accounts/-/locations), forced token refresh on expiry, diagnostic debug endpoint, step-by-step [GBP] logging on OAuth callback flow, LocationSelector component for manual account/location selection. Website Builder (uncommitted): OpenAI generation (gpt-5.4-mini) with 15+ vertical design presets, dynamic DB data, booking widget embedding. Custom domain management (subdomain, custom CNAME, DNS verification). Feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). Customization panel (accent color, font style, hero headline/subheadline, CTA button texts, about text, footer message, section toggles). Logo upload + staff photo uploads in website builder. Profile nudges (missing services/staff/hours warnings). Scanner removed (unnecessary — all data comes from DB). hero_image_url removed (logo from business profile used instead). scanData column dropped. Deleted: stitchService.ts, businessScannerService.ts.*

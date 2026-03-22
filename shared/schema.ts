@@ -940,8 +940,27 @@ export const socialMediaPosts = pgTable("social_media_posts", {
   details: jsonb("details"),
   rejectionReason: text("rejection_reason"),
   editedContent: text("edited_content"),
+  // Engagement metrics (entered manually by admin after publishing)
+  likes: integer("likes").default(0),
+  comments: integer("comments").default(0),
+  shares: integer("shares").default(0),
+  saves: integer("saves").default(0),
+  reach: integer("reach").default(0),
+  engagementScore: real("engagement_score").default(0),
+  isWinner: boolean("is_winner").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Video Briefs - AI-generated video ad briefs (text documents, not rendered videos)
+export const videoBriefs = pgTable("video_briefs", {
+  id: serial("id").primaryKey(),
+  vertical: text("vertical").notNull(),
+  platform: text("platform").notNull(), // meta, tiktok, youtube, general
+  pillar: text("pillar"), // content pillar/theme
+  briefData: jsonb("brief_data").notNull(), // Structured JSON: hook, voiceover, screens, b-roll, caption, hashtags, CTA, boost targeting
+  sourceWinnerIds: jsonb("source_winner_ids"), // integer[] of winner post IDs used as inspiration
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Website Scrape Cache - cached results from business website scraping
@@ -1182,6 +1201,7 @@ export const insertAgentActivityLogSchema = createInsertSchema(agentActivityLog)
 export const insertQuoteFollowUpSchema = createInsertSchema(quoteFollowUps).omit({ id: true, sentAt: true });
 export const insertReviewResponseSchema = createInsertSchema(reviewResponses).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSocialMediaPostSchema = createInsertSchema(socialMediaPosts).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertVideoBriefSchema = createInsertSchema(videoBriefs).omit({ id: true, createdAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
@@ -1377,6 +1397,9 @@ export type InsertReviewResponse = z.infer<typeof insertReviewResponseSchema>;
 
 export type SocialMediaPost = typeof socialMediaPosts.$inferSelect;
 export type InsertSocialMediaPost = z.infer<typeof insertSocialMediaPostSchema>;
+
+export type VideoBrief = typeof videoBriefs.$inferSelect;
+export type InsertVideoBrief = z.infer<typeof insertVideoBriefSchema>;
 
 export type SmsSuppression = typeof smsSuppressionList.$inferSelect;
 export type InsertSmsSuppression = z.infer<typeof insertSmsSuppressionSchema>;
