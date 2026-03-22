@@ -640,7 +640,7 @@ Return ONLY valid JSON array. No markdown, no explanation:
         },
       ],
       temperature: 0.85,
-      max_tokens: 2000,
+      max_completion_tokens: 2000,
     });
 
     const text = response.choices?.[0]?.message?.content || '';
@@ -756,7 +756,7 @@ Return ONLY valid JSON, no markdown:
         },
       ],
       temperature: 0.8,
-      max_tokens: 1500,
+      max_completion_tokens: 1500,
     });
 
     const text = response.choices?.[0]?.message?.content || '';
