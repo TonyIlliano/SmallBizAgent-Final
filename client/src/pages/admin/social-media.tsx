@@ -32,6 +32,7 @@ import {
   Loader2, CheckCircle, XCircle, ExternalLink, Pencil, Trash2,
   Send, Eye, RefreshCw, Link2, Unlink, Shield, Share2, Video, FileText,
   Star, BarChart3, Copy, ChevronDown, ChevronUp, Clapperboard, Target,
+  Upload, Play, Film, Mic, Download, Monitor,
 } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -88,8 +89,58 @@ interface VideoBrief {
   pillar: string | null;
   briefData: VideoBriefData;
   sourceWinnerIds: number[] | null;
+  renderStatus: string | null;
+  renderId: string | null;
+  videoUrl: string | null;
+  thumbnailUrl: string | null;
+  voiceoverUrl: string | null;
+  aspectRatio: string | null;
+  renderError: string | null;
+  renderedAt: string | null;
   createdAt: string;
 }
+
+interface VideoClip {
+  id: number;
+  name: string;
+  description: string | null;
+  category: string;
+  s3Key: string;
+  s3Url: string;
+  durationSeconds: number | null;
+  width: number | null;
+  height: number | null;
+  fileSize: number | null;
+  mimeType: string | null;
+  tags: string[] | null;
+  sortOrder: number;
+  createdAt: string;
+}
+
+interface TTSVoice {
+  id: string;
+  name: string;
+  description: string;
+}
+
+interface PipelineStatus {
+  shotstack: boolean;
+  pexels: boolean;
+  tts: boolean;
+  s3: boolean;
+  ready: boolean;
+}
+
+const CLIP_CATEGORIES = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "calls", label: "Incoming Calls" },
+  { id: "calendar", label: "Calendar / Booking" },
+  { id: "sms", label: "SMS / Messages" },
+  { id: "invoice", label: "Invoicing" },
+  { id: "crm", label: "Customer CRM" },
+  { id: "agents", label: "AI Agents" },
+  { id: "general", label: "General" },
+];
 
 // Platform metadata
 const PLATFORMS = [
@@ -150,8 +201,11 @@ export default function SocialMediaAdminPage() {
         {/* Post Management */}
         <PostManagementSection />
 
-        {/* Video Briefs */}
+        {/* Video Briefs + Render Pipeline */}
         <VideoBriefSection />
+
+        {/* Clip Library */}
+        <ClipLibrarySection />
 
         {/* Ad Targeting Reference */}
         <AdTargetingReference />
@@ -993,6 +1047,10 @@ function PostsTable({ status }: { status: string }) {
 function VideoBriefSection() {
   const { toast } = useToast();
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [showRenderDialog, setShowRenderDialog] = useState(false);
+  const [renderBriefId, setRenderBriefId] = useState<number | null>(null);
+  const [renderAspectRatio, setRenderAspectRatio] = useState<"9:16" | "16:9">("9:16");
+  const [renderVoice, setRenderVoice] = useState("nova");
   const [viewingBrief, setViewingBrief] = useState<VideoBrief | null>(null);
   const [briefVertical, setBriefVertical] = useState("Barbershops");
   const [briefPlatform, setBriefPlatform] = useState("Instagram Reels");
@@ -1007,6 +1065,33 @@ function VideoBriefSection() {
     },
   });
 
+  const { data: pipelineStatus } = useQuery<PipelineStatus>({
+    queryKey: ["/api/social-media/pipeline-status"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/social-media/pipeline-status");
+      return res.json();
+    },
+  });
+
+  const { data: voiceData } = useQuery<{ available: boolean; voices: TTSVoice[] }>({
+    queryKey: ["/api/social-media/tts-voices"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/social-media/tts-voices");
+      return res.json();
+    },
+  });
+
+  // Poll for render status of in-progress briefs
+  const renderingBriefIds = briefs?.filter(b => b.renderStatus === "rendering").map(b => b.id) || [];
+
+  useEffect(() => {
+    if (renderingBriefIds.length === 0) return;
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/video-briefs"] });
+    }, 10000); // Poll every 10 seconds
+    return () => clearInterval(interval);
+  }, [renderingBriefIds.length]);
+
   const generateBriefMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/social-media/video-brief", {
@@ -1017,7 +1102,7 @@ function VideoBriefSection() {
       });
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: VideoBrief) => {
       queryClient.invalidateQueries({ queryKey: ["/api/social-media/video-briefs"] });
       setShowGenerateDialog(false);
       setViewingBrief(data);
@@ -1025,6 +1110,26 @@ function VideoBriefSection() {
     },
     onError: (err: Error) => {
       toast({ title: "Brief generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const renderMutation = useMutation({
+    mutationFn: async () => {
+      if (!renderBriefId) throw new Error("No brief selected");
+      const res = await apiRequest("POST", `/api/social-media/video-briefs/${renderBriefId}/render`, {
+        aspectRatio: renderAspectRatio,
+        voice: renderVoice,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/video-briefs"] });
+      setShowRenderDialog(false);
+      setRenderBriefId(null);
+      toast({ title: "Video rendering started!", description: "This takes 1-3 minutes. The card will update automatically." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Render failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1048,20 +1153,38 @@ VOICEOVER: ${b.voiceover || "None"}
 CTA OVERLAY: ${b.cta_overlay}
 
 SCREEN SEQUENCE:
-${b.screen_sequence?.map((s, i) => `${i + 1}. [${s.duration}] ${s.clip}${s.note ? ` — ${s.note}` : ""}`).join("\n") || "N/A"}
+${b.screen_sequence?.map((s: any, i: number) => `${i + 1}. [${s.duration}] ${s.clip}${s.note ? ` — ${s.note}` : ""}`).join("\n") || "N/A"}
 
 B-ROLL: ${b.broll}
 
 CAPTION:
 ${b.caption}
 
-HASHTAGS: ${b.hashtags?.map(h => `#${h}`).join(" ") || "N/A"}
+HASHTAGS: ${b.hashtags?.map((h: string) => `#${h}`).join(" ") || "N/A"}
 
 BOOST: ${b.boost_targeting} · ${b.boost_budget}
 STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
 
     navigator.clipboard.writeText(text);
     toast({ title: "Brief copied to clipboard" });
+  };
+
+  const openRenderDialog = (briefId: number) => {
+    setRenderBriefId(briefId);
+    setShowRenderDialog(true);
+  };
+
+  const getRenderStatusBadge = (brief: VideoBrief) => {
+    switch (brief.renderStatus) {
+      case "rendering":
+        return <Badge variant="secondary" className="text-xs flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Rendering...</Badge>;
+      case "done":
+        return <Badge className="text-xs bg-green-600 flex items-center gap-1"><Play className="h-3 w-3" />Video Ready</Badge>;
+      case "failed":
+        return <Badge variant="destructive" className="text-xs">Render Failed</Badge>;
+      default:
+        return null;
+    }
   };
 
   return (
@@ -1073,15 +1196,26 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
               <Clapperboard className="h-5 w-5" />
               Video Briefs
             </CardTitle>
-            <CardDescription>AI-generated split-screen video ad briefs</CardDescription>
+            <CardDescription>AI-generated video ad briefs with automated rendering</CardDescription>
           </div>
-          <Button
-            onClick={() => setShowGenerateDialog(true)}
-            className="flex items-center gap-2"
-          >
-            <Clapperboard className="h-4 w-4" />
-            Generate Brief
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Pipeline status indicators */}
+            {pipelineStatus && (
+              <div className="hidden sm:flex items-center gap-1.5 mr-2">
+                <div title="Shotstack (Video Rendering)" className={`h-2 w-2 rounded-full ${pipelineStatus.shotstack ? 'bg-green-500' : 'bg-red-400'}`} />
+                <div title="Pexels (Stock Footage)" className={`h-2 w-2 rounded-full ${pipelineStatus.pexels ? 'bg-green-500' : 'bg-yellow-400'}`} />
+                <div title="TTS (Voiceover)" className={`h-2 w-2 rounded-full ${pipelineStatus.tts ? 'bg-green-500' : 'bg-yellow-400'}`} />
+                <div title="S3 (Storage)" className={`h-2 w-2 rounded-full ${pipelineStatus.s3 ? 'bg-green-500' : 'bg-red-400'}`} />
+              </div>
+            )}
+            <Button
+              onClick={() => setShowGenerateDialog(true)}
+              className="flex items-center gap-2"
+            >
+              <Clapperboard className="h-4 w-4" />
+              Generate Brief
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -1098,12 +1232,60 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
             {briefs.map((brief) => (
               <div
                 key={brief.id}
-                className="border rounded-lg p-4 hover:border-primary/50 transition-colors cursor-pointer"
+                className="border rounded-lg p-4 hover:border-primary/50 transition-colors cursor-pointer relative"
                 onClick={() => setViewingBrief(brief)}
               >
+                {/* Render status badge */}
+                {brief.renderStatus && brief.renderStatus !== "none" && (
+                  <div className="mb-2">{getRenderStatusBadge(brief)}</div>
+                )}
+
+                {/* Video thumbnail preview */}
+                {brief.renderStatus === "done" && brief.videoUrl && (
+                  <div className="mb-3 rounded-md overflow-hidden bg-black aspect-video relative group">
+                    {brief.thumbnailUrl ? (
+                      <img src={brief.thumbnailUrl} alt="Video thumbnail" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Film className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Play className="h-10 w-10 text-white" />
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between mb-2">
                   <Badge variant="outline" className="text-xs">{brief.vertical}</Badge>
                   <div className="flex items-center gap-1">
+                    {/* Render button */}
+                    {pipelineStatus?.ready && brief.renderStatus !== "rendering" && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-purple-500"
+                        title={brief.renderStatus === "done" ? "Re-render video" : "Render video"}
+                        onClick={(e) => { e.stopPropagation(); openRenderDialog(brief.id); }}
+                      >
+                        <Film className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {/* Download button */}
+                    {brief.renderStatus === "done" && brief.videoUrl && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-green-500"
+                        title="Download video"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(brief.videoUrl!, "_blank");
+                        }}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -1132,6 +1314,11 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
                   <span>·</span>
                   <span>{formatDate(brief.createdAt)}</span>
                 </div>
+                {brief.renderStatus === "failed" && brief.renderError && (
+                  <p className="text-xs text-red-500 mt-1 truncate" title={brief.renderError}>
+                    {brief.renderError}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -1218,6 +1405,99 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
         </DialogContent>
       </Dialog>
 
+      {/* Render Video Dialog */}
+      <Dialog open={showRenderDialog} onOpenChange={setShowRenderDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Film className="h-5 w-5" />
+              Render Video from Brief
+            </DialogTitle>
+            <DialogDescription>
+              Assemble screen recordings, stock b-roll, and AI voiceover into a finished MP4.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Aspect Ratio</Label>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setRenderAspectRatio("9:16")}
+                  className={`flex-1 border rounded-lg p-3 text-center transition-colors ${renderAspectRatio === "9:16" ? "border-primary bg-primary/5" : "hover:border-muted-foreground/50"}`}
+                >
+                  <div className="mx-auto w-6 h-10 border-2 rounded mb-1" style={{ borderColor: renderAspectRatio === "9:16" ? "hsl(var(--primary))" : "currentColor" }} />
+                  <p className="text-sm font-medium">9:16 Vertical</p>
+                  <p className="text-xs text-muted-foreground">TikTok, Reels, Shorts</p>
+                </button>
+                <button
+                  onClick={() => setRenderAspectRatio("16:9")}
+                  className={`flex-1 border rounded-lg p-3 text-center transition-colors ${renderAspectRatio === "16:9" ? "border-primary bg-primary/5" : "hover:border-muted-foreground/50"}`}
+                >
+                  <div className="mx-auto w-10 h-6 border-2 rounded mb-1" style={{ borderColor: renderAspectRatio === "16:9" ? "hsl(var(--primary))" : "currentColor" }} />
+                  <p className="text-sm font-medium">16:9 Landscape</p>
+                  <p className="text-xs text-muted-foreground">YouTube, LinkedIn, Facebook</p>
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Mic className="h-4 w-4" />
+                Voiceover Voice
+              </Label>
+              <select
+                value={renderVoice}
+                onChange={(e) => setRenderVoice(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {(voiceData?.voices || []).map((v) => (
+                  <option key={v.id} value={v.id}>{v.name} — {v.description}</option>
+                ))}
+              </select>
+              {!voiceData?.available && (
+                <p className="text-xs text-amber-500">TTS not configured — video will render without voiceover</p>
+              )}
+            </div>
+            {/* Pipeline status */}
+            <div className="bg-muted/50 rounded-lg p-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Pipeline Status</p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className={`h-2 w-2 rounded-full ${pipelineStatus?.shotstack ? 'bg-green-500' : 'bg-red-400'}`} />
+                  <span>Shotstack</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`h-2 w-2 rounded-full ${pipelineStatus?.pexels ? 'bg-green-500' : 'bg-yellow-400'}`} />
+                  <span>Pexels Stock</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`h-2 w-2 rounded-full ${pipelineStatus?.tts ? 'bg-green-500' : 'bg-yellow-400'}`} />
+                  <span>Voiceover TTS</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`h-2 w-2 rounded-full ${pipelineStatus?.s3 ? 'bg-green-500' : 'bg-red-400'}`} />
+                  <span>S3 Storage</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRenderDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => renderMutation.mutate()}
+              disabled={renderMutation.isPending || !pipelineStatus?.ready}
+              className="flex items-center gap-2"
+            >
+              {renderMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Film className="h-4 w-4" />
+              )}
+              Start Rendering
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* View Brief Dialog */}
       <Dialog open={!!viewingBrief} onOpenChange={() => setViewingBrief(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -1233,6 +1513,47 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
 
           {viewingBrief && (
             <div className="space-y-4">
+              {/* Rendered video player */}
+              {viewingBrief.renderStatus === "done" && viewingBrief.videoUrl && (
+                <div className="rounded-lg overflow-hidden bg-black">
+                  <video
+                    src={viewingBrief.videoUrl}
+                    controls
+                    className="w-full max-h-[400px]"
+                    poster={viewingBrief.thumbnailUrl || undefined}
+                  />
+                  <div className="p-2 flex justify-between items-center bg-muted/50">
+                    <span className="text-xs text-muted-foreground">
+                      Rendered {formatDate(viewingBrief.renderedAt)} · {viewingBrief.aspectRatio}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs flex items-center gap-1"
+                      onClick={() => window.open(viewingBrief.videoUrl!, "_blank")}
+                    >
+                      <Download className="h-3 w-3" />
+                      Download
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {viewingBrief.renderStatus === "rendering" && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-500" />
+                  <p className="text-sm font-medium text-blue-700">Video is rendering...</p>
+                  <p className="text-xs text-blue-500 mt-1">This usually takes 1-3 minutes</p>
+                </div>
+              )}
+
+              {viewingBrief.renderStatus === "failed" && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-sm font-medium text-red-700">Render failed</p>
+                  <p className="text-xs text-red-500 mt-1">{viewingBrief.renderError}</p>
+                </div>
+              )}
+
               {/* Hook */}
               <div className="bg-muted/50 rounded-lg p-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Hook (First 2 Seconds)</p>
@@ -1242,6 +1563,11 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
                     Voiceover: <em>"{viewingBrief.briefData.voiceover}"</em>
                   </p>
                 )}
+                {viewingBrief.voiceoverUrl && (
+                  <div className="mt-2">
+                    <audio src={viewingBrief.voiceoverUrl} controls className="w-full h-8" />
+                  </div>
+                )}
               </div>
 
               {/* Screen Sequence + B-Roll */}
@@ -1249,7 +1575,7 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
                 <div className="border rounded-lg p-4">
                   <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-3">Top Half — Screen Recording</p>
                   <div className="space-y-2">
-                    {viewingBrief.briefData.screen_sequence?.map((s, i) => (
+                    {viewingBrief.briefData.screen_sequence?.map((s: any, i: number) => (
                       <div key={i} className="flex gap-2">
                         <span className="text-xs font-mono text-blue-500 font-semibold min-w-[40px]">{s.duration}</span>
                         <div>
@@ -1267,7 +1593,7 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
                     <div className="mt-3 pt-3 border-t">
                       <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-2">Stock Search Terms</p>
                       <div className="flex flex-wrap gap-1">
-                        {viewingBrief.briefData.stock_search_terms.map((t) => (
+                        {viewingBrief.briefData.stock_search_terms.map((t: string) => (
                           <Badge key={t} variant="secondary" className="text-xs">"{t}"</Badge>
                         ))}
                       </div>
@@ -1284,7 +1610,7 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
                 <p className="text-sm whitespace-pre-wrap">{viewingBrief.briefData.caption}</p>
                 {viewingBrief.briefData.hashtags?.length > 0 && (
                   <p className="text-sm text-blue-500 mt-2">
-                    {viewingBrief.briefData.hashtags.map(h => `#${h}`).join(" ")}
+                    {viewingBrief.briefData.hashtags.map((h: string) => `#${h}`).join(" ")}
                   </p>
                 )}
               </div>
@@ -1295,18 +1621,342 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
                 <span className="font-mono font-bold text-emerald-700">{viewingBrief.briefData.boost_budget}</span>
               </div>
 
-              <Button
-                variant="outline"
-                className="w-full flex items-center gap-2"
-                onClick={() => copyBrief(viewingBrief)}
-              >
-                <Copy className="h-4 w-4" />
-                Copy Full Brief
-              </Button>
+              {/* Action buttons */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 flex items-center gap-2"
+                  onClick={() => copyBrief(viewingBrief)}
+                >
+                  <Copy className="h-4 w-4" />
+                  Copy Brief
+                </Button>
+                {pipelineStatus?.ready && viewingBrief.renderStatus !== "rendering" && (
+                  <Button
+                    className="flex-1 flex items-center gap-2"
+                    onClick={() => openRenderDialog(viewingBrief.id)}
+                  >
+                    <Film className="h-4 w-4" />
+                    {viewingBrief.renderStatus === "done" ? "Re-render" : "Render Video"}
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+    </Card>
+  );
+}
+
+// ── Clip Library ───────────────────────────────────────────────────────
+
+function ClipLibrarySection() {
+  const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [uploadName, setUploadName] = useState("");
+  const [uploadDescription, setUploadDescription] = useState("");
+  const [uploadCategory, setUploadCategory] = useState("dashboard");
+  const [uploadTags, setUploadTags] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: clips, isLoading } = useQuery<VideoClip[]>({
+    queryKey: ["/api/social-media/clips"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/social-media/clips");
+      return res.json();
+    },
+    enabled: expanded,
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async () => {
+      if (!uploadFile) throw new Error("No file selected");
+      if (!uploadName) throw new Error("Name is required");
+
+      const formData = new FormData();
+      formData.append("file", uploadFile);
+      formData.append("name", uploadName);
+      formData.append("description", uploadDescription);
+      formData.append("category", uploadCategory);
+      if (uploadTags) {
+        formData.append("tags", JSON.stringify(uploadTags.split(",").map(t => t.trim()).filter(Boolean)));
+      }
+
+      // Include CSRF token for multipart upload
+      const csrfToken = document.cookie
+        .split("; ")
+        .find((c) => c.startsWith("csrf-token="))
+        ?.split("=")[1];
+
+      const headers: Record<string, string> = {};
+      if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+
+      const res = await fetch("/api/social-media/clips", {
+        method: "POST",
+        body: formData,
+        headers,
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Upload failed (${res.status})`);
+      }
+
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/clips"] });
+      setShowUploadDialog(false);
+      resetUploadForm();
+      toast({ title: "Clip uploaded!", description: "It's now available for video rendering." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/social-media/clips/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-media/clips"] });
+      toast({ title: "Clip deleted" });
+    },
+  });
+
+  const resetUploadForm = () => {
+    setUploadName("");
+    setUploadDescription("");
+    setUploadCategory("dashboard");
+    setUploadTags("");
+    setUploadFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const formatFileSize = (bytes: number | null) => {
+    if (!bytes) return "—";
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const getCategoryIcon = (cat: string) => {
+    switch (cat) {
+      case "dashboard": return "📊";
+      case "calls": return "📞";
+      case "calendar": return "📅";
+      case "sms": return "💬";
+      case "invoice": return "💰";
+      case "crm": return "👤";
+      case "agents": return "🤖";
+      default: return "🎬";
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Monitor className="h-5 w-5" />
+            <CardTitle className="text-base">
+              Screen Recording Library
+              {clips && clips.length > 0 && (
+                <Badge variant="secondary" className="ml-2 text-xs">{clips.length} clips</Badge>
+              )}
+            </CardTitle>
+          </div>
+          {expanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+        </div>
+        <CardDescription>
+          Upload screen recordings of SmallBizAgent (with demo data). These are used automatically when rendering video briefs.
+        </CardDescription>
+      </CardHeader>
+      {expanded && (
+        <CardContent className="space-y-4">
+          {/* Recording instructions */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm font-medium text-blue-800 mb-2">📹 How to Record Clips</p>
+            <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside">
+              <li>Press <kbd className="px-1 py-0.5 bg-blue-100 rounded text-xs font-mono">⌘+Shift+5</kbd> on Mac (or QuickTime → File → New Screen Recording)</li>
+              <li>Navigate to the SmallBizAgent page you want to capture</li>
+              <li>Use demo/fake data — <strong>never show real customer info</strong></li>
+              <li>Record 8-10 seconds of interaction, then stop</li>
+              <li>Upload the clip here with the matching category</li>
+            </ol>
+            <div className="mt-3 flex flex-wrap gap-1">
+              {CLIP_CATEGORIES.map((cat) => (
+                <Badge key={cat.id} variant="secondary" className="text-xs">
+                  {getCategoryIcon(cat.id)} {cat.label}
+                </Badge>
+              ))}
+            </div>
+          </div>
+
+          {/* Clips grid */}
+          {isLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !clips || clips.length === 0 ? (
+            <div className="text-center py-8 border rounded-lg border-dashed">
+              <Film className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground mb-3">No clips uploaded yet</p>
+              <Button size="sm" onClick={() => setShowUploadDialog(true)} className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                Upload First Clip
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {clips.map((clip) => (
+                <div
+                  key={clip.id}
+                  className="flex items-center justify-between border rounded-lg p-3 hover:bg-muted/30 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">{getCategoryIcon(clip.category)}</span>
+                    <div>
+                      <p className="text-sm font-medium">{clip.name}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{clip.category}</span>
+                        {clip.durationSeconds && <span>· {clip.durationSeconds}s</span>}
+                        <span>· {formatFileSize(clip.fileSize)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      title="Preview clip"
+                      onClick={() => window.open(clip.s3Url, "_blank")}
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 text-red-400"
+                      title="Delete clip"
+                      onClick={() => deleteMutation.mutate(clip.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Upload button */}
+          {clips && clips.length > 0 && (
+            <Button
+              variant="outline"
+              className="w-full flex items-center gap-2"
+              onClick={() => setShowUploadDialog(true)}
+            >
+              <Upload className="h-4 w-4" />
+              Upload New Clip
+            </Button>
+          )}
+
+          {/* Upload Dialog */}
+          <Dialog open={showUploadDialog} onOpenChange={(open) => { setShowUploadDialog(open); if (!open) resetUploadForm(); }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Upload className="h-5 w-5" />
+                  Upload Screen Recording
+                </DialogTitle>
+                <DialogDescription>
+                  Upload a screen recording clip to use in automated video production.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label>Video File</Label>
+                  <Input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setUploadFile(file);
+                        if (!uploadName) {
+                          setUploadName(file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
+                        }
+                      }
+                    }}
+                  />
+                  {uploadFile && (
+                    <p className="text-xs text-muted-foreground">
+                      {uploadFile.name} · {formatFileSize(uploadFile.size)}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Clip Name</Label>
+                  <Input
+                    value={uploadName}
+                    onChange={(e) => setUploadName(e.target.value)}
+                    placeholder="e.g., Dashboard Overview Scroll"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Category</Label>
+                  <select
+                    value={uploadCategory}
+                    onChange={(e) => setUploadCategory(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {CLIP_CATEGORIES.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{getCategoryIcon(cat.id)} {cat.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Description (optional)</Label>
+                  <Input
+                    value={uploadDescription}
+                    onChange={(e) => setUploadDescription(e.target.value)}
+                    placeholder="What this clip shows"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Tags (optional, comma-separated)</Label>
+                  <Input
+                    value={uploadTags}
+                    onChange={(e) => setUploadTags(e.target.value)}
+                    placeholder="e.g., ai, receptionist, stats"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShowUploadDialog(false); resetUploadForm(); }}>Cancel</Button>
+                <Button
+                  onClick={() => uploadMutation.mutate()}
+                  disabled={uploadMutation.isPending || !uploadFile || !uploadName}
+                  className="flex items-center gap-2"
+                >
+                  {uploadMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                  Upload Clip
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </CardContent>
+      )}
     </Card>
   );
 }

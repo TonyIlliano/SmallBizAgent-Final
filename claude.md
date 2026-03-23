@@ -163,7 +163,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ---
 
-## Database Schema (65 Tables)
+## Database Schema (66 Tables)
 
 ### Core
 | Table | Purpose | Key Columns |
@@ -233,7 +233,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `social_media_posts` | Generated social posts | platform, content, mediaUrl, mediaType, status (draft/approved/published/rejected), industry, details (jsonb), likes, comments, shares, saves, reach, engagementScore, isWinner |
-| `video_briefs` | AI-generated video ad briefs | vertical, platform, pillar, briefData (jsonb), sourceWinnerIds (jsonb) |
+| `video_briefs` | AI-generated video ad briefs + rendered videos | vertical, platform, pillar, briefData (jsonb), sourceWinnerIds (jsonb), renderStatus (none/rendering/done/failed), renderId, videoUrl, thumbnailUrl, voiceoverUrl, aspectRatio, renderError, renderedAt |
+| `video_clips` | Pre-recorded screen recording library | name, description, category (dashboard/calls/calendar/sms/invoice/crm/agents/general), s3Key, s3Url, durationSeconds, width, height, fileSize, tags (jsonb), sortOrder |
 | `blog_posts` | Generated blog articles | title, slug, body, industry, targetKeywords, status, generatedVia (openai/template) |
 | `marketing_campaigns` | Email/SMS campaigns | businessId, type, channel, template, status |
 
@@ -329,6 +330,9 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `analyticsService` | Revenue, call, job, appointment, customer analytics |
 | `adminService` | Platform-wide stats (`getPlatformStats()` — no businessId needed) |
 | `videoGenerationService` | Shotstack video rendering (5 templates, live platform stats) |
+| `videoAssemblyService` | Automated video production pipeline: brief → clips + Pexels b-roll + TTS voiceover → Shotstack multi-track render → S3 |
+| `pexelsService` | Stock video search via Pexels API (free, 135K+ videos). Keyword search, HD download URLs |
+| `ttsService` | Text-to-speech voiceover via OpenAI TTS API (tts-1-hd). 9 voices, MP3 output to S3 |
 | `socialMediaService` | OAuth + publishing to Twitter, Facebook, Instagram, LinkedIn |
 | `autoRefineService` | Weekly AI analysis of call transcripts for receptionist improvement |
 | `schedulerService` | Cron-like scheduler for all periodic tasks |
@@ -362,7 +366,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `cloverRoutes` | `/api/clover/*` | Clover POS OAuth, menu, orders |
 | `squareRoutes` | `/api/square/*` | Square POS integration |
 | `heartlandRoutes` | `/api/heartland/*` | Heartland POS integration |
-| `socialMediaRoutes` | `/api/social-media/*` | Social posts, video gen, OAuth, publishing, engagement metrics, winners, generate-from-winners, video briefs |
+| `socialMediaRoutes` | `/api/social-media/*` | Social posts, video gen, OAuth, publishing, engagement metrics, winners, generate-from-winners, video briefs, clip library CRUD, video rendering pipeline, TTS voices, pipeline status |
 | `subscriptionRoutes` | `/api/subscriptions/*` | Plans, billing portal, promo codes |
 | `stripeConnectRoutes` | `/api/stripe-connect/*` | Stripe Connect for payments |
 | `phoneRoutes` | `/api/phone/*` | Twilio number provisioning |
@@ -471,6 +475,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `OPENAI_API_KEY` | GPT-4o-mini for agents, content, booking |
 | `SHOTSTACK_API_KEY` | Video rendering |
 | `SHOTSTACK_ENV` | `v1` (production) or `stage` (sandbox) |
+| `PEXELS_API_KEY` | Pexels stock video search (free API, optional — videos render without b-roll if missing) |
 
 ### Calendar
 | Variable | Purpose |
@@ -835,6 +840,44 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - **AdTargetingReference**: Collapsible card (starts collapsed). Meta ad targeting cheat sheet: interest tags, behavior tags, demographics, job titles, budget guidance. "Copy Full Targeting Sheet" button.
 - New imports: Star, BarChart3, Copy, ChevronDown, ChevronUp, Clapperboard, Target (lucide-react); Input, Label (shadcn/ui).
 
+#### Automated Video Production Pipeline
+- **Goal**: Transform Video Briefs from text documents into actual rendered MP4 videos. Automated pipeline: screen recording clips (from S3 library) + Pexels stock b-roll + OpenAI TTS voiceover → multi-track Shotstack render → S3 storage.
+
+##### Schema + Migrations
+- `shared/schema.ts` — Added 8 render pipeline columns to `videoBriefs` table: `renderStatus` (none/rendering/done/failed), `renderId`, `videoUrl`, `thumbnailUrl`, `voiceoverUrl`, `aspectRatio`, `renderError`, `renderedAt`. Created `videoClips` table (id, name, description, category, s3Key, s3Url, durationSeconds, width, height, fileSize, mimeType, tags jsonb, sortOrder). Added insert schemas and types.
+- `server/migrations/runMigrations.ts` — 8 `addColumnIfNotExists` calls for video_briefs render columns. `CREATE TABLE IF NOT EXISTS video_clips`.
+
+##### New Services (3 files)
+- `server/services/pexelsService.ts` — **NEW**: Pexels stock video search API. `searchVideos(query, options)` keyword search with orientation/duration filters. `findBRollForTerms(searchTerms)` batch search returning best HD match per term. Rate limit: 200 req/hr (free). Returns direct download URLs.
+- `server/services/ttsService.ts` — **NEW**: OpenAI TTS voiceover generation. `generateVoiceover(text, options)` generates MP3 via tts-1-hd, uploads to S3, returns public URL. 9 voice options (nova, alloy, echo, fable, onyx, shimmer, coral, sage, ash). Cost: ~$0.01 per 30-second voiceover. `VOICE_OPTIONS` array for UI display.
+- `server/services/videoAssemblyService.ts` — **NEW**: Video assembly engine. `renderVideoFromBrief(briefId, options)` orchestrates the full pipeline: loads brief → parallel fetch (clip matching + Pexels b-roll + TTS voiceover) → builds multi-track Shotstack timeline (text overlays + screen clips + stock b-roll + background gradient + voiceover soundtrack) → submits render → polls for completion → uploads to S3. Clip matching uses keyword scoring against library clips by category, name, description, and tags. Supports 9:16 (vertical) and 16:9 (landscape) output.
+
+##### New Routes (7 endpoints in `server/routes/socialMediaRoutes.ts`)
+- `GET /clips` — List all clips in library (sorted by sortOrder, createdAt)
+- `POST /clips` — Upload clip via multipart form (multer, 100MB max, video/* only) → S3 → DB
+- `PUT /clips/:id` — Update clip metadata (name, description, category, tags, sortOrder, dimensions)
+- `DELETE /clips/:id` — Delete clip from DB (S3 object retained)
+- `POST /video-briefs/:id/render` — Start background video render. Body: `{ aspectRatio?, voice? }`. Returns 202 immediately. Pipeline runs in background.
+- `GET /video-briefs/:id/render-status` — Poll render progress (status, videoUrl, error)
+- `GET /tts-voices` — List available TTS voices with descriptions
+- `GET /pipeline-status` — Check which services are configured (shotstack, pexels, tts, s3, ready)
+
+##### Frontend (`client/src/pages/admin/social-media.tsx`)
+- **VideoBriefSection** enhanced: Pipeline status indicator dots (Shotstack, Pexels, TTS, S3). Brief cards show render status badges (Rendering.../Video Ready/Render Failed). Video thumbnail preview on rendered briefs with play overlay. Film icon → "Render Video" dialog. Download button for rendered videos. Auto-poll every 10s while rendering.
+- **Render Video Dialog**: Aspect ratio picker (9:16 vertical vs 16:9 landscape) with visual buttons. Voiceover voice selector from TTS voices API. Pipeline status grid. Start Rendering button.
+- **View Brief Dialog** enhanced: Embedded `<video>` player when rendered. Audio player for generated voiceover. Render/Re-render button. Render error display. Download button.
+- **ClipLibrarySection**: Collapsible card. Recording instructions with Mac shortcuts (⌘+Shift+5). Category badges (dashboard/calls/calendar/sms/invoice/crm/agents/general). Clip list with category emoji, name, duration, file size. Upload dialog: file picker (video/*), name, category dropdown, description, tags. Preview and delete actions per clip. Empty state with upload CTA.
+- New imports: Upload, Play, Film, Mic, Download, Monitor (lucide-react). multer dependency added.
+
+##### New Environment Variable
+- `PEXELS_API_KEY` — Free Pexels API key for stock video search (optional — renders work without it, just no b-roll)
+
+##### Cost Estimate
+- Shotstack: ~$0.10/video (30s, subscription rate) → ~$10/mo for 100 videos
+- Pexels: $0 (free)
+- OpenAI TTS HD: ~$0.01/voiceover → ~$1/mo for 100 videos
+- **Total: ~$40/mo** (Shotstack subscription $39 + TTS ~$1)
+
 ### Recent changes (committed):
 
 #### Logout Button on Mobile Bottom Nav
@@ -1130,6 +1173,9 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Admin dashboard | `client/src/pages/admin/index.tsx` |
 | Social media page | `client/src/pages/admin/social-media.tsx` |
 | Video templates | `server/services/videoGenerationService.ts` |
+| Video assembly pipeline | `server/services/videoAssemblyService.ts` |
+| Pexels stock footage | `server/services/pexelsService.ts` |
+| TTS voiceover service | `server/services/ttsService.ts` |
 | Vapi AI receptionist | `server/services/vapiService.ts` |
 | Subscription billing | `server/services/subscriptionService.ts` |
 | Post-call intelligence | `server/services/callIntelligenceService.ts` |
@@ -1204,4 +1250,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 22, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 65 tables. Social Media Performance Engine (uncommitted): Engagement metrics (likes, comments, shares, saves, reach) + scoring + winner marking on published posts. Generate-from-winners: AI content generation using winner posts as few-shot training examples. Video brief generator: structured video ad briefs via OpenAI (hook, voiceover, screen sequence, b-roll, CTA, caption, hashtags, boost targeting). Ad targeting reference: static Meta targeting cheat sheet. 8 new API endpoints. `videoBriefs` table added. Social media agent enhanced with winner training. Google Business Profile (uncommitted): Full bi-directional sync — business info pull/push with conflict detection, review management with AI reply suggestions, local post creation/publishing with AI generation, SEO score (100-point, 12 criteria). 5-tab dashboard page (Overview, Business Info, Reviews, Posts, SEO Score). 14 API endpoints (12 new + debug + select-location). 24h sync scheduler. Post-save hooks (fire-and-forget sync on business/hours update). Website builder GBP push integration. GBP debugging: raw HTTP for accounts API (bypasses googleapis discovery), wildcard location fallback (accounts/-/locations), forced token refresh on expiry, diagnostic debug endpoint, step-by-step [GBP] logging on OAuth callback flow, LocationSelector component for manual account/location selection. Website Builder (uncommitted): OpenAI generation (gpt-5.4-mini) with 15+ vertical design presets, dynamic DB data, booking widget embedding. Custom domain management (subdomain, custom CNAME, DNS verification). Feature gates (Starter: subdomain only, Professional: custom domain, Elite: managed setup). Customization panel (accent color, font style, hero headline/subheadline, CTA button texts, about text, footer message, section toggles). Logo upload + staff photo uploads in website builder. Profile nudges (missing services/staff/hours warnings). Scanner removed (unnecessary — all data comes from DB). hero_image_url removed (logo from business profile used instead). scanData column dropped. Deleted: stitchService.ts, businessScannerService.ts.*
+*Last updated: March 22, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 66 tables. Social Media Performance Engine (uncommitted): Engagement metrics + scoring + winner marking. Generate-from-winners. Video briefs + automated video production pipeline. Ad targeting cheat sheet. Social media agent enhanced with winner training. Video Production Pipeline (uncommitted): Brief → clips + Pexels b-roll + OpenAI TTS voiceover → Shotstack multi-track render → S3. 3 new services (pexelsService, ttsService, videoAssemblyService). Clip library with upload/manage UI. 7 new API endpoints. `videoClips` table + 8 render columns on `videoBriefs`. ~$40/mo for 100 videos. Google Business Profile (uncommitted): Full bi-directional sync with 14 endpoints, 5-tab dashboard, review management, local posts, SEO scoring. Website Builder (uncommitted): OpenAI generation with customizations, domain management, feature gates.*

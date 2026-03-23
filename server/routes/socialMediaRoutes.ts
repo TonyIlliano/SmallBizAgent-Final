@@ -8,8 +8,9 @@
 import { Router, Request, Response } from "express";
 import { isAdmin } from "../middleware/auth";
 import { db } from "../db";
-import { socialMediaPosts, videoBriefs } from "../../shared/schema";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { socialMediaPosts, videoBriefs, videoClips } from "../../shared/schema";
+import { eq, desc, sql, and, asc } from "drizzle-orm";
+import multer from "multer";
 
 const router = Router();
 
@@ -848,6 +849,236 @@ router.delete('/video-briefs/:id', isAdmin, async (req: Request, res: Response) 
     res.json({ success: true });
   } catch (error: any) {
     console.error('[SocialMedia] Error deleting video brief:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Clip Library ──────────────────────────────────────────────────────
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB max
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only video files are allowed'));
+    }
+  },
+});
+
+/**
+ * GET /clips — List all clips in the library
+ */
+router.get('/clips', isAdmin, async (_req: Request, res: Response) => {
+  try {
+    const clips = await db.select().from(videoClips).orderBy(asc(videoClips.sortOrder), desc(videoClips.createdAt));
+    res.json(clips);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error fetching clips:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /clips — Upload a new clip to the library
+ * Multipart form: file (video), name, description, category, tags (JSON string array)
+ */
+router.post('/clips', isAdmin, upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file uploaded' });
+    }
+
+    const { name, description, category, tags } = req.body;
+
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    if (!category || typeof category !== 'string') {
+      return res.status(400).json({ error: 'category is required' });
+    }
+
+    const { uploadBufferToS3, isS3Configured } = await import('../utils/s3Upload');
+
+    if (!isS3Configured()) {
+      return res.status(503).json({ error: 'S3 is not configured — cannot upload clips' });
+    }
+
+    const timestamp = Date.now();
+    const ext = req.file.originalname.split('.').pop() || 'mp4';
+    const s3Key = `social-media/clip-library/${category}/${timestamp}-${name.replace(/\s+/g, '-').toLowerCase()}.${ext}`;
+
+    const s3Url = await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
+
+    let parsedTags: string[] | null = null;
+    if (tags) {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch {
+        parsedTags = tags.split(',').map((t: string) => t.trim());
+      }
+    }
+
+    const [clip] = await db.insert(videoClips).values({
+      name,
+      description: description || null,
+      category,
+      s3Key,
+      s3Url,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+      tags: parsedTags,
+    }).returning();
+
+    console.log(`[SocialMedia] Clip uploaded: "${name}" (${(req.file.size / 1024 / 1024).toFixed(1)}MB) → ${s3Url}`);
+    res.json(clip);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error uploading clip:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /clips/:id — Update clip metadata
+ */
+router.put('/clips/:id', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid clip ID' });
+
+    const { name, description, category, tags, sortOrder, durationSeconds, width, height } = req.body;
+
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (category !== undefined) updateData.category = category;
+    if (tags !== undefined) updateData.tags = tags;
+    if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
+    if (durationSeconds !== undefined) updateData.durationSeconds = durationSeconds;
+    if (width !== undefined) updateData.width = width;
+    if (height !== undefined) updateData.height = height;
+
+    const [updated] = await db.update(videoClips).set(updateData).where(eq(videoClips.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: 'Clip not found' });
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error updating clip:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /clips/:id — Delete a clip from the library
+ */
+router.delete('/clips/:id', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid clip ID' });
+
+    const [clip] = await db.select().from(videoClips).where(eq(videoClips.id, id)).limit(1);
+    if (!clip) return res.status(404).json({ error: 'Clip not found' });
+
+    // Note: S3 object not deleted (can be cleaned up manually)
+    await db.delete(videoClips).where(eq(videoClips.id, id));
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[SocialMedia] Error deleting clip:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Video Render Pipeline ──────────────────────────────────────────────
+
+/**
+ * POST /video-briefs/:id/render — Start rendering a video from a brief
+ * Body: { aspectRatio?: "9:16" | "16:9", voice?: string }
+ * Returns immediately with 202, rendering happens in background
+ */
+router.post('/video-briefs/:id/render', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid brief ID' });
+
+    const [brief] = await db.select().from(videoBriefs).where(eq(videoBriefs.id, id)).limit(1);
+    if (!brief) return res.status(404).json({ error: 'Brief not found' });
+
+    if (brief.renderStatus === 'rendering') {
+      return res.status(409).json({ error: 'Brief is already being rendered' });
+    }
+
+    const { aspectRatio = '9:16', voice = 'nova' } = req.body;
+
+    // Start rendering in background (don't await)
+    const { renderVideoFromBrief } = await import('../services/videoAssemblyService');
+
+    // Fire and forget — responds immediately
+    renderVideoFromBrief(id, { aspectRatio, voice }).catch((err) => {
+      console.error(`[SocialMedia] Background render failed for brief #${id}:`, err);
+    });
+
+    res.status(202).json({
+      status: 'rendering',
+      briefId: id,
+      message: 'Video rendering started. Poll GET /video-briefs/:id/render-status for updates.',
+    });
+  } catch (error: any) {
+    console.error('[SocialMedia] Error starting render:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /video-briefs/:id/render-status — Check render progress
+ */
+router.get('/video-briefs/:id/render-status', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid brief ID' });
+
+    const { getBriefRenderStatus } = await import('../services/videoAssemblyService');
+    const status = await getBriefRenderStatus(id);
+    if (!status) return res.status(404).json({ error: 'Brief not found' });
+
+    res.json(status);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error checking render status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /tts-voices — List available TTS voices
+ */
+router.get('/tts-voices', isAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { VOICE_OPTIONS, isTTSAvailable } = await import('../services/ttsService');
+    res.json({ available: isTTSAvailable(), voices: VOICE_OPTIONS });
+  } catch (error: any) {
+    console.error('[SocialMedia] Error fetching TTS voices:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /pipeline-status — Check which pipeline services are configured
+ */
+router.get('/pipeline-status', isAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { isVideoAssemblyAvailable } = await import('../services/videoAssemblyService');
+    const { isPexelsConfigured } = await import('../services/pexelsService');
+    const { isTTSAvailable } = await import('../services/ttsService');
+    const { isS3Configured } = await import('../utils/s3Upload');
+
+    res.json({
+      shotstack: isVideoAssemblyAvailable(),
+      pexels: isPexelsConfigured(),
+      tts: isTTSAvailable(),
+      s3: isS3Configured(),
+      ready: isVideoAssemblyAvailable() && isS3Configured(),
+    });
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });

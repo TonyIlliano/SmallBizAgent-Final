@@ -1074,6 +1074,36 @@ async function fixExistingTables() {
     );
   `);
 
+  // Video brief render pipeline columns
+  await addColumnIfNotExists('video_briefs', 'render_status', "TEXT DEFAULT 'none'");
+  await addColumnIfNotExists('video_briefs', 'render_id', 'TEXT');
+  await addColumnIfNotExists('video_briefs', 'video_url', 'TEXT');
+  await addColumnIfNotExists('video_briefs', 'thumbnail_url', 'TEXT');
+  await addColumnIfNotExists('video_briefs', 'voiceover_url', 'TEXT');
+  await addColumnIfNotExists('video_briefs', 'aspect_ratio', 'TEXT');
+  await addColumnIfNotExists('video_briefs', 'render_error', 'TEXT');
+  await addColumnIfNotExists('video_briefs', 'rendered_at', 'TIMESTAMP');
+
+  // Create video_clips table (pre-recorded screen recording library)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS video_clips (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      category TEXT NOT NULL,
+      s3_key TEXT NOT NULL,
+      s3_url TEXT NOT NULL,
+      duration_seconds REAL,
+      width INTEGER,
+      height INTEGER,
+      file_size INTEGER,
+      mime_type TEXT DEFAULT 'video/mp4',
+      tags JSONB,
+      sort_order INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Create blog_posts table (AI-generated blog content for platform SEO)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blog_posts (

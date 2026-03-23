@@ -952,7 +952,7 @@ export const socialMediaPosts = pgTable("social_media_posts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Video Briefs - AI-generated video ad briefs (text documents, not rendered videos)
+// Video Briefs - AI-generated video ad briefs with optional rendered video
 export const videoBriefs = pgTable("video_briefs", {
   id: serial("id").primaryKey(),
   vertical: text("vertical").notNull(),
@@ -960,6 +960,33 @@ export const videoBriefs = pgTable("video_briefs", {
   pillar: text("pillar"), // content pillar/theme
   briefData: jsonb("brief_data").notNull(), // Structured JSON: hook, voiceover, screens, b-roll, caption, hashtags, CTA, boost targeting
   sourceWinnerIds: jsonb("source_winner_ids"), // integer[] of winner post IDs used as inspiration
+  // Render pipeline fields
+  renderStatus: text("render_status").default("none"), // none, rendering, done, failed
+  renderId: text("render_id"), // Shotstack render ID
+  videoUrl: text("video_url"), // Final rendered video URL (S3)
+  thumbnailUrl: text("thumbnail_url"), // Video thumbnail URL
+  voiceoverUrl: text("voiceover_url"), // Generated TTS audio URL (S3)
+  aspectRatio: text("aspect_ratio"), // "9:16" or "16:9"
+  renderError: text("render_error"), // Error message if render failed
+  renderedAt: timestamp("rendered_at"), // When the video finished rendering
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Video Clips - Pre-recorded screen recording library for video assembly
+export const videoClips = pgTable("video_clips", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(), // e.g., "Dashboard Overview"
+  description: text("description"), // What this clip shows
+  category: text("category").notNull(), // dashboard, calls, calendar, sms, invoice, crm, agents, general
+  s3Key: text("s3_key").notNull(), // S3 object key
+  s3Url: text("s3_url").notNull(), // Public S3 URL
+  durationSeconds: real("duration_seconds"), // Clip length in seconds
+  width: integer("width"), // Video width in pixels
+  height: integer("height"), // Video height in pixels
+  fileSize: integer("file_size"), // File size in bytes
+  mimeType: text("mime_type").default("video/mp4"),
+  tags: jsonb("tags"), // string[] for searchable tags (e.g., ["ai", "receptionist", "incoming-call"])
+  sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1202,6 +1229,7 @@ export const insertQuoteFollowUpSchema = createInsertSchema(quoteFollowUps).omit
 export const insertReviewResponseSchema = createInsertSchema(reviewResponses).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSocialMediaPostSchema = createInsertSchema(socialMediaPosts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertVideoBriefSchema = createInsertSchema(videoBriefs).omit({ id: true, createdAt: true });
+export const insertVideoClipSchema = createInsertSchema(videoClips).omit({ id: true, createdAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
@@ -1400,6 +1428,9 @@ export type InsertSocialMediaPost = z.infer<typeof insertSocialMediaPostSchema>;
 
 export type VideoBrief = typeof videoBriefs.$inferSelect;
 export type InsertVideoBrief = z.infer<typeof insertVideoBriefSchema>;
+
+export type VideoClip = typeof videoClips.$inferSelect;
+export type InsertVideoClip = z.infer<typeof insertVideoClipSchema>;
 
 export type SmsSuppression = typeof smsSuppressionList.$inferSelect;
 export type InsertSmsSuppression = z.infer<typeof insertSmsSuppressionSchema>;
