@@ -1105,10 +1105,12 @@ function extractCallerNameFromTranscript(transcript: string): { firstName: strin
   const patterns = [
     // "My name is John Smith" / "My name's John Smith"
     /(?:my name(?:'s| is)) (\w+)(?:\s+(\w+))?/i,
-    // "This is John Smith" / "It's John Smith"
-    /(?:this is|it'?s) (\w+)(?:\s+(\w+))?/i,
+    // "This is John Smith" / "It's John Smith" / "Yeah it's John"
+    /(?:this is|it'?s|yeah it'?s) (\w+)(?:\s+(\w+))?/i,
     // "I'm John Smith"
     /(?:I'?m) (\w+)(?:\s+(\w+))?/i,
+    // "Call me John" / "You can call me John"
+    /(?:call me|you can call me) (\w+)(?:\s+(\w+))?/i,
     // "Yeah John" / "It's just John" (single name after being asked)
     /(?:yeah|yes|sure|just|it's just) (\w+)\b/i,
     // Direct response after AI asks for name: "John Smith" or "John"
@@ -1438,12 +1440,19 @@ async function checkAvailability(
     }
 
     // Return curated multi-day availability — the AI composes its own natural phrasing
+    // Include service info so the AI can answer "how much?" and "how long?" without an extra tool call
+    const serviceInfo = serviceId ? allServices.find((s: any) => s.id === serviceId) : null;
     return {
       result: {
         available: true,
         isMultipleDays: true,
         staffName: staffLabel,
         availableDays: availableDays,
+        ...(serviceInfo && {
+          servicePrice: serviceInfo.price ? `$${(serviceInfo.price / 100).toFixed(2)}` : null,
+          serviceDuration: `${serviceInfo.duration || 30} minutes`,
+          serviceName: serviceInfo.name,
+        }),
       }
     };
   }
@@ -1562,6 +1571,8 @@ async function checkAvailability(
   // The AI composes its own natural phrasing from these
   const bestSlots = pickBestSlots(availableSlots, 5);
 
+  // Include service info so the AI can answer "how much?" and "how long?" without an extra tool call
+  const serviceInfo = serviceId ? allServices.find((s: any) => s.id === serviceId) : null;
   return {
     result: {
       available: true,
@@ -1571,6 +1582,11 @@ async function checkAvailability(
       slots: bestSlots,
       totalAvailable: availableSlots.length,
       moreAvailable: availableSlots.length > bestSlots.length,
+      ...(serviceInfo && {
+        servicePrice: serviceInfo.price ? `$${(serviceInfo.price / 100).toFixed(2)}` : null,
+        serviceDuration: `${serviceInfo.duration || 30} minutes`,
+        serviceName: serviceInfo.name,
+      }),
     }
   };
 }
@@ -2064,6 +2080,18 @@ async function bookAppointment(
     }
 
 
+    // Build booking instructions from business context
+    const bookingTips: string[] = [];
+    // Suggest arriving early for in-person services
+    const serviceBasedIndustries = ['salon', 'barber', 'spa', 'dental', 'medical', 'veterinary', 'fitness', 'auto', 'automotive'];
+    const businessIndustry = (business.industry || '').toLowerCase();
+    if (serviceBasedIndustries.some(ind => businessIndustry.includes(ind))) {
+      bookingTips.push('Please arrive about 10 minutes early');
+    }
+    if (business.address) {
+      bookingTips.push(`Located at ${business.address}`);
+    }
+
     return {
       result: {
         success: true,
@@ -2074,7 +2102,8 @@ async function bookAppointment(
         confirmed: true,
         date: dateStr,
         time: timeStr,
-        service: params.serviceName || 'General appointment'
+        service: params.serviceName || 'General appointment',
+        ...(bookingTips.length > 0 && { bookingTips }),
       }
     };
   } catch (error: any) {
@@ -2485,17 +2514,39 @@ async function rescheduleAppointment(
 
   // Find the appointment - either by ID or by customer phone
   let appointment;
+  const reschedTimezone = business?.timezone || 'America/New_York';
   if (params.appointmentId) {
     appointment = await storage.getAppointment(params.appointmentId);
   } else if (callerPhone) {
     const customer = await storage.getCustomerByPhone(callerPhone, businessId);
     if (customer) {
       const appointments = await storage.getAppointmentsByCustomerId(customer.id);
-      // Get the next upcoming appointment
       const now = new Date();
-      appointment = appointments
+      const upcoming = appointments
         .filter(apt => new Date(apt.startDate) > now && apt.status === 'scheduled')
-        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+      if (upcoming.length > 1) {
+        // Multiple upcoming appointments — ask the caller which one
+        const allServices = await getCachedServices(businessId);
+        const appointmentList = upcoming.map((apt) => {
+          const aptDate = new Date(apt.startDate);
+          const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: reschedTimezone, weekday: 'long', month: 'long', day: 'numeric' });
+          const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: reschedTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
+          const svc = apt.serviceId ? allServices.find((s: any) => s.id === apt.serviceId) : null;
+          return { appointmentId: apt.id, date: dateStr, time: timeStr, service: svc?.name || 'Appointment' };
+        });
+        return {
+          result: {
+            success: false,
+            multipleAppointments: true,
+            appointments: appointmentList,
+            message: `You have ${upcoming.length} upcoming appointments. Which one would you like to reschedule?`
+          }
+        };
+      }
+
+      appointment = upcoming[0];
     }
   }
 
@@ -2558,6 +2609,62 @@ async function rescheduleAppointment(
     if (match) {
       newStaffId = match.id;
     }
+  }
+
+  // ── Availability checks before rescheduling (prevents double-bookings, closed days, staff conflicts) ──
+  const rescheduleStaffId = newStaffId ?? appointment.staffId;
+  const daysMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const newDayName = daysMap[parsedNewDate.getDay()];
+
+  // 1. Check if business is open on the new date
+  const businessHours = await getCachedBusinessHours(businessId);
+  const dayHours = businessHours.find(h => h.day === newDayName);
+  if (!dayHours || dayHours.isClosed) {
+    const newDateDisplay = parsedNewDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    return {
+      result: {
+        success: false,
+        error: `We're closed on ${newDateDisplay}. Would you like to pick a different day?`
+      }
+    };
+  }
+
+  // 2. Check if staff has time off on the new date
+  if (rescheduleStaffId && await isStaffOffOnDate(rescheduleStaffId, parsedNewDate)) {
+    const staffMember = await storage.getStaffMember(rescheduleStaffId);
+    const staffName = staffMember?.firstName || 'Your stylist';
+    const newDateDisplay = parsedNewDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    return {
+      result: {
+        success: false,
+        error: `${staffName} is off on ${newDateDisplay}. Would you like to try a different day or a different team member?`
+      }
+    };
+  }
+
+  // 3. Check for overlapping appointments (double-booking prevention)
+  const existingAppointments = rescheduleStaffId
+    ? await getAppointmentsOptimized(businessId, { staffId: rescheduleStaffId })
+    : await getAppointmentsOptimized(businessId);
+
+  const hasConflict = existingAppointments.some((apt: any) => {
+    if (apt.id === appointment.id) return false; // Skip the appointment being rescheduled
+    if (apt.status === 'cancelled') return false;
+    const aptStart = new Date(apt.startDate).getTime();
+    const aptEnd = new Date(apt.endDate).getTime();
+    const newStart = newDateTime.getTime();
+    const newEnd = newEndTime.getTime();
+    return newStart < aptEnd && newEnd > aptStart; // Overlap check
+  });
+
+  if (hasConflict) {
+    const newDateDisplay = parsedNewDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    return {
+      result: {
+        success: false,
+        error: `That time slot is already booked on ${newDateDisplay}. Would you like me to check what's available?`
+      }
+    };
   }
 
   // Update the appointment
@@ -2659,9 +2766,32 @@ async function cancelAppointment(
     if (customer) {
       const appointments = await storage.getAppointmentsByCustomerId(customer.id);
       const now = new Date();
-      appointment = appointments
+      const cancelTimezoneForLookup = business?.timezone || 'America/New_York';
+      const upcoming = appointments
         .filter(apt => new Date(apt.startDate) > now && apt.status === 'scheduled')
-        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+      if (upcoming.length > 1) {
+        // Multiple upcoming appointments — ask the caller which one
+        const allServices = await getCachedServices(businessId);
+        const appointmentList = upcoming.map((apt, i) => {
+          const aptDate = new Date(apt.startDate);
+          const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: cancelTimezoneForLookup, weekday: 'long', month: 'long', day: 'numeric' });
+          const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: cancelTimezoneForLookup, hour: 'numeric', minute: '2-digit', hour12: true });
+          const svc = apt.serviceId ? allServices.find((s: any) => s.id === apt.serviceId) : null;
+          return { appointmentId: apt.id, date: dateStr, time: timeStr, service: svc?.name || 'Appointment' };
+        });
+        return {
+          result: {
+            success: false,
+            multipleAppointments: true,
+            appointments: appointmentList,
+            message: `You have ${upcoming.length} upcoming appointments. Which one would you like to cancel?`
+          }
+        };
+      }
+
+      appointment = upcoming[0];
     }
   }
 
@@ -2916,10 +3046,16 @@ async function getEstimate(
   }
 
   if (matchedServices.length === 0) {
+    // Cap at 5 most popular services instead of dumping the entire catalog over voice
+    const topServices = services.slice(0, 5);
     return {
       result: {
         estimateAvailable: false,
-        services: services.map(s => ({ name: s.name, price: s.price })),
+        services: topServices.map(s => ({ name: s.name, price: s.price })),
+        totalServicesAvailable: services.length,
+        message: services.length > 5
+          ? `I have ${services.length} services available. Here are some popular ones — or tell me more about what you need and I can narrow it down.`
+          : undefined,
       }
     };
   }
@@ -3398,6 +3534,7 @@ async function recognizeCaller(
     .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
 
   let context = '';
+  let likelyReason = '';
   const recogTimezone = recogBusiness?.timezone || 'America/New_York';
 
   if (upcoming.length > 0) {
@@ -3405,16 +3542,42 @@ async function recognizeCaller(
     const aptLocalDate = getLocalDateString(new Date(nextApt.startDate), recogTimezone);
     const todayStr = getLocalDateString(now, recogTimezone);
     const tomorrowStr = getLocalDateString(new Date(now.getTime() + 86400000), recogTimezone);
+    const hoursUntilApt = (new Date(nextApt.startDate).getTime() - now.getTime()) / (1000 * 60 * 60);
 
     if (aptLocalDate === todayStr) {
       context = 'appointment_today';
+      if (hoursUntilApt <= 1) {
+        likelyReason = 'Probably running late or needs last-minute directions — appointment is within the hour';
+      } else if (hoursUntilApt <= 3) {
+        likelyReason = 'Likely confirming or has a quick question about their appointment today';
+      } else {
+        likelyReason = 'May be confirming their appointment later today or needs to reschedule';
+      }
     } else if (aptLocalDate === tomorrowStr) {
       context = 'appointment_tomorrow';
+      likelyReason = 'Likely confirming or adjusting their appointment tomorrow';
     } else {
       context = 'has_upcoming';
+      likelyReason = 'Has an upcoming appointment — may want to confirm, reschedule, or ask a question';
     }
   } else if (recent.length > 0) {
     context = 'returning_customer';
+    const daysSinceLast = insights?.daysSinceLastVisit || 0;
+    if (daysSinceLast > 30) {
+      likelyReason = 'Has not visited in over a month — probably looking to rebook';
+    } else {
+      likelyReason = 'Recent customer — may need a follow-up visit or have a question about their last service';
+    }
+  } else {
+    // No upcoming and no recent — could be a very old customer returning or has a new need
+    if (appointments.length > 0) {
+      likelyReason = 'Past customer returning after a long time — be welcoming and help them rebook';
+    }
+  }
+
+  // Check for pending follow-up or estimate — overrides general reason
+  if (intelligence?.pendingFollowUp) {
+    likelyReason = `Likely calling about: ${intelligence.pendingFollowUp}`;
   }
 
   // Build a concise narrative summary combining all intelligence into natural language
@@ -3484,9 +3647,25 @@ async function recognizeCaller(
   }
 
   // Build summary — include enough context for natural conversation
-  let summary = summaryParts.length > 0 ? summaryParts.join('. ') + '.' : '';
-  if (summary.length > 350) {
-    summary = summary.substring(0, 347) + '...';
+  // Smart truncation: prioritize actionable data over historical when over limit
+  let summary = '';
+  const MAX_SUMMARY_LENGTH = 450;
+
+  if (summaryParts.length > 0) {
+    summary = summaryParts.join('. ') + '.';
+
+    if (summary.length > MAX_SUMMARY_LENGTH) {
+      // Prioritize: upcoming appointment, pending follow-up, preferences, then history
+      // Remove parts from the end (least important) until under limit
+      const prioritized = [...summaryParts];
+      while (prioritized.length > 1 && prioritized.join('. ').length + 1 > MAX_SUMMARY_LENGTH) {
+        prioritized.pop(); // Drop least important (history, mem0 notes)
+      }
+      summary = prioritized.join('. ') + '.';
+      if (summary.length > MAX_SUMMARY_LENGTH) {
+        summary = summary.substring(0, MAX_SUMMARY_LENGTH - 3) + '...';
+      }
+    }
   }
 
   return {
@@ -3496,6 +3675,7 @@ async function recognizeCaller(
       firstName: customer.firstName,
       customerName: `${customer.firstName} ${customer.lastName}`,
       context,
+      likelyReason,
       summary,
       currentStatus,
     }
@@ -3614,7 +3794,7 @@ async function getDirections(businessId: number): Promise<FunctionResult> {
     };
   }
 
-  // Create Google Maps link
+  // Create Google Maps link for SMS — AI is on a phone call and can't send links
   const mapsUrl = `https://maps.google.com/maps?q=${encodeURIComponent(address)}`;
 
   return {
@@ -3622,6 +3802,7 @@ async function getDirections(businessId: number): Promise<FunctionResult> {
       hasAddress: true,
       address,
       mapsUrl,
+      voiceHint: 'Read the address aloud. Then offer: "Would you like me to text you a Google Maps link?"'
     }
   };
 }
@@ -4049,11 +4230,33 @@ async function handleEndOfCall(
         // Industry-specific missed call text-back messages
         let textMessage: string;
         if (industry.includes('landscap')) {
-          textMessage = `Hi! We noticed we missed your call to ${businessName}. ` +
-            `We offer free estimates for all landscaping services — reply to this text or call us back and we'll get you scheduled for a walkthrough!`;
+          textMessage = `Hi! We noticed we missed your call to ${businessName}. We offer free estimates for all landscaping services — reply to this text or call us back and we'll get you scheduled!`;
+        } else if (industry.includes('auto') || industry.includes('mechanic')) {
+          textMessage = `Hi! We missed your call to ${businessName}. We offer free diagnostics — call us back or reply here and we'll get your vehicle taken care of!`;
+        } else if (industry.includes('dental') || industry.includes('dentist')) {
+          textMessage = `Hi! We missed your call to ${businessName}. We have same-day appointments available for emergencies — call us back or reply here to get scheduled!`;
+        } else if (industry.includes('salon') || industry.includes('barber') || industry.includes('spa')) {
+          textMessage = `Hi! We missed your call to ${businessName}. We'd love to get you booked — call us back or reply here and we'll find a time that works for you!`;
+        } else if (industry.includes('plumb')) {
+          textMessage = `Hi! We missed your call to ${businessName}. If you have an urgent issue, call us back and we'll prioritize your repair. Or reply here to schedule a visit!`;
+        } else if (industry.includes('hvac') || industry.includes('heating') || industry.includes('cooling')) {
+          textMessage = `Hi! We missed your call to ${businessName}. If your AC or heating is down, call us back for priority service. Or reply here to schedule a tune-up!`;
+        } else if (industry.includes('electric')) {
+          textMessage = `Hi! We missed your call to ${businessName}. For electrical emergencies, call us back right away. Otherwise, reply here to schedule an appointment!`;
+        } else if (industry.includes('clean')) {
+          textMessage = `Hi! We missed your call to ${businessName}. We'd love to get you a free quote — call us back or reply here and we'll set up an estimate!`;
+        } else if (industry.includes('medical') || industry.includes('doctor') || industry.includes('clinic')) {
+          textMessage = `Hi! We missed your call to ${businessName}. Call us back to schedule your appointment, or reply here and we'll get you booked!`;
+        } else if (industry.includes('vet')) {
+          textMessage = `Hi! We missed your call to ${businessName}. If your pet needs urgent care, please call us back. Otherwise, reply here to schedule a visit!`;
+        } else if (industry.includes('fitness') || industry.includes('gym') || industry.includes('trainer')) {
+          textMessage = `Hi! We missed your call to ${businessName}. Call us back or reply here to get started — we'd love to help you reach your goals!`;
+        } else if (industry.includes('restaurant') || industry.includes('food')) {
+          textMessage = `Hi! We missed your call to ${businessName}. Call us back to place an order or make a reservation, or reply here and we'll help you out!`;
+        } else if (industry.includes('construct') || industry.includes('contractor')) {
+          textMessage = `Hi! We missed your call to ${businessName}. We offer free estimates — call us back or reply here and we'll schedule a walkthrough!`;
         } else {
-          textMessage = `Hi! We noticed we missed your call to ${businessName}. ` +
-            `We'd love to help — feel free to call us back or reply to this text and we'll get back to you shortly. Thank you!`;
+          textMessage = `Hi! We noticed we missed your call to ${businessName}. We'd love to help — feel free to call us back or reply to this text and we'll get back to you shortly!`;
         }
 
         twilioService.sendSms(callerPhone, textMessage, business.twilioPhoneNumber, businessId)

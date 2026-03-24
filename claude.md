@@ -676,6 +676,66 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Vapi AI Intelligence Upgrade — 8 Improvements
+- **Goal**: Make the AI receptionist significantly smarter — proactive caller recognition, richer context, emotional intelligence, upselling, and safer rescheduling.
+
+##### 1. Model Upgrade
+- `server/services/vapiService.ts` — Upgraded Vapi AI model from `gpt-4.1-mini` to `gpt-5-mini` in both create and update paths. Better instruction following, fewer hallucinations, more reliable tool calls.
+
+##### 2. maxTokens Fix (250 → 350)
+- `server/services/vapiService.ts` — Fixed maxTokens from 250 to 350 in both create and update paths. 250 was causing truncation on complex booking confirmations (service + staff + date + time + price).
+
+##### 3. Proactive Caller Intent Prediction (likelyReason)
+- `server/services/vapiWebhookHandler.ts` — `recognizeCaller()` now returns a `likelyReason` field predicting WHY the customer is calling based on context: appointment within the hour = "probably running late", appointment today = "likely confirming", no visits in 30+ days = "probably looking to rebook", has pending follow-up = surfaces the specific follow-up topic. Overridden by pending intelligence follow-ups when available.
+- `server/services/vapiService.ts` — GREET beat updated: AI now uses `likelyReason` to open proactively ("Hi Sarah! Are you calling about your appointment tomorrow?") instead of generic "How can I help you?"
+
+##### 4. Service Price & Duration in Availability Response
+- `server/services/vapiWebhookHandler.ts` — `checkAvailability()` now includes `servicePrice`, `serviceDuration`, and `serviceName` in both single-day and multi-day responses. Eliminates an extra tool call round-trip when callers ask "how much?" and "how long?"
+- `server/services/vapiService.ts` — CHECK beat updated to tell AI about these new fields.
+
+##### 5. Reschedule Availability Checking (Bug Fix)
+- `server/services/vapiWebhookHandler.ts` — `rescheduleAppointment()` now validates before moving the appointment: checks if business is open on the new date, checks if staff has time off, and checks for overlapping appointments (double-booking prevention). Previously went straight from date parsing to DB update with no safety checks.
+
+##### 6. Emotional Caller Handling
+- `server/services/vapiService.ts` — Added DIFFICULT CALLERS section to system prompt: de-escalation protocol for frustrated/angry callers ("I completely understand your frustration"), patience protocol for confused/elderly callers, urgency protocol for emergencies, and complaint handling (listen, empathize, document, offer next steps).
+
+##### 7. Upselling Guidance
+- `server/services/vapiService.ts` — Added UPSELLING section to system prompt: after confirming a booking, briefly mention ONE complementary service. Natural suggestion, not a sales pitch. Move on immediately if declined.
+
+##### 8. Smart Summary Truncation
+- `server/services/vapiWebhookHandler.ts` — `recognizeCaller()` summary truncation upgraded from dumb `substring(0, 350)` to priority-based: drops least important parts (history, Mem0 notes) first, preserving upcoming appointments and pending follow-ups. Limit raised from 350 to 450 characters.
+
+##### 9. Booking Instructions in Confirmation
+- `server/services/vapiWebhookHandler.ts` — `bookAppointment()` now returns `bookingTips` array with industry-aware tips ("Please arrive 10 minutes early") and business address. AI weaves one tip naturally into the confirmation.
+- `server/services/vapiService.ts` — BOOK beat updated to tell AI to use bookingTips.
+
+##### 10. Multi-Appointment Handling for Cancel/Reschedule
+- `server/services/vapiWebhookHandler.ts` — `cancelAppointment()` and `rescheduleAppointment()` now detect when a caller has multiple upcoming appointments. Instead of blindly picking the next one, returns `multipleAppointments: true` with a list of all upcoming appointments (date, time, service name) and asks the caller which one they mean.
+
+##### 11. Remove Redundant AVAILABLE TOOLS Block + Register Missing Functions
+- `server/services/vapiService.ts` — Removed the `AVAILABLE TOOLS:` text block from the system prompt (~100 tokens saved per turn). All tools are now properly registered as function definitions in `getAssistantFunctions()`.
+- `server/services/vapiService.ts` — Registered 3 previously unregistered functions: `getCustomerInfo`, `scheduleCallback`, `getDirections`. These existed in the webhook handler dispatch but were only referenced in the now-removed text block. Now properly defined with parameter schemas so the AI can call them reliably.
+
+##### 12. getDirections Voice-Aware Response
+- `server/services/vapiWebhookHandler.ts` — `getDirections()` now returns a `voiceHint` field instructing the AI to read the address aloud and offer to text a Google Maps link, instead of trying to read a URL over the phone.
+- `server/services/vapiService.ts` — `getDirections` tool description updated: "Read the address aloud and offer to text a Google Maps link to the caller."
+
+##### 13. Industry-Specific Missed Call Text-Backs (13 Verticals)
+- `server/services/vapiWebhookHandler.ts` — Missed call text-back messages expanded from 2 variants (landscaping + generic) to 13 industry-specific messages: automotive ("free diagnostics"), dental ("same-day emergency appointments"), salon/barber ("get you booked"), plumbing ("urgent issue priority"), HVAC ("AC or heating down"), electrical ("emergencies"), cleaning ("free quote"), medical ("schedule your appointment"), veterinary ("urgent pet care"), fitness ("reach your goals"), restaurant ("order or reservation"), construction ("free estimates"), plus improved generic fallback.
+
+##### 14. Improved Name Extraction from Transcripts
+- `server/services/vapiWebhookHandler.ts` — `extractCallerNameFromTranscript()` added 2 new patterns: "Call me [name]" / "You can call me [name]", and "Yeah it's [name]" (filler + name). These catch common natural speech patterns that were previously missed.
+
+##### 15. getEstimate Capped at 5 Services
+- `server/services/vapiWebhookHandler.ts` — When `getEstimate()` finds no matching services, it now returns the top 5 services instead of the entire catalog. Prevents the AI from reading 15+ services over the phone. Includes `totalServicesAvailable` count and a message prompting the caller to be more specific.
+
+##### 16. System Prompt Condensed ~35%
+- `server/services/vapiService.ts` — Base prompt condensed from ~2,500 tokens to ~1,600 tokens. Removed verbose bullet lists, redundant examples, and instructions GPT-5-mini handles naturally. KEY RULES consolidated. CONVERSATION STYLE and VOICE BREVITY merged into compact STYLE block. All 15 industry prompts condensed (guidance sections trimmed 60-70%, CUSTOMER LINGO dictionaries preserved in full). Restaurant prompt left unchanged (critical ordering flow logic). Estimated savings: ~800-1,200 tokens per call × 15-20 turns = 12,000-24,000 fewer tokens processed per call.
+
+##### 17. Automatic Intelligence Feedback Loop
+- `server/services/vapiService.ts` — **NEW**: `buildIntelligenceHints()` function queries recent call data at assistant build time and injects actionable patterns into the system prompt. Surfaces: (1) Top 5 pending unanswered questions from `unanswered_questions` table — AI knows what it can't answer and offers to have someone follow up. (2) Most-requested services from `call_intelligence.keyFacts.servicesMentioned` (3+ mentions in 30 days). (3) Common caller objections/concerns from `call_intelligence.keyFacts.objections` (2+ occurrences). (4) Sentiment warning if average caller sentiment drops below 3/5. Capped at 500 chars. Graceful degradation — returns undefined on any error. Called in both `createAssistantForBusiness()` and `updateAssistant()` paths. Injected as "CALLER PATTERNS" section between KNOWLEDGE BASE and CUSTOM INSTRUCTIONS.
+- This means the AI automatically gets smarter over time: as more calls happen, the intelligence data accumulates, and each assistant refresh (Refresh Assistant button, auto-refine acceptance, knowledge base update) picks up the latest patterns.
+
 #### SMS Intelligence Layer — Complete Build (6 Components)
 - **Goal**: Build the core SMS intelligence layer for SmallBizAgent — AI-powered message generation, reply intelligence, marketing automation, and campaign management.
 
@@ -1354,4 +1414,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 23, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted).*
+*Last updated: March 23, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted). Vapi AI Intelligence Upgrade (uncommitted): 17 improvements — gpt-5-mini model, maxTokens 350, likelyReason caller prediction, service price/duration in availability, reschedule safety checks, emotional caller handling, upselling, smart summary truncation, booking tips, multi-appointment cancel/reschedule, 3 missing tools registered, getDirections voice-aware, 13 industry missed call texts, name extraction, getEstimate capped at 5, system prompt condensed ~35%, automatic intelligence feedback loop.*
