@@ -2988,6 +2988,7 @@ async function getBusinessHours(businessId: number): Promise<FunctionResult> {
       hours: hoursText,
       isOpen,
       statusMessage,
+      voiceHint: 'Read the hours exactly as written — say "through" not commas between day ranges.',
     }
   };
 }
