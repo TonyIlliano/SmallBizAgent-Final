@@ -2704,10 +2704,11 @@ async function bookRecurringAppointment(
       const aptDisplayDate = formatDateForVoice(appointmentDate, businessTimezone);
 
       try {
+        // Always pass customerPhone so bookAppointment can send SMS for first appointment
         const result = await bookAppointment(businessId, {
           customerId,
           customerName: params.customerName,
-          customerPhone,
+          customerPhone: customerPhone || callerPhone,
           date: aptDateStr,
           time: params.time,
           serviceId,
@@ -2715,7 +2716,7 @@ async function bookRecurringAppointment(
           staffId,
           staffName: staffLabel || undefined,
           notes: `${params.notes || ''} [Recurring: ${frequency}, ${i + 1}/${occurrences}]`.trim(),
-        }, i === 0 ? callerPhone : undefined); // Only send SMS for first appointment
+        }, i === 0 ? (callerPhone || customerPhone) : undefined); // SMS only for first appointment
 
         const aptResult = (result as any)?.result;
         if (aptResult?.success) {
