@@ -1442,11 +1442,9 @@ export async function createAssistantForBusiness(
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
       maxTokens: 350, // Enough for complex confirmations (service + staff + date + time + price) without truncation
       systemPrompt: systemPrompt,
-      // Native VAPI tools (transferCall, endCall) — must be in model.tools
-      tools: nativeTools,
+      // All tools: native (transferCall, endCall) + custom server tools with filler suppression
+      tools: [...nativeTools, ...serverTools],
     },
-    // Custom server-side tools in new format with filler suppression
-    tools: serverTools,
     transcriber: {
       provider: 'deepgram',
       model: 'nova-2', // Latest Deepgram model — fastest + most accurate
@@ -1670,11 +1668,9 @@ export async function updateAssistant(
           temperature: 0.6,
           maxTokens: 350, // Enough for complex confirmations (service + staff + date + time + price) without truncation
           systemPrompt: systemPrompt,
-          // Native VAPI tools (transferCall, endCall) — must be in model.tools
-          tools: nativeTools,
+          // All tools: native (transferCall, endCall) + custom server tools with filler suppression
+          tools: [...nativeTools, ...serverTools],
         },
-        // Custom server-side tools in new format with filler suppression
-        tools: serverTools,
         voice: {
           provider: '11labs',
           voiceId: configVoiceId,
