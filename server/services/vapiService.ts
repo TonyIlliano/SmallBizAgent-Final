@@ -1376,22 +1376,6 @@ export async function createAssistantForBusiness(
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
 
-  // Add empty messages to each function to prevent Vapi from generating filler phrases
-  // ("hold on", "one moment", "just a sec") during tool execution
-  const functionsWithSilentMessages = [
-    ...functions,
-    ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
-    ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
-  ].map(f => ({
-    ...f,
-    messages: [
-      { type: 'request-start', content: '' },
-      { type: 'request-complete', content: '' },
-      { type: 'request-failed', content: 'I ran into an issue. Let me try a different approach.' },
-      { type: 'request-response-delayed', content: '' },
-    ]
-  }));
-
   const assistantConfig = {
     name: `${business.name} Receptionist`,
     model: {
@@ -1400,7 +1384,11 @@ export async function createAssistantForBusiness(
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
       maxTokens: 350, // Enough for complex confirmations (service + staff + date + time + price) without truncation
       systemPrompt: systemPrompt,
-      functions: functionsWithSilentMessages,
+      functions: [
+        ...functions,
+        ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
+        ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
+      ],
       // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
       tools: nativeTools,
     },
@@ -1581,20 +1569,11 @@ export async function updateAssistant(
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
 
-  // Add empty messages to each function to prevent Vapi from generating filler phrases
   const functions = [
     ...filteredFunctions,
     ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
     ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
-  ].map(f => ({
-    ...f,
-    messages: [
-      { type: 'request-start', content: '' },
-      { type: 'request-complete', content: '' },
-      { type: 'request-failed', content: 'I ran into an issue. Let me try a different approach.' },
-      { type: 'request-response-delayed', content: '' },
-    ]
-  }));
+  ];
 
   try {
     const response = await fetch(`${VAPI_BASE_URL}/assistant/${assistantId}`, {
