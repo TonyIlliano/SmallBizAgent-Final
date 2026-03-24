@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mocks (vi.hoisted ensures they're available when vi.mock factories run) ──
 
-const { mockStorage, mockSendSms, mockLogAgentAction } = vi.hoisted(() => ({
+const { mockStorage, mockSendSms, mockGenerateMessage, mockLogAgentAction } = vi.hoisted(() => ({
   mockStorage: {
     getBusiness: vi.fn(),
     getAppointment: vi.fn(),
@@ -16,11 +16,13 @@ const { mockStorage, mockSendSms, mockLogAgentAction } = vi.hoisted(() => ({
     createNotificationLog: vi.fn(),
   },
   mockSendSms: vi.fn(),
+  mockGenerateMessage: vi.fn(),
   mockLogAgentAction: vi.fn(),
 }));
 
 vi.mock('../storage', () => ({ storage: mockStorage }));
 vi.mock('./twilioService', () => ({ sendSms: mockSendSms }));
+vi.mock('./messageIntelligenceService', () => ({ generateMessage: mockGenerateMessage }));
 vi.mock('./agentActivityService', () => ({ logAgentAction: mockLogAgentAction }));
 
 // Mock conversational booking as unavailable (so reply handler falls back to link-based flow)
@@ -72,18 +74,20 @@ describe('noShowAgentService', () => {
       mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
       mockStorage.getAgentActivityLogs.mockResolvedValue([]);
       mockStorage.createSmsConversation.mockResolvedValue({ id: 1 });
-      mockSendSms.mockResolvedValue(undefined);
+      mockGenerateMessage.mockResolvedValue({ success: true, body: 'Hey John, we missed you!', fallbackUsed: false });
       mockLogAgentAction.mockResolvedValue(undefined);
 
       const result = await triggerNoShowSms(100, 1);
 
       expect(result.sent).toBe(true);
-      expect(mockSendSms).toHaveBeenCalledOnce();
-      expect(mockSendSms).toHaveBeenCalledWith(
-        CUSTOMER.phone,
-        expect.stringContaining('John'),
-        undefined,
-        BUSINESS.id,
+      expect(mockGenerateMessage).toHaveBeenCalledOnce();
+      expect(mockGenerateMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageType: 'NO_SHOW_FOLLOWUP',
+          businessId: BUSINESS.id,
+          customerId: CUSTOMER.id,
+          recipientPhone: CUSTOMER.phone,
+        }),
       );
       expect(mockStorage.createSmsConversation).toHaveBeenCalledOnce();
       expect(mockLogAgentAction).toHaveBeenCalledWith(
@@ -105,7 +109,7 @@ describe('noShowAgentService', () => {
 
       expect(result.sent).toBe(false);
       expect(result.reason).toBe('no_show agent is disabled');
-      expect(mockSendSms).not.toHaveBeenCalled();
+      expect(mockGenerateMessage).not.toHaveBeenCalled();
     });
 
     it('skips when business not found', async () => {
@@ -183,7 +187,7 @@ describe('noShowAgentService', () => {
 
       expect(result.sent).toBe(false);
       expect(result.reason).toBe('no-show SMS already sent for this appointment');
-      expect(mockSendSms).not.toHaveBeenCalled();
+      expect(mockGenerateMessage).not.toHaveBeenCalled();
     });
 
     it('creates conversation with correct expiration', async () => {
@@ -194,7 +198,7 @@ describe('noShowAgentService', () => {
       mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
       mockStorage.getAgentActivityLogs.mockResolvedValue([]);
       mockStorage.createSmsConversation.mockResolvedValue({ id: 1 });
-      mockSendSms.mockResolvedValue(undefined);
+      mockGenerateMessage.mockResolvedValue({ success: true, body: 'Hey John, we missed you!', fallbackUsed: false });
       mockLogAgentAction.mockResolvedValue(undefined);
 
       await triggerNoShowSms(100, 1);

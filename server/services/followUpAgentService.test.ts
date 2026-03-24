@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mocks ──
 
-const { mockStorage, mockSendSms, mockLogAgentAction } = vi.hoisted(() => ({
+const { mockStorage, mockSendSms, mockGenerateMessage, mockLogAgentAction } = vi.hoisted(() => ({
   mockStorage: {
     getBusiness: vi.fn(),
     getAllBusinesses: vi.fn(),
@@ -11,13 +11,16 @@ const { mockStorage, mockSendSms, mockLogAgentAction } = vi.hoisted(() => ({
     getCustomer: vi.fn(),
     getAgentSettings: vi.fn(),
     getAgentActivityLogs: vi.fn(),
+    createNotificationLog: vi.fn(),
   },
   mockSendSms: vi.fn(),
+  mockGenerateMessage: vi.fn(),
   mockLogAgentAction: vi.fn(),
 }));
 
 vi.mock('../storage', () => ({ storage: mockStorage }));
 vi.mock('./twilioService', () => ({ sendSms: mockSendSms }));
+vi.mock('./messageIntelligenceService', () => ({ generateMessage: mockGenerateMessage }));
 vi.mock('./agentActivityService', () => ({ logAgentAction: mockLogAgentAction }));
 
 vi.mock('./agentSettingsService', () => ({
@@ -173,8 +176,9 @@ describe('followUpAgentService', () => {
       mockStorage.getAllBusinesses.mockResolvedValue([BUSINESS]);
       mockStorage.getBusiness.mockResolvedValue(BUSINESS);
       mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
-      mockSendSms.mockResolvedValue(undefined);
+      mockGenerateMessage.mockResolvedValue({ success: true, body: 'Hi Jane! Thank you for choosing Test Barber.', fallbackUsed: false });
       mockLogAgentAction.mockResolvedValue(undefined);
+      mockStorage.createNotificationLog.mockResolvedValue(undefined);
 
       // Queued item from 1 minute ago (delay is 0, so it should fire)
       mockStorage.getAgentActivityLogs.mockResolvedValue([
@@ -189,11 +193,13 @@ describe('followUpAgentService', () => {
 
       await runFollowUpCheck();
 
-      expect(mockSendSms).toHaveBeenCalledWith(
-        CUSTOMER.phone,
-        expect.stringContaining('Jane'),
-        undefined,
-        BUSINESS.id,
+      expect(mockGenerateMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageType: 'FOLLOW_UP_THANK_YOU',
+          businessId: BUSINESS.id,
+          customerId: CUSTOMER.id,
+          recipientPhone: CUSTOMER.phone,
+        }),
       );
     });
 
@@ -203,7 +209,7 @@ describe('followUpAgentService', () => {
 
       await runFollowUpCheck();
 
-      expect(mockSendSms).not.toHaveBeenCalled();
+      expect(mockGenerateMessage).not.toHaveBeenCalled();
     });
 
     it('skips items already sent', async () => {
@@ -242,7 +248,7 @@ describe('followUpAgentService', () => {
       await runFollowUpCheck();
 
       // Should NOT send again
-      expect(mockSendSms).not.toHaveBeenCalled();
+      expect(mockGenerateMessage).not.toHaveBeenCalled();
     });
   });
 });
