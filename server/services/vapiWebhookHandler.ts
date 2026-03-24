@@ -2474,6 +2474,7 @@ async function rescheduleAppointment(
     newDate: string;
     newTime: string;
     reason?: string;
+    staffName?: string;
   },
   callerPhone?: string
 ): Promise<FunctionResult> {
@@ -2546,12 +2547,26 @@ async function rescheduleAppointment(
     day: 'numeric'
   });
 
+  // Resolve staff change if caller requested a different person
+  let newStaffId: number | undefined;
+  if (params.staffName) {
+    const allStaff = await storage.getStaff(businessId);
+    const match = allStaff.find((s: any) =>
+      `${s.firstName} ${s.lastName}`.toLowerCase().includes(params.staffName!.toLowerCase()) ||
+      s.firstName.toLowerCase() === params.staffName!.toLowerCase()
+    );
+    if (match) {
+      newStaffId = match.id;
+    }
+  }
+
   // Update the appointment
   try {
     await storage.updateAppointment(appointment.id, {
       startDate: newDateTime,
       endDate: newEndTime,
-      notes: `${appointment.notes || ''}\n[Rescheduled from ${oldDateStr}${params.reason ? `: ${params.reason}` : ''}]`.trim()
+      ...(newStaffId !== undefined ? { staffId: newStaffId } : {}),
+      notes: `${appointment.notes || ''}\n[Rescheduled from ${oldDateStr}${params.reason ? `: ${params.reason}` : ''}${newStaffId !== undefined ? ` (staff changed)` : ''}]`.trim()
     });
 
     // Update the linked job's scheduled date if one exists

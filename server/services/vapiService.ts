@@ -1111,13 +1111,14 @@ function getAssistantFunctions() {
     },
     {
       name: 'rescheduleAppointment',
-      description: 'Move an existing appointment to a new date/time.',
+      description: 'Move an existing appointment to a new date/time and optionally a different staff member.',
       parameters: {
         type: 'object',
         properties: {
           appointmentId: { type: 'number' },
           newDate: { type: 'string' },
-          newTime: { type: 'string' }
+          newTime: { type: 'string' },
+          staffName: { type: 'string', description: 'New staff member name if the caller wants to switch to a different person' }
         },
         required: ['newDate', 'newTime']
       }
