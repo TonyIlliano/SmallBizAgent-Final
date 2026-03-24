@@ -2687,37 +2687,63 @@ async function bookRecurringAppointment(
       })
       .returning();
 
-    // Book the first appointment right now
-    const firstAppointmentResult = await bookAppointment(businessId, {
-      customerId,
-      customerName: params.customerName,
-      customerPhone,
-      date: startDateStr,
-      time: params.time,
-      serviceId,
-      serviceName,
-      staffId,
-      staffName: staffLabel || undefined,
-      notes: `${params.notes || ''} [Recurring: ${frequency}, ${occurrences} total]`.trim(),
-    }, callerPhone);
+    // Book ALL appointments upfront so the caller can see them immediately
+    const bookedDates: string[] = [];
+    let failedCount = 0;
+    const intervalDays = frequency === 'weekly' ? 7 : frequency === 'biweekly' ? 14 : 0;
 
-    const firstResult = (firstAppointmentResult as any)?.result;
-    const firstBooked = firstResult?.success;
+    for (let i = 0; i < occurrences; i++) {
+      const appointmentDate = new Date(parsedDate);
+      if (frequency === 'monthly') {
+        appointmentDate.setMonth(appointmentDate.getMonth() + i);
+      } else {
+        appointmentDate.setDate(appointmentDate.getDate() + (intervalDays * i));
+      }
 
-    console.log(`[bookRecurringAppointment] Created schedule ${schedule.id} (${frequency}, ${occurrences} occurrences) for customer ${customerId}, business ${businessId}. First appointment: ${firstBooked ? 'booked' : 'failed'}`);
+      const aptDateStr = `${appointmentDate.getFullYear()}-${String(appointmentDate.getMonth() + 1).padStart(2, '0')}-${String(appointmentDate.getDate()).padStart(2, '0')}`;
+      const aptDisplayDate = formatDateForVoice(appointmentDate, businessTimezone);
+
+      try {
+        const result = await bookAppointment(businessId, {
+          customerId,
+          customerName: params.customerName,
+          customerPhone,
+          date: aptDateStr,
+          time: params.time,
+          serviceId,
+          serviceName,
+          staffId,
+          staffName: staffLabel || undefined,
+          notes: `${params.notes || ''} [Recurring: ${frequency}, ${i + 1}/${occurrences}]`.trim(),
+        }, i === 0 ? callerPhone : undefined); // Only send SMS for first appointment
+
+        const aptResult = (result as any)?.result;
+        if (aptResult?.success) {
+          bookedDates.push(aptDisplayDate);
+        } else {
+          failedCount++;
+          console.warn(`[bookRecurringAppointment] Failed to book occurrence ${i + 1}: ${aptResult?.error}`);
+        }
+      } catch (err) {
+        failedCount++;
+        console.error(`[bookRecurringAppointment] Error booking occurrence ${i + 1}:`, (err as any).message);
+      }
+    }
+
+    console.log(`[bookRecurringAppointment] Schedule ${schedule.id}: ${bookedDates.length}/${occurrences} booked, ${failedCount} failed`);
 
     return {
       result: {
-        success: true,
+        success: bookedDates.length > 0,
         scheduleId: schedule.id,
         frequency,
         occurrences,
-        startDate: displayDate,
-        time: firstResult?.time || params.time,
+        appointmentsBooked: bookedDates.length,
+        appointmentDates: bookedDates,
+        time: params.time,
         service: serviceName,
         staffName: staffLabel || null,
-        firstAppointmentBooked: firstBooked,
-        message: `Set up ${occurrences} ${frequency} ${serviceName} appointments${withStaff} starting ${displayDate} at ${firstResult?.time || params.time}.`
+        message: `Booked ${bookedDates.length} ${frequency} ${serviceName} appointments${withStaff}: ${bookedDates.join(', ')} at ${params.time}.${failedCount > 0 ? ` ${failedCount} could not be booked.` : ''}`
       }
     };
   } catch (error: any) {
