@@ -1220,22 +1220,23 @@ async function checkAvailability(
   if (staffName && !staffId) {
     const allStaff = await getCachedStaff(businessId);
     const matchedStaff = allStaff.find(s =>
-      s.active &&
+      s.active !== false &&
       (s.firstName.toLowerCase() === staffName.toLowerCase() ||
-       `${s.firstName} ${s.lastName}`.toLowerCase() === staffName.toLowerCase())
+       `${s.firstName} ${s.lastName}`.toLowerCase() === staffName.toLowerCase() ||
+       s.firstName.toLowerCase().includes(staffName.toLowerCase()))
     );
     if (matchedStaff) {
       resolvedStaffId = matchedStaff.id;
       staffMember = matchedStaff;
     } else {
       // Staff member not found by name
-      const staffNames = allStaff.filter(s => s.active).map(s => s.firstName).join(', ');
+      const staffNames = allStaff.filter(s => s.active !== false).map(s => s.firstName).join(', ');
       return {
         result: {
           available: false,
           staffNotFound: true,
           message: `I don't have anyone by that name. Our team includes ${staffNames}. Would you like to book with one of them?`,
-          availableStaff: allStaff.filter(s => s.active).map(s => ({
+          availableStaff: allStaff.filter(s => s.active !== false).map(s => ({
             id: s.id,
             name: `${s.firstName} ${s.lastName}`,
             specialty: s.specialty
@@ -3235,8 +3236,9 @@ async function getUpcomingAppointments(
 
   const appointments = await storage.getAppointmentsByCustomerId(customer.id);
   const now = new Date();
+  const upcomingStatuses = ['scheduled', 'confirmed', 'pending'];
   const upcoming = appointments
-    .filter(apt => new Date(apt.startDate) > now && apt.status === 'scheduled')
+    .filter(apt => new Date(apt.startDate) > now && apt.status && upcomingStatuses.includes(apt.status))
     .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
     .slice(0, 5);
 
@@ -3518,9 +3520,10 @@ async function recognizeCaller(
   const insights = insightsResult;
   const now = new Date();
 
-  // Find upcoming appointments
+  // Find upcoming appointments (include confirmed and pending — not just 'scheduled')
+  const activeStatuses = ['scheduled', 'confirmed', 'pending'];
   const upcoming = appointments
-    .filter(apt => new Date(apt.startDate) > now && apt.status === 'scheduled')
+    .filter(apt => new Date(apt.startDate) > now && apt.status && activeStatuses.includes(apt.status))
     .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
   // Find recent past appointments (last 90 days)
