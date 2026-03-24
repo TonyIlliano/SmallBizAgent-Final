@@ -932,7 +932,7 @@ function getAssistantFunctions() {
           customerId: { type: 'number', description: 'Customer ID from recognizeCaller' },
           customerPhone: { type: 'string', description: 'Customer phone' },
           customerName: { type: 'string', description: 'Customer full name (required)' },
-          date: { type: 'string', description: 'YYYY-MM-DD from checkAvailability' },
+          date: { type: 'string', description: 'Use the dateForBooking value from checkAvailability response. Do NOT calculate the date yourself.' },
           time: { type: 'string', description: 'Time like "2pm" or "14:00"' },
           serviceId: { type: 'number', description: 'Service ID' },
           serviceName: { type: 'string', description: 'Service name (required)' },

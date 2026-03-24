@@ -486,32 +486,51 @@ export function parseNaturalDate(dateStr: string, timezone: string = 'America/Ne
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const input = dateStr.toLowerCase().trim();
 
-  // Already in YYYY-MM-DD format
-  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
-    return new Date(input + 'T12:00:00');
+  const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+  // ── NATURAL LANGUAGE ALWAYS WINS ──
+  // If the input contains a day name, relative word, or natural phrase,
+  // parse that FIRST — even if a YYYY-MM-DD is also present.
+  // This is a safety net: if the AI converts "this Friday" to "2026-04-03, this Friday",
+  // we ignore the wrong date and use the natural language.
+
+  const hasNaturalLanguage = (s: string) =>
+    daysOfWeek.some(d => s.includes(d)) ||
+    s.includes('today') || s.includes('tomorrow') || s.includes('next') ||
+    s.includes('this') || s.includes('day after') || /in \d+ days?/.test(s) ||
+    s.includes('end of');
+
+  // Strip out any YYYY-MM-DD the AI may have prepended/appended
+  // so we parse the natural language part cleanly
+  const naturalInput = input.replace(/\d{4}-\d{2}-\d{2}/g, '').trim();
+  const useNatural = hasNaturalLanguage(naturalInput) || hasNaturalLanguage(input);
+  const parseInput = useNatural ? (naturalInput || input) : input;
+
+  if (useNatural && input !== parseInput) {
+    console.log(`[parseNaturalDate] AI passed "${dateStr}" — stripping YYYY-MM-DD, using natural language: "${parseInput}"`);
   }
 
   // "today"
-  if (input === 'today') {
+  if (parseInput === 'today' || parseInput.includes('today')) {
     return today;
   }
 
   // "tomorrow"
-  if (input === 'tomorrow') {
+  if (parseInput === 'tomorrow' || parseInput.includes('tomorrow')) {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow;
   }
 
   // "day after tomorrow"
-  if (input.includes('day after tomorrow')) {
+  if (parseInput.includes('day after tomorrow')) {
     const dat = new Date(today);
     dat.setDate(dat.getDate() + 2);
     return dat;
   }
 
   // "in X days"
-  const inDaysMatch = input.match(/in (\d+) days?/);
+  const inDaysMatch = parseInput.match(/in (\d+) days?/);
   if (inDaysMatch) {
     const days = parseInt(inDaysMatch[1]);
     const future = new Date(today);
@@ -520,26 +539,23 @@ export function parseNaturalDate(dateStr: string, timezone: string = 'America/Ne
   }
 
   // "next week" (next Monday)
-  if (input === 'next week') {
+  if (parseInput === 'next week') {
     const nextWeek = new Date(today);
     const daysUntilMonday = (8 - today.getDay()) % 7 || 7;
     nextWeek.setDate(nextWeek.getDate() + daysUntilMonday);
     return nextWeek;
   }
 
-  // "this week" day names
-  const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-
-  // "next tuesday", "this friday", etc.
+  // Day names: "this friday", "next tuesday", "friday", etc.
   for (let i = 0; i < daysOfWeek.length; i++) {
     const day = daysOfWeek[i];
-    if (input.includes(day)) {
+    if (parseInput.includes(day)) {
       const targetDay = i;
       const currentDay = today.getDay();
       let daysToAdd = targetDay - currentDay;
 
       // If "next" is specified or the day has passed, go to next week
-      if (input.includes('next') || daysToAdd <= 0) {
+      if (parseInput.includes('next') || daysToAdd <= 0) {
         daysToAdd += 7;
       }
 
@@ -550,11 +566,36 @@ export function parseNaturalDate(dateStr: string, timezone: string = 'America/Ne
   }
 
   // "end of week" (Friday)
-  if (input.includes('end of') && input.includes('week')) {
+  if (parseInput.includes('end of') && parseInput.includes('week')) {
     const endOfWeek = new Date(today);
     const daysUntilFriday = (5 - today.getDay() + 7) % 7 || 7;
     endOfWeek.setDate(endOfWeek.getDate() + daysUntilFriday);
     return endOfWeek;
+  }
+
+  // ── YYYY-MM-DD format (AI calculated or from a previous tool response) ──
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    const parsed = new Date(input + 'T12:00:00');
+    // Sanity check: if the date is more than 90 days out, it's probably wrong
+    const daysOut = (parsed.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysOut > 90) {
+      console.warn(`[parseNaturalDate] AI passed far-future date "${dateStr}" (${Math.round(daysOut)} days out) — may be miscalculated`);
+    }
+    return parsed;
+  }
+
+  // ── "March 27", "March 27, 2026", "Friday, March 27" etc. ──
+  // Extract month + day from natural date strings
+  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+    'july', 'august', 'september', 'october', 'november', 'december'];
+  for (let m = 0; m < monthNames.length; m++) {
+    const monthMatch = input.match(new RegExp(`${monthNames[m]}\\s+(\\d{1,2})`));
+    if (monthMatch) {
+      const day = parseInt(monthMatch[1]);
+      const yearMatch = input.match(/\b(20\d{2})\b/);
+      const year = yearMatch ? parseInt(yearMatch[1]) : now.getFullYear();
+      return new Date(year, m, day);
+    }
   }
 
   // Try parsing as a date directly
@@ -564,7 +605,7 @@ export function parseNaturalDate(dateStr: string, timezone: string = 'America/Ne
   }
 
   // Default: return today if we can't parse
-  console.warn(`Could not parse date: ${dateStr}, defaulting to today`);
+  console.warn(`[parseNaturalDate] Could not parse date: "${dateStr}", defaulting to today`);
   return today;
 }
 
@@ -1459,7 +1500,9 @@ async function checkAvailability(
   }
 
   // Single date request - original logic with improvements
+  console.log(`[checkAvailability] Business ${businessId}: dateStr="${dateStr}" → parsing...`);
   const date = parseNaturalDate(dateStr, businessTimezone);
+  console.log(`[checkAvailability] Parsed to: ${date.toISOString().split('T')[0]} (${date.toLocaleDateString('en-US', { weekday: 'long' })})`);
 
   // Check if date is in the past (in business timezone)
   const today = getTodayInTimezone(businessTimezone);
@@ -1574,10 +1617,13 @@ async function checkAvailability(
 
   // Include service info so the AI can answer "how much?" and "how long?" without an extra tool call
   const serviceInfo = serviceId ? allServices.find((s: any) => s.id === serviceId) : null;
+  // Include both display date and YYYY-MM-DD for bookAppointment
+  const isoDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   return {
     result: {
       available: true,
       date: displayDate,
+      dateForBooking: isoDate, // Use this exact date when calling bookAppointment — do NOT calculate your own
       timezone: tzAbbr,
       staffName: staffLabel,
       slots: bestSlots,
