@@ -2733,6 +2733,22 @@ async function bookRecurringAppointment(
 
     console.log(`[bookRecurringAppointment] Schedule ${schedule.id}: ${bookedDates.length}/${occurrences} booked, ${failedCount} failed`);
 
+    // Send a single summary SMS with all booked dates (the first appointment already got its own confirmation)
+    if (bookedDates.length > 1 && customerPhone) {
+      try {
+        const tzAbbr = getTimezoneAbbreviation(businessTimezone);
+        const dateList = bookedDates.map((d, i) => `${i + 1}. ${d}`).join('\n');
+        await twilioService.sendSms(
+          customerPhone,
+          `Your ${frequency} ${serviceName}${withStaff} series at ${business.name} is confirmed!\n\n${dateList}\n\nAll at ${params.time} ${tzAbbr}. Reply HELP for assistance.`,
+          undefined,
+          businessId || undefined
+        );
+      } catch (smsError) {
+        console.error('[bookRecurringAppointment] Failed to send summary SMS:', smsError);
+      }
+    }
+
     return {
       result: {
         success: bookedDates.length > 0,

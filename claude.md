@@ -676,6 +676,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Recurring Appointment Summary SMS
+- **Goal**: Send customers a single summary SMS listing all booked dates when a recurring series is created, so they have a complete record — not just a confirmation for the first appointment.
+- `server/services/vapiWebhookHandler.ts` — After the booking loop in `bookRecurringAppointment()`, sends one summary SMS via `twilioService.sendSms()` listing all booked dates (numbered list), frequency, service name, staff, time with timezone abbreviation. Only sends when 2+ appointments were successfully booked and customerPhone is available. The first appointment still gets its own individual confirmation from `bookAppointment()`. Example: "Your weekly Haircut with Mike series at Tony's Barbershop is confirmed! 1. Friday, March 27th 2. Friday, April 3rd ... All at 2:00 PM EST. Reply HELP for assistance."
+
 #### Vapi AI Intelligence Upgrade — 8 Improvements
 - **Goal**: Make the AI receptionist significantly smarter — proactive caller recognition, richer context, emotional intelligence, upselling, and safer rescheduling.
 
