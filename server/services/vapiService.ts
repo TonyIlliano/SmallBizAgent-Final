@@ -409,7 +409,7 @@ ${options?.staffSection || ''}
 == CALL FLOW ==
 
 1. GREET: Call recognizeCaller FIRST. Say NOTHING while it runs — no "one moment", no "just a sec". The caller just heard the greeting and is waiting naturally. Then:
-   → Recognized: Greet by name. Use "likelyReason" to be proactive: "Hi Sarah! Calling about your appointment tomorrow?"
+   → Recognized: Greet by name. Use "likelyReason" and "summary" to be proactive. Reference the ACTUAL date from the summary — never guess or say "tomorrow" unless the summary explicitly says tomorrow. Example: if summary says "Friday, March 27 at 2 PM", say "Calling about your appointment this Friday?"
    → New caller: Wait for them to speak. Get their name within 2 responses → call updateCustomerInfo immediately.
    → "Confirm" → Call confirmAppointment(confirmed: true) immediately.
 
@@ -1033,7 +1033,7 @@ function getAssistantFunctions() {
     },
     {
       name: 'confirmAppointment',
-      description: 'Confirm a caller\'s upcoming appointment. Auto-finds their next appointment by phone number. Use immediately when caller says "confirm" or "calling to confirm".',
+      description: 'Confirm a caller\'s upcoming appointment. ONLY call this when the caller explicitly says "confirm", "I\'d like to confirm", or "calling to confirm". Do NOT call it just because you told them about an appointment — wait for them to ask to confirm.',
       parameters: {
         type: 'object',
         properties: {
@@ -1376,6 +1376,22 @@ export async function createAssistantForBusiness(
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
 
+  // Add empty messages to each function to prevent Vapi from generating filler phrases
+  // ("hold on", "one moment", "just a sec") during tool execution
+  const functionsWithSilentMessages = [
+    ...functions,
+    ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
+    ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
+  ].map(f => ({
+    ...f,
+    messages: [
+      { type: 'request-start', content: '' },
+      { type: 'request-complete', content: '' },
+      { type: 'request-failed', content: 'I ran into an issue. Let me try a different approach.' },
+      { type: 'request-response-delayed', content: '' },
+    ]
+  }));
+
   const assistantConfig = {
     name: `${business.name} Receptionist`,
     model: {
@@ -1384,13 +1400,7 @@ export async function createAssistantForBusiness(
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
       maxTokens: 350, // Enough for complex confirmations (service + staff + date + time + price) without truncation
       systemPrompt: systemPrompt,
-      functions: [
-        ...functions,
-        // Restaurant ordering functions (Clover POS) — conditionally added
-        ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
-        // Restaurant reservation functions — conditionally added
-        ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
-      ],
+      functions: functionsWithSilentMessages,
       // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
       tools: nativeTools,
     },
@@ -1441,11 +1451,13 @@ export async function createAssistantForBusiness(
       "Have a wonderful day",
       "Have a good one",
       "Have a good day",
+      "Take care",
       "Take care, goodbye",
       "Thanks for calling, have a great day",
       "Thank you for calling, have a great day",
       "Sounds great, have a great day",
       "You're all set, take care",
+      "Thanks, take care",
       // Spanish equivalents
       "Que tenga un buen día",
       "Que tenga un excelente día",
@@ -1568,11 +1580,21 @@ export async function updateAssistant(
   const filteredFunctions = configVoicemailEnabled
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
+
+  // Add empty messages to each function to prevent Vapi from generating filler phrases
   const functions = [
     ...filteredFunctions,
     ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
     ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
-  ];
+  ].map(f => ({
+    ...f,
+    messages: [
+      { type: 'request-start', content: '' },
+      { type: 'request-complete', content: '' },
+      { type: 'request-failed', content: 'I ran into an issue. Let me try a different approach.' },
+      { type: 'request-response-delayed', content: '' },
+    ]
+  }));
 
   try {
     const response = await fetch(`${VAPI_BASE_URL}/assistant/${assistantId}`, {
@@ -1629,11 +1651,13 @@ export async function updateAssistant(
           "Have a wonderful day",
           "Have a good one",
           "Have a good day",
+          "Take care",
           "Take care, goodbye",
           "Thanks for calling, have a great day",
           "Thank you for calling, have a great day",
           "Sounds great, have a great day",
           "You're all set, take care",
+          "Thanks, take care",
           // Spanish equivalents
           "Que tenga un buen día",
           "Que tenga un excelente día",
