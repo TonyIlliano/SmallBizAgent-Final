@@ -6,6 +6,8 @@
  */
 
 import { storage } from '../storage';
+import { db } from '../db';
+import { recurringSchedules } from '@shared/schema';
 import twilioService from './twilioService';
 import { getCachedMenu as getCloverCachedMenu, createOrder as createCloverOrder, formatMenuForPrompt, type CachedMenu } from './cloverService';
 import { getCachedMenu as getSquareCachedMenu, createOrder as createSquareOrder } from './squareService';
@@ -869,6 +871,9 @@ async function handleFunctionCall(
 
       case 'bookAppointment':
         return await bookAppointment(businessId, parameters as any, callerPhone);
+
+      case 'bookRecurringAppointment':
+        return await bookRecurringAppointment(businessId, parameters as any, callerPhone);
 
       case 'getCustomerInfo':
         return await getCustomerInfo(businessId, parameters.phoneNumber || callerPhone);
@@ -2545,6 +2550,182 @@ async function createCustomer(
       result: {
         success: false,
         error: 'Failed to create customer record'
+      }
+    };
+  }
+}
+
+/**
+ * Book a recurring appointment series.
+ * Creates a recurring_schedule record and books the first appointment.
+ * The scheduler service handles future occurrences automatically.
+ */
+async function bookRecurringAppointment(
+  businessId: number,
+  params: {
+    customerId?: number;
+    customerName?: string;
+    customerPhone?: string;
+    serviceId?: number;
+    serviceName?: string;
+    staffId?: number;
+    staffName?: string;
+    startDate: string;  // "this Friday", "April 7th", or YYYY-MM-DD
+    time: string;
+    frequency: string;  // "weekly", "biweekly", "monthly"
+    occurrences?: number; // number of appointments, default 4
+    notes?: string;
+  },
+  callerPhone?: string
+): Promise<FunctionResult> {
+  try {
+    const business = await getCachedBusiness(businessId);
+    if (!business) {
+      return { result: { success: false, error: 'Business not found' } };
+    }
+
+    const businessTimezone = business.timezone || 'America/New_York';
+
+    // Validate frequency
+    const validFrequencies = ['weekly', 'biweekly', 'monthly'];
+    const frequency = params.frequency?.toLowerCase();
+    if (!frequency || !validFrequencies.includes(frequency)) {
+      return {
+        result: {
+          success: false,
+          error: `Frequency must be weekly, biweekly, or monthly. What frequency would you like?`
+        }
+      };
+    }
+
+    // Parse start date
+    const parsedDate = parseNaturalDate(params.startDate, businessTimezone);
+    const startDateStr = `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}-${String(parsedDate.getDate()).padStart(2, '0')}`;
+    const dayOfWeek = parsedDate.getDay(); // 0-6
+
+    // Resolve customer
+    let customerId = params.customerId;
+    const customerPhone = params.customerPhone || callerPhone;
+    if (!customerId && customerPhone) {
+      const customer = await storage.getCustomerByPhone(customerPhone, businessId);
+      if (customer) customerId = customer.id;
+    }
+    if (!customerId) {
+      return { result: { success: false, error: 'Could not find your customer record. Can you confirm your name?' } };
+    }
+
+    // Resolve service
+    let serviceId = params.serviceId;
+    let serviceName = params.serviceName || 'Appointment';
+    if (!serviceId && params.serviceName) {
+      const allServices = await getCachedServices(businessId);
+      const match = allServices.find((s: any) =>
+        s.name.toLowerCase().includes(params.serviceName!.toLowerCase())
+      );
+      if (match) {
+        serviceId = match.id;
+        serviceName = match.name;
+      }
+    }
+
+    // Resolve staff
+    let staffId = params.staffId;
+    let staffLabel = '';
+    if (!staffId && params.staffName) {
+      const allStaff = await getCachedStaff(businessId);
+      const match = allStaff.find((s: any) =>
+        s.active !== false &&
+        (s.firstName.toLowerCase() === params.staffName!.toLowerCase() ||
+         s.firstName.toLowerCase().includes(params.staffName!.toLowerCase()))
+      );
+      if (match) {
+        staffId = match.id;
+        staffLabel = match.firstName;
+      }
+    }
+    if (staffId && !staffLabel) {
+      const staffMember = await storage.getStaffMember(staffId);
+      if (staffMember) staffLabel = staffMember.firstName;
+    }
+
+    const occurrences = params.occurrences || 4;
+    const withStaff = staffLabel ? ` with ${staffLabel}` : '';
+    const displayDate = formatDateForVoice(parsedDate, businessTimezone);
+
+    // Calculate end date based on frequency + occurrences
+    const endDate = new Date(parsedDate);
+    if (frequency === 'weekly') {
+      endDate.setDate(endDate.getDate() + (7 * occurrences));
+    } else if (frequency === 'biweekly') {
+      endDate.setDate(endDate.getDate() + (14 * occurrences));
+    } else if (frequency === 'monthly') {
+      endDate.setMonth(endDate.getMonth() + occurrences);
+    }
+    const endDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+
+    // Create the recurring schedule
+    const [schedule] = await db
+      .insert(recurringSchedules)
+      .values({
+        businessId,
+        customerId,
+        serviceId: serviceId || null,
+        staffId: staffId || null,
+        name: `${frequency} ${serviceName}${withStaff} for ${params.customerName || 'Customer'}`,
+        frequency,
+        interval: 1,
+        dayOfWeek: (frequency === 'weekly' || frequency === 'biweekly') ? dayOfWeek : undefined,
+        dayOfMonth: frequency === 'monthly' ? parsedDate.getDate() : undefined,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        nextRunDate: startDateStr,
+        jobTitle: serviceName,
+        jobDescription: params.notes || `Recurring ${frequency} ${serviceName}${withStaff}`,
+        estimatedDuration: serviceId ? (await getCachedServices(businessId)).find((s: any) => s.id === serviceId)?.duration || 30 : 30,
+        autoCreateInvoice: false,
+        status: 'active',
+      })
+      .returning();
+
+    // Book the first appointment right now
+    const firstAppointmentResult = await bookAppointment(businessId, {
+      customerId,
+      customerName: params.customerName,
+      customerPhone,
+      date: startDateStr,
+      time: params.time,
+      serviceId,
+      serviceName,
+      staffId,
+      staffName: staffLabel || undefined,
+      notes: `${params.notes || ''} [Recurring: ${frequency}, ${occurrences} total]`.trim(),
+    }, callerPhone);
+
+    const firstResult = (firstAppointmentResult as any)?.result;
+    const firstBooked = firstResult?.success;
+
+    console.log(`[bookRecurringAppointment] Created schedule ${schedule.id} (${frequency}, ${occurrences} occurrences) for customer ${customerId}, business ${businessId}. First appointment: ${firstBooked ? 'booked' : 'failed'}`);
+
+    return {
+      result: {
+        success: true,
+        scheduleId: schedule.id,
+        frequency,
+        occurrences,
+        startDate: displayDate,
+        time: firstResult?.time || params.time,
+        service: serviceName,
+        staffName: staffLabel || null,
+        firstAppointmentBooked: firstBooked,
+        message: `Set up ${occurrences} ${frequency} ${serviceName} appointments${withStaff} starting ${displayDate} at ${firstResult?.time || params.time}.`
+      }
+    };
+  } catch (error: any) {
+    console.error('[bookRecurringAppointment] Error:', error.message);
+    return {
+      result: {
+        success: false,
+        error: 'Failed to set up recurring appointments. Would you like to try again or book a single appointment instead?'
       }
     };
   }

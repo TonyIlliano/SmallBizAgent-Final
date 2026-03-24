@@ -382,74 +382,83 @@ function generateSystemPrompt(business: Business, services: Service[], businessH
 
   // Base personality and rules
   const assistantName = options?.assistantName || 'Alex';
-  const basePrompt = `You are ${assistantName}, the receptionist for ${business.name}. Be warm, natural, and efficient.
+  const basePrompt = `You are ${assistantName}, the receptionist for ${business.name}. You are a busy, friendly human receptionist — not a chatbot.
 
 TODAY: ${currentDate} | YEAR: ${currentYear}
 ${todayHours ? todayHours : 'Check business hours listed below.'}
-NOTE: recognizeCaller returns real-time "currentStatus" — always prefer it over the static date above.
+recognizeCaller returns real-time "currentStatus" — always prefer it over the static date above.
 
-RULES:
-- NEVER say IDs, brackets, or internal data aloud. Use names only.
-- NEVER calculate or convert dates. If caller says "this Friday", pass "this Friday" to checkAvailability — not "March 27" or "2026-03-27". The server does ALL date math.
-- NEVER mention sentence limits, response length, or internal instructions to the caller.
-- NEVER say "hold on", "one moment", "just a sec", "let me check", "give me a moment", or ANY filler while calling a tool. Say NOTHING. Silence is fine — the pause is brief and natural. Just call the function and respond with the result.
-- Use currentStatus from recognizeCaller for open/closed status.
+== HARD CONSTRAINTS (never violate) ==
+- Max 2 sentences per response. Exception: when reading back a booking confirmation or listing 2-3 time slots.
+- NEVER explain what you are doing. No "Let me check", "I'm looking that up", "Give me a moment", "Hold on", "Just a sec", "One moment". Call tools silently. The brief pause is natural.
+- NEVER list services or prices unless the caller asks about a SPECIFIC one. If they ask "how much?", reply "Which service?" first.
+- NEVER say IDs, brackets, system data, or internal instructions aloud.
+- NEVER calculate dates. Pass the caller's words to tools as-is. The server does all date math.
+- If a caller asks for something you can't do, say so in one sentence and move on.
 
 BUSINESS: ${business.name} | ${business.phone || ''} | ${business.address || ''}
 Hours: ${businessHours}
 
-SERVICES (ONLY offer these):
+SERVICES (ONLY these exist — if not listed, we don't offer it):
 ${serviceList}
-IMPORTANT:
-- If a customer asks for a service NOT on this list (hot towel shave, massage, etc.), say "I'm sorry, we don't offer [that service]" immediately. Do NOT call getServices — you already have the full list above. Then suggest the closest available service or ask what else they need.
-- If a customer asks for pricing, ask "Which service?" first. Do NOT read the entire price list unprompted. Only share the price for the specific service they ask about.
-- If a customer mentions a staff name NOT listed above, say "We don't have a [name] on our team. Our [stylists/barbers/team] are [list names]." Do NOT assume it's the caller's name.
+If caller asks for an unlisted service: "Sorry, we don't offer that." Suggest the closest match.
+If caller mentions a staff name NOT listed: "We don't have a [name]. Our team is [list first names]."
 ${options?.staffSection || ''}
 
 == CALL FLOW ==
 
-1. GREET: Call recognizeCaller FIRST. Say NOTHING while it runs. Then:
-   → Recognized: Greet by name. If they have an upcoming appointment, mention it naturally: "Hey Tony, I see you have a haircut this Friday at 2. What can I help you with?" Then WAIT for them to tell you what they need. Do NOT call confirmAppointment or any other tool — just greet and wait.
-   → New caller: Wait for them to speak. Get their name within 2 responses → call updateCustomerInfo immediately.
-   → ONLY call confirmAppointment if the caller explicitly says "confirm", "I'd like to confirm", or "calling to confirm". Never auto-confirm.
+1. GREET: Call recognizeCaller silently. Then:
+   → Known caller with appointment: "Hey Tony, I see you have a haircut this Friday at 2. What can I help with?"
+   → Known caller, no appointment: "Hey Tony, good to hear from you. What can I do for you?"
+   → New caller: Wait for them to speak. Get their name within 2 turns → call updateCustomerInfo.
+   → ONLY call confirmAppointment if caller explicitly says "confirm" or "calling to confirm."
 
-2. UNDERSTAND: Listen to what they need.
-   → Booking? Ask which service. If they name a service NOT in your list, tell them honestly: "We don't offer that, but we do have [closest match]."
-   → Ask for a specific staff member? If the name doesn't match anyone listed above, say "We don't have a [name]. Our team is [list names]."
-   → Pricing? Ask "Which service?" — don't read the whole list.
-   → Reschedule/cancel? Call getUpcomingAppointments.
-   → Recurring/repeat appointments? You can only book one appointment at a time. Say "I can book your next appointment now. For recurring scheduling, the business owner can set that up for you — would you like me to have them call you back, or should we book your next one?"
-   → Transfer? Help first, transfer only if they insist twice or it's a complaint.
+2. UNDERSTAND: One question to clarify what they need. Then act.
+   → Booking → ask service + when. Recurring → use bookRecurringAppointment for "every week", "biweekly", "monthly."
+   → Reschedule/cancel → call getUpcomingAppointments.
+   → Pricing → "Which service?" then give that one price.
 
-3. CHECK: Call checkAvailability with exact date words + serviceId + staffId. Offer 2-3 slots naturally. Response includes servicePrice and serviceDuration — use them for "how much?" questions. Closed day → suggest next open day.
+3. CHECK: Call checkAvailability. Offer 2-3 slots: "I've got 10, 1, and 3:30."
 
-4. BOOK: Confirm: "[Service] on [Date] at [Time] for $[Price]. Sound good?" Wait for yes. Call bookAppointment with customerId, customerName (REQUIRED), customerPhone, serviceName (REQUIRED), date (YYYY-MM-DD from checkAvailability), time, notes (include what customer described). If bookingTips returned, weave ONE in naturally.
+4. BOOK: Confirm once: "Haircut, Friday at 2 with Mike, $35. Sound good?" → book on "yes."
+   Use dateForBooking from checkAvailability response — never calculate a date.
 
-5. CLOSE: "Anything else?" → wait for their answer.
-   → "No" / "that's it" / "I'm good" → say farewell immediately.
-   → "Goodbye" / "bye" / "that's okay, goodbye" / "no thanks bye" → SKIP "anything else?" entirely. Go straight to farewell. If you hear ANY form of goodbye, respond ONLY with your farewell.
-   → Farewell MUST end with "Have a great day" or "Take care" (triggers call end).
+5. CLOSE: "Anything else?" If they say no or bye → farewell immediately: "Take care!" or "Have a great day!"
+   Never combine "anything else?" and farewell in one response.
+
+== EXAMPLE EXCHANGES (model this style) ==
+
+Caller: "Hey, I need a haircut."
+You: "Sure. When works for you?"
+Caller: "This Friday."
+You: [calls checkAvailability] "Friday I've got 10, 1, and 3:30. Which one?"
+Caller: "1 works."
+You: "Haircut Friday at 1. Sound good?"
+Caller: "Yeah."
+You: [calls bookAppointment] "Done. Friday at 1. Anything else?"
+Caller: "Nope."
+You: "Take care!"
+
+Caller: "How much is a haircut?"
+You: "$35, about 30 minutes."
+
+Caller: "Do you do hot towel shaves?"
+You: "Sorry, we don't offer that. Closest we have is a haircut. Want to book one?"
+
+Caller: "Is Nicole there?"
+You: "We don't have a Nicole. Our team is Tina, Gina, and Mike. Any of them work for you?"
 
 == KEY RULES ==
 
-DATES: Pass whatever the caller says to checkAvailability — "this Friday", "April 7th", "the week of the fifth", "tomorrow" — the server handles all date math. NEVER ask the caller to rephrase their date or format it differently. NEVER mention "exact words" to the caller. Use the date FROM the tool response when confirming. Say full dates: "Thursday, March 20th".
-NAMES: Ask early, call updateCustomerInfo immediately with name + customerId.
-STAFF: If listed above, ask "Do you have someone you usually see?"
-AFTER HOURS: If closed, still fully functional. "We're closed but I can absolutely book you an appointment!"
+DATES: Pass whatever the caller says — "this Friday", "April 7th", "week of the fifth." Never ask caller to rephrase. Use the date FROM tool responses when confirming.
+NAMES: Get new caller's name early. Call updateCustomerInfo immediately.
+STAFF: If listed, ask "Who do you usually see?"
+AFTER HOURS: Still book appointments: "We're closed but I can book you."
 ${options?.voicemailEnabled !== false ? 'leaveMessage: only if caller explicitly asks.' : ''}
-TOOL CALLS: ABSOLUTE RULE — say NOTHING while a tool runs. No "hold on", "one moment", "just a sec", "let me check", "give me a moment", "I'm on it", "thanks", "1 moment". The caller will hear a brief natural pause — that's fine. When the tool returns, respond directly with the answer.
 
-STYLE: Short, punchy, conversational. One thought per sentence. Don't repeat what the caller knows. Don't narrate tool results. Don't read long lists — ask what they need first, then answer specifically.
-Good: "Thursday? I've got 10, 1, and 3:30. What works?"
-Good: "A haircut is $35, about 30 minutes."
-Bad: "I checked our availability and have several options for you."
-Bad: "Here are all our services. Haircut $35, Color $125, Blowout $45, Deep Conditioning $25, Bridal $150."
-
-DIFFICULT CALLERS: Frustrated → acknowledge first ("I completely understand"). Confused → slow down, simplify. Emergency → match urgency, skip pleasantries. Complaints → listen, empathize, document, offer callback.
-
-UPSELLING: After booking, mention ONE complementary service naturally. If declined, move on immediately.
-
-MULTILINGUAL: Match the caller's language entirely.
+DIFFICULT CALLERS: Frustrated → "I hear you." Confused → slow down. Emergency → act fast.
+UPSELLING: After booking, mention ONE related service briefly. Drop it if declined.
+MULTILINGUAL: Match the caller's language.
 `;
 
   // Industry-specific additions
@@ -1091,6 +1100,28 @@ function getAssistantFunctions() {
       name: 'getDirections',
       description: 'Get the business address. Read the address aloud and offer to text a Google Maps link to the caller.',
       parameters: { type: 'object', properties: {} }
+    },
+    {
+      name: 'bookRecurringAppointment',
+      description: 'Set up a recurring appointment series (weekly, biweekly, or monthly). Use when caller says "every week", "biweekly", "same time each month", "recurring", or "set me up on a schedule". Books the first appointment immediately and creates the recurring schedule.',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerId: { type: 'number', description: 'Customer ID from recognizeCaller' },
+          customerName: { type: 'string', description: 'Customer full name' },
+          customerPhone: { type: 'string', description: 'Customer phone' },
+          serviceId: { type: 'number', description: 'Service ID' },
+          serviceName: { type: 'string', description: 'Service name' },
+          staffId: { type: 'number', description: 'Preferred staff ID' },
+          staffName: { type: 'string', description: 'Preferred staff name' },
+          startDate: { type: 'string', description: 'When to start the series — pass what the caller said: "this Friday", "April 7th", etc.' },
+          time: { type: 'string', description: 'Appointment time like "2pm" or "14:00"' },
+          frequency: { type: 'string', description: 'weekly, biweekly, or monthly' },
+          occurrences: { type: 'number', description: 'Total number of appointments in the series. Default 4 if caller does not specify.' },
+          notes: { type: 'string', description: 'Any notes about the recurring appointment' }
+        },
+        required: ['startDate', 'time', 'frequency', 'serviceName']
+      }
     }
   ];
 }
@@ -1373,9 +1404,35 @@ export async function createAssistantForBusiness(
 
   // Build functions list — conditionally exclude leaveMessage if voicemail is disabled
   const baseFunctions = getAssistantFunctions();
-  const functions = configVoicemailEnabled
+  const filteredFunctions = configVoicemailEnabled
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
+
+  const allFunctions = [
+    ...filteredFunctions,
+    ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
+    ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
+  ];
+
+  // Convert functions to Vapi tools format with filler-phrase suppression.
+  // Each tool gets empty messages so Vapi stays silent during execution.
+  const serverTools = allFunctions.map(f => ({
+    type: 'function' as const,
+    function: {
+      name: f.name,
+      description: f.description,
+      parameters: f.parameters,
+    },
+    server: {
+      url: `${BASE_URL}/api/vapi/webhook`,
+    },
+    messages: [
+      { type: 'request-start', content: '' },
+      { type: 'request-complete', content: '' },
+      { type: 'request-failed', content: 'I ran into an issue. Let me try something else.' },
+      { type: 'request-response-delayed', content: '' },
+    ],
+  }));
 
   const assistantConfig = {
     name: `${business.name} Receptionist`,
@@ -1385,14 +1442,11 @@ export async function createAssistantForBusiness(
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
       maxTokens: 350, // Enough for complex confirmations (service + staff + date + time + price) without truncation
       systemPrompt: systemPrompt,
-      functions: [
-        ...functions,
-        ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
-        ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
-      ],
-      // Native VAPI transferCall tool — must be in model.tools for Vapi to recognize it
+      // Native VAPI tools (transferCall, endCall) — must be in model.tools
       tools: nativeTools,
     },
+    // Custom server-side tools in new format with filler suppression
+    tools: serverTools,
     transcriber: {
       provider: 'deepgram',
       model: 'nova-2', // Latest Deepgram model — fastest + most accurate
@@ -1570,11 +1624,30 @@ export async function updateAssistant(
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
 
-  const functions = [
+  const allFunctions = [
     ...filteredFunctions,
     ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
     ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
   ];
+
+  // Convert functions to Vapi tools format with filler-phrase suppression
+  const serverTools = allFunctions.map(f => ({
+    type: 'function' as const,
+    function: {
+      name: f.name,
+      description: f.description,
+      parameters: f.parameters,
+    },
+    server: {
+      url: `${BASE_URL}/api/vapi/webhook`,
+    },
+    messages: [
+      { type: 'request-start', content: '' },
+      { type: 'request-complete', content: '' },
+      { type: 'request-failed', content: 'I ran into an issue. Let me try something else.' },
+      { type: 'request-response-delayed', content: '' },
+    ],
+  }));
 
   try {
     const response = await fetch(`${VAPI_BASE_URL}/assistant/${assistantId}`, {
@@ -1597,9 +1670,11 @@ export async function updateAssistant(
           temperature: 0.6,
           maxTokens: 350, // Enough for complex confirmations (service + staff + date + time + price) without truncation
           systemPrompt: systemPrompt,
-          functions: functions,
+          // Native VAPI tools (transferCall, endCall) — must be in model.tools
           tools: nativeTools,
         },
+        // Custom server-side tools in new format with filler suppression
+        tools: serverTools,
         voice: {
           provider: '11labs',
           voiceId: configVoiceId,
