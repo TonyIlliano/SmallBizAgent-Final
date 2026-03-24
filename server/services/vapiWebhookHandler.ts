@@ -349,6 +349,24 @@ export { dataCache };
  */
 
 /**
+ * Format a date for voice output with ordinal suffix (e.g., "Friday, March 27th").
+ * Uses explicit ordinals so TTS doesn't mispronounce "27" as "20 seventh".
+ */
+function formatDateForVoice(date: Date, timezone?: string): string {
+  const opts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
+  if (timezone) opts.timeZone = timezone;
+  const base = date.toLocaleDateString('en-US', opts);
+  // Add ordinal suffix: "March 27" → "March 27th"
+  return base.replace(/(\d+)$/, (_, num) => {
+    const n = parseInt(num);
+    const suffix = (n % 10 === 1 && n !== 11) ? 'st' :
+                   (n % 10 === 2 && n !== 12) ? 'nd' :
+                   (n % 10 === 3 && n !== 13) ? 'rd' : 'th';
+    return `${n}${suffix}`;
+  });
+}
+
+/**
  * Get the current date/time in a specific IANA timezone.
  * Returns a Date whose local components (getHours, getDate, etc.)
  * correspond to the wall clock time in the given timezone.
@@ -1551,12 +1569,8 @@ async function checkAvailability(
 
   const result = await getAvailableSlotsForDay(businessId, date, businessHours, appointments, duration, staffHoursData.length > 0 ? staffHoursData : undefined, slotIntervalMinutes, businessTimezone);
 
-  // Format date for display
-  const displayDate = date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric'
-  });
+  // Format date for voice output with ordinal suffix (prevents "March 20 seventh" TTS bug)
+  const displayDate = formatDateForVoice(date);
 
   if (result.isClosed) {
     // Find next open day - check staff hours if applicable
@@ -3635,7 +3649,7 @@ async function recognizeCaller(
     const nextApt = upcoming[0];
     const aptDate = new Date(nextApt.startDate);
     const aptTimeStr = aptDate.toLocaleTimeString('en-US', { timeZone: recogTimezone, hour: 'numeric', minute: '2-digit', hour12: true });
-    const aptDateStr = aptDate.toLocaleDateString('en-US', { timeZone: recogTimezone, weekday: 'long', month: 'long', day: 'numeric' });
+    const aptDateStr = formatDateForVoice(aptDate, recogTimezone);
     let svcName = '';
     if (nextApt.serviceId) {
       const svc = allServices.find((s: any) => s.id === nextApt.serviceId);
