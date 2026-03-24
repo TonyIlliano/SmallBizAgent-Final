@@ -494,21 +494,41 @@ export function parseNaturalDate(dateStr: string, timezone: string = 'America/Ne
   // This is a safety net: if the AI converts "this Friday" to "2026-04-03, this Friday",
   // we ignore the wrong date and use the natural language.
 
-  const hasNaturalLanguage = (s: string) =>
-    daysOfWeek.some(d => s.includes(d)) ||
-    s.includes('today') || s.includes('tomorrow') || s.includes('next') ||
-    s.includes('this') || s.includes('day after') || /in \d+ days?/.test(s) ||
-    s.includes('end of');
+  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+    'july', 'august', 'september', 'october', 'november', 'december'];
 
-  // Strip out any YYYY-MM-DD the AI may have prepended/appended
-  // so we parse the natural language part cleanly
-  const naturalInput = input.replace(/\d{4}-\d{2}-\d{2}/g, '').trim();
-  const useNatural = hasNaturalLanguage(naturalInput) || hasNaturalLanguage(input);
-  const parseInput = useNatural ? (naturalInput || input) : input;
-
-  if (useNatural && input !== parseInput) {
-    console.log(`[parseNaturalDate] AI passed "${dateStr}" — stripping YYYY-MM-DD, using natural language: "${parseInput}"`);
+  // ── SPECIFIC DATES ALWAYS WIN OVER RELATIVE WORDS ──
+  // If the input contains a month name + day number (e.g., "April 7", "Tuesday April seventh"),
+  // parse the specific date FIRST — it's more precise than relative day name parsing.
+  for (let m = 0; m < monthNames.length; m++) {
+    // Match "April 7", "April 7th", "April seventh", "april 07"
+    const monthRegex = new RegExp(`${monthNames[m]}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`);
+    const monthMatch = input.match(monthRegex);
+    if (monthMatch) {
+      const day = parseInt(monthMatch[1]);
+      const yearMatch = input.match(/\b(20\d{2})\b/);
+      const year = yearMatch ? parseInt(yearMatch[1]) : now.getFullYear();
+      const result = new Date(year, m, day);
+      console.log(`[parseNaturalDate] Parsed "${dateStr}" as specific date: ${monthNames[m]} ${day}, ${year}`);
+      return result;
+    }
   }
+
+  // ── YYYY-MM-DD format (from a previous tool response or AI-calculated) ──
+  // Check this BEFORE natural language so "2026-04-07" from checkAvailability is trusted
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    const parsed = new Date(input + 'T12:00:00');
+    const daysOut = (parsed.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysOut > 90) {
+      console.warn(`[parseNaturalDate] AI passed far-future date "${dateStr}" (${Math.round(daysOut)} days out)`);
+    }
+    console.log(`[parseNaturalDate] Parsed "${dateStr}" as YYYY-MM-DD`);
+    return parsed;
+  }
+
+  // Strip out any YYYY-MM-DD the AI may have mixed in with natural language
+  const naturalInput = input.replace(/\d{4}-\d{2}-\d{2}/g, '').trim();
+  const parseInput = naturalInput || input;
 
   // "today"
   if (parseInput === 'today' || parseInput.includes('today')) {
@@ -547,6 +567,7 @@ export function parseNaturalDate(dateStr: string, timezone: string = 'America/Ne
   }
 
   // Day names: "this friday", "next tuesday", "friday", etc.
+  // Only use this if NO month was mentioned (handled above)
   for (let i = 0; i < daysOfWeek.length; i++) {
     const day = daysOfWeek[i];
     if (parseInput.includes(day)) {
@@ -571,31 +592,6 @@ export function parseNaturalDate(dateStr: string, timezone: string = 'America/Ne
     const daysUntilFriday = (5 - today.getDay() + 7) % 7 || 7;
     endOfWeek.setDate(endOfWeek.getDate() + daysUntilFriday);
     return endOfWeek;
-  }
-
-  // ── YYYY-MM-DD format (AI calculated or from a previous tool response) ──
-  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
-    const parsed = new Date(input + 'T12:00:00');
-    // Sanity check: if the date is more than 90 days out, it's probably wrong
-    const daysOut = (parsed.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysOut > 90) {
-      console.warn(`[parseNaturalDate] AI passed far-future date "${dateStr}" (${Math.round(daysOut)} days out) — may be miscalculated`);
-    }
-    return parsed;
-  }
-
-  // ── "March 27", "March 27, 2026", "Friday, March 27" etc. ──
-  // Extract month + day from natural date strings
-  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
-    'july', 'august', 'september', 'october', 'november', 'december'];
-  for (let m = 0; m < monthNames.length; m++) {
-    const monthMatch = input.match(new RegExp(`${monthNames[m]}\\s+(\\d{1,2})`));
-    if (monthMatch) {
-      const day = parseInt(monthMatch[1]);
-      const yearMatch = input.match(/\b(20\d{2})\b/);
-      const year = yearMatch ? parseInt(yearMatch[1]) : now.getFullYear();
-      return new Date(year, m, day);
-    }
   }
 
   // Try parsing as a date directly

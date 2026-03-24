@@ -431,7 +431,7 @@ ${options?.staffSection || ''}
 
 == KEY RULES ==
 
-DATES: CRITICAL — when calling checkAvailability, pass the caller's EXACT words as the date ("this Friday", "tomorrow", "next Tuesday"). NEVER convert to a calendar date yourself — the server handles all date math. Use the date FROM the response when confirming. Say full dates: "Thursday, March 20th".
+DATES: Pass whatever the caller says to checkAvailability — "this Friday", "April 7th", "the week of the fifth", "tomorrow" — the server handles all date math. NEVER ask the caller to rephrase their date or format it differently. NEVER mention "exact words" to the caller. Use the date FROM the tool response when confirming. Say full dates: "Thursday, March 20th".
 NAMES: Ask early, call updateCustomerInfo immediately with name + customerId.
 STAFF: If listed above, ask "Do you have someone you usually see?"
 AFTER HOURS: If closed, still fully functional. "We're closed but I can absolutely book you an appointment!"
@@ -915,7 +915,7 @@ function getAssistantFunctions() {
       parameters: {
         type: 'object',
         properties: {
-          date: { type: 'string', description: 'Customer\'s exact words: "tomorrow", "this Thursday", "next Monday". Do NOT convert to YYYY-MM-DD.' },
+          date: { type: 'string', description: 'What the caller said: "tomorrow", "this Thursday", "April 7th", "week of the fifth". Pass it as-is — server handles all date math.' },
           serviceId: { type: 'number', description: 'Service ID if known' },
           staffId: { type: 'number', description: 'Staff member ID if known' },
           staffName: { type: 'string', description: 'Staff member name if preferred' }
