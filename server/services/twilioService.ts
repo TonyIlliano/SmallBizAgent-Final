@@ -67,13 +67,31 @@ async function getSmsFromNumber(): Promise<string | null> {
 }
 
 /**
+ * Strip AI internal reasoning, system prompt fragments, and debug notes from SMS text.
+ * Catches patterns like "(Note: ...)", "(Internal: ...)", "(System: ...)" that may leak
+ * from LLM responses into customer-facing messages.
+ */
+function sanitizeSmsBody(body: string): string {
+  // Remove parenthetical notes that look like AI reasoning
+  // e.g. "(Note: The assistant must follow call flow; ...)"
+  let sanitized = body.replace(/\s*\((?:Note|Internal|System|Debug|Reminder|Context|Warning|TODO|IMPORTANT)[:\s][^)]*\)/gi, '');
+  // Remove square-bracket notes: [Note: ...], [Internal: ...], etc.
+  sanitized = sanitized.replace(/\s*\[(?:Note|Internal|System|Debug|Reminder|Context|Warning|TODO|IMPORTANT)[:\s][^\]]*\]/gi, '');
+  // Collapse multiple spaces/newlines left behind
+  sanitized = sanitized.replace(/\n{3,}/g, '\n\n').replace(/  +/g, ' ').trim();
+  return sanitized;
+}
+
+/**
  * Send an SMS message
- * 
+ *
  * @param to Recipient phone number
  * @param body Message content
  * @returns Promise with message response
  */
 export async function sendSms(to: string, body: string, from?: string, businessId?: number) {
+  // Sanitize outgoing SMS to strip any AI reasoning that may have leaked
+  body = sanitizeSmsBody(body);
   if (!client) {
     console.warn('Twilio not configured - SMS would be sent to:', to, 'Message:', body.substring(0, 50));
     return { sid: 'mock-sid', status: 'mock' };

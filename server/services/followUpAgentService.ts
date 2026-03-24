@@ -143,8 +143,21 @@ async function processBusinessFollowUps(businessId: number): Promise<void> {
         const customer = await storage.getCustomer(customerId);
         if (customer?.phone && customer.marketingOptIn) {
           const templateVars = buildTemplateVars(customer, business);
-          const message = fillTemplate(config.thankYouTemplate, templateVars);
-          await sendSms(customer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
+          // Route through Message Intelligence Service (AI generation with template fallback)
+          const { generateMessage } = await import('./messageIntelligenceService');
+          const misResult = await generateMessage({
+            messageType: 'FOLLOW_UP_THANK_YOU',
+            businessId,
+            customerId: customer.id,
+            recipientPhone: customer.phone,
+            useTemplate: false,
+            context: { ...templateVars, triggerSource: 'agent' },
+            fallbackTemplate: config.thankYouTemplate,
+            fallbackVars: templateVars,
+            isMarketing: true,
+            appendOptOut: true,
+          });
+          const message = misResult.body || fillTemplate(config.thankYouTemplate, templateVars);
           await logAgentAction({
             businessId,
             agentType: 'follow_up',
@@ -177,8 +190,21 @@ async function processBusinessFollowUps(businessId: number): Promise<void> {
         if (freshCustomer?.phone && freshCustomer.marketingOptIn) {
           const templateVars = buildTemplateVars(freshCustomer, business);
           if (templateVars.bookingLink) {
-            const message = fillTemplate(config.upsellTemplate, templateVars);
-            await sendSms(freshCustomer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
+            // Route through Message Intelligence Service (AI generation with template fallback)
+            const { generateMessage: genMsg } = await import('./messageIntelligenceService');
+            const upsellResult = await genMsg({
+              messageType: 'FOLLOW_UP_UPSELL',
+              businessId,
+              customerId: freshCustomer.id,
+              recipientPhone: freshCustomer.phone,
+              useTemplate: false,
+              context: { ...templateVars, triggerSource: 'agent' },
+              fallbackTemplate: config.upsellTemplate,
+              fallbackVars: templateVars,
+              isMarketing: true,
+              appendOptOut: true,
+            });
+            const message = upsellResult.body || fillTemplate(config.upsellTemplate, templateVars);
             await logAgentAction({
               businessId,
               agentType: 'follow_up',

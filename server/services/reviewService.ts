@@ -1,21 +1,10 @@
 import { db } from "../db";
 import { reviewSettings, reviewRequests, customers, jobs, businesses } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
-import twilio from "twilio";
+import { sendSms } from "./twilioService";
 
 // Default cooldown if not configured per-business (fallback)
 const DEFAULT_REVIEW_COOLDOWN_DAYS = 90;
-
-// Twilio setup
-const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
-const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-const twilioMsgServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
-const isTwilioConfigured = twilioAccountSid && twilioAuthToken && twilioAccountSid.startsWith('AC');
-
-let twilioClient: ReturnType<typeof twilio> | null = null;
-if (isTwilioConfigured) {
-  twilioClient = twilio(twilioAccountSid, twilioAuthToken);
-}
 
 interface ReviewRequestResult {
   success: boolean;
@@ -174,22 +163,9 @@ export async function sendReviewRequestSms(
       reviewLink: reviewUrl
     });
 
-    // Send the SMS
-    if (!twilioClient) {
-      console.log('[Review Service] Twilio not configured, would send:', message);
-      // Still record the request in dev mode
-    } else {
-      const smsParams: any = {
-        body: message,
-        to: customer.phone
-      };
-      if (twilioMsgServiceSid) {
-        smsParams.messagingServiceSid = twilioMsgServiceSid;
-      } else {
-        smsParams.from = business.twilioPhoneNumber;
-      }
-      await twilioClient.messages.create(smsParams);
-    }
+    // Send the SMS via centralized service (includes TCPA suppression check + sanitization)
+    // Review requests are marketing/promotional — include opt-out footer
+    await sendSms(customer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
 
     // Record the review request
     const [request] = await db.insert(reviewRequests)

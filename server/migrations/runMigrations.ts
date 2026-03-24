@@ -2275,6 +2275,9 @@ async function runMigrations() {
     // Create performance indexes
     await createPerformanceIndexes();
 
+    // SMS Intelligence Layer tables
+    await addSmsIntelligenceTables();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -2457,6 +2460,189 @@ async function encryptExistingPlaintextData() {
     // Non-fatal — don't throw. The application can still function with plaintext data
     // since the decrypt function is backward-compatible.
   }
+}
+
+/**
+ * SMS Intelligence Layer — 8 new tables for AI-powered SMS generation,
+ * reply intelligence, marketing triggers, campaigns, and activity feeds.
+ */
+async function addSmsIntelligenceTables() {
+  console.log('Adding SMS Intelligence Layer tables...');
+  const { pool } = await import('../db');
+
+  // 1. SMS Business Profiles — personality config from onboarding
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sms_business_profiles (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      vibe_choice TEXT,
+      use_emoji BOOLEAN DEFAULT false,
+      sign_off_name TEXT,
+      staff_members JSONB,
+      top_services JSONB,
+      cancellation_policy TEXT,
+      typical_customer_description TEXT,
+      one_thing_customers_should_know TEXT,
+      response_time_expectation TEXT,
+      win_back_days INTEGER DEFAULT 30,
+      profile_complete BOOLEAN DEFAULT false,
+      completed_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT sms_business_profiles_business_id_unique UNIQUE (business_id)
+    )
+  `);
+
+  // 2. Outbound Messages — complete SMS audit trail
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS outbound_messages (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER,
+      message_type TEXT NOT NULL,
+      campaign_id INTEGER,
+      sequence_id INTEGER,
+      step_number INTEGER,
+      body TEXT NOT NULL,
+      generated_at TIMESTAMP DEFAULT NOW(),
+      sent_at TIMESTAMP,
+      twilio_sid TEXT,
+      status TEXT DEFAULT 'pending',
+      fallback_used BOOLEAN DEFAULT false,
+      metadata JSONB,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS outbound_messages_business_id_idx ON outbound_messages (business_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS outbound_messages_message_type_idx ON outbound_messages (message_type)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS outbound_messages_campaign_id_idx ON outbound_messages (campaign_id)`);
+
+  // 3. Inbound Messages — customer reply log with AI classification
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS inbound_messages (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER,
+      customer_phone TEXT NOT NULL,
+      body TEXT NOT NULL,
+      received_at TIMESTAMP DEFAULT NOW(),
+      twilio_sid TEXT,
+      intent TEXT,
+      confidence REAL,
+      action TEXT,
+      handled_by TEXT DEFAULT 'ai',
+      escalated BOOLEAN DEFAULT false,
+      campaign_reply BOOLEAN DEFAULT false,
+      campaign_id INTEGER,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS inbound_messages_business_id_idx ON inbound_messages (business_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS inbound_messages_customer_id_idx ON inbound_messages (customer_id)`);
+
+  // 4. Conversation States — per-customer conversation tracking
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversation_states (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      last_message_sent_at TIMESTAMP,
+      last_message_type TEXT,
+      last_reply_received_at TIMESTAMP,
+      last_reply_body TEXT,
+      current_state TEXT DEFAULT 'idle',
+      awaiting_response BOOLEAN DEFAULT false,
+      collision_lock BOOLEAN DEFAULT false,
+      lock_acquired_at TIMESTAMP,
+      active_campaign_sequence_id INTEGER,
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT conversation_states_biz_cust_unique UNIQUE (business_id, customer_id)
+    )
+  `);
+
+  // 5. Marketing Triggers — queue for scheduled sends
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS marketing_triggers (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      trigger_type TEXT NOT NULL,
+      message_type TEXT NOT NULL,
+      campaign_id INTEGER,
+      sequence_id INTEGER,
+      step_number INTEGER,
+      scheduled_for TIMESTAMP NOT NULL,
+      status TEXT DEFAULT 'pending',
+      skip_reason TEXT,
+      context JSONB,
+      sent_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS marketing_triggers_status_scheduled_idx ON marketing_triggers (status, scheduled_for)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS marketing_triggers_biz_cust_idx ON marketing_triggers (business_id, customer_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS marketing_triggers_campaign_idx ON marketing_triggers (campaign_id)`);
+
+  // 6. SMS Campaigns — broadcast + sequence campaigns
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sms_campaigns (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT DEFAULT 'draft',
+      audience JSONB,
+      steps JSONB,
+      message_prompt TEXT,
+      audience_count INTEGER DEFAULT 0,
+      scheduled_for TIMESTAMP,
+      started_at TIMESTAMP,
+      completed_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS sms_campaigns_business_id_idx ON sms_campaigns (business_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS sms_campaigns_status_idx ON sms_campaigns (status)`);
+
+  // 7. Campaign Analytics — per-campaign metrics
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS campaign_analytics (
+      id SERIAL PRIMARY KEY,
+      campaign_id INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      sent_count INTEGER DEFAULT 0,
+      delivered_count INTEGER DEFAULT 0,
+      reply_count INTEGER DEFAULT 0,
+      booking_conversions INTEGER DEFAULT 0,
+      opt_out_count INTEGER DEFAULT 0,
+      revenue_attributed REAL DEFAULT 0,
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT campaign_analytics_campaign_id_unique UNIQUE (campaign_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS campaign_analytics_business_id_idx ON campaign_analytics (business_id)`);
+
+  // 8. SMS Activity Feed — business owner event feed
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sms_activity_feed (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      customer_name TEXT,
+      customer_id INTEGER,
+      appointment_id INTEGER,
+      campaign_id INTEGER,
+      metadata JSONB,
+      read_by_owner BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS sms_activity_feed_business_id_idx ON sms_activity_feed (business_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS sms_activity_feed_created_at_idx ON sms_activity_feed (created_at)`);
+
+  console.log('SMS Intelligence Layer tables created successfully');
 }
 
 // ES modules don't have a direct equivalent to require.main === module

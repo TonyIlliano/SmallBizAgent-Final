@@ -1493,6 +1493,60 @@ export function startGbpSyncScheduler(): void {
   console.log('[Scheduler] GBP sync scheduler started (24h interval)');
 }
 
+// ── SMS Intelligence Layer Schedulers ──────────────────────────────────────
+
+/**
+ * Process pending marketing triggers every 5 minutes.
+ * Uses advisory lock — safe across multiple Railway instances.
+ */
+export function startMarketingTriggerProcessor(): void {
+  const jobKey = 'marketing-trigger-processor';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 5 * 60 * 1000; // Every 5 minutes
+  const intervalId = setInterval(async () => {
+    await withReentryGuard(jobKey, async () => {
+      await withAdvisoryLock(jobKey, async () => {
+        try {
+          const { processReadyTriggers } = await import('./marketingTriggerEngine');
+          await processReadyTriggers();
+        } catch (error) {
+          console.error('[Scheduler] Marketing trigger processor error:', error);
+        }
+      });
+    });
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`[Scheduler] Marketing trigger processor started (${intervalMs / 60000} min interval)`);
+}
+
+/**
+ * Evaluate all businesses for new marketing triggers every 1 hour.
+ * Creates birthday, win-back, rebooking, review request, and estimate follow-up triggers.
+ */
+export function startMarketingTriggerEvaluator(): void {
+  const jobKey = 'marketing-trigger-evaluator';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 60 * 60 * 1000; // Every 1 hour
+  const intervalId = setInterval(async () => {
+    await withReentryGuard(jobKey, async () => {
+      await withAdvisoryLock(jobKey, async () => {
+        try {
+          const { evaluateAllBusinesses } = await import('./marketingTriggerEngine');
+          await evaluateAllBusinesses();
+        } catch (error) {
+          console.error('[Scheduler] Marketing trigger evaluator error:', error);
+        }
+      });
+    });
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`[Scheduler] Marketing trigger evaluator started (${intervalMs / 60000} min interval)`);
+}
+
 /**
  * Start schedulers for all active businesses
  */
@@ -1569,6 +1623,10 @@ export async function startAllSchedulers(): Promise<void> {
 
     // Start GBP sync (syncs business info + reviews from Google Business Profile every 24h)
     startGbpSyncScheduler();
+
+    // Start SMS Intelligence Layer schedulers
+    startMarketingTriggerProcessor();
+    startMarketingTriggerEvaluator();
 
     console.log('All schedulers started');
   } catch (error) {

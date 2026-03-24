@@ -81,14 +81,28 @@ async function processBusinessEstimates(businessId: number): Promise<void> {
       const template = templates[templateIdx] || templates[0];
       if (!template) continue;
 
-      const message = fillTemplate(template, {
+      const templateVars = {
         customerName: customer.firstName || 'there',
         businessName: business.name,
         quoteTotal: quote.total ? `$${Number(quote.total).toFixed(2)}` : '',
         validUntil: quote.validUntil || '',
-      });
+      };
 
-      await sendSms(customer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
+      // Route through Message Intelligence Service (AI generation with template fallback)
+      const { generateMessage } = await import('./messageIntelligenceService');
+      const misResult = await generateMessage({
+        messageType: 'ESTIMATE_FOLLOWUP',
+        businessId,
+        customerId: customer.id,
+        recipientPhone: customer.phone,
+        useTemplate: false,
+        context: { ...templateVars, attemptNumber: attemptCount + 1, triggerSource: 'agent' },
+        fallbackTemplate: template,
+        fallbackVars: templateVars,
+        isMarketing: true,
+        appendOptOut: true,
+      });
+      const message = misResult.body || fillTemplate(template, templateVars);
 
       await storage.createQuoteFollowUp({
         quoteId: quote.id,

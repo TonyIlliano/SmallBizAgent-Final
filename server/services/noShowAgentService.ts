@@ -55,24 +55,40 @@ export async function triggerNoShowSms(
       return { sent: false, reason: 'no-show SMS already sent for this appointment' };
     }
 
-    // Format appointment time
+    // Format appointment time in business timezone
+    const tz = (business as any).timezone || undefined;
     const apptTime = appointment.startDate
       ? new Date(appointment.startDate).toLocaleTimeString('en-US', {
           hour: 'numeric',
           minute: '2-digit',
           hour12: true,
+          ...(tz ? { timeZone: tz } : {}),
         })
       : 'your appointment';
 
-    const message = fillTemplate(config.messageTemplate, {
+    const templateVars = {
       customerName: customer.firstName || 'there',
       appointmentTime: apptTime,
       businessName: business.name,
       businessPhone: business.twilioPhoneNumber || business.phone || '',
       bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
-    });
+    };
 
-    await sendSms(customer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
+    // Route through Message Intelligence Service (AI generation with template fallback)
+    const { generateMessage } = await import('./messageIntelligenceService');
+    const misResult = await generateMessage({
+      messageType: 'NO_SHOW_FOLLOWUP',
+      businessId,
+      customerId: customer.id,
+      recipientPhone: customer.phone,
+      useTemplate: false,
+      context: { ...templateVars, triggerSource: 'agent' },
+      fallbackTemplate: config.messageTemplate,
+      fallbackVars: templateVars,
+      isMarketing: true,
+      appendOptOut: true,
+    });
+    const message = misResult.body || fillTemplate(config.messageTemplate, templateVars);
 
     // Create conversation for reply tracking
     const expirationHours = config.expirationHours ?? 24;

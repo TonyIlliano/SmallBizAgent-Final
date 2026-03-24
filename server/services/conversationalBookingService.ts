@@ -667,6 +667,12 @@ async function handleConfirmingBooking(
 
     if (result.success && result.appointment) {
       await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+      // Release engagement lock so other agents can contact this customer
+      if (customer.id) {
+        import('./orchestrationService').then(mod => {
+          mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(() => {});
+        }).catch(() => {});
+      }
       await logAgentAction({
         businessId: business.id,
         agentType: conversation.agentType,
@@ -713,10 +719,20 @@ async function handleConfirmingBooking(
     }
     if (result.error === 'duplicate') {
       await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+      if (customer.id) {
+        import('./orchestrationService').then(mod => {
+          mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(() => {});
+        }).catch(() => {});
+      }
       return { replyMessage: `You already have an appointment that day. Try a different day, or call us at ${business.phone || 'our office'}.` };
     }
 
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    if (customer.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
+    }
     const link = business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '';
     return { replyMessage: link ? `Something went wrong. Book online here: ${link}` : `Something went wrong. Call us at ${business.phone || 'our office'}.` };
   }

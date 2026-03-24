@@ -164,9 +164,9 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
 
         let message: string;
         if (isFieldService) {
-          message = `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Reply RESCHEDULE or CANCEL APPT to change.${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Reply RESCHEDULE or C to change.${getSmsFooter()}`;
         } else {
-          message = `Hi ${customer.firstName}! Your ${serviceName} appointment is confirmed for ${dateStr} at ${timeStr}. Reply RESCHEDULE or CANCEL APPT to change. - ${business.name}${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Your ${serviceName} appointment is confirmed for ${dateStr} at ${timeStr}. Reply RESCHEDULE or C to change. - ${business.name}${getSmsFooter()}`;
         }
         await twilioService.sendSms(customer.phone, message, undefined, businessId);
         await storage.createNotificationLog({
@@ -270,9 +270,9 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
 
         let message: string;
         if (isFieldService) {
-          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Reply CONFIRM, RESCHEDULE, or CANCEL APPT. Or call ${getContactNumber(business)}.${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Reply CONFIRM, RESCHEDULE, or C. Or call ${getContactNumber(business)}.${getSmsFooter()}`;
         } else {
-          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE, or CANCEL APPT. - ${business.name}${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE, or C. - ${business.name}${getSmsFooter()}`;
         }
 
         // Weather alert for field service reminders (only when enabled and forecast shows rain/snow/storms)
@@ -1110,7 +1110,7 @@ export async function sendSmsOptInWelcome(customerId: number, businessId: number
     );
     if (alreadySent) return;
 
-    const message = `Welcome to ${business.name}! You'll receive appointment confirmations & reminders via text. Msg & data rates may apply. Msg frequency varies. Reply HELP for help, STOP to cancel.`;
+    const message = `Welcome to ${business.name}! You'll receive appointment confirmations & reminders via text. Msg & data rates may apply. Msg frequency varies. Reply HELP for help, STOP to unsubscribe.`;
 
     await twilioService.sendSms(customer.phone, message, undefined, businessId);
     await storage.createNotificationLog({

@@ -1553,3 +1553,213 @@ export const gbpPosts = pgTable("gbp_posts", {
 export const insertGbpPostSchema = createInsertSchema(gbpPosts).omit({ id: true, createdAt: true, updatedAt: true });
 export type GbpPost = typeof gbpPosts.$inferSelect;
 export type InsertGbpPost = z.infer<typeof insertGbpPostSchema>;
+
+// ────────────────────────────────────────────────────────────────────────────────
+// SMS Intelligence Layer
+// ────────────────────────────────────────────────────────────────────────────────
+
+// SMS Business Profile — personality config captured during onboarding
+export const smsBusinessProfiles = pgTable("sms_business_profiles", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  // Screen 1: Business vibe
+  vibeChoice: text("vibe_choice"), // casual, professional, warm, direct
+  // Screen 2: Emoji + sign-off
+  useEmoji: boolean("use_emoji").default(false),
+  signOffName: text("sign_off_name"), // "Marcus", "The Fresh Cutz Team"
+  // Screen 3: Staff (stored as JSON for flexibility)
+  staffMembers: jsonb("staff_members"), // Array<{name: string, role: string}>
+  // Screen 4: Top services
+  topServices: jsonb("top_services"), // Array<{name: string, price: number}>
+  // Screen 5: Cancellation policy
+  cancellationPolicy: text("cancellation_policy"),
+  // Screen 6: Customer description
+  typicalCustomerDescription: text("typical_customer_description"),
+  // Screen 7: Unique value
+  oneThingCustomersShouldKnow: text("one_thing_customers_should_know"),
+  // Screen 8: Response time (job verticals)
+  responseTimeExpectation: text("response_time_expectation"), // within_hour, same_day, next_business_day
+  // Screen 9: Win-back window
+  winBackDays: integer("win_back_days").default(30),
+  // Completion gate
+  profileComplete: boolean("profile_complete").default(false),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  businessIdUnique: unique("sms_business_profiles_business_id_unique").on(table.businessId),
+}));
+
+export const insertSmsBusinessProfileSchema = createInsertSchema(smsBusinessProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export type SmsBusinessProfile = typeof smsBusinessProfiles.$inferSelect;
+export type InsertSmsBusinessProfile = z.infer<typeof insertSmsBusinessProfileSchema>;
+
+// Outbound Messages — complete audit of every SMS generated + sent
+export const outboundMessages = pgTable("outbound_messages", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id"),
+  messageType: text("message_type").notNull(), // BOOKING_CONFIRMATION, APPOINTMENT_REMINDER, NO_SHOW_FOLLOWUP, WIN_BACK, CAMPAIGN_BROADCAST, etc.
+  campaignId: integer("campaign_id"),
+  sequenceId: integer("sequence_id"),
+  stepNumber: integer("step_number"),
+  body: text("body").notNull(), // Final message sent
+  generatedAt: timestamp("generated_at").defaultNow(),
+  sentAt: timestamp("sent_at"),
+  twilioSid: text("twilio_sid"),
+  status: text("status").default("pending"), // pending, sent, delivered, failed, queued
+  fallbackUsed: boolean("fallback_used").default(false),
+  metadata: jsonb("metadata"), // { triggerSource, modelUsed, tokenCount, latencyMs, aiGeneratedBody, templateUsed }
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  businessIdIdx: index("outbound_messages_business_id_idx").on(table.businessId),
+  messageTypeIdx: index("outbound_messages_message_type_idx").on(table.messageType),
+  campaignIdIdx: index("outbound_messages_campaign_id_idx").on(table.campaignId),
+}));
+
+export const insertOutboundMessageSchema = createInsertSchema(outboundMessages).omit({ id: true, createdAt: true });
+export type OutboundMessage = typeof outboundMessages.$inferSelect;
+export type InsertOutboundMessage = z.infer<typeof insertOutboundMessageSchema>;
+
+// Inbound Messages — log of every customer reply with AI classification
+export const inboundMessages = pgTable("inbound_messages", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id"),
+  customerPhone: text("customer_phone").notNull(),
+  body: text("body").notNull(),
+  receivedAt: timestamp("received_at").defaultNow(),
+  twilioSid: text("twilio_sid"),
+  intent: text("intent"), // RESCHEDULE, CANCEL, CONFIRM, QUESTION_INFO, QUESTION_PRICE, COMPLAINT, REVIEW_RESPONSE, CAMPAIGN_REPLY, UNKNOWN
+  confidence: real("confidence"), // 0.0-1.0
+  action: text("action"), // What action was taken: rescheduled, cancelled, confirmed, answered, escalated
+  handledBy: text("handled_by").default("ai"), // ai, human
+  escalated: boolean("escalated").default(false),
+  campaignReply: boolean("campaign_reply").default(false),
+  campaignId: integer("campaign_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  businessIdIdx: index("inbound_messages_business_id_idx").on(table.businessId),
+  customerIdIdx: index("inbound_messages_customer_id_idx").on(table.customerId),
+}));
+
+export const insertInboundMessageSchema = createInsertSchema(inboundMessages).omit({ id: true, createdAt: true });
+export type InboundMessage = typeof inboundMessages.$inferSelect;
+export type InsertInboundMessage = z.infer<typeof insertInboundMessageSchema>;
+
+// Conversation State — per-customer conversation tracking for intelligence service
+export const conversationStates = pgTable("conversation_states", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  lastMessageSentAt: timestamp("last_message_sent_at"),
+  lastMessageType: text("last_message_type"),
+  lastReplyReceivedAt: timestamp("last_reply_received_at"),
+  lastReplyBody: text("last_reply_body"),
+  currentState: text("current_state").default("idle"), // idle, awaiting_reply, in_conversation, escalated
+  awaitingResponse: boolean("awaiting_response").default(false),
+  collisionLock: boolean("collision_lock").default(false),
+  lockAcquiredAt: timestamp("lock_acquired_at"),
+  activeCampaignSequenceId: integer("active_campaign_sequence_id"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  businessCustomerUnique: unique("conversation_states_biz_cust_unique").on(table.businessId, table.customerId),
+}));
+
+export const insertConversationStateSchema = createInsertSchema(conversationStates).omit({ id: true, updatedAt: true });
+export type ConversationState = typeof conversationStates.$inferSelect;
+export type InsertConversationState = z.infer<typeof insertConversationStateSchema>;
+
+// Marketing Triggers — queue table for the marketing trigger engine
+export const marketingTriggers = pgTable("marketing_triggers", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  triggerType: text("trigger_type").notNull(), // WIN_BACK, REBOOKING_NUDGE, BIRTHDAY, REVIEW_REQUEST, ESTIMATE_FOLLOWUP, WEATHER_DELAY, CAMPAIGN_BROADCAST, CAMPAIGN_SEQUENCE_STEP
+  messageType: text("message_type").notNull(), // Maps to MessageType enum
+  campaignId: integer("campaign_id"),
+  sequenceId: integer("sequence_id"),
+  stepNumber: integer("step_number"),
+  scheduledFor: timestamp("scheduled_for").notNull(),
+  status: text("status").default("pending"), // pending, sent, cancelled, skipped, failed
+  skipReason: text("skip_reason"), // opted_out, locked, condition_changed, etc.
+  context: jsonb("context"), // Trigger-specific data: { quoteId, quoteTotal, campaignName, etc. }
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  statusScheduledIdx: index("marketing_triggers_status_scheduled_idx").on(table.status, table.scheduledFor),
+  businessCustomerIdx: index("marketing_triggers_biz_cust_idx").on(table.businessId, table.customerId),
+  campaignIdx: index("marketing_triggers_campaign_idx").on(table.campaignId),
+}));
+
+export const insertMarketingTriggerSchema = createInsertSchema(marketingTriggers).omit({ id: true, createdAt: true, updatedAt: true });
+export type MarketingTrigger = typeof marketingTriggers.$inferSelect;
+export type InsertMarketingTrigger = z.infer<typeof insertMarketingTriggerSchema>;
+
+// SMS Campaigns — broadcast + sequence campaigns
+export const smsCampaigns = pgTable("sms_campaigns", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // broadcast, sequence
+  status: text("status").default("draft"), // draft, scheduled, active, complete, paused, cancelled
+  audience: jsonb("audience"), // { filter: {tags?, inactiveSinceDays?, services?, segment?}, excludeOptedOut: true, excludeActiveConversations: boolean, recentContactWindowDays: number }
+  steps: jsonb("steps"), // Array<{ stepNumber, messageType, delayDays, delayHours, condition? }>
+  messagePrompt: text("message_prompt"), // AI prompt hint or template for broadcast
+  audienceCount: integer("audience_count").default(0),
+  scheduledFor: timestamp("scheduled_for"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  businessIdIdx: index("sms_campaigns_business_id_idx").on(table.businessId),
+  statusIdx: index("sms_campaigns_status_idx").on(table.status),
+}));
+
+export const insertSmsCampaignSchema = createInsertSchema(smsCampaigns).omit({ id: true, createdAt: true, updatedAt: true });
+export type SmsCampaign = typeof smsCampaigns.$inferSelect;
+export type InsertSmsCampaign = z.infer<typeof insertSmsCampaignSchema>;
+
+// Campaign Analytics — per-campaign metrics (aggregated, no PII)
+export const campaignAnalytics = pgTable("campaign_analytics", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").notNull(),
+  businessId: integer("business_id").notNull(),
+  sentCount: integer("sent_count").default(0),
+  deliveredCount: integer("delivered_count").default(0),
+  replyCount: integer("reply_count").default(0),
+  bookingConversions: integer("booking_conversions").default(0),
+  optOutCount: integer("opt_out_count").default(0),
+  revenueAttributed: real("revenue_attributed").default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  campaignIdUnique: unique("campaign_analytics_campaign_id_unique").on(table.campaignId),
+  businessIdIdx: index("campaign_analytics_business_id_idx").on(table.businessId),
+}));
+
+export const insertCampaignAnalyticsSchema = createInsertSchema(campaignAnalytics).omit({ id: true, updatedAt: true });
+export type CampaignAnalyticsRow = typeof campaignAnalytics.$inferSelect;
+export type InsertCampaignAnalytics = z.infer<typeof insertCampaignAnalyticsSchema>;
+
+// SMS Activity Feed — business owner event feed for SMS intelligence
+export const smsActivityFeed = pgTable("sms_activity_feed", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  eventType: text("event_type").notNull(), // reschedule_via_sms, cancel_via_sms, confirm_via_sms, question_answered, escalation_needed, campaign_sent, birthday_sent, win_back_sent, campaign_reply, review_request_sent
+  customerName: text("customer_name"),
+  customerId: integer("customer_id"),
+  appointmentId: integer("appointment_id"),
+  campaignId: integer("campaign_id"),
+  metadata: jsonb("metadata"), // { oldTime, newTime, reason, aiHandled, messagePreview, etc. }
+  readByOwner: boolean("read_by_owner").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  businessIdIdx: index("sms_activity_feed_business_id_idx").on(table.businessId),
+  createdAtIdx: index("sms_activity_feed_created_at_idx").on(table.createdAt),
+}));
+
+export const insertSmsActivityFeedSchema = createInsertSchema(smsActivityFeed).omit({ id: true, createdAt: true });
+export type SmsActivityFeedEntry = typeof smsActivityFeed.$inferSelect;
+export type InsertSmsActivityFeed = z.infer<typeof insertSmsActivityFeedSchema>;

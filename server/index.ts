@@ -352,6 +352,14 @@ app.use((req, res, next) => {
       console.warn('[AgentGraph] Init failed (non-fatal) — orchestrator will use fallback:', err);
     }
 
+    // Initialize Reply Intelligence Graph (SMS inbound AI — optional, falls back to existing router)
+    try {
+      const { initReplyIntelligenceGraph } = await import('./services/replyIntelligenceGraph');
+      await initReplyIntelligenceGraph();
+    } catch (err) {
+      console.warn('[ReplyGraph] Init failed (non-fatal) — SMS replies will use existing router:', err);
+    }
+
     // Health check endpoints (before auth middleware)
     app.get('/health', async (_req, res) => {
       try {

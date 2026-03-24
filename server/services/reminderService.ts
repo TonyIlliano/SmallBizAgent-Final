@@ -95,24 +95,23 @@ export async function sendAppointmentReminder(
       }
     }
 
-    // Format the appointment date/time
+    // Format the appointment date/time in the business timezone
     const appointmentDate = new Date(appointment.startDate);
-    const dateStr = appointmentDate.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric'
-    });
-    const timeStr = appointmentDate.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
+    const tz = (business as any).timezone || undefined;
+    const dateOpts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
+    const timeOpts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
+    if (tz) {
+      dateOpts.timeZone = tz;
+      timeOpts.timeZone = tz;
+    }
+    const dateStr = appointmentDate.toLocaleDateString('en-US', dateOpts);
+    const timeStr = appointmentDate.toLocaleTimeString('en-US', timeOpts);
 
     // Use the Twilio AI number so customers call the receptionist, fall back to business phone
     const contactNumber = business.twilioPhoneNumber || business.phone;
 
     // Compose the reminder message
-    const message = `Hi ${customer.firstName}! Reminder from ${business.name}: your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE, or CANCEL APPT.`;
+    const message = `Hi ${customer.firstName}! Reminder from ${business.name}: your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE, or C.`;
 
     // Send the SMS
     try {

@@ -4688,6 +4688,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             marketingOptIn: false,
           });
           console.log(`[SMS] Customer ${customer.id} opted out of marketing via STOP keyword (transactional SMS still active)`);
+          // Cancel all pending marketing triggers for this customer
+          import('./services/marketingTriggerEngine').then(({ cancelTriggersOnEvent }) => {
+            cancelTriggersOnEvent(businessId, customer!.id, 'opted_out').catch(() => {});
+          }).catch(() => {});
         }
         const twiml = new twilio.twiml.MessagingResponse();
         twiml.message(`You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe to all messages.`);
@@ -4750,8 +4754,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Mark as confirmed
             await storage.updateAppointment(nextApt.id, { status: 'confirmed' });
             const aptDate = new Date(nextApt.startDate);
-            const dateStr = aptDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-            const timeStr = aptDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+            const biz = await storage.getBusiness(nextApt.businessId);
+            const tz = biz?.timezone || 'America/New_York';
+            const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' });
+            const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
 
             const twiml = new twilio.twiml.MessagingResponse();
             twiml.message(`Your appointment on ${dateStr} at ${timeStr} is confirmed! See you then. - ${business.name}`);
@@ -4769,10 +4775,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // ── Handle CANCEL/CANCEL APPT keyword (cancel next upcoming appointment) ──
-      // Note: plain "CANCEL" is intercepted by Twilio Messaging Service as a reserved opt-out keyword.
-      // We handle both "CANCEL" (in case Twilio passes it through) and "CANCEL APPT" / "CANCEL APPOINTMENT" variants.
-      const isCancelRequest = bodyTrimmed === 'CANCEL' || bodyTrimmed === 'CANCEL APPT' || bodyTrimmed === 'CANCEL APPOINTMENT' || bodyTrimmed === 'CANCEL APT';
+      // ── Handle C / CANCEL keyword (cancel next upcoming appointment) ──
+      // IMPORTANT: Twilio Messaging Service intercepts plain "CANCEL" as a reserved opt-out keyword
+      // and auto-replies with an unsubscribe message BEFORE this webhook fires.
+      // SMS templates now tell customers to reply "C" (not "CANCEL") to avoid Twilio interception.
+      // We still handle "CANCEL"/"CANCEL APPT" in case Twilio passes them through or the
+      // Messaging Service opt-out config is updated to remove CANCEL.
+      const isCancelRequest = bodyTrimmed === 'C' || bodyTrimmed === 'CANCEL' || bodyTrimmed === 'CANCEL APPT' || bodyTrimmed === 'CANCEL APPOINTMENT' || bodyTrimmed === 'CANCEL APT';
       if (isCancelRequest && customer) {
         try {
           const appointments = await storage.getAppointmentsByCustomerId(customer.id);
@@ -4922,14 +4931,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const { routeConversationReply } = await import('./services/smsConversationRouter');
           const handled = await routeConversationReply(activeConversation, Body, customer ?? undefined, businessId);
           if (handled) {
+            // Sanitize AI-generated replies to strip any internal reasoning that may have leaked
+            let sanitizedReply = handled.replyMessage;
+            sanitizedReply = sanitizedReply.replace(/\s*\((?:Note|Internal|System|Debug|Reminder|Context|Warning|TODO|IMPORTANT)[:\s][^)]*\)/gi, '');
+            sanitizedReply = sanitizedReply.replace(/\s*\[(?:Note|Internal|System|Debug|Reminder|Context|Warning|TODO|IMPORTANT)[:\s][^\]]*\]/gi, '');
+            sanitizedReply = sanitizedReply.replace(/  +/g, ' ').trim();
             const agentTwiml = new twilio.twiml.MessagingResponse();
-            agentTwiml.message(handled.replyMessage);
+            agentTwiml.message(sanitizedReply);
             res.type('text/xml');
             return res.send(agentTwiml.toString());
           }
         }
       } catch (convErr) {
         console.error('[SMS] Error checking agent conversations:', convErr);
+      }
+
+      // ── Try Reply Intelligence Graph for unhandled messages ──
+      // If no active conversation matched, use the LangGraph reply agent for AI-powered responses
+      try {
+        const { isReplyGraphReady, invokeReplyGraph } = await import('./services/replyIntelligenceGraph');
+        if (isReplyGraphReady()) {
+          const graphResult = await invokeReplyGraph({
+            businessId,
+            customerId: customer?.id,
+            customerPhone: From,
+            incomingMessage: Body,
+            twilioMessageSid: req.body.MessageSid,
+          });
+          if (graphResult?.responseMessage) {
+            let sanitizedReply = graphResult.responseMessage;
+            sanitizedReply = sanitizedReply.replace(/\s*\((?:Note|Internal|System|Debug|Reminder|Context|Warning|TODO|IMPORTANT)[:\s][^)]*\)/gi, '');
+            sanitizedReply = sanitizedReply.replace(/  +/g, ' ').trim();
+            const graphTwiml = new twilio.twiml.MessagingResponse();
+            graphTwiml.message(sanitizedReply);
+            res.type('text/xml');
+            return res.send(graphTwiml.toString());
+          }
+        }
+      } catch (graphErr) {
+        console.warn('[SMS] Reply intelligence graph failed, falling back to generic reply:', graphErr);
       }
 
       // Generate TwiML response for SMS (generic auto-reply fallback)
@@ -5119,7 +5159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (From && business) {
             try {
               await twilioService.sendSms(From,
-                `Your appointment with ${business.name} is confirmed for ${decodeURIComponent(pendingTimeDescription || '')}. Reply RESCHEDULE or CANCEL APPT to change.`
+                `Your appointment with ${business.name} is confirmed for ${decodeURIComponent(pendingTimeDescription || '')}. Reply RESCHEDULE or C to change.`
               );
             } catch (smsError) {
               console.error('Error sending appointment confirmation SMS:', smsError);
@@ -6687,6 +6727,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register multi-location routes (switch location, business groups)
   app.use('/api', locationRoutes);
+
+  // ── SMS Intelligence Layer routes ──
+  const smsProfileRoutes = (await import('./routes/smsProfileRoutes')).default;
+  app.use('/api/sms-profile', isAuthenticated, smsProfileRoutes);
+
+  const smsCampaignRoutes = (await import('./routes/smsCampaignRoutes')).default;
+  app.use('/api/sms-campaigns', isAuthenticated, smsCampaignRoutes);
+
+  // SMS Activity Feed for business owners
+  app.get('/api/sms-activity-feed', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = req.user!.businessId;
+      if (!businessId) return res.status(400).json({ error: 'No business' });
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const unreadOnly = req.query.unreadOnly === 'true';
+      const feed = await storage.getSmsActivityFeed(businessId, { limit, offset, unreadOnly });
+      res.json(feed);
+    } catch (err) {
+      console.error('[SMS Feed] Error:', err);
+      res.status(500).json({ error: 'Failed to fetch SMS activity feed' });
+    }
+  });
+
+  app.post('/api/sms-activity-feed/mark-read', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = req.user!.businessId;
+      if (!businessId) return res.status(400).json({ error: 'No business' });
+      await storage.markSmsActivityFeedRead(businessId);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to mark feed as read' });
+    }
+  });
 
   // Register public booking routes (no auth required for customer-facing pages)
   app.use('/api', bookingRoutes);

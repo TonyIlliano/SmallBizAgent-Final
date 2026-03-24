@@ -435,7 +435,7 @@ function getTodayInTimezone(timezone: string): Date {
  * Example: createDateInTimezone(2025, 1, 12, 14, 0, 'America/New_York')
  *  → Returns Date representing 2025-02-12T19:00:00.000Z (2pm ET = 7pm UTC)
  */
-function createDateInTimezone(year: number, month: number, day: number, hours: number, minutes: number, timezone: string): Date {
+export function createDateInTimezone(year: number, month: number, day: number, hours: number, minutes: number, timezone: string): Date {
   // Create a date string in ISO-like format, then use Intl to find the offset
   // Step 1: Create a "guess" date in UTC
   const utcGuess = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
@@ -481,7 +481,7 @@ function createDateInTimezone(year: number, month: number, day: number, hours: n
  * Parse natural language date expressions into actual dates
  * Handles: "tomorrow", "next tuesday", "in 2 days", "next week", etc.
  */
-function parseNaturalDate(dateStr: string, timezone: string = 'America/New_York'): Date {
+export function parseNaturalDate(dateStr: string, timezone: string = 'America/New_York'): Date {
   const now = getNowInTimezone(timezone);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const input = dateStr.toLowerCase().trim();
@@ -572,7 +572,7 @@ function parseNaturalDate(dateStr: string, timezone: string = 'America/New_York'
  * Parse natural language time expressions
  * Handles: "2pm", "2:30", "afternoon", "morning", etc.
  */
-function parseNaturalTime(timeStr: string): string {
+export function parseNaturalTime(timeStr: string): string {
   const input = timeStr.toLowerCase().trim();
 
   // Already in HH:MM format
@@ -952,7 +952,7 @@ function isDateRangeRequest(dateStr: string): boolean {
  * Get available slots for a single day
  * Now supports staff-specific hours for salons/barbershops
  */
-async function getAvailableSlotsForDay(
+export async function getAvailableSlotsForDay(
   businessId: number,
   date: Date,
   businessHours: any[],
@@ -1714,6 +1714,20 @@ async function bookAppointment(
         } catch (err) {
           console.error('Error updating customer name:', err);
         }
+      }
+    }
+
+    // Ensure SMS opt-in is set for callers booking via phone (they called in = consent to transactional SMS)
+    if (!customer.smsOptIn) {
+      try {
+        await storage.updateCustomer(customer.id, { smsOptIn: true });
+        customer = { ...customer, smsOptIn: true };
+        // Send one-time TCPA opt-in welcome message (fire-and-forget)
+        import('./notificationService').then(ns => {
+          ns.sendSmsOptInWelcome(customer!.id, businessId).catch(() => {});
+        }).catch(() => {});
+      } catch (err) {
+        console.error('[bookAppointment] Error setting smsOptIn:', err);
       }
     }
 
@@ -3306,7 +3320,8 @@ async function recognizeCaller(
         phone: callerPhone,
         email: '',
         address: '',
-        notes: 'Auto-created from phone call — name pending'
+        notes: 'Auto-created from phone call — name pending',
+        smsOptIn: true, // Caller provided phone by calling — opt into transactional SMS
       });
       console.log(`[recognizeCaller] Created placeholder customer id=${newCustomer.id} for new caller ${callerPhone}`);
       return {

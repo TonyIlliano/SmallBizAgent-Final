@@ -28,6 +28,10 @@ export async function routeConversationReply(
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     if (customer?.id) {
       try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
+      // Release engagement lock
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
     }
     await logAgentAction({
       businessId,
@@ -62,6 +66,17 @@ export async function routeConversationReply(
         await storage.updateSmsConversation(conversation.id, {
           lastReplyReceivedAt: new Date(),
         });
+        // Check if conversation was resolved and release engagement lock if so
+        // (catches any paths in conversationalBookingService that resolved without releasing)
+        try {
+          const updatedConv = await storage.getActiveSmsConversation(conversation.customerPhone, businessId);
+          // If no active conversation found, the handler resolved it — release the lock
+          if (!updatedConv && customer?.id) {
+            import('./orchestrationService').then(mod => {
+              mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+            }).catch(() => {});
+          }
+        } catch {}
       }
       return result;
     } catch (err) {

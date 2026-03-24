@@ -114,16 +114,30 @@ async function checkRebookingCandidates(businessId: number): Promise<void> {
         continue;
       }
 
-      const message = fillTemplate(config.messageTemplate, {
+      const templateVars = {
         customerName: customer.firstName || 'there',
         businessName: business.name,
         businessPhone: business.twilioPhoneNumber || business.phone || '',
         bookingLink: business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '',
         daysSinceVisit: String(daysSinceVisit),
         serviceName: lastServiceName,
-      });
+      };
 
-      await sendSms(customer.phone, message + '\n\nReply STOP to unsubscribe.', undefined, businessId);
+      // Route through Message Intelligence Service (AI generation with template fallback)
+      const { generateMessage } = await import('./messageIntelligenceService');
+      const misResult = await generateMessage({
+        messageType: 'REBOOKING_NUDGE',
+        businessId,
+        customerId: customer.id,
+        recipientPhone: customer.phone,
+        useTemplate: false,
+        context: { ...templateVars, triggerSource: 'agent' },
+        fallbackTemplate: config.messageTemplate,
+        fallbackVars: templateVars,
+        isMarketing: true,
+        appendOptOut: true,
+      });
+      const message = misResult.body || fillTemplate(config.messageTemplate, templateVars);
 
       // Create conversation for reply tracking
       await storage.createSmsConversation({

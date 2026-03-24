@@ -1345,4 +1345,81 @@ router.get("/api/admin/alerts", isAdmin, async (req: Request, res: Response) => 
   }
 });
 
+/**
+ * GET /api/admin/sms-intelligence-stats — SMS Intelligence aggregate stats
+ * Platform admin only. No customer PII. Counts and averages only.
+ */
+router.get("/sms-intelligence-stats", async (_req, res) => {
+  try {
+    const { pool } = await import("../db");
+
+    // Message volume by type
+    const volumeResult = await pool.query(`
+      SELECT message_type, COUNT(*) as count,
+             SUM(CASE WHEN fallback_used THEN 1 ELSE 0 END) as fallback_count,
+             AVG((metadata->>'latencyMs')::numeric) as avg_latency_ms
+      FROM outbound_messages
+      WHERE created_at > NOW() - INTERVAL '30 days'
+      GROUP BY message_type
+      ORDER BY count DESC
+    `);
+
+    // Daily send volume (last 14 days)
+    const dailyResult = await pool.query(`
+      SELECT DATE(created_at) as day, COUNT(*) as count
+      FROM outbound_messages
+      WHERE created_at > NOW() - INTERVAL '14 days'
+      GROUP BY DATE(created_at)
+      ORDER BY day DESC
+    `);
+
+    // Campaign stats
+    const campaignResult = await pool.query(`
+      SELECT status, COUNT(*) as count
+      FROM sms_campaigns
+      GROUP BY status
+    `);
+
+    // Total messages today/week/month
+    const totalsResult = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '1 day') as today,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') as week,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') as month,
+        COUNT(*) FILTER (WHERE fallback_used = true AND created_at > NOW() - INTERVAL '30 days') as fallback_month
+      FROM outbound_messages
+    `);
+
+    // Businesses with incomplete SMS profiles
+    const incompleteResult = await pool.query(`
+      SELECT b.name FROM businesses b
+      LEFT JOIN sms_business_profiles sp ON sp.business_id = b.id
+      WHERE sp.profile_complete IS NULL OR sp.profile_complete = false
+      ORDER BY b.name
+      LIMIT 20
+    `);
+
+    const totals = totalsResult.rows[0] || {};
+    const monthTotal = parseInt(totals.month) || 0;
+    const fallbackMonth = parseInt(totals.fallback_month) || 0;
+
+    res.json({
+      totals: {
+        today: parseInt(totals.today) || 0,
+        week: parseInt(totals.week) || 0,
+        month: monthTotal,
+      },
+      aiVsTemplateRatio: monthTotal > 0 ? `${((1 - fallbackMonth / monthTotal) * 100).toFixed(1)}% AI` : 'N/A',
+      fallbackRate: monthTotal > 0 ? `${(fallbackMonth / monthTotal * 100).toFixed(1)}%` : '0%',
+      volumeByType: volumeResult.rows,
+      dailyVolume: dailyResult.rows,
+      campaignsByStatus: campaignResult.rows,
+      incompleteProfiles: incompleteResult.rows.map((r: any) => r.name),
+    });
+  } catch (error: any) {
+    console.error("[Admin] SMS intelligence stats error:", error);
+    res.status(500).json({ error: "Failed to fetch SMS intelligence stats" });
+  }
+});
+
 export default router;

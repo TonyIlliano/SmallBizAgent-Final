@@ -676,6 +676,84 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Premium Scheduling UI Upgrade — Dynamic Hours, Stats, Filters, Drag-and-Drop
+- **Goal**: Upgrade the appointments/reservations page from hardcoded 8AM-6PM calendar to a premium scheduling interface with dynamic business hours, quick stats, staff filter pills, rich appointment cards, and drag-and-drop rescheduling.
+
+##### New Files Created
+- `client/src/lib/scheduling-utils.ts` — **NEW**: Centralized scheduling utilities. `computeCalendarRange()` (dynamic hours from business hours + appointment overflow), `STAFF_COLORS` palette, `getStaffColor()`, `formatHour()`, `STATUS_COLORS` / `RESERVATION_STATUS_COLORS` with `getStatusColors()` / `getReservationStatusColors()`, `getVerticalLabels(industry)` (20+ vertical-aware terminology mappings: barbershop→"In chair", HVAC→"On site", restaurant→"Seated", dental→"In chair", automotive→"In bay", etc.).
+- `client/src/hooks/use-business-hours.ts` — **NEW**: Custom hook fetching business hours + computing calendar range. Returns `{ hourStart, hourEnd, hours, industry, timezone, isRestaurant, labels, businessId, isLoading }`.
+- `client/src/components/appointments/QuickStatsBar.tsx` — **NEW**: Real-time stats bar showing Booked, Earned, Active now (with pulse dot), No-shows. Computes from already-fetched appointment data (no new endpoint). Industry-aware labels via `getVerticalLabels()`.
+- `client/src/components/appointments/StaffFilterPills.tsx` — **NEW**: Toggleable staff visibility pills. Color dot + name + count. Click to show/hide staff columns. "Show All" reset. Can't hide the last one.
+
+##### Modified Files
+- `client/src/pages/appointments/index.tsx` — **MAJOR**: (1) Dynamic hours: replaced hardcoded `HOUR_START=8, HOUR_END=18` with `useBusinessHours()` hook across all views (Week, Day, Month, all mobile variants, all reservation views). (2) QuickStatsBar added above calendar. (3) StaffFilterPills added between stats and calendar with toggle visibility state. (4) Staff column headers show fractions `completed/total` (e.g., "Tina F 2/5"). (5) Rich appointment cards: name (bold) + service + time range + status dot. (6) Drag-and-drop rescheduling in Day view: `DndContext` wrapper, `useDraggable` on appointment cards, `useDroppable` on 15-min cell subdivisions, `DragOverlay` ghost card, optimistic updates + reschedule mutation + SMS notification.
+- `client/src/pages/appointments/fullscreen.tsx` — Dynamic hours with wider fullscreen padding (`hourStart-1` to `hourEnd+2`). Imported shared utilities replacing local duplicates. Rich appointment cards.
+- `client/src/pages/staff/dashboard.tsx` — Dynamic hours via `useBusinessHours()`. Imported shared utilities replacing local duplicates.
+
+##### New Dependencies
+- `@dnd-kit/core` — React drag-and-drop toolkit (hooks-based, React 18 compatible, ~12KB gzipped)
+- `@dnd-kit/utilities` — DnD kit utility functions
+
+##### Key Design Decisions
+- **No new backend endpoints** — All stats computed from already-fetched appointment data client-side
+- **Drag-and-drop desktop only** — Disabled on mobile via `useIsMobile()` hook
+- **Drag uses existing PUT endpoint** — `PUT /api/appointments/:id` with `startDate`, `endDate`, `staffId` changes. All existing hooks (calendar sync, webhooks, orchestration) fire automatically.
+- **SMS on drag reschedule** — After successful PUT, fires `POST /api/appointments/:id/send-reminder` to notify customer
+- **Cancelled/completed appointments not draggable** — `disabled` prop on useDraggable
+- **8px drag threshold** — PointerSensor with `activationConstraint.distance: 8` prevents accidental drags
+- **15-minute drop precision** — Each hour cell has 4 droppable quarter zones
+
+#### SMS Intelligence Layer — Complete Build (6 Components)
+- **Goal**: Build the core SMS intelligence layer for SmallBizAgent — AI-powered message generation, reply intelligence, marketing automation, and campaign management.
+
+##### 1. Database Schema (8 new tables → 74 total)
+- `shared/schema.ts` — Added `smsBusinessProfiles` (SMS personality config), `outboundMessages` (full audit trail), `inboundMessages` (reply log with AI classification), `conversationStates` (per-customer state machine), `marketingTriggers` (scheduled send queue), `smsCampaigns` (broadcast + sequence), `campaignAnalytics` (per-campaign metrics), `smsActivityFeed` (business owner event feed).
+- `server/migrations/runMigrations.ts` — Added `addSmsIntelligenceTables()` with CREATE TABLE + indexes for all 8 tables.
+- `server/storage.ts` — Added 22 new IStorage methods + DatabaseStorage implementations.
+
+##### 2. Vertical Config
+- `server/config/verticals.ts` — **NEW**: 6 vertical configs (barbershop, salon, HVAC, plumbing, landscaping, restaurant) + general fallback. Each defines: category (appointment/job/recurring), rules (hasStaffBooking, hasLateCancelProtection, hasWinBack, rebookingCycleDays, etc.), defaultTone, defaultEmojiUsage, defaultMaxLength, exampleVoice, forbiddenPhrases. Smart industry-string matching with partial match for 15+ industries.
+
+##### 3. Message Intelligence Service (Core AI Engine)
+- `server/services/messageIntelligenceService.ts` — **NEW**: Single outbound path for ALL SMS. 24 MessageType values. Dual mode: `useTemplate: true` (smart templates for confirmations/invoices) vs `useTemplate: false` (full GPT-5.4-mini generation for agents/marketing). Flow: opt-out check → engagement lock check → AI generation (vertical config + SMS profile + Mem0 memory + customer insights) → validation → Twilio send → outbound_messages log → Mem0 memory → activity feed. Graceful fallback on AI failure. ~$0.001/message.
+
+##### 4. SMS Profile Onboarding + Routes
+- `server/routes/smsProfileRoutes.ts` — **NEW**: 4 endpoints: GET/PUT profile, POST complete, POST preview (generates 3 sample AI messages).
+- `client/src/pages/onboarding/steps/sms-vibe.tsx` — **NEW**: Business vibe picker (Casual/Professional/Warm/Direct).
+- `client/src/pages/onboarding/steps/sms-style.tsx` — **NEW**: Emoji toggle + sign-off name.
+- `client/src/pages/onboarding/steps/sms-customer.tsx` — **NEW**: Customer description textarea.
+- `client/src/pages/onboarding/steps/sms-unique.tsx` — **NEW**: Unique selling point textarea.
+- `client/src/pages/onboarding/steps/sms-response-time.tsx` — **NEW**: Response time expectation (job verticals).
+- `client/src/pages/onboarding/steps/sms-preview.tsx` — **NEW**: AI message preview with 3 sample SMS bubbles.
+
+##### 5. Agent Migration (4 agents wrapped with MIS)
+- `server/services/followUpAgentService.ts` — Thank-you + upsell SMS now route through messageIntelligenceService with fallback templates.
+- `server/services/noShowAgentService.ts` — No-show SMS now routes through MIS.
+- `server/services/rebookingAgentService.ts` — Rebooking SMS now routes through MIS.
+- `server/services/estimateFollowUpAgentService.ts` — Estimate follow-up SMS now routes through MIS.
+
+##### 6. Reply Intelligence Graph (LangGraph)
+- `server/services/replyIntelligenceGraph.ts` — **NEW**: LangGraph state machine for inbound SMS. 8 nodes: loadContext → classifyIntent → [confirmNode|cancelNode|rescheduleNode|infoNode|campaignReplyNode|escalationNode] → logResult. GPT-5.4-mini intent classification with confidence threshold (< 0.6 = escalate). PostgreSQL checkpointing. Falls back to existing smsConversationRouter.
+- `server/services/replyIntelligenceGraph.ts` — **rescheduleNode**: Direct DB rescheduling — parses natural date/time ("Thursday at 3pm") via `parseNaturalDate`/`parseNaturalTime` from vapiWebhookHandler, checks slot availability via `getAvailableSlotsForDay`, updates appointment record directly, sends confirmation SMS, updates Mem0, cancels stale triggers. If requested slot taken, offers 2 nearest alternatives. Falls back to manage link only on error.
+- `server/services/vapiWebhookHandler.ts` — Exported 4 scheduling utility functions for reuse: `parseNaturalDate`, `parseNaturalTime`, `createDateInTimezone`, `getAvailableSlotsForDay`.
+- `server/index.ts` — Added `initReplyIntelligenceGraph()` on startup.
+- `server/routes.ts` — Added reply graph invocation before generic SMS auto-reply. If graph returns a response, sends it as TwiML. Falls back to generic reply.
+
+##### 7. Marketing Trigger Engine
+- `server/services/marketingTriggerEngine.ts` — **NEW**: Queue processor (every 5 min) + evaluator (every 1h). 8 trigger types: WIN_BACK, REBOOKING_NUDGE, BIRTHDAY, REVIEW_REQUEST, ESTIMATE_FOLLOWUP, WEATHER_DELAY, CAMPAIGN_BROADCAST, CAMPAIGN_SEQUENCE_STEP. Condition validation (has customer booked since trigger written? Has quote been accepted?). Engagement lock respect (reschedule +15 min if locked). Trigger cancellation on key events (customer books, confirms, opts out, escalated).
+- `server/services/schedulerService.ts` — Added `startMarketingTriggerProcessor()` (5 min, advisory lock) + `startMarketingTriggerEvaluator()` (1h, advisory lock) to `startAllSchedulers()`.
+
+##### 8. Campaign Manager
+- `server/services/smsCampaignService.ts` — **NEW**: Campaign CRUD + audience evaluation + launch (broadcast/sequence) + pause + analytics.
+- `server/routes/smsCampaignRoutes.ts` — **NEW**: 8 endpoints: GET list, POST create, GET/:id detail, PUT/:id update, POST/:id/launch, POST/:id/pause, DELETE/:id, POST preview-audience.
+- `client/src/pages/sms-campaigns/index.tsx` — **NEW**: Campaign manager UI with campaign list, create dialog, detail view with metrics, launch/pause actions.
+
+##### 9. Dashboard Integration
+- `server/routes/adminRoutes.ts` — Added `GET /api/admin/sms-intelligence-stats`: aggregate SMS stats (volume by type, fallback rate, avg latency, daily volume, campaign stats, incomplete profiles). No customer PII.
+- `server/routes.ts` — Added `GET /api/sms-activity-feed` + `POST /api/sms-activity-feed/mark-read` for business owner event feed.
+- `client/src/App.tsx` — Added `/sms-campaigns` route.
+- `client/src/components/layout/Sidebar.tsx` — Added "Campaigns" nav item with Send icon.
+
 #### SMS Reliability Fixes — 5 Bugs + Agent Audit
 - **Goal**: Fix multiple SMS issues: wrong appointment times in reminders, missing confirmation texts, "Cancel" keyword intercepted by Twilio, AI reasoning leaking into customer messages. Plus full audit and fix of all SMS agent services.
 
@@ -1229,6 +1307,18 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | GBP routes | `server/routes/gbpRoutes.ts` |
 | GBP dashboard UI | `client/src/pages/google-business-profile.tsx` |
 | GBP settings card | `client/src/components/settings/GoogleBusinessProfile.tsx` |
+| Message Intelligence Service | `server/services/messageIntelligenceService.ts` |
+| Reply Intelligence Graph | `server/services/replyIntelligenceGraph.ts` |
+| Marketing Trigger Engine | `server/services/marketingTriggerEngine.ts` |
+| Campaign Service | `server/services/smsCampaignService.ts` |
+| Vertical SMS Config | `server/config/verticals.ts` |
+| SMS Profile Routes | `server/routes/smsProfileRoutes.ts` |
+| Campaign Routes | `server/routes/smsCampaignRoutes.ts` |
+| Campaign Manager UI | `client/src/pages/sms-campaigns/index.tsx` |
+| Scheduling utilities | `client/src/lib/scheduling-utils.ts` |
+| Business hours hook | `client/src/hooks/use-business-hours.ts` |
+| Quick stats bar | `client/src/components/appointments/QuickStatsBar.tsx` |
+| Staff filter pills | `client/src/components/appointments/StaffFilterPills.tsx` |
 | Env vars reference | `.env.example` |
 | Package scripts | `package.json` |
 
@@ -1280,4 +1370,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 23, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 66 tables. SMS Reliability Fixes (uncommitted): 5 bugs — reminder timezone, CONFIRM timezone, CANCEL keyword interception, AI reasoning leak sanitization, missing confirmation SMS (smsOptIn not set on phone-created customers). Social Media Performance Engine (uncommitted): Engagement metrics + scoring + winner marking. Generate-from-winners. Video briefs + automated video production pipeline. Ad targeting cheat sheet. Social media agent enhanced with winner training. Video Production Pipeline (uncommitted): Brief → clips + Pexels b-roll + OpenAI TTS voiceover → Shotstack multi-track render → S3. 3 new services (pexelsService, ttsService, videoAssemblyService). Clip library with upload/manage UI. 7 new API endpoints. `videoClips` table + 8 render columns on `videoBriefs`. ~$40/mo for 100 videos. Google Business Profile (uncommitted): Full bi-directional sync with 14 endpoints, 5-tab dashboard, review management, local posts, SEO scoring. Website Builder (uncommitted): OpenAI generation with customizations, domain management, feature gates. Vapi Model Upgrade (uncommitted): Upgraded Vapi AI receptionist from gpt-4.1-mini to gpt-5-mini in both create and update paths.*
+*Last updated: March 23, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. Premium Scheduling UI Upgrade (uncommitted): Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (uncommitted). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted).*
