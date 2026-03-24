@@ -1485,7 +1485,7 @@ export async function createAssistantForBusiness(
     name: `${business.name} Receptionist`,
     model: {
       provider: 'openai',
-      model: 'gpt-4.1-mini-2025-04-14', // Latest model Vapi supports — fast, strong reasoning
+      model: 'gpt-5-mini', // GPT-5 family — better instruction following, fewer hallucinations, reliable tool calls
       temperature: 0.6, // Slightly lower for more consistent, accurate responses
       maxTokens: 250, // Cap for voice — human receptionists use 10-25 words per response
       systemPrompt: systemPrompt,
@@ -1693,7 +1693,7 @@ export async function updateAssistant(
         backgroundDenoisingEnabled: true,
         model: {
           provider: 'openai',
-          model: 'gpt-4.1-mini-2025-04-14', // Latest model Vapi supports — fast, strong reasoning
+          model: 'gpt-5-mini', // GPT-5 family — better instruction following, fewer hallucinations, reliable tool calls
           temperature: 0.6,
           maxTokens: 250, // Cap for voice — human receptionists use 10-25 words per response
           systemPrompt: systemPrompt,

@@ -43,7 +43,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | **Email** | SendGrid or Resend |
 | **SMS/Voice** | Twilio |
 | **AI Voice** | Vapi.ai |
-| **AI/LLM** | OpenAI (gpt-4o-mini) |
+| **AI/LLM** | OpenAI (gpt-5-mini for Vapi voice, gpt-5.4-mini for other services) |
 | **AI Memory** | Mem0 (persistent conversational memory) |
 | **AI Orchestration** | LangGraph.js (state machine agent graph with PostgreSQL checkpointing) |
 | **Payments** | Stripe (Checkout, Connect, Billing Portal) |
@@ -676,6 +676,36 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### SMS Reliability Fixes — 5 Bugs + Agent Audit
+- **Goal**: Fix multiple SMS issues: wrong appointment times in reminders, missing confirmation texts, "Cancel" keyword intercepted by Twilio, AI reasoning leaking into customer messages. Plus full audit and fix of all SMS agent services.
+
+##### 1. Reminder SMS Timezone Bug (CRITICAL)
+- `server/services/reminderService.ts` — `sendAppointmentReminder()` was formatting appointment times without the business timezone. On Railway (UTC server), a 5:30 PM ET appointment would display as "9:30 PM" or "10:30 PM". Fixed: now reads `business.timezone` and passes it to `toLocaleDateString()`/`toLocaleTimeString()` options.
+
+##### 2. CONFIRM Handler Timezone Bug
+- `server/routes.ts` — The CONFIRM keyword SMS handler (line ~4752) had the same timezone bug as the reminder service. Fixed: now fetches business timezone and uses it for date/time formatting, matching the CANCEL and RESCHEDULE handlers which already had the fix.
+
+##### 3. "Cancel" Keyword Intercepted by Twilio
+- **Root cause**: Twilio Messaging Service treats "CANCEL" as a reserved opt-out keyword and auto-replies with an unsubscribe message BEFORE the app webhook fires. Customers texting "Cancel" get unsubscribed instead of having their appointment cancelled.
+- All SMS templates (`reminderService.ts`, `notificationService.ts`, `routes.ts`) changed from "CANCEL APPT" to "C" — a single letter that Twilio will never intercept. Keyword handler in `routes.ts` updated to accept "C" as a cancel request (still accepts "CANCEL"/"CANCEL APPT" as fallbacks).
+- `server/services/notificationService.ts` — Changed welcome SMS wording from "STOP to cancel" to "STOP to unsubscribe" to avoid customers texting "CANCEL" when they mean to stop messages.
+
+##### 4. AI Reasoning Leaking into Customer SMS
+- **Root cause**: AI-generated parenthetical notes like "(Note: The assistant must follow call flow...)" were reaching customers in SMS messages.
+- `server/services/twilioService.ts` — Added `sanitizeSmsBody()` function that strips AI reasoning patterns: `(Note: ...)`, `(Internal: ...)`, `(System: ...)`, `[Debug: ...]`, etc. Applied to ALL outgoing SMS via the `sendSms()` chokepoint.
+- `server/routes.ts` — Added inline sanitization to the SMS agent conversation reply path (TwiML responses bypass `sendSms()`).
+
+##### 5. Missing Confirmation SMS After Phone Booking (CRITICAL)
+- **Root cause**: `recognizeCaller()` creates a placeholder customer record early in the call without `smsOptIn: true`. When `bookAppointment()` later finds this existing customer, it skips customer creation (where `smsOptIn: true` was set). Result: customer never has `smsOptIn`, so `canSendSms()` returns false and confirmation/reminder SMS are silently skipped.
+- `server/services/vapiWebhookHandler.ts` — `recognizeCaller()` now sets `smsOptIn: true` when creating placeholder customer records (caller provided phone by calling = consent to transactional SMS).
+- `server/services/vapiWebhookHandler.ts` — `bookAppointment()` now checks if existing customer has `smsOptIn` set, and if not, sets it and sends the TCPA opt-in welcome message. This catches customers created before this fix.
+
+##### 6. SMS Agent Audit Fixes
+- `server/services/noShowAgentService.ts` — **Timezone bug**: Appointment time in no-show SMS was formatted in server timezone (UTC on Railway). Fixed to use `business.timezone`.
+- `server/services/conversationalBookingService.ts` — **Engagement lock leak**: When SMS booking completed (or failed with duplicate/error), conversation was resolved but engagement lock was never released. Other agents couldn't contact the customer until the lock expired. Fixed: all resolved paths now fire `conversation.resolved` event.
+- `server/services/smsConversationRouter.ts` — **STOP handler lock leak**: Central STOP interceptor resolved conversations but didn't release engagement locks. Fixed. Also added centralized post-handler lock release check for the booking flow.
+- `server/services/reviewService.ts` — **Bypassed TCPA protections**: Was creating its own Twilio client directly, bypassing the centralized `twilioService.sendSms()` which includes suppression list checks, sanitization, and business-specific from-number resolution. Also missing STOP opt-out footer on review request SMS (marketing message). Fixed: now uses centralized `sendSms()` with TCPA footer.
+
 #### Google Business Profile Integration — Full Bi-Directional Sync
 - **Goal**: Expand existing GBP integration (OAuth, booking links, phone management) into full bi-directional sync with business info pull/push, conflict detection, review management, local posts, SEO scoring, and website builder integration.
 
@@ -1250,4 +1280,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 22, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 66 tables. Social Media Performance Engine (uncommitted): Engagement metrics + scoring + winner marking. Generate-from-winners. Video briefs + automated video production pipeline. Ad targeting cheat sheet. Social media agent enhanced with winner training. Video Production Pipeline (uncommitted): Brief → clips + Pexels b-roll + OpenAI TTS voiceover → Shotstack multi-track render → S3. 3 new services (pexelsService, ttsService, videoAssemblyService). Clip library with upload/manage UI. 7 new API endpoints. `videoClips` table + 8 render columns on `videoBriefs`. ~$40/mo for 100 videos. Google Business Profile (uncommitted): Full bi-directional sync with 14 endpoints, 5-tab dashboard, review management, local posts, SEO scoring. Website Builder (uncommitted): OpenAI generation with customizations, domain management, feature gates.*
+*Last updated: March 23, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. 66 tables. SMS Reliability Fixes (uncommitted): 5 bugs — reminder timezone, CONFIRM timezone, CANCEL keyword interception, AI reasoning leak sanitization, missing confirmation SMS (smsOptIn not set on phone-created customers). Social Media Performance Engine (uncommitted): Engagement metrics + scoring + winner marking. Generate-from-winners. Video briefs + automated video production pipeline. Ad targeting cheat sheet. Social media agent enhanced with winner training. Video Production Pipeline (uncommitted): Brief → clips + Pexels b-roll + OpenAI TTS voiceover → Shotstack multi-track render → S3. 3 new services (pexelsService, ttsService, videoAssemblyService). Clip library with upload/manage UI. 7 new API endpoints. `videoClips` table + 8 render columns on `videoBriefs`. ~$40/mo for 100 videos. Google Business Profile (uncommitted): Full bi-directional sync with 14 endpoints, 5-tab dashboard, review management, local posts, SEO scoring. Website Builder (uncommitted): OpenAI generation with customizations, domain management, feature gates. Vapi Model Upgrade (uncommitted): Upgraded Vapi AI receptionist from gpt-4.1-mini to gpt-5-mini in both create and update paths.*
