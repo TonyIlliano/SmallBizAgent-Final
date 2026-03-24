@@ -20,7 +20,6 @@ import {
   Zap,
   Globe,
   MapPin,
-  Send,
 } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -41,7 +40,6 @@ const allNavItems = [
   { path: "/analytics", label: "Analytics", icon: BarChart3, hideForRoles: ['staff'] as string[] },
   { path: "/marketing", label: "Marketing", icon: Megaphone, hideForRoles: ['staff'] as string[] },
   { path: "/ai-agents", label: "AI Agents", icon: Zap },
-  { path: "/sms-campaigns", label: "Campaigns", icon: Send, hideForRoles: ['staff'] as string[] },
   { path: "/website", label: "Website", icon: Globe, hideForRoles: ['staff'] as string[] },
   { path: "/google-business-profile", label: "Google", icon: MapPin, hideForRoles: ['staff'] as string[] },
   { path: "/settings", label: "Settings", icon: Settings },
