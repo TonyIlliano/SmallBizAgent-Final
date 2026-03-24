@@ -1408,42 +1408,20 @@ export async function createAssistantForBusiness(
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
 
-  const allFunctions = [
-    ...filteredFunctions,
-    ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
-    ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
-  ];
-
-  // Convert functions to Vapi tools format with filler-phrase suppression.
-  // Each tool gets empty messages so Vapi stays silent during execution.
-  const serverTools = allFunctions.map(f => ({
-    type: 'function' as const,
-    function: {
-      name: f.name,
-      description: f.description,
-      parameters: f.parameters,
-    },
-    server: {
-      url: `${BASE_URL}/api/vapi/webhook`,
-    },
-    messages: [
-      { type: 'request-start', content: '' },
-      { type: 'request-complete', content: '' },
-      { type: 'request-failed', content: 'I ran into an issue. Let me try something else.' },
-      { type: 'request-response-delayed', content: '' },
-    ],
-  }));
-
   const assistantConfig = {
     name: `${business.name} Receptionist`,
     model: {
       provider: 'openai',
-      model: 'gpt-5-mini', // GPT-5 family — better instruction following, fewer hallucinations, reliable tool calls
-      temperature: 0.6, // Slightly lower for more consistent, accurate responses
-      maxTokens: 350, // Enough for complex confirmations (service + staff + date + time + price) without truncation
+      model: 'gpt-5-mini',
+      temperature: 0.6,
+      maxTokens: 350,
       systemPrompt: systemPrompt,
-      // All tools: native (transferCall, endCall) + custom server tools with filler suppression
-      tools: [...nativeTools, ...serverTools],
+      functions: [
+        ...filteredFunctions,
+        ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
+        ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
+      ],
+      tools: nativeTools,
     },
     transcriber: {
       provider: 'deepgram',
@@ -1622,30 +1600,11 @@ export async function updateAssistant(
     ? baseFunctions
     : baseFunctions.filter(f => f.name !== 'leaveMessage');
 
-  const allFunctions = [
+  const functions = [
     ...filteredFunctions,
     ...(isRestaurant && menuData ? getRestaurantFunctions() : []),
     ...(isRestaurant && business.reservationEnabled ? getReservationFunctions() : [])
   ];
-
-  // Convert functions to Vapi tools format with filler-phrase suppression
-  const serverTools = allFunctions.map(f => ({
-    type: 'function' as const,
-    function: {
-      name: f.name,
-      description: f.description,
-      parameters: f.parameters,
-    },
-    server: {
-      url: `${BASE_URL}/api/vapi/webhook`,
-    },
-    messages: [
-      { type: 'request-start', content: '' },
-      { type: 'request-complete', content: '' },
-      { type: 'request-failed', content: 'I ran into an issue. Let me try something else.' },
-      { type: 'request-response-delayed', content: '' },
-    ],
-  }));
 
   try {
     const response = await fetch(`${VAPI_BASE_URL}/assistant/${assistantId}`, {
@@ -1659,17 +1618,17 @@ export async function updateAssistant(
         transcriber: {
           provider: 'deepgram',
           model: 'nova-2',
-          language: 'en', // English-only — faster, more reliable barge-in recovery than 'multi'
+          language: 'en',
         },
         backgroundDenoisingEnabled: true,
         model: {
           provider: 'openai',
-          model: 'gpt-5-mini', // GPT-5 family — better instruction following, fewer hallucinations, reliable tool calls
+          model: 'gpt-5-mini',
           temperature: 0.6,
-          maxTokens: 350, // Enough for complex confirmations (service + staff + date + time + price) without truncation
+          maxTokens: 350,
           systemPrompt: systemPrompt,
-          // All tools: native (transferCall, endCall) + custom server tools with filler suppression
-          tools: [...nativeTools, ...serverTools],
+          functions: functions,
+          tools: nativeTools,
         },
         voice: {
           provider: '11labs',
