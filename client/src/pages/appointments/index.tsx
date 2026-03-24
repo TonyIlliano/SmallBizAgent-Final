@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { PageLayout } from "@/components/layout/PageLayout";
@@ -35,9 +35,34 @@ import {
   MapPin,
   Armchair,
   AlertTriangle,
+  GripVertical,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useBusinessHours } from "@/hooks/use-business-hours";
 import { AppointmentForm } from "@/components/appointments/AppointmentForm";
+import { QuickStatsBar } from "@/components/appointments/QuickStatsBar";
+import { StaffFilterPills } from "@/components/appointments/StaffFilterPills";
+import {
+  STAFF_COLORS,
+  UNASSIGNED_COLOR,
+  getStaffColor,
+  formatHour,
+  getStatusColors,
+  getReservationStatusColors,
+  getVerticalLabels,
+} from "@/lib/scheduling-utils";
+import type { VerticalLabels } from "@/lib/scheduling-utils";
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import {
   Sheet,
   SheetContent,
@@ -207,12 +232,7 @@ function formatMonthYear(date: Date): string {
 }
 
 // ─── Status Helpers ──────────────────────────────────────────────────
-const STATUS_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  scheduled: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500", dot: "bg-blue-500" },
-  confirmed: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500", dot: "bg-green-500" },
-  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500", dot: "bg-purple-500" },
-  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
-};
+// STATUS_COLORS imported from scheduling-utils.ts
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -238,13 +258,7 @@ function getAppointmentSource(notes?: string): { label: string; icon: React.Reac
 }
 
 // ─── Reservation Status Helpers ──────────────────────────────────────
-const RESERVATION_STATUS_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  confirmed: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500", dot: "bg-blue-500" },
-  seated: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500", dot: "bg-green-500" },
-  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500", dot: "bg-purple-500" },
-  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
-  no_show: { bg: "bg-amber-50", text: "text-amber-700", border: "border-l-amber-500", dot: "bg-amber-500" },
-};
+// RESERVATION_STATUS_COLORS imported from scheduling-utils.ts via getReservationStatusColors()
 
 function getReservationStatusBadge(status: string) {
   switch (status) {
@@ -278,38 +292,15 @@ function getReservationSource(source?: string): { label: string; icon: React.Rea
 }
 
 // ─── Time grid constants ─────────────────────────────────────────────
-const HOUR_START = 8; // 8 AM
-const HOUR_END = 18; // 6 PM
-const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
+// HOUR_START / HOUR_END are now dynamic via useBusinessHours() hook.
+// These are fallback defaults used only as prop defaults.
+const DEFAULT_HOUR_START = 8;
+const DEFAULT_HOUR_END = 18;
+const DEFAULT_HOURS = Array.from({ length: DEFAULT_HOUR_END - DEFAULT_HOUR_START + 1 }, (_, i) => DEFAULT_HOUR_START + i);
 const HOUR_HEIGHT = 64; // px per hour row (week view)
 const DAY_HOUR_HEIGHT = 80; // px per hour row (day view — larger for touch targets)
 
-// Staff column color palette
-const STAFF_COLORS = [
-  '#3B82F6', // blue
-  '#10B981', // emerald
-  '#F59E0B', // amber
-  '#EF4444', // red
-  '#8B5CF6', // violet
-  '#EC4899', // pink
-  '#06B6D4', // cyan
-  '#F97316', // orange
-];
-
-function formatHour(hour: number): string {
-  if (hour === 0) return "12 AM";
-  if (hour < 12) return `${hour} AM`;
-  if (hour === 12) return "12 PM";
-  return `${hour - 12} PM`;
-}
-
-// Get staff color for an appointment
-function getStaffColor(staffId: number | undefined, staffMembers: StaffData[]): string {
-  if (!staffId) return '#9CA3AF';
-  const index = staffMembers.findIndex(s => s.id === staffId);
-  if (index === -1) return '#9CA3AF';
-  return STAFF_COLORS[index % STAFF_COLORS.length];
-}
+// STAFF_COLORS, getStaffColor, formatHour imported from scheduling-utils.ts
 
 // ─── Main Component ──────────────────────────────────────────────────
 export default function Appointments() {
@@ -343,6 +334,12 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  // Dynamic business hours + vertical labels
+  const { hourStart, hourEnd, hours: dynamicHours, labels } = useBusinessHours();
+
+  // Staff visibility toggle state
+  const [visibleStaffIds, setVisibleStaffIds] = useState<Set<number | null>>(new Set());
+
   // ─── Date range for current view ────────────────────────────────
   const queryStartDate =
     viewMode === "month"
@@ -375,6 +372,56 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
     queryKey: ["/api/staff", { businessId }],
     enabled: !!businessId,
   });
+
+  // ─── Sync staff visibility with staff data ─────────────────────
+  useEffect(() => {
+    const newSet = new Set<number | null>(staffMembers.map((s) => s.id));
+    newSet.add(null); // Unassigned
+    setVisibleStaffIds(newSet);
+  }, [staffMembers]);
+
+  const toggleStaffVisibility = useCallback((staffId: number | null) => {
+    setVisibleStaffIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(staffId)) {
+        if (next.size > 1) next.delete(staffId);
+      } else {
+        next.add(staffId);
+      }
+      return next;
+    });
+  }, []);
+
+  const showAllStaff = useCallback(() => {
+    const all = new Set<number | null>(staffMembers.map((s) => s.id));
+    all.add(null);
+    setVisibleStaffIds(all);
+  }, [staffMembers]);
+
+  // ─── Appointment counts per staff (for filter pills) ──────────
+  const appointmentCounts = useMemo(() => {
+    const counts = new Map<number | null, number>();
+    appointments.forEach((a) => {
+      if (a.status === "cancelled") return;
+      const staffId = a.staff?.id ?? null;
+      counts.set(staffId, (counts.get(staffId) || 0) + 1);
+    });
+    return counts;
+  }, [appointments]);
+
+  // ─── Filter appointments by visible staff ─────────────────────
+  const filteredAppointments = useMemo(() => {
+    return appointments.filter((a) => {
+      const staffId = a.staff?.id ?? null;
+      return visibleStaffIds.has(staffId);
+    });
+  }, [appointments, visibleStaffIds]);
+
+  // ─── Today's appointments for stats bar ───────────────────────
+  const todayAppointments = useMemo(() => {
+    const today = new Date();
+    return appointments.filter((a) => isSameDay(new Date(a.startDate), today));
+  }, [appointments]);
 
   // ─── Send reminder mutation ─────────────────────────────────────
   const sendReminderMutation = useMutation({
@@ -417,6 +464,33 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
     },
   });
 
+  // ─── Drag-and-drop reschedule mutation ──────────────────────
+  const rescheduleByDragMutation = useMutation({
+    mutationFn: (data: { appointmentId: number; startDate: string; endDate: string; staffId: number | null }) =>
+      apiRequest("PUT", `/api/appointments/${data.appointmentId}`, {
+        startDate: data.startDate,
+        endDate: data.endDate,
+        ...(data.staffId !== null ? { staffId: data.staffId } : {}),
+      }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      toast({
+        title: "Rescheduled",
+        description: "Appointment moved. Customer will be notified.",
+      });
+      // Send updated reminder/confirmation to customer
+      apiRequest("POST", `/api/appointments/${variables.appointmentId}/send-reminder`).catch(() => {});
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      toast({
+        title: "Reschedule Failed",
+        description: "Could not move appointment. There may be a conflict.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // ─── Click appointment → open side panel ─────────────────────
   const handleClickAppointment = useCallback((id: number) => {
     const appt = appointments.find(a => a.id === id);
@@ -450,6 +524,46 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
   function goToday() {
     setSelectedDate(new Date());
   }
+
+  // ─── Drag-and-drop handler ─────────────────────────────────────
+  const handleDragReschedule = useCallback(
+    (appointmentId: number, newStaffId: number | null, newHour: number, newQuarter: number) => {
+      const appt = appointments.find((a) => a.id === appointmentId);
+      if (!appt) return;
+
+      const newStart = new Date(selectedDate);
+      newStart.setHours(newHour, newQuarter * 15, 0, 0);
+
+      const duration = new Date(appt.endDate).getTime() - new Date(appt.startDate).getTime();
+      const newEnd = new Date(newStart.getTime() + duration);
+
+      // Optimistic update
+      queryClient.setQueryData(
+        ["/api/appointments", queryParams],
+        (old: AppointmentData[] | undefined) =>
+          (old || []).map((a) =>
+            a.id === appointmentId
+              ? {
+                  ...a,
+                  startDate: newStart.toISOString(),
+                  endDate: newEnd.toISOString(),
+                  staff: newStaffId !== null
+                    ? staffMembers.find((s) => s.id === newStaffId) || a.staff
+                    : undefined,
+                }
+              : a
+          )
+      );
+
+      rescheduleByDragMutation.mutate({
+        appointmentId,
+        startDate: newStart.toISOString(),
+        endDate: newEnd.toISOString(),
+        staffId: newStaffId,
+      });
+    },
+    [appointments, selectedDate, staffMembers, queryParams, queryClient, rescheduleByDragMutation]
+  );
 
   // Week view quick-create: click empty slot → open new appointment pre-filled
   const [prefillDate, setPrefillDate] = useState<Date | null>(null);
@@ -538,19 +652,23 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
         </div>
       </div>
 
-      {/* ── Staff Color Legend ──────────────────────────────────── */}
-      {staffMembers.length > 1 && viewMode === "week" && (
-        <div className="flex items-center gap-3 mb-3 px-3 py-2 bg-white rounded-lg border text-sm overflow-x-auto">
-          <span className="text-gray-500 font-medium flex-shrink-0">Staff:</span>
-          {staffMembers.map((s, i) => (
-            <div key={s.id} className="flex items-center gap-1.5 flex-shrink-0">
-              <div
-                className="w-2.5 h-2.5 rounded-full"
-                style={{ backgroundColor: STAFF_COLORS[i % STAFF_COLORS.length] }}
-              />
-              <span className="text-gray-700">{s.firstName} {s.lastName?.charAt(0) || ""}</span>
-            </div>
-          ))}
+      {/* ── Quick Stats Bar ────────────────────────────────────── */}
+      {!isLoading && (
+        <div className="mb-3">
+          <QuickStatsBar appointments={todayAppointments} labels={labels} />
+        </div>
+      )}
+
+      {/* ── Staff Filter Pills ───────────────────────────────── */}
+      {staffMembers.length > 1 && (
+        <div className="mb-3">
+          <StaffFilterPills
+            staffMembers={staffMembers}
+            visibleStaffIds={visibleStaffIds}
+            onToggle={toggleStaffVisibility}
+            onShowAll={showAllStaff}
+            appointmentCounts={appointmentCounts}
+          />
         </div>
       )}
 
@@ -561,7 +679,7 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
         </div>
       ) : viewMode === "month" ? (
         <MonthView
-          appointments={appointments}
+          appointments={filteredAppointments}
           selectedDate={selectedDate}
           onSelectDate={(d) => {
             setSelectedDate(d);
@@ -570,9 +688,12 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
         />
       ) : viewMode === "week" ? (
         <WeekView
-          appointments={appointments}
+          appointments={filteredAppointments}
           selectedDate={selectedDate}
           staffMembers={staffMembers}
+          hourStart={hourStart}
+          hourEnd={hourEnd}
+          dynamicHours={dynamicHours}
           onSelectDate={(d) => {
             setSelectedDate(d);
             setViewMode("day");
@@ -582,13 +703,19 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
         />
       ) : (
         <StaffDayView
-          appointments={appointments}
+          appointments={filteredAppointments}
           staffMembers={staffMembers}
           selectedDate={selectedDate}
+          hourStart={hourStart}
+          hourEnd={hourEnd}
+          dynamicHours={dynamicHours}
+          visibleStaffIds={visibleStaffIds}
+          labels={labels}
           onClickAppointment={handleClickAppointment}
           onSendReminder={(id) => sendReminderMutation.mutate(id)}
           reminderPending={sendReminderMutation.isPending}
           onNewAppointment={() => { setPrefillDate(null); setSheetOpen(true); }}
+          onDragReschedule={handleDragReschedule}
         />
       )}
 
@@ -663,7 +790,7 @@ function AppointmentDetailPanel({
     : "Walk-in";
   const source = getAppointmentSource(appointment.notes);
   const staffColor = getStaffColor(appointment.staff?.id, staffMembers);
-  const colors = STATUS_COLORS[appointment.status] || STATUS_COLORS.scheduled;
+  const colors = getStatusColors(appointment.status);
 
   return (
     <div className="space-y-5">
@@ -978,6 +1105,9 @@ function WeekView({
   appointments,
   selectedDate,
   staffMembers,
+  hourStart = DEFAULT_HOUR_START,
+  hourEnd = DEFAULT_HOUR_END,
+  dynamicHours = DEFAULT_HOURS,
   onSelectDate,
   onClickAppointment,
   onQuickCreate,
@@ -985,6 +1115,9 @@ function WeekView({
   appointments: AppointmentData[];
   selectedDate: Date;
   staffMembers: StaffData[];
+  hourStart?: number;
+  hourEnd?: number;
+  dynamicHours?: number[];
   onSelectDate: (date: Date) => void;
   onClickAppointment: (id: number) => void;
   onQuickCreate: (date: Date, hour: number) => void;
@@ -1007,6 +1140,8 @@ function WeekView({
         selectedDate={selectedDate}
         staffMembers={staffMembers}
         weekDays={weekDays}
+        hourStart={hourStart}
+        dynamicHours={dynamicHours}
         onSelectDate={onSelectDate}
         onClickAppointment={onClickAppointment}
       />
@@ -1018,7 +1153,7 @@ function WeekView({
   const showTimeLine = !!todayInWeek;
   const todayColumnIndex = todayInWeek ? weekDays.findIndex(d => isToday(d)) : -1;
   const timeLineTop =
-    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - hourStart * 60) / 60) *
     HOUR_HEIGHT;
 
   return (
@@ -1052,9 +1187,9 @@ function WeekView({
       </div>
 
       {/* Time grid */}
-      <div className="relative overflow-x-auto" style={{ minHeight: HOURS.length * HOUR_HEIGHT }}>
+      <div className="relative overflow-x-auto" style={{ minHeight: dynamicHours.length * HOUR_HEIGHT }}>
         {/* Current time indicator line */}
-        {showTimeLine && timeLineTop >= 0 && timeLineTop <= HOURS.length * HOUR_HEIGHT && (
+        {showTimeLine && timeLineTop >= 0 && timeLineTop <= dynamicHours.length * HOUR_HEIGHT && (
           <div
             className="absolute z-20 pointer-events-none flex items-center"
             style={{
@@ -1070,7 +1205,7 @@ function WeekView({
 
         <div className="grid grid-cols-[60px_repeat(7,1fr)]">
           {/* Time labels + grid rows */}
-          {HOURS.map((hour) => (
+          {dynamicHours.map((hour) => (
             <div key={`label-${hour}`} className="contents">
               {/* Time label */}
               <div
@@ -1103,7 +1238,7 @@ function WeekView({
                       const end = new Date(appt.endDate);
                       const durationMinutes = (end.getTime() - start.getTime()) / 60000;
                       const heightPx = Math.max((durationMinutes / 60) * HOUR_HEIGHT - 2, 24);
-                      const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                      const colors = getStatusColors(appt.status);
                       const isCancelled = appt.status === "cancelled";
                       const staffColor = getStaffColor(appt.staff?.id, staffMembers);
 
@@ -1128,19 +1263,24 @@ function WeekView({
                           style={{ top: topPx, height: heightPx }}
                           title={tooltipParts.join(" — ")}
                         >
+                          {/* Rich card: name + service + time */}
                           <div className={`flex items-center gap-1 ${colors.text}`}>
-                            {/* Staff color dot */}
                             <div
                               className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                               style={{ backgroundColor: staffColor }}
                             />
-                            <span className={`text-[10px] font-semibold whitespace-nowrap truncate ${isCancelled ? "line-through" : ""}`}>
+                            <span className={`text-[10px] font-bold whitespace-nowrap truncate ${isCancelled ? "line-through" : ""}`}>
                               {customerName}
                             </span>
                           </div>
                           {heightPx >= 30 && (
                             <div className="text-[9px] text-gray-500 whitespace-nowrap truncate pl-3">
-                              {appt.service?.name || "Appointment"} · {formatTime(start)}
+                              {appt.service?.name || "Appointment"}
+                            </div>
+                          )}
+                          {heightPx >= 44 && (
+                            <div className="text-[9px] text-gray-400 whitespace-nowrap truncate pl-3">
+                              {formatTime(start)} – {formatTime(end)}
                             </div>
                           )}
                         </button>
@@ -1165,6 +1305,8 @@ function MobileWeekView({
   selectedDate,
   staffMembers,
   weekDays,
+  hourStart = DEFAULT_HOUR_START,
+  dynamicHours = DEFAULT_HOURS,
   onSelectDate,
   onClickAppointment,
 }: {
@@ -1172,6 +1314,8 @@ function MobileWeekView({
   selectedDate: Date;
   staffMembers: StaffData[];
   weekDays: Date[];
+  hourStart?: number;
+  dynamicHours?: number[];
   onSelectDate: (date: Date) => void;
   onClickAppointment: (id: number) => void;
 }) {
@@ -1230,8 +1374,8 @@ function MobileWeekView({
 
       {/* Single-day time grid */}
       <div className="overflow-y-auto" style={{ maxHeight: "60vh" }}>
-        <div className="grid grid-cols-[50px_1fr] relative" style={{ minHeight: HOURS.length * MOBILE_HOUR_HEIGHT }}>
-          {HOURS.map((hour) => {
+        <div className="grid grid-cols-[50px_1fr] relative" style={{ minHeight: dynamicHours.length * MOBILE_HOUR_HEIGHT }}>
+          {dynamicHours.map((hour) => {
             const cellAppts = dayAppointments.filter((a) => {
               const aDate = new Date(a.startDate);
               return aDate.getHours() === hour;
@@ -1258,7 +1402,7 @@ function MobileWeekView({
                     const end = new Date(appt.endDate);
                     const durationMinutes = (end.getTime() - start.getTime()) / 60000;
                     const heightPx = Math.max((durationMinutes / 60) * MOBILE_HOUR_HEIGHT - 2, 24);
-                    const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                    const colors = getStatusColors(appt.status);
                     const isCancelled = appt.status === "cancelled";
                     const staffColor = getStaffColor(appt.staff?.id, staffMembers);
 
@@ -1307,18 +1451,30 @@ function StaffDayView({
   appointments,
   staffMembers,
   selectedDate,
+  hourStart = DEFAULT_HOUR_START,
+  hourEnd = DEFAULT_HOUR_END,
+  dynamicHours = DEFAULT_HOURS,
+  visibleStaffIds,
+  labels,
   onClickAppointment,
   onSendReminder,
   reminderPending,
   onNewAppointment,
+  onDragReschedule,
 }: {
   appointments: AppointmentData[];
   staffMembers: StaffData[];
   selectedDate: Date;
+  hourStart?: number;
+  hourEnd?: number;
+  dynamicHours?: number[];
+  visibleStaffIds?: Set<number | null>;
+  labels?: VerticalLabels;
   onClickAppointment: (id: number) => void;
   onSendReminder: (id: number) => void;
   reminderPending: boolean;
   onNewAppointment: () => void;
+  onDragReschedule?: (appointmentId: number, staffId: number | null, hour: number, quarter: number) => void;
 }) {
   const isMobile = useIsMobile();
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -1329,15 +1485,20 @@ function StaffDayView({
     return () => clearInterval(interval);
   }, []);
 
-  // Build columns: active staff + "Unassigned"
-  const columns: { id: number | null; name: string; color: string }[] = staffMembers.map(
+  // Build columns: active staff + "Unassigned", filtered by visibility
+  const allColumns: { id: number | null; name: string; color: string }[] = staffMembers.map(
     (s, i) => ({
       id: s.id,
       name: `${s.firstName} ${s.lastName?.charAt(0) || ""}`.trim(),
       color: STAFF_COLORS[i % STAFF_COLORS.length],
     })
   );
-  columns.push({ id: null, name: "Unassigned", color: "#9CA3AF" });
+  allColumns.push({ id: null, name: "Unassigned", color: UNASSIGNED_COLOR });
+
+  // Filter columns by visibility
+  const columns = visibleStaffIds
+    ? allColumns.filter((col) => visibleStaffIds.has(col.id))
+    : allColumns;
 
   // Group appointments by staff column
   const appointmentsByColumn = new Map<number | null, AppointmentData[]>();
@@ -1357,7 +1518,7 @@ function StaffDayView({
   // Check if the selected date is today (for the current time indicator)
   const showTimeLine = isToday(selectedDate);
   const timeLineTop =
-    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - hourStart * 60) / 60) *
     DAY_HOUR_HEIGHT;
 
   // No staff and no appointments — show empty state
@@ -1386,6 +1547,8 @@ function StaffDayView({
         columns={columns}
         appointmentsByColumn={appointmentsByColumn}
         selectedDate={selectedDate}
+        hourStart={hourStart}
+        dynamicHours={dynamicHours}
         showTimeLine={showTimeLine}
         timeLineTop={timeLineTop}
         onClickAppointment={onClickAppointment}
@@ -1398,7 +1561,44 @@ function StaffDayView({
   const colCount = columns.length;
   const gridCols = `60px repeat(${colCount}, minmax(180px, 1fr))`;
 
+  // ── Drag-and-drop state (desktop only) ──
+  const [draggedApptId, setDraggedApptId] = useState<number | null>(null);
+  const draggedAppt = draggedApptId != null ? appointments.find((a) => a.id === draggedApptId) : null;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px drag threshold to avoid accidental drags
+      },
+    })
+  );
+
+  function handleDragStart(event: DragStartEvent) {
+    setDraggedApptId(event.active.id as number);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setDraggedApptId(null);
+    const { active, over } = event;
+    if (!over || !onDragReschedule) return;
+
+    const appointmentId = active.id as number;
+    const dropId = over.id as string;
+    if (!dropId.startsWith("drop-")) return;
+
+    // Parse: drop-{staffId}-{hour}-{quarter}
+    const parts = dropId.split("-");
+    const staffIdStr = parts[1];
+    const hour = parseInt(parts[2], 10);
+    const quarter = parseInt(parts[3] || "0", 10);
+
+    const newStaffId = staffIdStr === "null" ? null : parseInt(staffIdStr, 10);
+
+    onDragReschedule(appointmentId, newStaffId, hour, quarter);
+  }
+
   return (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
     <div className="bg-white rounded-lg border overflow-hidden">
       {/* Staff header row */}
       <div
@@ -1406,26 +1606,32 @@ function StaffDayView({
         style={{ gridTemplateColumns: gridCols }}
       >
         <div className="p-2 border-r bg-gray-50" /> {/* Time column spacer */}
-        {columns.map((col) => (
-          <div
-            key={col.id ?? "unassigned"}
-            className={`flex items-center gap-2 px-3 py-3 border-r last:border-r-0 ${
-              col.id === null ? "bg-gray-50" : ""
-            }`}
-          >
-            {/* Color dot */}
+        {columns.map((col) => {
+          const colAppts = appointmentsByColumn.get(col.id) || [];
+          const total = colAppts.length;
+          const completed = colAppts.filter((a) => a.status === "completed").length;
+
+          return (
             <div
-              className="w-3 h-3 rounded-full flex-shrink-0"
-              style={{ backgroundColor: col.color }}
-            />
-            <span className="text-sm font-semibold text-gray-800 truncate">
-              {col.name}
-            </span>
-            <span className="text-xs text-gray-400 ml-auto flex-shrink-0">
-              {appointmentsByColumn.get(col.id)?.length || 0}
-            </span>
-          </div>
-        ))}
+              key={col.id ?? "unassigned"}
+              className={`flex items-center gap-2 px-3 py-3 border-r last:border-r-0 ${
+                col.id === null ? "bg-gray-50" : ""
+              }`}
+            >
+              {/* Color dot */}
+              <div
+                className="w-3 h-3 rounded-full flex-shrink-0"
+                style={{ backgroundColor: col.color }}
+              />
+              <span className="text-sm font-semibold text-gray-800 truncate">
+                {col.name}
+              </span>
+              <span className="text-xs text-gray-500 ml-auto flex-shrink-0 tabular-nums font-medium">
+                {completed}/{total}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Scrollable time grid */}
@@ -1434,11 +1640,11 @@ function StaffDayView({
           className="grid relative"
           style={{
             gridTemplateColumns: gridCols,
-            minHeight: HOURS.length * DAY_HOUR_HEIGHT,
+            minHeight: dynamicHours.length * DAY_HOUR_HEIGHT,
           }}
         >
           {/* Current time indicator */}
-          {showTimeLine && timeLineTop >= 0 && timeLineTop <= HOURS.length * DAY_HOUR_HEIGHT && (
+          {showTimeLine && timeLineTop >= 0 && timeLineTop <= dynamicHours.length * DAY_HOUR_HEIGHT && (
             <div
               className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
               style={{ top: timeLineTop }}
@@ -1449,7 +1655,7 @@ function StaffDayView({
           )}
 
           {/* Hour rows */}
-          {HOURS.map((hour) => (
+          {dynamicHours.map((hour) => (
             <div key={`row-${hour}`} className="contents">
               {/* Time label */}
               <div
@@ -1459,21 +1665,32 @@ function StaffDayView({
                 {formatHour(hour)}
               </div>
 
-              {/* Staff column cells */}
+              {/* Staff column cells — droppable zones */}
               {columns.map((col) => {
                 const colAppts = (appointmentsByColumn.get(col.id) || []).filter(
                   (a) => new Date(a.startDate).getHours() === hour
                 );
 
                 return (
-                  <div
+                  <DroppableCell
                     key={`cell-${hour}-${col.id ?? "u"}`}
+                    dropId={`drop-${col.id}-${hour}-0`}
                     className={`relative border-b border-r last:border-r-0 transition-colors hover:bg-gray-50/50 cursor-pointer ${
                       col.id === null ? "bg-gray-50/30" : ""
                     }`}
                     style={{ height: DAY_HOUR_HEIGHT }}
                     onClick={() => onNewAppointment()}
                   >
+                    {/* 15-min drop subdivisions */}
+                    {[0, 1, 2, 3].map((q) => (
+                      <DroppableQuarter
+                        key={`q-${hour}-${col.id ?? "u"}-${q}`}
+                        dropId={`drop-${col.id}-${hour}-${q}`}
+                        quarter={q}
+                        hourHeight={DAY_HOUR_HEIGHT}
+                      />
+                    ))}
+
                     {colAppts.map((appt) => {
                       const start = new Date(appt.startDate);
                       const minuteOffset = start.getMinutes();
@@ -1485,46 +1702,168 @@ function StaffDayView({
                         (durationMinutes / 60) * DAY_HOUR_HEIGHT - 2,
                         32
                       );
-                      const colors =
-                        STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                      const colors = getStatusColors(appt.status);
                       const isCancelled = appt.status === "cancelled";
+                      const isCompleted = appt.status === "completed";
+                      const isDragging = draggedApptId === appt.id;
 
                       const customerName = appt.customer
                         ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
                         : "Walk-in";
 
                       return (
-                        <button
+                        <DraggableAppointment
                           key={appt.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onClickAppointment(appt.id);
-                          }}
-                          className={`absolute left-1 right-1 rounded-md px-2.5 py-1.5 border-l-4 text-left overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] z-10 ${colors.bg} ${colors.border} ${
-                            isCancelled ? "opacity-50" : ""
-                          }`}
-                          style={{ top: topPx, height: heightPx }}
-                          title={`${formatTime(start)} — ${customerName}${appt.service ? ` — ${appt.service.name}` : ""}`}
+                          id={appt.id}
+                          disabled={isCancelled || isCompleted}
                         >
-                          <div
-                            className={`text-xs font-bold whitespace-nowrap truncate ${colors.text} ${isCancelled ? "line-through" : ""}`}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onClickAppointment(appt.id);
+                            }}
+                            className={`absolute left-1 right-1 rounded-md px-2.5 py-1.5 border-l-4 text-left overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] z-10 ${colors.bg} ${colors.border} ${
+                              isCancelled ? "opacity-50" : ""
+                            } ${isDragging ? "opacity-30" : ""} ${
+                              !isCancelled && !isCompleted ? "cursor-grab active:cursor-grabbing" : ""
+                            }`}
+                            style={{ top: topPx, height: heightPx }}
+                            title={`${formatTime(start)} — ${customerName}${appt.service ? ` — ${appt.service.name}` : ""}${!isCancelled && !isCompleted ? " (drag to reschedule)" : ""}`}
                           >
-                            {customerName}
-                          </div>
-                          <div className="text-[11px] text-gray-500 whitespace-nowrap truncate">
-                            {appt.service?.name || "Appointment"} · {formatTime(start)}
-                          </div>
-                        </button>
+                            {/* Rich card: name + service + time range */}
+                            <div className="flex items-center justify-between gap-1">
+                              <span
+                                className={`text-xs font-bold whitespace-nowrap truncate ${colors.text} ${isCancelled ? "line-through" : ""}`}
+                              >
+                                {customerName}
+                              </span>
+                              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${colors.dot}`} />
+                            </div>
+                            {heightPx >= 40 && (
+                              <div className="text-[11px] text-gray-600 whitespace-nowrap truncate">
+                                {appt.service?.name || "Appointment"}
+                              </div>
+                            )}
+                            {heightPx >= 56 && (
+                              <div className="text-[10px] text-gray-400 whitespace-nowrap truncate">
+                                {formatTime(start)} – {formatTime(end)}
+                              </div>
+                            )}
+                          </button>
+                        </DraggableAppointment>
                       );
                     })}
-                  </div>
+                  </DroppableCell>
                 );
               })}
             </div>
           ))}
         </div>
       </div>
+
+      {/* Drag overlay — ghost card shown while dragging */}
+      <DragOverlay>
+        {draggedAppt && (() => {
+          const colors = getStatusColors(draggedAppt.status);
+          const customerName = draggedAppt.customer
+            ? `${draggedAppt.customer.firstName} ${draggedAppt.customer.lastName}`.trim()
+            : "Walk-in";
+          return (
+            <div
+              className={`rounded-md px-2.5 py-1.5 border-l-4 text-left shadow-xl opacity-90 ${colors.bg} ${colors.border}`}
+              style={{ width: 180, minHeight: 40 }}
+            >
+              <div className={`text-xs font-bold whitespace-nowrap truncate ${colors.text}`}>
+                {customerName}
+              </div>
+              <div className="text-[11px] text-gray-600 whitespace-nowrap truncate">
+                {draggedAppt.service?.name || "Appointment"}
+              </div>
+            </div>
+          );
+        })()}
+      </DragOverlay>
     </div>
+    </DndContext>
+  );
+}
+
+// ─── Drag-and-drop helper components ────────────────────────────────
+
+function DraggableAppointment({
+  id,
+  disabled,
+  children,
+}: {
+  id: number;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id,
+    disabled,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{ position: "relative" }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DroppableCell({
+  dropId,
+  className,
+  style,
+  onClick,
+  children,
+}: {
+  dropId: string;
+  className: string;
+  style: React.CSSProperties;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: dropId });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`${className} ${isOver ? "bg-blue-50/60" : ""}`}
+      style={style}
+      onClick={onClick}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DroppableQuarter({
+  dropId,
+  quarter,
+  hourHeight,
+}: {
+  dropId: string;
+  quarter: number;
+  hourHeight: number;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: dropId });
+  const quarterHeight = hourHeight / 4;
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`absolute left-0 right-0 z-0 ${isOver ? "bg-blue-100/40 border-t border-blue-300/50" : ""}`}
+      style={{
+        top: quarter * quarterHeight,
+        height: quarterHeight,
+      }}
+    />
   );
 }
 
@@ -1535,6 +1874,8 @@ function MobileStaffDayView({
   columns,
   appointmentsByColumn,
   selectedDate,
+  hourStart = DEFAULT_HOUR_START,
+  dynamicHours = DEFAULT_HOURS,
   showTimeLine,
   timeLineTop,
   onClickAppointment,
@@ -1543,6 +1884,8 @@ function MobileStaffDayView({
   columns: { id: number | null; name: string; color: string }[];
   appointmentsByColumn: Map<number | null, AppointmentData[]>;
   selectedDate: Date;
+  hourStart?: number;
+  dynamicHours?: number[];
   showTimeLine: boolean;
   timeLineTop: number;
   onClickAppointment: (id: number) => void;
@@ -1603,7 +1946,7 @@ function MobileStaffDayView({
       <div className="overflow-y-auto" style={{ maxHeight: "65vh" }}>
         <div
           className="grid grid-cols-[50px_1fr] relative"
-          style={{ minHeight: HOURS.length * MOBILE_DAY_HOUR_HEIGHT }}
+          style={{ minHeight: dynamicHours.length * MOBILE_DAY_HOUR_HEIGHT }}
         >
           {/* Current time indicator */}
           {showTimeLine && (
@@ -1613,7 +1956,7 @@ function MobileStaffDayView({
                 top:
                   ((new Date().getHours() * 60 +
                     new Date().getMinutes() -
-                    HOUR_START * 60) /
+                    hourStart * 60) /
                     60) *
                   MOBILE_DAY_HOUR_HEIGHT,
               }}
@@ -1623,7 +1966,7 @@ function MobileStaffDayView({
             </div>
           )}
 
-          {HOURS.map((hour) => {
+          {dynamicHours.map((hour) => {
             const cellAppts = activeAppts.filter(
               (a) => new Date(a.startDate).getHours() === hour
             );
@@ -1655,8 +1998,7 @@ function MobileStaffDayView({
                       (durationMinutes / 60) * MOBILE_DAY_HOUR_HEIGHT - 2,
                       28
                     );
-                    const colors =
-                      STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                    const colors = getStatusColors(appt.status);
                     const isCancelled = appt.status === "cancelled";
 
                     const customerName = appt.customer
@@ -1708,6 +2050,9 @@ function ReservationsView({ businessId }: { businessId?: number }) {
   const [detailOpen, setDetailOpen] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // Dynamic business hours for reservation time grid
+  const { hourStart: resHourStart, hours: resHours } = useBusinessHours();
 
   // Compute date range for current view
   const weekStart = getStartOfWeek(selectedDate);
@@ -1838,6 +2183,8 @@ function ReservationsView({ businessId }: { businessId?: number }) {
                 selectedDate={selectedDate}
                 weekStart={weekStart}
                 reservations={reservations}
+                hourStart={resHourStart}
+                dynamicHours={resHours}
                 onClickReservation={onClickReservation}
               />
             ) : (
@@ -1845,6 +2192,8 @@ function ReservationsView({ businessId }: { businessId?: number }) {
                 selectedDate={selectedDate}
                 weekStart={weekStart}
                 reservations={reservations}
+                hourStart={resHourStart}
+                dynamicHours={resHours}
                 onClickReservation={onClickReservation}
               />
             )
@@ -1853,6 +2202,8 @@ function ReservationsView({ businessId }: { businessId?: number }) {
             <ReservationDayView
               selectedDate={selectedDate}
               reservations={reservations}
+              hourStart={resHourStart}
+              dynamicHours={resHours}
               onClickReservation={onClickReservation}
             />
           )}
@@ -1886,7 +2237,7 @@ function ReservationDetailPanel({
 }) {
   if (!reservation) return null;
 
-  const colors = RESERVATION_STATUS_COLORS[reservation.status] || RESERVATION_STATUS_COLORS.confirmed;
+  const colors = getReservationStatusColors(reservation.status);
   const source = getReservationSource(reservation.source);
 
   // Format date nicely
@@ -2133,11 +2484,15 @@ function ReservationWeekView({
   selectedDate,
   weekStart,
   reservations,
+  hourStart = DEFAULT_HOUR_START,
+  dynamicHours = DEFAULT_HOURS,
   onClickReservation,
 }: {
   selectedDate: Date;
   weekStart: Date;
   reservations: ReservationData[];
+  hourStart?: number;
+  dynamicHours?: number[];
   onClickReservation: (reservation: ReservationData) => void;
 }) {
   const today = new Date();
@@ -2187,7 +2542,7 @@ function ReservationWeekView({
       <div className="grid grid-cols-[60px_repeat(7,1fr)] relative">
         {/* Hour labels */}
         <div>
-          {HOURS.map((hour) => (
+          {dynamicHours.map((hour) => (
             <div key={hour} className="h-16 border-b border-r flex items-start justify-end pr-2 pt-1">
               <span className="text-[11px] text-muted-foreground">{formatHour(hour)}</span>
             </div>
@@ -2202,16 +2557,16 @@ function ReservationWeekView({
           return (
             <div key={dayIdx} className="relative border-r last:border-r-0">
               {/* Hour grid lines */}
-              {HOURS.map((hour) => (
+              {dynamicHours.map((hour) => (
                 <div key={hour} className="h-16 border-b border-gray-100" />
               ))}
 
               {/* Reservation cards */}
               {dayReservations.map((res) => {
                 const [rh, rm] = res.reservationTime.split(":").map(Number);
-                const topPx = (rh - HOUR_START + rm / 60) * HOUR_HEIGHT;
+                const topPx = (rh - hourStart + rm / 60) * HOUR_HEIGHT;
                 const heightPx = Math.max(HOUR_HEIGHT * 1.5, 48); // 1.5 hours default display height
-                const colors = RESERVATION_STATUS_COLORS[res.status] || RESERVATION_STATUS_COLORS.confirmed;
+                const colors = getReservationStatusColors(res.status);
                 const isCancelled = res.status === "cancelled" || res.status === "no_show";
 
                 return (
@@ -2248,11 +2603,15 @@ function ReservationMobileWeekView({
   selectedDate,
   weekStart,
   reservations,
+  hourStart = DEFAULT_HOUR_START,
+  dynamicHours = DEFAULT_HOURS,
   onClickReservation,
 }: {
   selectedDate: Date;
   weekStart: Date;
   reservations: ReservationData[];
+  hourStart?: number;
+  dynamicHours?: number[];
   onClickReservation: (reservation: ReservationData) => void;
 }) {
   const today = new Date();
@@ -2314,7 +2673,7 @@ function ReservationMobileWeekView({
       {/* Time grid for selected day */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="relative">
-          {HOURS.map((hour) => (
+          {dynamicHours.map((hour) => (
             <div key={hour} className="flex border-b border-gray-100">
               <div className="w-14 flex-shrink-0 border-r flex items-start justify-end pr-2 pt-1 h-16">
                 <span className="text-[11px] text-muted-foreground">{formatHour(hour)}</span>
@@ -2327,8 +2686,8 @@ function ReservationMobileWeekView({
           <div className="absolute inset-0 left-14">
             {dayReservations.map((res) => {
               const [rh, rm] = res.reservationTime.split(":").map(Number);
-              const topPx = (rh - HOUR_START + rm / 60) * HOUR_HEIGHT;
-              const colors = RESERVATION_STATUS_COLORS[res.status] || RESERVATION_STATUS_COLORS.confirmed;
+              const topPx = (rh - hourStart + rm / 60) * HOUR_HEIGHT;
+              const colors = getReservationStatusColors(res.status);
               const isCancelled = res.status === "cancelled" || res.status === "no_show";
 
               return (
@@ -2363,10 +2722,14 @@ function ReservationMobileWeekView({
 function ReservationDayView({
   selectedDate,
   reservations,
+  hourStart = DEFAULT_HOUR_START,
+  dynamicHours = DEFAULT_HOURS,
   onClickReservation,
 }: {
   selectedDate: Date;
   reservations: ReservationData[];
+  hourStart?: number;
+  dynamicHours?: number[];
   onClickReservation: (reservation: ReservationData) => void;
 }) {
   const dateStr = selectedDate.toISOString().split("T")[0];
@@ -2406,7 +2769,7 @@ function ReservationDayView({
       ) : (
         <div className="bg-white rounded-xl border shadow-sm divide-y">
           {dayReservations.map((res) => {
-            const colors = RESERVATION_STATUS_COLORS[res.status] || RESERVATION_STATUS_COLORS.confirmed;
+            const colors = getReservationStatusColors(res.status);
             const source = getReservationSource(res.source);
             const isCancelled = res.status === "cancelled" || res.status === "no_show";
 

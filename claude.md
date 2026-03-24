@@ -676,33 +676,6 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
-#### Premium Scheduling UI Upgrade — Dynamic Hours, Stats, Filters, Drag-and-Drop
-- **Goal**: Upgrade the appointments/reservations page from hardcoded 8AM-6PM calendar to a premium scheduling interface with dynamic business hours, quick stats, staff filter pills, rich appointment cards, and drag-and-drop rescheduling.
-
-##### New Files Created
-- `client/src/lib/scheduling-utils.ts` — **NEW**: Centralized scheduling utilities. `computeCalendarRange()` (dynamic hours from business hours + appointment overflow), `STAFF_COLORS` palette, `getStaffColor()`, `formatHour()`, `STATUS_COLORS` / `RESERVATION_STATUS_COLORS` with `getStatusColors()` / `getReservationStatusColors()`, `getVerticalLabels(industry)` (20+ vertical-aware terminology mappings: barbershop→"In chair", HVAC→"On site", restaurant→"Seated", dental→"In chair", automotive→"In bay", etc.).
-- `client/src/hooks/use-business-hours.ts` — **NEW**: Custom hook fetching business hours + computing calendar range. Returns `{ hourStart, hourEnd, hours, industry, timezone, isRestaurant, labels, businessId, isLoading }`.
-- `client/src/components/appointments/QuickStatsBar.tsx` — **NEW**: Real-time stats bar showing Booked, Earned, Active now (with pulse dot), No-shows. Computes from already-fetched appointment data (no new endpoint). Industry-aware labels via `getVerticalLabels()`.
-- `client/src/components/appointments/StaffFilterPills.tsx` — **NEW**: Toggleable staff visibility pills. Color dot + name + count. Click to show/hide staff columns. "Show All" reset. Can't hide the last one.
-
-##### Modified Files
-- `client/src/pages/appointments/index.tsx` — **MAJOR**: (1) Dynamic hours: replaced hardcoded `HOUR_START=8, HOUR_END=18` with `useBusinessHours()` hook across all views (Week, Day, Month, all mobile variants, all reservation views). (2) QuickStatsBar added above calendar. (3) StaffFilterPills added between stats and calendar with toggle visibility state. (4) Staff column headers show fractions `completed/total` (e.g., "Tina F 2/5"). (5) Rich appointment cards: name (bold) + service + time range + status dot. (6) Drag-and-drop rescheduling in Day view: `DndContext` wrapper, `useDraggable` on appointment cards, `useDroppable` on 15-min cell subdivisions, `DragOverlay` ghost card, optimistic updates + reschedule mutation + SMS notification.
-- `client/src/pages/appointments/fullscreen.tsx` — Dynamic hours with wider fullscreen padding (`hourStart-1` to `hourEnd+2`). Imported shared utilities replacing local duplicates. Rich appointment cards.
-- `client/src/pages/staff/dashboard.tsx` — Dynamic hours via `useBusinessHours()`. Imported shared utilities replacing local duplicates.
-
-##### New Dependencies
-- `@dnd-kit/core` — React drag-and-drop toolkit (hooks-based, React 18 compatible, ~12KB gzipped)
-- `@dnd-kit/utilities` — DnD kit utility functions
-
-##### Key Design Decisions
-- **No new backend endpoints** — All stats computed from already-fetched appointment data client-side
-- **Drag-and-drop desktop only** — Disabled on mobile via `useIsMobile()` hook
-- **Drag uses existing PUT endpoint** — `PUT /api/appointments/:id` with `startDate`, `endDate`, `staffId` changes. All existing hooks (calendar sync, webhooks, orchestration) fire automatically.
-- **SMS on drag reschedule** — After successful PUT, fires `POST /api/appointments/:id/send-reminder` to notify customer
-- **Cancelled/completed appointments not draggable** — `disabled` prop on useDraggable
-- **8px drag threshold** — PointerSensor with `activationConstraint.distance: 8` prevents accidental drags
-- **15-minute drop precision** — Each hour cell has 4 droppable quarter zones
-
 #### SMS Intelligence Layer — Complete Build (6 Components)
 - **Goal**: Build the core SMS intelligence layer for SmallBizAgent — AI-powered message generation, reply intelligence, marketing automation, and campaign management.
 
@@ -987,6 +960,17 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - **Total: ~$40/mo** (Shotstack subscription $39 + TTS ~$1)
 
 ### Recent changes (committed):
+
+#### Premium Scheduling UI Upgrade — Dynamic Hours, Stats, Filters, Drag-and-Drop
+- **Goal**: Upgrade the appointments/reservations page from hardcoded 8AM-6PM calendar to a premium scheduling interface with dynamic business hours, quick stats, staff filter pills, rich appointment cards, and drag-and-drop rescheduling.
+- `client/src/lib/scheduling-utils.ts` — **NEW**: Centralized scheduling utilities. `computeCalendarRange()`, `STAFF_COLORS`, `getStaffColor()`, `formatHour()`, `STATUS_COLORS`/`RESERVATION_STATUS_COLORS` with getter functions, `getVerticalLabels()` (20+ industry mappings).
+- `client/src/hooks/use-business-hours.ts` — **NEW**: Hook fetching business hours + computing calendar range. Returns `{ hourStart, hourEnd, hours, labels, industry, timezone, isRestaurant }`.
+- `client/src/components/appointments/QuickStatsBar.tsx` — **NEW**: Real-time stats bar (Booked, Earned, Active now with pulse, No-shows). Vertical-aware labels.
+- `client/src/components/appointments/StaffFilterPills.tsx` — **NEW**: Toggleable staff visibility pills with appointment counts.
+- `client/src/pages/appointments/index.tsx` — Dynamic hours across all views, QuickStatsBar, StaffFilterPills, staff header fractions (completed/total), rich cards (name+service+time range), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification on success).
+- `client/src/pages/appointments/fullscreen.tsx` — Dynamic hours with wider fullscreen padding, shared utility imports.
+- `client/src/pages/staff/dashboard.tsx` — Dynamic hours, shared utility imports.
+- **New deps**: `@dnd-kit/core`, `@dnd-kit/utilities`.
 
 #### Logout Button on Mobile Bottom Nav
 - **Goal**: Make logout easily accessible on mobile without navigating through the sidebar.
@@ -1370,4 +1354,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 23, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. Premium Scheduling UI Upgrade (uncommitted): Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (uncommitted). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted).*
+*Last updated: March 23, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted).*

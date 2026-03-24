@@ -4,6 +4,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import { useBusinessHours } from "@/hooks/use-business-hours";
+import { formatHour, getStatusColors, STATUS_COLORS } from "@/lib/scheduling-utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,25 +69,7 @@ interface Appointment {
 
 const DAYS_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
-// Time grid constants
-const HOUR_START = 8;
-const HOUR_END = 18;
-const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
 const HOUR_HEIGHT = 70; // px per hour
-
-const STATUS_STYLES: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  confirmed: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500", dot: "bg-green-500" },
-  scheduled: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500", dot: "bg-blue-500" },
-  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500", dot: "bg-purple-500" },
-  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
-};
-
-function formatHour(hour: number): string {
-  if (hour === 0) return "12 AM";
-  if (hour < 12) return `${hour} AM`;
-  if (hour === 12) return "12 PM";
-  return `${hour - 12} PM`;
-}
 
 interface StaffTimeOff {
   id: number;
@@ -105,6 +89,7 @@ export default function StaffDashboard() {
   const { toast } = useToast();
   const queryClientHook = useQueryClient();
   const [, setLocation] = useLocation();
+  const { hourStart, hourEnd, hours: HOURS } = useBusinessHours();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -269,18 +254,8 @@ export default function StaffDashboard() {
   };
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case "confirmed":
-        return "bg-green-100 text-green-800";
-      case "scheduled":
-        return "bg-blue-100 text-blue-800";
-      case "completed":
-        return "bg-purple-100 text-purple-800";
-      case "cancelled":
-        return "bg-red-100 text-red-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
+    const colors = getStatusColors(status);
+    return `${colors.bg} ${colors.text}`;
   };
 
   const getDayName = () => {
@@ -292,7 +267,7 @@ export default function StaffDashboard() {
   // Time line indicator
   const showTimeLine = isTodaySelected;
   const timeLineTop =
-    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - hourStart * 60) / 60) *
     HOUR_HEIGHT;
 
   // Summary stats
@@ -322,7 +297,7 @@ export default function StaffDashboard() {
 
     const FS_HOUR_HEIGHT = 90;
     const fsTimeLineTop =
-      ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+      ((currentTime.getHours() * 60 + currentTime.getMinutes() - hourStart * 60) / 60) *
       FS_HOUR_HEIGHT;
 
     return (
@@ -443,7 +418,7 @@ export default function StaffDashboard() {
                       const end = new Date(appt.endDate);
                       const durationMinutes = (end.getTime() - start.getTime()) / 60000;
                       const heightPx = Math.max((durationMinutes / 60) * FS_HOUR_HEIGHT - 2, 40);
-                      const colors = STATUS_STYLES[appt.status] || STATUS_STYLES.scheduled;
+                      const colors = getStatusColors(appt.status);
                       const customerName = appt.customer
                         ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
                         : "Walk-in";
@@ -486,7 +461,7 @@ export default function StaffDashboard() {
             <span><kbd className="px-1.5 py-0.5 bg-white border rounded text-gray-700 font-mono">T</kbd> today</span>
           </div>
           <div className="flex items-center gap-3">
-            {Object.entries(STATUS_STYLES).map(([status, colors]) => (
+            {Object.entries(STATUS_COLORS).map(([status, colors]) => (
               <div key={status} className="flex items-center gap-1">
                 <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
                 <span className="capitalize">{status}</span>
@@ -688,7 +663,7 @@ export default function StaffDashboard() {
                               const end = new Date(appt.endDate);
                               const durationMinutes = (end.getTime() - start.getTime()) / 60000;
                               const heightPx = Math.max((durationMinutes / 60) * HOUR_HEIGHT - 2, 32);
-                              const colors = STATUS_STYLES[appt.status] || STATUS_STYLES.scheduled;
+                              const colors = getStatusColors(appt.status);
                               const customerName = appt.customer
                                 ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
                                 : "Walk-in";
@@ -724,7 +699,7 @@ export default function StaffDashboard() {
                 </div>
                 {/* Legend */}
                 <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 border-t text-xs text-gray-500">
-                  {Object.entries(STATUS_STYLES).map(([status, colors]) => (
+                  {Object.entries(STATUS_COLORS).map(([status, colors]) => (
                     <div key={status} className="flex items-center gap-1">
                       <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
                       <span className="capitalize">{status}</span>

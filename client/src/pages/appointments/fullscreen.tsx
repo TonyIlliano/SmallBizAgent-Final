@@ -1,9 +1,20 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useBusinessHours } from "@/hooks/use-business-hours";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  formatHour,
+  getStaffColor,
+  STAFF_COLORS,
+  UNASSIGNED_COLOR,
+  getStatusColors,
+  getReservationStatusColors,
+  STATUS_COLORS,
+  RESERVATION_STATUS_COLORS,
+} from "@/lib/scheduling-utils";
 import {
   Minimize2,
   ChevronLeft,
@@ -111,49 +122,11 @@ function formatTime(date: Date): string {
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
-const HOUR_START = 8;
-const HOUR_END = 22; // Restaurants often go later
-const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
 const HOUR_HEIGHT = 90; // Larger for fullscreen readability
-
-const STAFF_COLORS = [
-  "#3B82F6", "#10B981", "#F59E0B", "#EF4444",
-  "#8B5CF6", "#EC4899", "#06B6D4", "#F97316",
-];
-
-const STATUS_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  scheduled: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500", dot: "bg-blue-500" },
-  confirmed: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500", dot: "bg-green-500" },
-  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500", dot: "bg-purple-500" },
-  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
-};
-
-const RESERVATION_STATUS_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  confirmed: { bg: "bg-blue-50", text: "text-blue-700", border: "border-l-blue-500", dot: "bg-blue-500" },
-  seated: { bg: "bg-green-50", text: "text-green-700", border: "border-l-green-500", dot: "bg-green-500" },
-  completed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-l-purple-500", dot: "bg-purple-500" },
-  cancelled: { bg: "bg-red-50", text: "text-red-700", border: "border-l-red-500", dot: "bg-red-500" },
-  no_show: { bg: "bg-amber-50", text: "text-amber-700", border: "border-l-amber-500", dot: "bg-amber-500" },
-};
-
-function formatHour(hour: number): string {
-  if (hour === 0) return "12 AM";
-  if (hour < 12) return `${hour} AM`;
-  if (hour === 12) return "12 PM";
-  return `${hour - 12} PM`;
-}
 
 // ─── Main Export: detects restaurant vs appointments ─────────────────
 export default function FullscreenSchedule() {
-  const { user } = useAuth();
-  const businessId = user?.businessId;
-
-  const { data: business } = useQuery<any>({
-    queryKey: ["/api/business"],
-    enabled: !!businessId,
-  });
-
-  const isRestaurant = business?.industry?.toLowerCase().includes("restaurant");
+  const { isRestaurant } = useBusinessHours();
 
   if (isRestaurant) {
     return <FullscreenReservations />;
@@ -172,8 +145,14 @@ function FullscreenAppointments() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Appointments-specific hours (8 AM - 6 PM)
-  const APPT_HOURS = Array.from({ length: 11 }, (_, i) => 8 + i);
+  // Dynamic business hours with extra padding for fullscreen/kiosk display
+  const { hourStart: rawHourStart, hourEnd: rawHourEnd } = useBusinessHours();
+  const fsHourStart = Math.max(6, rawHourStart - 1);
+  const fsHourEnd = Math.min(23, rawHourEnd + 2);
+  const APPT_HOURS = useMemo(
+    () => Array.from({ length: fsHourEnd - fsHourStart + 1 }, (_, i) => fsHourStart + i),
+    [fsHourStart, fsHourEnd]
+  );
 
   // Update current time every 30 seconds for the time indicator
   useEffect(() => {
@@ -244,10 +223,10 @@ function FullscreenAppointments() {
     (s, i) => ({
       id: s.id,
       name: `${s.firstName} ${s.lastName?.charAt(0) || ""}`.trim(),
-      color: STAFF_COLORS[i % STAFF_COLORS.length],
+      color: getStaffColor(s.id, staffMembers),
     })
   );
-  columns.push({ id: null, name: "Unassigned", color: "#9CA3AF" });
+  columns.push({ id: null, name: "Unassigned", color: UNASSIGNED_COLOR });
 
   // Group appointments by staff column
   const appointmentsByColumn = new Map<number | null, AppointmentData[]>();
@@ -266,7 +245,7 @@ function FullscreenAppointments() {
   // Time indicator
   const showTimeLine = isToday(selectedDate);
   const timeLineTop =
-    ((currentTime.getHours() * 60 + currentTime.getMinutes() - 8 * 60) / 60) *
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - fsHourStart * 60) / 60) *
     HOUR_HEIGHT;
 
   // Summary counts
@@ -459,7 +438,7 @@ function FullscreenAppointments() {
                           (durationMinutes / 60) * HOUR_HEIGHT - 2,
                           40
                         );
-                        const colors = STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled;
+                        const colors = getStatusColors(appt.status);
                         const customerName = appt.customer
                           ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
                           : "Walk-in";
@@ -533,6 +512,15 @@ function FullscreenReservations() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // Dynamic business hours with extra padding for fullscreen/kiosk display
+  const { hourStart: rawHourStart, hourEnd: rawHourEnd } = useBusinessHours();
+  const fsHourStart = Math.max(6, rawHourStart - 1);
+  const fsHourEnd = Math.min(23, rawHourEnd + 2);
+  const RES_HOURS = useMemo(
+    () => Array.from({ length: fsHourEnd - fsHourStart + 1 }, (_, i) => fsHourStart + i),
+    [fsHourStart, fsHourEnd]
+  );
+
   // Update current time every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(new Date()), 30000);
@@ -604,7 +592,7 @@ function FullscreenReservations() {
   // Time indicator
   const showTimeLine = isToday(selectedDate);
   const timeLineTop =
-    ((currentTime.getHours() * 60 + currentTime.getMinutes() - HOUR_START * 60) / 60) *
+    ((currentTime.getHours() * 60 + currentTime.getMinutes() - fsHourStart * 60) / 60) *
     HOUR_HEIGHT;
 
   return (
@@ -703,9 +691,9 @@ function FullscreenReservations() {
 
       {/* ── Reservation Time Grid ─────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
-        <div className="relative" style={{ minHeight: HOURS.length * HOUR_HEIGHT }}>
+        <div className="relative" style={{ minHeight: RES_HOURS.length * HOUR_HEIGHT }}>
           {/* Current time indicator */}
-          {showTimeLine && timeLineTop >= 0 && timeLineTop <= HOURS.length * HOUR_HEIGHT && (
+          {showTimeLine && timeLineTop >= 0 && timeLineTop <= RES_HOURS.length * HOUR_HEIGHT && (
             <div
               className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
               style={{ top: timeLineTop }}
@@ -716,7 +704,7 @@ function FullscreenReservations() {
           )}
 
           {/* Hour rows with reservation cards */}
-          {HOURS.map((hour) => {
+          {RES_HOURS.map((hour) => {
             const hourReservations = sorted.filter((r) => {
               const [rh] = r.reservationTime.split(":").map(Number);
               return rh === hour;
@@ -736,7 +724,7 @@ function FullscreenReservations() {
                 {/* Reservation cards for this hour */}
                 <div className="flex-1 flex items-start gap-3 px-4 py-2 overflow-x-auto">
                   {hourReservations.map((res) => {
-                    const colors = RESERVATION_STATUS_COLORS[res.status] || RESERVATION_STATUS_COLORS.confirmed;
+                    const colors = getReservationStatusColors(res.status);
                     const isCancelled = res.status === "cancelled" || res.status === "no_show";
 
                     return (
