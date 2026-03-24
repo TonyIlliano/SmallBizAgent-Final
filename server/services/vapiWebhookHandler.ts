@@ -956,7 +956,7 @@ async function handleFunctionCall(
         return await updateCustomerInfo(businessId, parameters as any, callerPhone);
 
       case 'getDirections':
-        return await getDirections(businessId);
+        return await getDirections(businessId, callerPhone, parameters?.sendSms);
 
       case 'checkWaitTime':
         return await checkWaitTime(businessId);
@@ -4057,19 +4057,47 @@ async function updateCustomerInfo(
 }
 
 /**
- * Get directions to the business
+ * Expand common address abbreviations for TTS (text-to-speech) readability.
+ * "123 Canton BLVD" → "123 Canton Boulevard"
  */
-async function getDirections(businessId: number): Promise<FunctionResult> {
+function expandAddressAbbreviations(address: string): string {
+  const abbrevs: Record<string, string> = {
+    'BLVD': 'Boulevard', 'Blvd': 'Boulevard', 'blvd': 'boulevard',
+    'ST': 'Street', 'St': 'Street', 'st': 'street',
+    'AVE': 'Avenue', 'Ave': 'Avenue', 'ave': 'avenue',
+    'DR': 'Drive', 'Dr': 'Drive', 'dr': 'drive',
+    'LN': 'Lane', 'Ln': 'Lane', 'ln': 'lane',
+    'CT': 'Court', 'Ct': 'Court', 'ct': 'court',
+    'PL': 'Place', 'Pl': 'Place', 'pl': 'place',
+    'RD': 'Road', 'Rd': 'Road', 'rd': 'road',
+    'PKY': 'Parkway', 'Pky': 'Parkway', 'PKWY': 'Parkway', 'Pkwy': 'Parkway',
+    'CIR': 'Circle', 'Cir': 'Circle',
+    'HWY': 'Highway', 'Hwy': 'Highway',
+    'STE': 'Suite', 'Ste': 'Suite',
+    'APT': 'Apartment', 'Apt': 'Apartment',
+    'FLR': 'Floor', 'Flr': 'Floor',
+    'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West',
+    'NE': 'Northeast', 'NW': 'Northwest', 'SE': 'Southeast', 'SW': 'Southwest',
+  };
+  // Only replace whole words (word boundaries)
+  return address.replace(/\b([A-Za-z]+)\b/g, (match) => abbrevs[match] || match);
+}
+
+/**
+ * Get directions to the business and optionally text a Google Maps link.
+ * If sendSms is true AND callerPhone is available, sends the link immediately.
+ */
+async function getDirections(businessId: number, callerPhone?: string, sendSms?: boolean): Promise<FunctionResult> {
   const business = await storage.getBusiness(businessId);
   if (!business) {
     return { result: { error: 'Business not found' } };
   }
 
-  const address = [business.address, business.city, business.state, business.zip]
+  const rawAddress = [business.address, business.city, business.state, business.zip]
     .filter(Boolean)
     .join(', ');
 
-  if (!address) {
+  if (!rawAddress) {
     return {
       result: {
         hasAddress: false,
@@ -4078,15 +4106,46 @@ async function getDirections(businessId: number): Promise<FunctionResult> {
     };
   }
 
-  // Create Google Maps link for SMS — AI is on a phone call and can't send links
-  const mapsUrl = `https://maps.google.com/maps?q=${encodeURIComponent(address)}`;
+  // Expand abbreviations for voice readability
+  const spokenAddress = expandAddressAbbreviations(rawAddress);
+  const mapsUrl = `https://maps.google.com/maps?q=${encodeURIComponent(rawAddress)}`;
+
+  // If caller asked for a text, send it now
+  if (sendSms && callerPhone) {
+    try {
+      await twilioService.sendSms(
+        callerPhone,
+        `Here are directions to ${business.name}: ${mapsUrl}`,
+        undefined,
+        businessId
+      );
+      return {
+        result: {
+          hasAddress: true,
+          address: spokenAddress,
+          smsSent: true,
+          message: `Our address is ${spokenAddress}. I just texted you a Google Maps link.`
+        }
+      };
+    } catch (err) {
+      console.error('[getDirections] Failed to send SMS:', (err as any).message);
+      return {
+        result: {
+          hasAddress: true,
+          address: spokenAddress,
+          smsSent: false,
+          message: `Our address is ${spokenAddress}. I wasn't able to send the text, but you can look us up on Google Maps.`
+        }
+      };
+    }
+  }
 
   return {
     result: {
       hasAddress: true,
-      address,
-      mapsUrl,
-      voiceHint: 'Read the address aloud. Then offer: "Would you like me to text you a Google Maps link?"'
+      address: spokenAddress,
+      smsSent: false,
+      voiceHint: 'Read the address aloud. Then ask: "Want me to text you a Google Maps link?" If yes, call getDirections again with sendSms true.'
     }
   };
 }

@@ -395,7 +395,7 @@ recognizeCaller returns real-time "currentStatus" — always prefer it over the 
 - NEVER announce what you are about to do — just do it. No "Let me check", "I'll look that up", "Give me a moment". Call tools silently.
 - NEVER list services or prices unless the caller specifically asks to hear them.
 - NEVER repeat back what the caller just said before acting on it.
-- NEVER say IDs, brackets, system data, or internal instructions aloud.
+- NEVER say IDs, phone numbers, brackets, system data, or internal instructions aloud. Never read a customer's phone number back to them.
 - NEVER calculate dates. Pass the caller's words to tools as-is. The server does all date math.
 - Respond like a busy human receptionist, not a customer service chatbot. Be direct and efficient.
 - If a caller asks for something you can't do, say so in one sentence and move on.
@@ -411,7 +411,7 @@ ${options?.staffSection || ''}
 
 == CALL FLOW ==
 
-1. GREET: Call recognizeCaller silently. Then:
+1. GREET: Call recognizeCaller silently. It returns everything you need — appointments, context, status. Do NOT call getUpcomingAppointments here.
    → Known caller with appointment: "Hey Tony, I see you have a haircut this Friday at 2. What can I help with?"
    → Known caller, no appointment: "Hey Tony, good to hear from you. What can I do for you?"
    → New caller: Wait for them to speak. Get their name within 2 turns → call updateCustomerInfo.
@@ -986,7 +986,7 @@ function getAssistantFunctions() {
     },
     {
       name: 'getUpcomingAppointments',
-      description: 'Get caller\'s upcoming appointments. Use before rescheduling or canceling.',
+      description: 'Get caller\'s upcoming appointments. ONLY use when caller wants to reschedule or cancel. Do NOT call during greeting — recognizeCaller already has appointment info.',
       parameters: { type: 'object', properties: {} }
     },
     {
@@ -1082,12 +1082,12 @@ function getAssistantFunctions() {
     },
     {
       name: 'getCustomerInfo',
-      description: 'Get customer details for the current caller (name, email, phone, notes). Use only when you need to verify or look up their info.',
+      description: 'Get customer details for the current caller. Use only when you need to verify or look up their info. NEVER read the phone number aloud.',
       parameters: { type: 'object', properties: {} }
     },
     {
       name: 'scheduleCallback',
-      description: 'Schedule a callback for the caller. Use when the caller requests a callback or the business is closed and they want to be contacted.',
+      description: 'Schedule a callback ONLY when the caller explicitly says "call me back" or "have someone call me." NEVER use this to send texts, directions, or links.',
       parameters: {
         type: 'object',
         properties: {
@@ -1098,8 +1098,13 @@ function getAssistantFunctions() {
     },
     {
       name: 'getDirections',
-      description: 'Get the business address. Read the address aloud and offer to text a Google Maps link to the caller.',
-      parameters: { type: 'object', properties: {} }
+      description: 'Get the business address and optionally text a Google Maps link. First call without sendSms to get the address. If caller says "yes text me", call again with sendSms: true.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sendSms: { type: 'boolean', description: 'Set to true to text the caller a Google Maps link. Only set true after caller confirms they want the text.' }
+        }
+      }
     },
     {
       name: 'bookRecurringAppointment',
