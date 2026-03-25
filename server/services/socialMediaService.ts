@@ -29,7 +29,7 @@ const PLATFORM_CONFIG: Record<SocialPlatform, { name: string; scopes: string[] }
   },
   instagram: {
     name: "Instagram",
-    scopes: ["instagram_basic", "instagram_content_publish", "pages_show_list"],
+    scopes: ["instagram_business_basic", "instagram_business_content_publish"],
   },
   linkedin: {
     name: "LinkedIn",
@@ -276,7 +276,7 @@ class SocialMediaService {
     const state = `${platform}:${Date.now()}`;
     pendingStates.set(state, { platform, createdAt: Date.now(), codeVerifier });
 
-    const redirectUri = `${baseUrl}/api/social-media/callback/${platform}`;
+    const redirectUri = `${baseUrl}/api/social-media/${platform}/callback`;
     const config = PLATFORM_CONFIG[platform];
 
     switch (platform) {
@@ -317,7 +317,7 @@ class SocialMediaService {
       }
 
       case "instagram": {
-        // Instagram uses the Facebook OAuth dialog with Instagram-specific scopes
+        // Instagram API with Instagram Login (direct login flow)
         const appId = process.env.FACEBOOK_APP_ID;
         if (!appId) {
           console.error("[SocialMedia] FACEBOOK_APP_ID is not set for Instagram");
@@ -329,8 +329,10 @@ class SocialMediaService {
           scope: config.scopes.join(","),
           state,
           response_type: "code",
+          enable_fb_login: "0",
+          force_authentication: "1",
         });
-        return `https://www.facebook.com/v19.0/dialog/oauth?${params.toString()}`;
+        return `https://www.instagram.com/oauth/authorize?${params.toString()}`;
       }
 
       case "linkedin": {
@@ -379,7 +381,7 @@ class SocialMediaService {
     const codeVerifier = pendingState.codeVerifier;
     pendingStates.delete(state);
 
-    const redirectUri = `${baseUrl}/api/social-media/callback/${platform}`;
+    const redirectUri = `${baseUrl}/api/social-media/${platform}/callback`;
 
     switch (platform) {
       case "twitter":
@@ -498,7 +500,10 @@ class SocialMediaService {
   }
 
   /**
-   * Exchange authorization code for Instagram tokens via Facebook Graph API.
+   * Exchange authorization code for Instagram tokens via Instagram API (Instagram Login flow).
+   * Step 1: Exchange code for short-lived token via Instagram API
+   * Step 2: Exchange short-lived token for long-lived token via Instagram Graph API
+   * Step 3: Fetch user profile to get Instagram user ID
    */
   private async exchangeInstagramToken(code: string, redirectUri: string): Promise<void> {
     const appId = process.env.FACEBOOK_APP_ID;
@@ -507,58 +512,74 @@ class SocialMediaService {
       throw new Error("[SocialMedia] Facebook credentials not configured for Instagram (FACEBOOK_APP_ID, FACEBOOK_APP_SECRET)");
     }
 
-    const params = new URLSearchParams({
+    // Step 1: Exchange code for short-lived token via Instagram API
+    const tokenBody = new URLSearchParams({
       client_id: appId,
       client_secret: appSecret,
+      grant_type: "authorization_code",
       redirect_uri: redirectUri,
       code,
     });
 
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/oauth/access_token?${params.toString()}`
-    );
+    const response = await fetch("https://api.instagram.com/oauth/access_token", {
+      method: "POST",
+      body: tokenBody,
+    });
 
     if (!response.ok) {
       const errorBody = await response.text();
       throw new Error(`[SocialMedia] Instagram token exchange failed (${response.status}): ${errorBody}`);
     }
 
-    const data = await response.json() as any;
+    const shortLivedData = await response.json() as any;
+    const shortLivedToken = shortLivedData.access_token;
+    const igUserId = String(shortLivedData.user_id);
 
-    // Fetch Instagram Business Account ID from connected page
-    let igData: Record<string, any> = {};
+    // Step 2: Exchange for long-lived token (60 days)
+    let longLivedToken = shortLivedToken;
+    let expiresAt: Date | undefined;
     try {
-      const pagesResponse = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?access_token=${data.access_token}`
+      const longLivedParams = new URLSearchParams({
+        grant_type: "ig_exchange_token",
+        client_secret: appSecret,
+        access_token: shortLivedToken,
+      });
+      const longLivedResponse = await fetch(
+        `https://graph.instagram.com/access_token?${longLivedParams.toString()}`
       );
-      if (pagesResponse.ok) {
-        const pagesResult = await pagesResponse.json() as any;
-        if (pagesResult.data && pagesResult.data.length > 0) {
-          const page = pagesResult.data[0];
-          // Get the Instagram Business Account connected to this page
-          const igResponse = await fetch(
-            `https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account&access_token=${page.access_token}`
-          );
-          if (igResponse.ok) {
-            const igResult = await igResponse.json() as any;
-            if (igResult.instagram_business_account) {
-              igData = {
-                igUserId: igResult.instagram_business_account.id,
-                pageId: page.id,
-                pageName: page.name,
-                pageAccessToken: page.access_token,
-              };
-            }
-          }
+      if (longLivedResponse.ok) {
+        const longLivedData = await longLivedResponse.json() as any;
+        longLivedToken = longLivedData.access_token;
+        if (longLivedData.expires_in) {
+          expiresAt = new Date(Date.now() + longLivedData.expires_in * 1000);
         }
       }
-    } catch (igError) {
-      console.error("[SocialMedia] Error fetching Instagram business account:", igError);
+    } catch (err) {
+      console.error("[SocialMedia] Failed to exchange for long-lived Instagram token, using short-lived:", err);
+    }
+
+    // Step 3: Fetch user profile
+    let igData: Record<string, any> = { igUserId };
+    try {
+      const profileResponse = await fetch(
+        `https://graph.instagram.com/v21.0/me?fields=user_id,username,name,account_type&access_token=${longLivedToken}`
+      );
+      if (profileResponse.ok) {
+        const profile = await profileResponse.json() as any;
+        igData = {
+          igUserId: profile.user_id || igUserId,
+          username: profile.username,
+          name: profile.name,
+          accountType: profile.account_type,
+        };
+      }
+    } catch (profileError) {
+      console.error("[SocialMedia] Error fetching Instagram profile:", profileError);
     }
 
     await this.storeTokens("instagram", {
-      accessToken: igData.pageAccessToken || data.access_token,
-      expiresAt: data.expires_in ? new Date(Date.now() + data.expires_in * 1000) : undefined,
+      accessToken: longLivedToken,
+      expiresAt,
       data: igData,
     });
   }
@@ -872,7 +893,7 @@ class SocialMediaService {
       }
 
       const createResponse = await fetch(
-        `https://graph.facebook.com/v19.0/${igUserId}/media`,
+        `https://graph.instagram.com/v21.0/${igUserId}/media`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -898,7 +919,7 @@ class SocialMediaService {
         for (let i = 0; i < 30; i++) { // Max 150 seconds
           await new Promise(r => setTimeout(r, 5000));
           const statusRes = await fetch(
-            `https://graph.facebook.com/v19.0/${containerId}?fields=status_code&access_token=${tokens.accessToken}`
+            `https://graph.instagram.com/v21.0/${containerId}?fields=status_code&access_token=${tokens.accessToken}`
           );
           if (statusRes.ok) {
             const statusData = await statusRes.json() as any;
@@ -915,7 +936,7 @@ class SocialMediaService {
 
       // Step 2: Publish the media container
       const publishResponse = await fetch(
-        `https://graph.facebook.com/v19.0/${igUserId}/media_publish`,
+        `https://graph.instagram.com/v21.0/${igUserId}/media_publish`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
