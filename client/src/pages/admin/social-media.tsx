@@ -230,7 +230,6 @@ function ConnectedAccountsSection() {
   // Listen for OAuth popup callback
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
       if (event.data?.type === "social-connected") {
         queryClient.invalidateQueries({ queryKey: ["/api/social-media/status"] });
         toast({

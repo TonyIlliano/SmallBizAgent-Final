@@ -117,9 +117,8 @@ router.get('/:platform/callback', async (req: Request, res: Response) => {
 
     const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
 
-    const appOrigin = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     res.send(`<html><body><p>\u2713 ${platformName} Connected!</p><script>
-if(window.opener){window.opener.postMessage({type:'social-connected',platform:'${platform}'},'${appOrigin}');}
+if(window.opener){window.opener.postMessage({type:'social-connected',platform:'${platform}'},window.opener.location.origin);}
 setTimeout(function(){window.close();},2000);
 </script></body></html>`);
   } catch (error: any) {

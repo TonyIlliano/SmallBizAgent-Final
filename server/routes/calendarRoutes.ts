@@ -53,7 +53,7 @@ router.get('/google/callback', async (req, res) => {
           <script>
             if (window.opener) {
               // Post to same origin (popup is on the same domain as the parent)
-              window.opener.postMessage({ type: 'calendar-connected', provider: 'google' }, window.location.origin);
+              window.opener.postMessage({ type: 'calendar-connected', provider: 'google' }, window.opener.location.origin);
             }
             setTimeout(function() { window.close(); }, 2000);
           </script>
@@ -97,7 +97,7 @@ router.get('/microsoft/callback', async (req, res) => {
           <script>
             if (window.opener) {
               // Post to same origin (popup is on the same domain as the parent)
-              window.opener.postMessage({ type: 'calendar-connected', provider: 'microsoft' }, window.location.origin);
+              window.opener.postMessage({ type: 'calendar-connected', provider: 'microsoft' }, window.opener.location.origin);
             }
             setTimeout(function() { window.close(); }, 2000);
           </script>
