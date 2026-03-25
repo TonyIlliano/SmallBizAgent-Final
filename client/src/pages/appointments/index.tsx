@@ -36,8 +36,10 @@ import {
   Armchair,
   AlertTriangle,
   GripVertical,
+  Plus,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useSwipeGesture } from "@/hooks/use-swipe-gesture";
 import { useBusinessHours } from "@/hooks/use-business-hours";
 import { AppointmentForm } from "@/components/appointments/AppointmentForm";
 import { QuickStatsBar } from "@/components/appointments/QuickStatsBar";
@@ -333,6 +335,7 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
 
   // Dynamic business hours + vertical labels
   const { hourStart, hourEnd, hours: dynamicHours, labels } = useBusinessHours();
@@ -589,66 +592,81 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
-          <h2 className="text-2xl font-bold">Appointments</h2>
-          <p className="text-gray-500 text-sm">Manage your schedule</p>
+          <h2 className={`font-bold ${isMobile ? "text-xl" : "text-2xl"}`}>Appointments</h2>
+          {!isMobile && <p className="text-gray-500 text-sm">Manage your schedule</p>}
         </div>
         <div className="flex items-center gap-2">
-          <ExportButton endpoint="/api/export/appointments" filename="appointments.csv" />
-          <Button
-            variant="outline"
-            onClick={() => navigate("/appointments/fullscreen")}
-            className="flex items-center"
-            title="Open fullscreen schedule view"
-          >
-            <Maximize2 className="mr-2 h-4 w-4" />
-            Enlarge
-          </Button>
-          <Button onClick={() => { setPrefillDate(null); setSheetOpen(true); }} className="flex items-center">
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New Appointment
-          </Button>
+          {!isMobile && (
+            <>
+              <ExportButton endpoint="/api/export/appointments" filename="appointments.csv" />
+              <Button
+                variant="outline"
+                onClick={() => navigate("/appointments/fullscreen")}
+                className="flex items-center"
+                title="Open fullscreen schedule view"
+              >
+                <Maximize2 className="mr-2 h-4 w-4" />
+                Enlarge
+              </Button>
+            </>
+          )}
+          {!isMobile && (
+            <Button onClick={() => { setPrefillDate(null); setSheetOpen(true); }} className="flex items-center">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              New Appointment
+            </Button>
+          )}
         </div>
       </div>
 
       {/* ── Navigation Bar ─────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 bg-white rounded-lg border p-3">
-        {/* Left: navigation controls */}
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={navigatePrev}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={goToday}>
-            Today
-          </Button>
-          <Button variant="outline" size="icon" onClick={navigateNext}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <span className="ml-2 text-xs sm:text-sm font-medium text-gray-700 truncate max-w-[120px] sm:max-w-none">
+      <div className={`flex flex-col gap-2 mb-4 bg-white rounded-lg border ${isMobile ? "p-2.5" : "p-3"}`}>
+        {/* Row 1: navigation controls + date label */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="icon" className={isMobile ? "h-8 w-8" : ""} onClick={navigatePrev}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" className={isMobile ? "h-8 px-2 text-xs" : ""} onClick={goToday}>
+              Today
+            </Button>
+            <Button variant="outline" size="icon" className={isMobile ? "h-8 w-8" : ""} onClick={navigateNext}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <span className={`font-medium text-gray-700 text-right ${isMobile ? "text-sm" : "text-sm ml-2"}`}>
             {viewMode === "month"
               ? formatMonthYear(selectedDate)
               : viewMode === "week"
-                ? formatWeekRange(selectedDate)
-                : formatFullDate(selectedDate)}
+                ? (isMobile
+                    ? selectedDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                    : formatWeekRange(selectedDate))
+                : (isMobile
+                    ? selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+                    : formatFullDate(selectedDate))}
           </span>
         </div>
 
-        {/* Right: view toggle */}
+        {/* Row 2: view toggle */}
         <div className="flex rounded-lg border overflow-hidden">
-          {(["week", "day", "month"] as ViewMode[]).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
-              className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-                mode !== "week" ? "border-l" : ""
-              } ${
-                viewMode === mode
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-white text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              {mode.charAt(0).toUpperCase() + mode.slice(1)}
-            </button>
-          ))}
+          {(["week", "day", "month"] as ViewMode[]).map((mode) => {
+            const label = isMobile && mode === "week" ? "Schedule" : mode.charAt(0).toUpperCase() + mode.slice(1);
+            return (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`flex-1 py-1.5 font-medium transition-colors ${
+                  mode !== "week" ? "border-l" : ""
+                } ${isMobile ? "text-xs" : "text-sm"} ${
+                  viewMode === mode
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -719,9 +737,23 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
         />
       )}
 
+      {/* ── Mobile FAB ──────────────────────────────────────────── */}
+      {isMobile && (
+        <button
+          onClick={() => { setPrefillDate(null); setSheetOpen(true); }}
+          className="fixed bottom-20 right-4 z-40 h-14 w-14 rounded-full bg-primary text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+          aria-label="New Appointment"
+        >
+          <Plus className="h-6 w-6" />
+        </button>
+      )}
+
       {/* ── New Appointment Sheet ──────────────────────────────── */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+        <SheetContent
+          side={isMobile ? "bottom" : "right"}
+          className={isMobile ? "h-[90vh] rounded-t-xl overflow-y-auto" : "w-full sm:max-w-xl overflow-y-auto"}
+        >
           <SheetHeader>
             <SheetTitle>Schedule New Appointment</SheetTitle>
             <SheetDescription>
@@ -736,7 +768,10 @@ function AppointmentsView({ businessId }: { businessId?: number }) {
 
       {/* ── Appointment Detail Side Panel ──────────────────────── */}
       <Sheet open={detailSheetOpen} onOpenChange={setDetailSheetOpen}>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+        <SheetContent
+          side={isMobile ? "bottom" : "right"}
+          className={isMobile ? "h-[85vh] rounded-t-xl overflow-y-auto" : "w-full sm:max-w-md overflow-y-auto"}
+        >
           {selectedAppointment && (
             <AppointmentDetailPanel
               appointment={selectedAppointment}
@@ -899,7 +934,7 @@ function AppointmentDetailPanel({
             onValueChange={onStatusChange}
             disabled={statusPending}
           >
-            <SelectTrigger className="h-8 text-sm flex-1">
+            <SelectTrigger className="h-10 text-sm flex-1">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -912,17 +947,17 @@ function AppointmentDetailPanel({
           </Select>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex flex-wrap gap-2">
+        {/* Action buttons — stack vertically on mobile for bigger touch targets */}
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
           {appointment.status !== "confirmed" && appointment.status !== "cancelled" && appointment.status !== "completed" && (
             <Button
               size="sm"
               variant="outline"
               onClick={() => onStatusChange("confirmed")}
               disabled={statusPending}
-              className="text-green-700 border-green-200 hover:bg-green-50"
+              className="text-green-700 border-green-200 hover:bg-green-50 min-h-[44px] justify-start"
             >
-              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
               Confirm
             </Button>
           )}
@@ -932,9 +967,9 @@ function AppointmentDetailPanel({
               variant="outline"
               onClick={() => onStatusChange("completed")}
               disabled={statusPending}
-              className="text-purple-700 border-purple-200 hover:bg-purple-50"
+              className="text-purple-700 border-purple-200 hover:bg-purple-50 min-h-[44px] justify-start"
             >
-              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
               Complete
             </Button>
           )}
@@ -944,9 +979,9 @@ function AppointmentDetailPanel({
               variant="outline"
               onClick={() => onStatusChange("no_show")}
               disabled={statusPending}
-              className="text-amber-700 border-amber-200 hover:bg-amber-50"
+              className="text-amber-700 border-amber-200 hover:bg-amber-50 min-h-[44px] justify-start"
             >
-              <UserX className="h-3.5 w-3.5 mr-1" />
+              <UserX className="h-3.5 w-3.5 mr-1.5" />
               No Show
             </Button>
           )}
@@ -956,9 +991,9 @@ function AppointmentDetailPanel({
               variant="outline"
               onClick={() => onStatusChange("cancelled")}
               disabled={statusPending}
-              className="text-red-700 border-red-200 hover:bg-red-50"
+              className="text-red-700 border-red-200 hover:bg-red-50 min-h-[44px] justify-start"
             >
-              <XCircle className="h-3.5 w-3.5 mr-1" />
+              <XCircle className="h-3.5 w-3.5 mr-1.5" />
               Cancel
             </Button>
           )}
@@ -968,8 +1003,9 @@ function AppointmentDetailPanel({
               variant="outline"
               onClick={onSendReminder}
               disabled={reminderPending}
+              className="min-h-[44px] justify-start"
             >
-              <MessageSquare className="h-3.5 w-3.5 mr-1" />
+              <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
               {reminderPending ? "Sending..." : "Send Reminder"}
             </Button>
           )}
@@ -983,7 +1019,7 @@ function AppointmentDetailPanel({
         variant="ghost"
         size="sm"
         onClick={onViewFull}
-        className="w-full text-gray-500"
+        className="w-full text-gray-500 min-h-[44px]"
       >
         <ExternalLink className="h-3.5 w-3.5 mr-1" />
         View Full Details / Edit
@@ -1004,6 +1040,7 @@ function MonthView({
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
 }) {
+  const isMobile = useIsMobile();
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
   const firstDay = new Date(year, month, 1);
@@ -1035,14 +1072,16 @@ function MonthView({
     countsByDate.set(key, (countsByDate.get(key) || 0) + 1);
   });
 
-  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const dayNames = isMobile
+    ? ["M", "T", "W", "T", "F", "S", "S"]
+    : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   return (
     <div className="bg-white rounded-lg border overflow-hidden">
       {/* Day headers */}
       <div className="grid grid-cols-7 border-b">
-        {dayNames.map(d => (
-          <div key={d} className="p-2 text-center text-xs font-medium text-gray-500 uppercase">
+        {dayNames.map((d, i) => (
+          <div key={`${d}-${i}`} className={`text-center text-xs font-medium text-gray-500 uppercase ${isMobile ? "p-1.5" : "p-2"}`}>
             {d}
           </div>
         ))}
@@ -1061,12 +1100,16 @@ function MonthView({
               <button
                 key={di}
                 onClick={() => onSelectDate(day)}
-                className={`relative p-2 min-h-[72px] sm:min-h-[88px] text-left border-r last:border-r-0 transition-colors hover:bg-gray-50 ${
+                className={`relative text-left border-r last:border-r-0 transition-colors hover:bg-gray-50 ${
+                  isMobile ? "p-1 min-h-[52px]" : "p-2 min-h-[88px]"
+                } ${
                   !inMonth ? "bg-gray-50/50" : ""
                 } ${today ? "bg-blue-50/60" : ""}`}
               >
                 <div
-                  className={`text-sm font-medium inline-flex items-center justify-center w-7 h-7 rounded-full ${
+                  className={`font-medium inline-flex items-center justify-center rounded-full ${
+                    isMobile ? "text-xs w-6 h-6" : "text-sm w-7 h-7"
+                  } ${
                     today
                       ? "bg-blue-600 text-white"
                       : inMonth
@@ -1077,17 +1120,28 @@ function MonthView({
                   {day.getDate()}
                 </div>
                 {count > 0 && (
-                  <div className="mt-1 flex items-center gap-1">
-                    <div className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                      count >= 5
-                        ? "bg-red-100 text-red-700"
-                        : count >= 3
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-blue-100 text-blue-700"
-                    }`}>
-                      {count} appt{count !== 1 ? "s" : ""}
+                  isMobile ? (
+                    <div className="flex gap-0.5 mt-0.5 justify-center">
+                      {Array.from({ length: Math.min(count, 3) }).map((_, i) => (
+                        <div key={i} className={`w-1.5 h-1.5 rounded-full ${
+                          count >= 5 ? "bg-red-400" : count >= 3 ? "bg-amber-400" : "bg-blue-400"
+                        }`} />
+                      ))}
+                      {count > 3 && <span className="text-[8px] text-gray-400 leading-none">+{count - 3}</span>}
                     </div>
-                  </div>
+                  ) : (
+                    <div className="mt-1 flex items-center gap-1">
+                      <div className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                        count >= 5
+                          ? "bg-red-100 text-red-700"
+                          : count >= 3
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-blue-100 text-blue-700"
+                      }`}>
+                        {count} appt{count !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                  )
                 )}
               </button>
             );
@@ -1298,7 +1352,7 @@ function WeekView({
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// MOBILE WEEK VIEW — Day selector strip + single-day time grid
+// MOBILE WEEK VIEW — Day selector strip + single-day time grid + swipe
 // ═══════════════════════════════════════════════════════════════════════
 function MobileWeekView({
   appointments,
@@ -1324,11 +1378,16 @@ function MobileWeekView({
     return todayIdx >= 0 ? todayIdx : 0;
   });
 
+  const swipeHandlers = useSwipeGesture({
+    onSwipeLeft: () => setActiveDayIndex((prev) => Math.min(prev + 1, weekDays.length - 1)),
+    onSwipeRight: () => setActiveDayIndex((prev) => Math.max(prev - 1, 0)),
+  });
+
   const activeDay = weekDays[activeDayIndex];
   const dayAppointments = appointments.filter((a) =>
     isSameDay(new Date(a.startDate), activeDay)
   );
-  const MOBILE_HOUR_HEIGHT = 56;
+  const MOBILE_HOUR_HEIGHT = 72;
 
   return (
     <div className="bg-white rounded-lg border overflow-hidden">
@@ -1372,9 +1431,13 @@ function MobileWeekView({
         })}
       </div>
 
-      {/* Single-day time grid */}
-      <div className="overflow-y-auto" style={{ maxHeight: "60vh" }}>
-        <div className="grid grid-cols-[50px_1fr] relative" style={{ minHeight: dynamicHours.length * MOBILE_HOUR_HEIGHT }}>
+      {/* Single-day time grid — swipeable */}
+      <div
+        className="overflow-y-auto"
+        style={{ maxHeight: "60vh" }}
+        {...swipeHandlers}
+      >
+        <div className="grid grid-cols-[46px_1fr] relative" style={{ minHeight: dynamicHours.length * MOBILE_HOUR_HEIGHT }}>
           {dynamicHours.map((hour) => {
             const cellAppts = dayAppointments.filter((a) => {
               const aDate = new Date(a.startDate);
@@ -1385,7 +1448,7 @@ function MobileWeekView({
               <div key={`mobile-${hour}`} className="contents">
                 {/* Time label */}
                 <div
-                  className="text-[11px] text-gray-400 text-right pr-2 pt-1 border-b"
+                  className="text-[11px] text-gray-400 text-right pr-1.5 pt-1 border-b"
                   style={{ height: MOBILE_HOUR_HEIGHT }}
                 >
                   {formatHour(hour)}
@@ -1401,7 +1464,7 @@ function MobileWeekView({
                     const topPx = (minuteOffset / 60) * MOBILE_HOUR_HEIGHT;
                     const end = new Date(appt.endDate);
                     const durationMinutes = (end.getTime() - start.getTime()) / 60000;
-                    const heightPx = Math.max((durationMinutes / 60) * MOBILE_HOUR_HEIGHT - 2, 24);
+                    const heightPx = Math.max((durationMinutes / 60) * MOBILE_HOUR_HEIGHT - 2, 36);
                     const colors = getStatusColors(appt.status);
                     const isCancelled = appt.status === "cancelled";
                     const staffColor = getStaffColor(appt.staff?.id, staffMembers);
@@ -1414,23 +1477,25 @@ function MobileWeekView({
                       <button
                         key={appt.id}
                         onClick={() => onClickAppointment(appt.id)}
-                        className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border} ${
+                        className={`absolute left-1 right-1 rounded-md px-2.5 py-1.5 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border} ${
                           isCancelled ? "opacity-50" : ""
                         }`}
-                        style={{ top: topPx, height: heightPx }}
+                        style={{ top: topPx, height: Math.max(heightPx, 44), minHeight: 44 }}
                       >
-                        <div className={`flex items-center gap-1 ${colors.text}`}>
+                        <div className={`flex items-center gap-1.5 ${colors.text}`}>
                           <div
-                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            className="w-2 h-2 rounded-full flex-shrink-0"
                             style={{ backgroundColor: staffColor }}
                           />
-                          <span className={`text-xs font-semibold whitespace-nowrap truncate ${isCancelled ? "line-through" : ""}`}>
+                          <span className={`text-sm font-semibold whitespace-nowrap truncate ${isCancelled ? "line-through" : ""}`}>
                             {customerName}
                           </span>
                         </div>
-                        <div className="text-[11px] text-gray-500 whitespace-nowrap truncate pl-3">
-                          {appt.service?.name || "Appointment"} · {formatTime(start)}
-                        </div>
+                        {heightPx >= 40 && (
+                          <div className="text-xs text-gray-500 whitespace-nowrap truncate pl-3.5">
+                            {appt.service?.name || "Appointment"} · {formatTime(start)}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -1868,7 +1933,7 @@ function DroppableQuarter({
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// MOBILE STAFF DAY VIEW — Single staff at a time with staff selector
+// MOBILE STAFF DAY VIEW — Single staff at a time with staff selector + swipe
 // ═══════════════════════════════════════════════════════════════════════
 function MobileStaffDayView({
   columns,
@@ -1896,6 +1961,11 @@ function MobileStaffDayView({
   const activeAppts = appointmentsByColumn.get(activeCol?.id ?? null) || [];
   const MOBILE_DAY_HOUR_HEIGHT = 70;
 
+  const swipeHandlers = useSwipeGesture({
+    onSwipeLeft: () => setActiveStaffIndex((prev) => Math.min(prev + 1, columns.length - 1)),
+    onSwipeRight: () => setActiveStaffIndex((prev) => Math.max(prev - 1, 0)),
+  });
+
   return (
     <div className="bg-white rounded-lg border overflow-hidden">
       {/* Staff selector strip */}
@@ -1908,7 +1978,7 @@ function MobileStaffDayView({
             <button
               key={col.id ?? "unassigned"}
               onClick={() => setActiveStaffIndex(i)}
-              className={`flex-shrink-0 flex items-center gap-2 px-4 py-3 text-center transition-colors relative border-r last:border-r-0 ${
+              className={`flex-shrink-0 flex items-center gap-2 px-3 py-2.5 text-center transition-colors relative border-r last:border-r-0 ${
                 isActive ? "bg-primary/10" : "hover:bg-gray-50"
               }`}
             >
@@ -1917,7 +1987,7 @@ function MobileStaffDayView({
                 style={{ backgroundColor: col.color }}
               />
               <span
-                className={`text-sm font-medium whitespace-nowrap ${
+                className={`text-xs font-medium whitespace-nowrap ${
                   isActive ? "text-primary" : "text-gray-600"
                 }`}
               >
@@ -1942,10 +2012,14 @@ function MobileStaffDayView({
         })}
       </div>
 
-      {/* Single-staff time grid */}
-      <div className="overflow-y-auto" style={{ maxHeight: "65vh" }}>
+      {/* Single-staff time grid — swipeable */}
+      <div
+        className="overflow-y-auto"
+        style={{ maxHeight: "65vh" }}
+        {...swipeHandlers}
+      >
         <div
-          className="grid grid-cols-[50px_1fr] relative"
+          className="grid grid-cols-[46px_1fr] relative"
           style={{ minHeight: dynamicHours.length * MOBILE_DAY_HOUR_HEIGHT }}
         >
           {/* Current time indicator */}
@@ -1975,7 +2049,7 @@ function MobileStaffDayView({
               <div key={`mobile-staff-${hour}`} className="contents">
                 {/* Time label */}
                 <div
-                  className="text-[11px] text-gray-400 text-right pr-2 pt-1 border-b"
+                  className="text-[11px] text-gray-400 text-right pr-1.5 pt-1 border-b"
                   style={{ height: MOBILE_DAY_HOUR_HEIGHT }}
                 >
                   {formatHour(hour)}
@@ -1996,7 +2070,7 @@ function MobileStaffDayView({
                       (end.getTime() - start.getTime()) / 60000;
                     const heightPx = Math.max(
                       (durationMinutes / 60) * MOBILE_DAY_HOUR_HEIGHT - 2,
-                      28
+                      36
                     );
                     const colors = getStatusColors(appt.status);
                     const isCancelled = appt.status === "cancelled";
@@ -2012,19 +2086,21 @@ function MobileStaffDayView({
                           e.stopPropagation();
                           onClickAppointment(appt.id);
                         }}
-                        className={`absolute left-1 right-1 rounded-md px-2 py-1 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border} ${
+                        className={`absolute left-1 right-1 rounded-md px-2.5 py-1.5 border-l-3 text-left overflow-hidden cursor-pointer transition-shadow active:shadow-md z-10 ${colors.bg} ${colors.border} ${
                           isCancelled ? "opacity-50" : ""
                         }`}
-                        style={{ top: topPx, height: heightPx }}
+                        style={{ top: topPx, height: Math.max(heightPx, 44), minHeight: 44 }}
                       >
                         <div
-                          className={`text-xs font-semibold whitespace-nowrap truncate ${colors.text} ${isCancelled ? "line-through" : ""}`}
+                          className={`text-sm font-semibold whitespace-nowrap truncate ${colors.text} ${isCancelled ? "line-through" : ""}`}
                         >
                           {customerName}
                         </div>
-                        <div className="text-[11px] text-gray-500 whitespace-nowrap truncate">
-                          {appt.service?.name || "Appointment"} · {formatTime(start)}
-                        </div>
+                        {heightPx >= 40 && (
+                          <div className="text-xs text-gray-500 whitespace-nowrap truncate">
+                            {appt.service?.name || "Appointment"} · {formatTime(start)}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
