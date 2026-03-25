@@ -938,6 +938,189 @@ router.post('/clips', isAdmin, upload.single('file'), async (req: Request, res: 
   }
 });
 
+// ── GIF-to-MP4 Converter ────────────────────────────────────────────────
+
+const gifUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max for GIFs
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'image/gif') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only GIF files are allowed'));
+    }
+  },
+});
+
+/**
+ * POST /clips/from-gif — Upload a GIF, convert to MP4 via FFmpeg, save to S3 clip library
+ * Multipart form: file (GIF), name, description, category, tags (JSON string array)
+ */
+router.post('/clips/from-gif', isAdmin, gifUpload.single('file'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No GIF file uploaded' });
+    }
+
+    const { name, description, category, tags } = req.body;
+
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    if (!category || typeof category !== 'string') {
+      return res.status(400).json({ error: 'category is required' });
+    }
+
+    const { uploadBufferToS3, isS3Configured } = await import('../utils/s3Upload');
+    if (!isS3Configured()) {
+      return res.status(503).json({ error: 'S3 is not configured — cannot upload clips' });
+    }
+
+    const { convertGifToMp4 } = await import('../utils/gifToMp4');
+
+    console.log(`[SocialMedia] Converting GIF to MP4: "${name}" (${(req.file.size / 1024 / 1024).toFixed(1)}MB)`);
+    const { mp4Buffer, metadata } = await convertGifToMp4(req.file.buffer);
+
+    const timestamp = Date.now();
+    const s3Key = `social-media/clip-library/${category}/${timestamp}-${name.replace(/\s+/g, '-').toLowerCase()}.mp4`;
+    const s3Url = await uploadBufferToS3(mp4Buffer, s3Key, 'video/mp4');
+
+    let parsedTags: string[] | null = null;
+    if (tags) {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch {
+        parsedTags = tags.split(',').map((t: string) => t.trim());
+      }
+    }
+
+    const [clip] = await db.insert(videoClips).values({
+      name,
+      description: description || null,
+      category,
+      s3Key,
+      s3Url,
+      durationSeconds: metadata.durationSeconds,
+      width: metadata.width,
+      height: metadata.height,
+      fileSize: metadata.fileSize,
+      mimeType: 'video/mp4',
+      tags: parsedTags,
+    }).returning();
+
+    console.log(`[SocialMedia] GIF→MP4 clip saved: "${name}" (${(metadata.fileSize / 1024 / 1024).toFixed(1)}MB, ${metadata.durationSeconds.toFixed(1)}s, ${metadata.width}x${metadata.height}) → ${s3Url}`);
+    res.json(clip);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error converting GIF to clip:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /clips/from-url — Download a GIF from a URL, convert to MP4, save to S3 clip library
+ * JSON body: { url, name, category, description?, tags? }
+ */
+router.post('/clips/from-url', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { url, name, description, category, tags } = req.body;
+
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'url is required' });
+    }
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    if (!category || typeof category !== 'string') {
+      return res.status(400).json({ error: 'category is required' });
+    }
+
+    // Validate URL
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL' });
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return res.status(400).json({ error: 'Only HTTP/HTTPS URLs are allowed' });
+    }
+
+    const { uploadBufferToS3, isS3Configured } = await import('../utils/s3Upload');
+    if (!isS3Configured()) {
+      return res.status(503).json({ error: 'S3 is not configured — cannot upload clips' });
+    }
+
+    // Download the GIF
+    console.log(`[SocialMedia] Downloading GIF from URL: ${url}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let response: globalThis.Response;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      return res.status(400).json({ error: `Failed to download GIF: HTTP ${response.status}` });
+    }
+
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
+      return res.status(413).json({ error: 'GIF too large (max 50MB)' });
+    }
+
+    const gifBuffer = Buffer.from(await response.arrayBuffer());
+
+    // Verify GIF magic bytes
+    if (gifBuffer.length < 3 || gifBuffer.toString('ascii', 0, 3) !== 'GIF') {
+      return res.status(400).json({ error: 'Downloaded file is not a GIF' });
+    }
+
+    const { convertGifToMp4 } = await import('../utils/gifToMp4');
+
+    console.log(`[SocialMedia] Converting downloaded GIF to MP4: "${name}" (${(gifBuffer.length / 1024 / 1024).toFixed(1)}MB)`);
+    const { mp4Buffer, metadata } = await convertGifToMp4(gifBuffer);
+
+    const timestamp = Date.now();
+    const s3Key = `social-media/clip-library/${category}/${timestamp}-${name.replace(/\s+/g, '-').toLowerCase()}.mp4`;
+    const s3Url = await uploadBufferToS3(mp4Buffer, s3Key, 'video/mp4');
+
+    let parsedTags: string[] | null = null;
+    if (tags) {
+      if (Array.isArray(tags)) {
+        parsedTags = tags;
+      } else if (typeof tags === 'string') {
+        try {
+          parsedTags = JSON.parse(tags);
+        } catch {
+          parsedTags = tags.split(',').map((t: string) => t.trim());
+        }
+      }
+    }
+
+    const [clip] = await db.insert(videoClips).values({
+      name,
+      description: description || null,
+      category,
+      s3Key,
+      s3Url,
+      durationSeconds: metadata.durationSeconds,
+      width: metadata.width,
+      height: metadata.height,
+      fileSize: metadata.fileSize,
+      mimeType: 'video/mp4',
+      tags: parsedTags,
+    }).returning();
+
+    console.log(`[SocialMedia] GIF→MP4 clip saved from URL: "${name}" (${(metadata.fileSize / 1024 / 1024).toFixed(1)}MB, ${metadata.durationSeconds.toFixed(1)}s) → ${s3Url}`);
+    res.json(clip);
+  } catch (error: any) {
+    console.error('[SocialMedia] Error converting GIF URL to clip:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 /**
  * PUT /clips/:id — Update clip metadata
  */
@@ -1069,12 +1252,14 @@ router.get('/pipeline-status', isAdmin, async (_req: Request, res: Response) => 
     const { isPexelsConfigured } = await import('../services/pexelsService');
     const { isTTSAvailable } = await import('../services/ttsService');
     const { isS3Configured } = await import('../utils/s3Upload');
+    const { isFFmpegAvailable } = await import('../utils/gifToMp4');
 
     res.json({
       shotstack: isVideoAssemblyAvailable(),
       pexels: isPexelsConfigured(),
       tts: isTTSAvailable(),
       s3: isS3Configured(),
+      ffmpeg: isFFmpegAvailable(),
       ready: isVideoAssemblyAvailable() && isS3Configured(),
     });
   } catch (error: any) {

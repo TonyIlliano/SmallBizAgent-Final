@@ -366,7 +366,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `cloverRoutes` | `/api/clover/*` | Clover POS OAuth, menu, orders |
 | `squareRoutes` | `/api/square/*` | Square POS integration |
 | `heartlandRoutes` | `/api/heartland/*` | Heartland POS integration |
-| `socialMediaRoutes` | `/api/social-media/*` | Social posts, video gen, OAuth, publishing, engagement metrics, winners, generate-from-winners, video briefs, clip library CRUD, video rendering pipeline, TTS voices, pipeline status |
+| `socialMediaRoutes` | `/api/social-media/*` | Social posts, video gen, OAuth, publishing, engagement metrics, winners, generate-from-winners, video briefs, clip library CRUD, GIF-to-MP4 converter, video rendering pipeline, TTS voices, pipeline status |
 | `subscriptionRoutes` | `/api/subscriptions/*` | Plans, billing portal, promo codes |
 | `stripeConnectRoutes` | `/api/stripe-connect/*` | Stripe Connect for payments |
 | `phoneRoutes` | `/api/phone/*` | Twilio number provisioning |
@@ -675,6 +675,16 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `cf664cf` | Enhance admin dashboard: business controls, user management, live monitoring |
 
 ### Recent changes (uncommitted):
+
+#### GIF-to-MP4 Converter for Video Ad Pipeline
+- **Goal**: Enable fully automated screen recording → video clip pipeline. MCP browser tool records GIFs of app screens, server converts to MP4 via FFmpeg, uploads to S3 clip library for use in Shotstack video assembly.
+- **New dependency**: `fluent-ffmpeg` (+ `@types/fluent-ffmpeg` devDep). Uses system FFmpeg binary (pre-installed on Railway containers).
+- `server/utils/gifToMp4.ts` — **NEW**: `isFFmpegAvailable()` checks system PATH. `convertGifToMp4(gifBuffer)` writes GIF to /tmp, runs FFmpeg (`-movflags faststart -pix_fmt yuv420p -vf scale=trunc(iw/2)*2:trunc(ih/2)*2`), extracts metadata via ffprobe (duration, width, height), cleans up temp files. Returns `{ mp4Buffer, metadata }`.
+- `server/routes/socialMediaRoutes.ts` — **3 new additions**:
+  - `gifUpload` multer instance (50MB, `image/gif` only)
+  - `POST /clips/from-gif` — multipart form: GIF file + name + category + description + tags → FFmpeg convert → S3 upload → videoClips DB insert → return clip record
+  - `POST /clips/from-url` — JSON body: GIF URL + name + category → fetch → validate GIF magic bytes → FFmpeg convert → S3 upload → DB insert → return clip record
+  - `GET /pipeline-status` — added `ffmpeg: isFFmpegAvailable()` flag
 
 #### Recurring Appointment Summary SMS
 - **Goal**: Send customers a single summary SMS listing all booked dates when a recurring series is created, so they have a complete record — not just a confirmation for the first appointment.
@@ -1332,6 +1342,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Video assembly pipeline | `server/services/videoAssemblyService.ts` |
 | Pexels stock footage | `server/services/pexelsService.ts` |
 | TTS voiceover service | `server/services/ttsService.ts` |
+| GIF-to-MP4 converter | `server/utils/gifToMp4.ts` |
 | Vapi AI receptionist | `server/services/vapiService.ts` |
 | Subscription billing | `server/services/subscriptionService.ts` |
 | Post-call intelligence | `server/services/callIntelligenceService.ts` |
