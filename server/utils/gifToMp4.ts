@@ -16,15 +16,19 @@ import { execSync } from "child_process";
 import { createRequire } from "module";
 import ffmpeg from "fluent-ffmpeg";
 
-// Set ffmpeg path from ffmpeg-static (ESM-compatible via createRequire)
+// Set ffmpeg/ffprobe paths from static packages (ESM-compatible via createRequire)
 try {
-  const require = createRequire(import.meta.url);
-  const ffmpegStaticPath = require("ffmpeg-static") as string;
-  if (ffmpegStaticPath) {
-    ffmpeg.setFfmpegPath(ffmpegStaticPath);
-  }
+  const esmRequire = createRequire(import.meta.url);
+  try {
+    const ffmpegStaticPath = esmRequire("ffmpeg-static") as string;
+    if (ffmpegStaticPath) ffmpeg.setFfmpegPath(ffmpegStaticPath);
+  } catch { /* ffmpeg-static not installed */ }
+  try {
+    const ffprobeStatic = esmRequire("ffprobe-static") as { path: string };
+    if (ffprobeStatic?.path) ffmpeg.setFfprobePath(ffprobeStatic.path);
+  } catch { /* ffprobe-static not installed */ }
 } catch {
-  // ffmpeg-static not installed, rely on system PATH
+  // createRequire failed, rely on system PATH
 }
 
 export interface VideoMetadata {
