@@ -13,21 +13,15 @@ import { writeFile, readFile, unlink } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
+import { createRequire } from "module";
 import ffmpeg from "fluent-ffmpeg";
 
-// Set ffmpeg/ffprobe paths from ffmpeg-static if system binaries aren't available
+// Set ffmpeg path from ffmpeg-static (ESM-compatible via createRequire)
 try {
-  const ffmpegStatic = require("ffmpeg-static") as string;
-  if (ffmpegStatic) {
-    ffmpeg.setFfmpegPath(ffmpegStatic);
-    // ffprobe is alongside ffmpeg in ffmpeg-static
-    const ffprobePath = ffmpegStatic.replace(/ffmpeg$/, "ffprobe");
-    try {
-      execSync(`test -f "${ffprobePath}"`, { encoding: "utf-8" });
-      ffmpeg.setFfprobePath(ffprobePath);
-    } catch {
-      // ffprobe not bundled, will try system path
-    }
+  const require = createRequire(import.meta.url);
+  const ffmpegStaticPath = require("ffmpeg-static") as string;
+  if (ffmpegStaticPath) {
+    ffmpeg.setFfmpegPath(ffmpegStaticPath);
   }
 } catch {
   // ffmpeg-static not installed, rely on system PATH
@@ -43,16 +37,17 @@ export interface VideoMetadata {
 export function isFFmpegAvailable(): boolean {
   // Check system PATH first
   try {
-    const path = execSync("which ffmpeg", { encoding: "utf-8" }).trim();
-    if (path) return true;
+    const systemPath = execSync("which ffmpeg", { encoding: "utf-8" }).trim();
+    if (systemPath) return true;
   } catch {
     // not on system PATH
   }
   // Check ffmpeg-static
   try {
-    const ffmpegStatic = require("ffmpeg-static") as string;
-    if (ffmpegStatic) {
-      execSync(`test -f "${ffmpegStatic}"`, { encoding: "utf-8" });
+    const require = createRequire(import.meta.url);
+    const ffmpegStaticPath = require("ffmpeg-static") as string;
+    if (ffmpegStaticPath) {
+      execSync(`test -f "${ffmpegStaticPath}"`, { encoding: "utf-8" });
       return true;
     }
   } catch {
