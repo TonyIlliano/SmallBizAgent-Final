@@ -1,12 +1,11 @@
 /**
  * GIF-to-MP4 Conversion Utility
  *
- * Converts GIF files to H.264 MP4 using system FFmpeg.
+ * Converts GIF files to H.264 MP4 using FFmpeg.
+ * Uses ffmpeg-static bundled binary when system FFmpeg is unavailable.
  * Used by the clip library endpoints to accept GIF recordings
  * from the MCP browser tool and convert them to video clips
  * for the Shotstack video assembly pipeline.
- *
- * Requires FFmpeg + ffprobe on system PATH (standard on Railway containers).
  */
 
 import { randomUUID } from "crypto";
@@ -16,6 +15,24 @@ import { tmpdir } from "os";
 import { execSync } from "child_process";
 import ffmpeg from "fluent-ffmpeg";
 
+// Set ffmpeg/ffprobe paths from ffmpeg-static if system binaries aren't available
+try {
+  const ffmpegStatic = require("ffmpeg-static") as string;
+  if (ffmpegStatic) {
+    ffmpeg.setFfmpegPath(ffmpegStatic);
+    // ffprobe is alongside ffmpeg in ffmpeg-static
+    const ffprobePath = ffmpegStatic.replace(/ffmpeg$/, "ffprobe");
+    try {
+      execSync(`test -f "${ffprobePath}"`, { encoding: "utf-8" });
+      ffmpeg.setFfprobePath(ffprobePath);
+    } catch {
+      // ffprobe not bundled, will try system path
+    }
+  }
+} catch {
+  // ffmpeg-static not installed, rely on system PATH
+}
+
 export interface VideoMetadata {
   durationSeconds: number;
   width: number;
@@ -24,12 +41,24 @@ export interface VideoMetadata {
 }
 
 export function isFFmpegAvailable(): boolean {
+  // Check system PATH first
   try {
     const path = execSync("which ffmpeg", { encoding: "utf-8" }).trim();
-    return !!path;
+    if (path) return true;
   } catch {
-    return false;
+    // not on system PATH
   }
+  // Check ffmpeg-static
+  try {
+    const ffmpegStatic = require("ffmpeg-static") as string;
+    if (ffmpegStatic) {
+      execSync(`test -f "${ffmpegStatic}"`, { encoding: "utf-8" });
+      return true;
+    }
+  } catch {
+    // ffmpeg-static not available
+  }
+  return false;
 }
 
 export async function convertGifToMp4(gifBuffer: Buffer): Promise<{
