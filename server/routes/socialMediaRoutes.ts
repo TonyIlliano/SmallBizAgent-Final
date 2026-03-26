@@ -1122,39 +1122,94 @@ router.post('/clips/from-url', isAdmin, async (req: Request, res: Response) => {
 });
 
 /**
- * POST /clips/test-convert — Diagnostic: test FFmpeg conversion with a tiny GIF
+ * GET /clips/test-ffmpeg — Diagnostic: test FFmpeg without fluent-ffmpeg
  */
-router.post('/clips/test-convert', isAdmin, async (req: Request, res: Response) => {
+router.get('/clips/test-ffmpeg', isAdmin, async (req: Request, res: Response) => {
   const steps: string[] = [];
   try {
-    steps.push('start');
+    const { execSync } = await import('child_process');
+    const mod = await import('module');
+    const createRequire = (mod as any).createRequire || (mod as any).default?.createRequire;
+    const { writeFileSync, readFileSync, unlinkSync, existsSync, statSync } = await import('fs');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
 
-    // Create a minimal valid GIF in memory (1x1 pixel, red)
+    // Step 1: Find ffmpeg binary
+    let ffmpegPath = '';
+    try {
+      const esmRequire = createRequire(import.meta.url);
+      ffmpegPath = esmRequire('ffmpeg-static') as string;
+      steps.push(`ffmpeg_static_path: ${ffmpegPath}`);
+    } catch (e: any) {
+      steps.push(`ffmpeg_static_error: ${e.message?.substring(0, 100)}`);
+    }
+    if (!ffmpegPath) {
+      try {
+        ffmpegPath = execSync('which ffmpeg', { encoding: 'utf-8' }).trim();
+        steps.push(`system_ffmpeg: ${ffmpegPath}`);
+      } catch {
+        steps.push('no_ffmpeg_found');
+        return res.json({ success: false, steps });
+      }
+    }
+
+    // Step 2: Check binary
+    const exists = existsSync(ffmpegPath);
+    steps.push(`exists: ${exists}`);
+    if (exists) {
+      const stat = statSync(ffmpegPath);
+      steps.push(`size: ${stat.size}, mode: 0o${stat.mode.toString(8)}`);
+    }
+
+    // Step 3: Run ffmpeg -version
+    try {
+      const ver = execSync(`"${ffmpegPath}" -version 2>&1`, { encoding: 'utf-8', timeout: 5000 });
+      steps.push(`version: ${ver.split('\n')[0]}`);
+    } catch (e: any) {
+      steps.push(`version_error: ${e.message?.substring(0, 200)}`);
+      return res.json({ success: false, steps });
+    }
+
+    // Step 4: Convert a tiny GIF to MP4 using raw execSync
+    const id = Date.now();
+    const gifPath = join(tmpdir(), `test-${id}.gif`);
+    const mp4Path = join(tmpdir(), `test-${id}.mp4`);
     const minimalGif = Buffer.from(
       'R0lGODlhAQABAIAAAP8AAP///yH5BAEAAAEALAAAAAABAAEAAAICRAEAOw==',
       'base64'
     );
-    steps.push(`gif_created: ${minimalGif.length} bytes, magic: ${minimalGif.toString('ascii', 0, 3)}`);
+    writeFileSync(gifPath, minimalGif);
+    steps.push(`gif_written: ${gifPath} (${minimalGif.length} bytes)`);
 
-    const { convertGifToMp4 } = await import('../utils/gifToMp4');
-    steps.push('converter_imported');
-
-    const { mp4Buffer, metadata } = await convertGifToMp4(minimalGif);
-    steps.push(`converted: ${mp4Buffer.length} bytes, ${metadata.width}x${metadata.height}, ${metadata.durationSeconds}s`);
-
-    const { uploadBufferToS3, isS3Configured } = await import('../utils/s3Upload');
-    steps.push(`s3_configured: ${isS3Configured()}`);
-
-    if (isS3Configured()) {
-      const s3Key = `social-media/clip-library/test/diagnostic-${Date.now()}.mp4`;
-      const s3Url = await uploadBufferToS3(mp4Buffer, s3Key, 'video/mp4');
-      steps.push(`uploaded: ${s3Url}`);
+    try {
+      const cmd = `"${ffmpegPath}" -y -i "${gifPath}" -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" "${mp4Path}" 2>&1`;
+      const output = execSync(cmd, { encoding: 'utf-8', timeout: 15000 });
+      steps.push(`ffmpeg_output: ${output.substring(0, 200)}`);
+    } catch (e: any) {
+      steps.push(`convert_error: ${e.message?.substring(0, 300)}`);
     }
 
-    res.json({ success: true, steps });
+    if (existsSync(mp4Path)) {
+      const mp4Stat = statSync(mp4Path);
+      steps.push(`mp4_created: ${mp4Stat.size} bytes`);
+
+      // Step 5: Upload to S3
+      const { uploadBufferToS3, isS3Configured } = await import('../utils/s3Upload');
+      if (isS3Configured()) {
+        const mp4Buf = readFileSync(mp4Path);
+        const s3Key = `social-media/clip-library/test/diagnostic-${id}.mp4`;
+        const s3Url = await uploadBufferToS3(mp4Buf, s3Key, 'video/mp4');
+        steps.push(`s3_uploaded: ${s3Url}`);
+      }
+      unlinkSync(mp4Path);
+    } else {
+      steps.push('mp4_not_created');
+    }
+    try { unlinkSync(gifPath); } catch {}
+
+    res.json({ success: steps.some(s => s.startsWith('mp4_created') || s.startsWith('s3_uploaded')), steps });
   } catch (error: any) {
-    steps.push(`ERROR: ${error.message}`);
-    console.error('[SocialMedia] Diagnostic test failed:', error);
+    steps.push(`FATAL: ${error.message?.substring(0, 300)}`);
     res.status(500).json({ success: false, steps, error: error.message });
   }
 });
