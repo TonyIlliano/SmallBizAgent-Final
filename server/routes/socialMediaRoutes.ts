@@ -1122,6 +1122,44 @@ router.post('/clips/from-url', isAdmin, async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /clips/test-convert — Diagnostic: test FFmpeg conversion with a tiny GIF
+ */
+router.post('/clips/test-convert', isAdmin, async (req: Request, res: Response) => {
+  const steps: string[] = [];
+  try {
+    steps.push('start');
+
+    // Create a minimal valid GIF in memory (1x1 pixel, red)
+    const minimalGif = Buffer.from(
+      'R0lGODlhAQABAIAAAP8AAP///yH5BAEAAAEALAAAAAABAAEAAAICRAEAOw==',
+      'base64'
+    );
+    steps.push(`gif_created: ${minimalGif.length} bytes, magic: ${minimalGif.toString('ascii', 0, 3)}`);
+
+    const { convertGifToMp4 } = await import('../utils/gifToMp4');
+    steps.push('converter_imported');
+
+    const { mp4Buffer, metadata } = await convertGifToMp4(minimalGif);
+    steps.push(`converted: ${mp4Buffer.length} bytes, ${metadata.width}x${metadata.height}, ${metadata.durationSeconds}s`);
+
+    const { uploadBufferToS3, isS3Configured } = await import('../utils/s3Upload');
+    steps.push(`s3_configured: ${isS3Configured()}`);
+
+    if (isS3Configured()) {
+      const s3Key = `social-media/clip-library/test/diagnostic-${Date.now()}.mp4`;
+      const s3Url = await uploadBufferToS3(mp4Buffer, s3Key, 'video/mp4');
+      steps.push(`uploaded: ${s3Url}`);
+    }
+
+    res.json({ success: true, steps });
+  } catch (error: any) {
+    steps.push(`ERROR: ${error.message}`);
+    console.error('[SocialMedia] Diagnostic test failed:', error);
+    res.status(500).json({ success: false, steps, error: error.message });
+  }
+});
+
+/**
  * PUT /clips/:id — Update clip metadata
  */
 router.put('/clips/:id', isAdmin, async (req: Request, res: Response) => {
