@@ -8,7 +8,7 @@
 
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
-const BUCKET = process.env.S3_MEDIA_BUCKET || "smallbizagent-media";
+const BUCKET = process.env.S3_MEDIA_BUCKET || process.env.AWS_S3_BUCKET || "smallbizagent-media";
 const REGION = process.env.AWS_REGION || "us-east-1";
 
 let s3Client: S3Client | null = null;
