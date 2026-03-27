@@ -164,7 +164,7 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
 
         let message: string;
         if (isFieldService) {
-          message = `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Reply RESCHEDULE or C to change.${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Your ${serviceName} with ${business.name} is confirmed for ${dateStr} at ${timeStr}${propertyNote}. Reply RESCHEDULE to change or C to cancel.${getSmsFooter()}`;
         } else {
           message = `Hi ${customer.firstName}! Your ${serviceName} appointment is confirmed for ${dateStr} at ${timeStr}. Reply RESCHEDULE or C to change. - ${business.name}${getSmsFooter()}`;
         }
@@ -270,9 +270,9 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
 
         let message: string;
         if (isFieldService) {
-          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Reply CONFIRM, RESCHEDULE, or C. Or call ${getContactNumber(business)}.${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} with ${business.name} is tomorrow at ${timeStr}${propertyNote}. Reply CONFIRM, RESCHEDULE to change, or C to cancel. Or call ${getContactNumber(business)}.${getSmsFooter()}`;
         } else {
-          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE, or C. - ${business.name}${getSmsFooter()}`;
+          message = `Hi ${customer.firstName}! Reminder: Your ${serviceName} appointment is on ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE to change, or C to cancel. - ${business.name}${getSmsFooter()}`;
         }
 
         // Weather alert for field service reminders (only when enabled and forecast shows rain/snow/storms)

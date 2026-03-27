@@ -13,6 +13,8 @@ type ConversationHandler = (
 const handlers: Record<string, () => Promise<{ handler: ConversationHandler }>> = {
   no_show: () => import('./noShowAgentService').then(m => ({ handler: m.handleNoShowReply })),
   rebooking: () => import('./rebookingAgentService').then(m => ({ handler: m.handleRebookingReply })),
+  disambiguation: () => Promise.resolve({ handler: handleDisambiguationReply }),
+  reschedule: () => Promise.resolve({ handler: handleRescheduleReply }),
 };
 
 export async function routeConversationReply(
@@ -118,6 +120,176 @@ export async function routeConversationReply(
     console.error(`[SMSRouter] Error handling reply for ${conversation.agentType}:`, err);
     return null;
   }
+}
+
+// ─── Disambiguation Handler ──────────────────────────────────────────────────
+// Handles multi-appointment selection when customer has 2+ upcoming appointments
+// and texted CONFIRM, C (cancel), or RESCHEDULE.
+// Context shape: { action: 'confirm' | 'cancel' | 'reschedule', appointments: [...] }
+
+async function handleDisambiguationReply(
+  conversation: SmsConversation,
+  messageBody: string,
+  customer: Customer | undefined,
+  businessId: number,
+): Promise<{ replyMessage: string } | null> {
+  const context = conversation.context as any;
+  if (!context?.action || !context?.appointments?.length) {
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    return { replyMessage: `Something went wrong. Please try again or call us.` };
+  }
+
+  const trimmed = messageBody.trim();
+  const selection = parseInt(trimmed, 10);
+
+  if (isNaN(selection) || selection < 1 || selection > context.appointments.length) {
+    return {
+      replyMessage: `Please reply with a number (1-${context.appointments.length}) to select your appointment.`,
+    };
+  }
+
+  const selectedApt = context.appointments[selection - 1];
+  const business = await storage.getBusiness(businessId);
+  const businessName = business?.name || '';
+
+  if (context.action === 'confirm') {
+    await storage.updateAppointment(selectedApt.id, { status: 'confirmed' });
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    console.log(`[SMS] Disambiguation: confirmed appointment ${selectedApt.id} for customer ${customer?.id}`);
+    return {
+      replyMessage: `Your ${selectedApt.serviceName} on ${selectedApt.dateStr} at ${selectedApt.timeStr} is confirmed! See you then. - ${businessName}`,
+    };
+  }
+
+  if (context.action === 'cancel') {
+    await storage.updateAppointment(selectedApt.id, {
+      status: 'cancelled',
+      notes: `[Cancelled via SMS on ${new Date().toLocaleDateString()}]`,
+    });
+    // Dispatch cancellation event for insights recalculation
+    if (customer?.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('appointment.cancelled', {
+          businessId,
+          customerId: customer!.id,
+          referenceType: 'appointment',
+          referenceId: selectedApt.id,
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    console.log(`[SMS] Disambiguation: cancelled appointment ${selectedApt.id} for customer ${customer?.id}`);
+    return {
+      replyMessage: `Your ${selectedApt.serviceName} on ${selectedApt.dateStr} at ${selectedApt.timeStr} has been cancelled. To rebook, reply RESCHEDULE or call ${business?.twilioPhoneNumber || business?.phone || 'us'}. - ${businessName}`,
+    };
+  }
+
+  if (context.action === 'reschedule') {
+    // Resolve disambiguation and create a new reschedule conversation for the selected appointment
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+
+    await storage.createSmsConversation({
+      businessId,
+      customerId: customer?.id ?? null,
+      customerPhone: conversation.customerPhone,
+      agentType: 'reschedule',
+      referenceType: 'appointment',
+      referenceId: selectedApt.id,
+      state: 'reschedule_awaiting',
+      context: {
+        appointmentId: selectedApt.id,
+        oldDate: selectedApt.dateStr,
+        oldTime: selectedApt.timeStr,
+        serviceName: selectedApt.serviceName,
+      },
+      lastMessageSentAt: new Date(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    });
+
+    console.log(`[SMS] Disambiguation: selected appointment ${selectedApt.id} for reschedule, created reschedule conversation`);
+    return {
+      replyMessage: `Sure! Your ${selectedApt.serviceName} is on ${selectedApt.dateStr} at ${selectedApt.timeStr}. What day and time works better for you? - ${businessName}`,
+    };
+  }
+
+  await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+  return { replyMessage: `Something went wrong. Please try again or call us. - ${businessName}` };
+}
+
+// ─── Reschedule Handler ──────────────────────────────────────────────────────
+// Routes the customer's date/time reply through the Reply Intelligence Graph
+// for AI-powered rescheduling (availability checking, slot offers, DB updates).
+// Falls back to manage link if graph is unavailable.
+
+async function handleRescheduleReply(
+  conversation: SmsConversation,
+  messageBody: string,
+  customer: Customer | undefined,
+  businessId: number,
+): Promise<{ replyMessage: string } | null> {
+  try {
+    const { isReplyGraphReady, invokeReplyGraph } = await import('./replyIntelligenceGraph');
+    if (isReplyGraphReady()) {
+      const graphResult = await invokeReplyGraph({
+        businessId,
+        customerId: customer?.id,
+        customerPhone: conversation.customerPhone,
+        incomingMessage: messageBody,
+      });
+
+      if (graphResult?.responseMessage) {
+        // Check if reschedule completed — if action is 'rescheduled', resolve conversation
+        if (graphResult.action === 'rescheduled') {
+          await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+          // Release engagement lock
+          if (customer?.id) {
+            import('./orchestrationService').then(mod => {
+              mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+            }).catch(() => {});
+          }
+          console.log(`[SMS] Reschedule completed via graph for customer ${customer?.id}`);
+        } else if (graphResult.action === 'reschedule_no_appointment' || graphResult.action === 'reschedule_error') {
+          // Terminal states — resolve conversation
+          await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+        } else {
+          // Still in multi-turn — extend expiry
+          await storage.updateSmsConversation(conversation.id, {
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            lastReplyReceivedAt: new Date(),
+          });
+        }
+        return { replyMessage: graphResult.responseMessage };
+      }
+    }
+  } catch (err) {
+    console.error('[SMSRouter] Reschedule graph error, sending manage link fallback:', err);
+  }
+
+  // Fallback: send manage link if graph fails or is unavailable
+  const business = await storage.getBusiness(businessId);
+  const context = conversation.context as any;
+  const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+
+  if (context?.appointmentId && business?.bookingSlug) {
+    try {
+      const apt = await storage.getAppointment(context.appointmentId);
+      if (apt?.manageToken) {
+        await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+        return {
+          replyMessage: `Here's a link to reschedule: ${appUrl}/book/${business.bookingSlug}/manage/${apt.manageToken} - ${business.name}`,
+        };
+      }
+    } catch {}
+  }
+
+  // Final fallback
+  await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+  const bookLink = business?.bookingSlug ? `${appUrl}/book/${business.bookingSlug}` : '';
+  return {
+    replyMessage: bookLink
+      ? `Reschedule here: ${bookLink} - ${business?.name || ''}`
+      : `Please call us at ${business?.phone || 'our number'} to reschedule. - ${business?.name || ''}`,
+  };
 }
 
 export default { routeConversationReply };

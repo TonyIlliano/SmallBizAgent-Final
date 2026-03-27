@@ -2132,7 +2132,7 @@ async function bookAppointment(
       try {
         await twilioService.sendSms(
           customerPhone,
-          `Your appointment${withStaff} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Reply HELP for assistance.`,
+          `Your appointment${withStaff} at ${business.name} is confirmed for ${dateStr} at ${timeStr}. Reply CONFIRM, RESCHEDULE to change, or C to cancel.`,
           undefined,
           businessId || undefined
         );
@@ -2740,7 +2740,7 @@ async function bookRecurringAppointment(
         const dateList = bookedDates.map((d, i) => `${i + 1}. ${d}`).join('\n');
         await twilioService.sendSms(
           customerPhone,
-          `Your ${frequency} ${serviceName}${withStaff} series at ${business.name} is confirmed!\n\n${dateList}\n\nAll at ${params.time} ${tzAbbr}. Reply HELP for assistance.`,
+          `Your ${frequency} ${serviceName}${withStaff} series at ${business.name} is confirmed!\n\n${dateList}\n\nAll at ${params.time} ${tzAbbr}. Reply CONFIRM, RESCHEDULE to change, or C to cancel.`,
           undefined,
           businessId || undefined
         );

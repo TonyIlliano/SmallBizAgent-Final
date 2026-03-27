@@ -676,6 +676,40 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### SMS System Optimization — 5 Improvements
+- **Goal**: Fix SMS keyword clarity, route RESCHEDULE through LangGraph AI, add keywords to phone booking SMS, add multi-appointment disambiguation, standardize templates.
+
+##### 1. "C to cancel" Keyword Clarity
+- All SMS templates changed from `Reply RESCHEDULE or C to change` to `Reply RESCHEDULE to change or C to cancel`. Customers previously thought "C" meant "Change" or "Confirm" — now explicitly says "to cancel."
+- Files updated: `notificationService.ts` (4 templates), `reminderService.ts` (1 template), `messageIntelligenceService.ts` (2 templates), `routes.ts` (1 template), `smsProfileRoutes.ts` (1 template).
+
+##### 2. RESCHEDULE Keyword Routes Through LangGraph AI
+- **Before**: Customer texts "RESCHEDULE" → gets a manage link (no actual rescheduling via SMS).
+- **After**: Customer texts "RESCHEDULE" → system creates an `sms_conversation` (agentType: `reschedule`, state: `reschedule_awaiting`, 15-min expiry) → replies "What day and time works better?" → next reply routes through the Reply Intelligence Graph's `rescheduleNode` which does full availability checking, slot offers, and direct DB updates.
+- `server/routes.ts` — RESCHEDULE handler rewritten: creates conversation instead of sending link. Multi-appointment disambiguation if 2+ appointments.
+- `server/services/smsConversationRouter.ts` — Added `handleRescheduleReply` handler: routes customer replies through `invokeReplyGraph()`. If graph returns `action: 'rescheduled'`, resolves conversation and releases engagement lock. Extends expiry on multi-turn. Falls back to manage link if graph unavailable.
+- `server/services/replyIntelligenceGraph.ts` — **Thread ID fix**: Removed `Date.now()` from thread_id (`sms_reply_{businessId}_{phone}` instead of `sms_reply_{businessId}_{phone}_{timestamp}`). State now persists per phone+business for multi-turn continuity.
+- `server/services/replyIntelligenceGraph.ts` — **classifyIntentNode enhanced**: Now includes active conversation type/state in the classification prompt. Added hint: "If there is an active reschedule conversation and the customer provides a date/time, classify as RESCHEDULE with high confidence." This prevents bare date/time replies from being classified as QUESTION.
+
+##### 3. Keywords Added to Phone Booking + Recurring Series SMS
+- `server/services/vapiWebhookHandler.ts` — Booking confirmation SMS (line 2135): changed from `Reply HELP for assistance` to `Reply CONFIRM, RESCHEDULE to change, or C to cancel.`
+- `server/services/vapiWebhookHandler.ts` — Recurring series SMS (line 2743): same change.
+
+##### 4. Multi-Appointment Disambiguation for SMS
+- **Before**: Customer with 2+ appointments texts CONFIRM or C → system blindly picks the next one.
+- **After**: System sends numbered list ("1. Haircut - Fri Mar 28 at 2:00 PM / 2. Color - Tue Apr 1 at 10:00 AM") and asks "Which one? Reply 1-2." Customer replies with number → correct appointment is confirmed/cancelled/rescheduled.
+- `server/routes.ts` — CONFIRM handler: added `upcoming.length > 1` check with disambiguation conversation creation.
+- `server/routes.ts` — CANCEL/C handler: same pattern with `action: 'cancel'`.
+- `server/routes.ts` — RESCHEDULE handler: same pattern with `action: 'reschedule'`.
+- `server/services/smsConversationRouter.ts` — Added `handleDisambiguationReply` handler: parses number reply, performs the original action (confirm/cancel), or creates a reschedule conversation for the selected appointment.
+- `server/storage.ts` — Added `'disambiguating'` and `'reschedule_awaiting'` to `activeStates` arrays in both `getActiveSmsConversation()` and `getExpiredConversations()`.
+
+##### 5. Template Standardization
+- Every appointment-related outbound SMS now uses one of two consistent keyword footers:
+  - Confirmations: `Reply CONFIRM, RESCHEDULE to change, or C to cancel.`
+  - Reminders: `Reply CONFIRM, RESCHEDULE to change, or C to cancel.`
+- Phone bookings (Vapi) and recurring series now include the same keywords as web bookings.
+
 #### GIF-to-MP4 Converter for Video Ad Pipeline
 - **Goal**: Enable fully automated screen recording → video clip pipeline. MCP browser tool records GIFs of app screens, server converts to MP4 via FFmpeg, uploads to S3 clip library for use in Shotstack video assembly.
 - **New dependency**: `fluent-ffmpeg` (+ `@types/fluent-ffmpeg` devDep). Uses system FFmpeg binary (pre-installed on Railway containers).
@@ -1429,4 +1463,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 24, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. Test mock fix: noShowAgentService.test.ts and followUpAgentService.test.ts updated to mock `messageIntelligenceService.generateMessage` instead of `twilioService.sendSms` (agents now route through MIS, not direct Twilio). Added missing `createNotificationLog` mock to followUpAgentService.test.ts. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted). Vapi AI Intelligence Upgrade (uncommitted): 17 improvements — gpt-5-mini model, maxTokens 350, likelyReason caller prediction, service price/duration in availability, reschedule safety checks, emotional caller handling, upselling, smart summary truncation, booking tips, multi-appointment cancel/reschedule, 3 missing tools registered, getDirections voice-aware, 13 industry missed call texts, name extraction, getEstimate capped at 5, system prompt condensed ~35%, automatic intelligence feedback loop. Bug fixes: appointment status filter expanded (scheduled+confirmed+pending), staff name matching fix (active !== false + partial match), date rule strengthened (AI was converting dates instead of passing raw words).*
+*Last updated: March 27, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. Test mock fix: noShowAgentService.test.ts and followUpAgentService.test.ts updated to mock `messageIntelligenceService.generateMessage` instead of `twilioService.sendSms` (agents now route through MIS, not direct Twilio). Added missing `createNotificationLog` mock to followUpAgentService.test.ts. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted). Vapi AI Intelligence Upgrade (uncommitted): 17 improvements — gpt-5-mini model, maxTokens 350, likelyReason caller prediction, service price/duration in availability, reschedule safety checks, emotional caller handling, upselling, smart summary truncation, booking tips, multi-appointment cancel/reschedule, 3 missing tools registered, getDirections voice-aware, 13 industry missed call texts, name extraction, getEstimate capped at 5, system prompt condensed ~35%, automatic intelligence feedback loop. Bug fixes: appointment status filter expanded (scheduled+confirmed+pending), staff name matching fix (active !== false + partial match), date rule strengthened (AI was converting dates instead of passing raw words).*

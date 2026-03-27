@@ -2263,7 +2263,7 @@ export class DatabaseStorage implements IStorage {
   async getActiveSmsConversation(customerPhone: string, businessId: number): Promise<SmsConversation | undefined> {
     // Normalize phone for matching
     const digits = customerPhone.replace(/\D/g, '').slice(-10);
-    const activeStates = ['awaiting_reply', 'collecting_preferences', 'offering_slots', 'confirming_booking'];
+    const activeStates = ['awaiting_reply', 'collecting_preferences', 'offering_slots', 'confirming_booking', 'disambiguating', 'reschedule_awaiting'];
     const results = await db.select().from(smsConversations)
       .where(and(
         eq(smsConversations.businessId, businessId),
@@ -2293,7 +2293,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getExpiredConversations(): Promise<SmsConversation[]> {
-    const activeStates = ['awaiting_reply', 'collecting_preferences', 'offering_slots', 'confirming_booking'];
+    const activeStates = ['awaiting_reply', 'collecting_preferences', 'offering_slots', 'confirming_booking', 'disambiguating', 'reschedule_awaiting'];
     return db.select().from(smsConversations)
       .where(and(
         inArray(smsConversations.state, activeStates),

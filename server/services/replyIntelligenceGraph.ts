@@ -156,7 +156,7 @@ export async function invokeReplyGraph(input: {
   if (!graphReady || !compiledGraph) return null;
 
   try {
-    const threadId = `sms_reply_${input.businessId}_${input.customerPhone.replace(/\D/g, '')}_${Date.now()}`;
+    const threadId = `sms_reply_${input.businessId}_${input.customerPhone.replace(/\D/g, '')}`;
 
     const initialState: Partial<ReplyIntelligenceState> = {
       businessId: input.businessId,
@@ -251,11 +251,18 @@ async function classifyIntentNode(state: ReplyIntelligenceState): Promise<Partia
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+    const activeConvHint = state.activeConversation
+      ? `Active conversation: Yes (type: ${state.activeConversation.agentType}, state: ${state.activeConversation.state})`
+      : 'Active conversation: None';
+
     const systemPrompt = `Classify this SMS reply from a customer of a ${state.verticalId} business.
 Customer: ${state.customerName}
 Upcoming appointment: ${state.upcomingAppointment ? `Yes, on ${new Date(state.upcomingAppointment.startDate).toLocaleDateString()}` : 'None'}
+${activeConvHint}
 Active campaign: ${state.activeCampaignId ? 'Yes' : 'No'}
 Customer memory: ${state.mem0Context || 'No history'}
+
+IMPORTANT: If there is an active reschedule conversation (type: reschedule, state: reschedule_awaiting) and the customer provides a date, time, or day of the week, classify as RESCHEDULE with high confidence and extract the date/time into entities.
 
 Return JSON only:
 {

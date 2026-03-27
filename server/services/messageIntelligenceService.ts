@@ -495,10 +495,10 @@ function buildSmartTemplate(ctx: MessageContext, business: any, vertical: Vertic
   switch (ctx.messageType) {
     case 'BOOKING_CONFIRMATION':
     case 'JOB_CONFIRMATION':
-      return `Hi ${name}! Your ${c?.serviceName || 'appointment'} is confirmed for ${c?.appointmentDate || 'the scheduled date'} at ${c?.appointmentTime || 'the scheduled time'}. Reply RESCHEDULE or C to change. - ${bizName}`;
+      return `Hi ${name}! Your ${c?.serviceName || 'appointment'} is confirmed for ${c?.appointmentDate || 'the scheduled date'} at ${c?.appointmentTime || 'the scheduled time'}. Reply RESCHEDULE to change or C to cancel. - ${bizName}`;
     case 'APPOINTMENT_REMINDER':
     case 'JOB_REMINDER':
-      return `Hi ${name}! Reminder: Your ${c?.serviceName || 'appointment'} is on ${c?.appointmentDate || 'your scheduled date'} at ${c?.appointmentTime || 'the scheduled time'}. Reply CONFIRM, RESCHEDULE, or C. - ${bizName}`;
+      return `Hi ${name}! Reminder: Your ${c?.serviceName || 'appointment'} is on ${c?.appointmentDate || 'your scheduled date'} at ${c?.appointmentTime || 'the scheduled time'}. Reply CONFIRM, RESCHEDULE to change, or C to cancel. - ${bizName}`;
     case 'RESCHEDULE_CONFIRMATION':
       return `Hi ${name}! Your appointment has been rescheduled to ${c?.newDate || 'the new date'} at ${c?.newTime || 'the new time'}. - ${bizName}`;
     case 'CANCELLATION_ACKNOWLEDGMENT':

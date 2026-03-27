@@ -4742,16 +4742,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ── Handle CONFIRM keyword (from appointment reminders) ──
       if (bodyTrimmed === 'CONFIRM' && customer) {
         try {
-          // Find their next upcoming scheduled appointment
           const appointments = await storage.getAppointmentsByCustomerId(customer.id);
           const now = new Date();
           const upcoming = appointments
             .filter((apt: any) => new Date(apt.startDate) > now && (apt.status === 'scheduled' || apt.status === 'confirmed'))
             .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
-          if (upcoming.length > 0) {
+          if (upcoming.length > 1) {
+            // Multiple appointments — disambiguate
+            const allServices = await storage.getServices(businessId);
+            const tz = business.timezone || 'America/New_York';
+            const aptList = upcoming.map((apt: any, i: number) => {
+              const d = new Date(apt.startDate);
+              const dateStr = d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' });
+              const timeStr = d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+              const svc = apt.serviceId ? allServices.find((s: any) => s.id === apt.serviceId) : null;
+              return { id: apt.id, dateStr, timeStr, serviceName: svc?.name || 'Appointment' };
+            });
+            const listText = aptList.map((a: any, i: number) => `${i + 1}. ${a.serviceName} - ${a.dateStr} at ${a.timeStr}`).join('\n');
+            await storage.createSmsConversation({
+              businessId,
+              customerId: customer.id,
+              customerPhone: From,
+              agentType: 'disambiguation',
+              state: 'disambiguating',
+              context: { action: 'confirm', appointments: aptList },
+              lastMessageSentAt: new Date(),
+              expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            });
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`You have ${upcoming.length} upcoming appointments:\n${listText}\nWhich one? Reply 1-${upcoming.length}. - ${business.name}`);
+            console.log(`[SMS] CONFIRM: disambiguating ${upcoming.length} appointments for customer ${customer.id}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          } else if (upcoming.length === 1) {
             const nextApt = upcoming[0];
-            // Mark as confirmed
             await storage.updateAppointment(nextApt.id, { status: 'confirmed' });
             const aptDate = new Date(nextApt.startDate);
             const biz = await storage.getBusiness(nextApt.businessId);
@@ -4790,7 +4815,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .filter((apt: any) => new Date(apt.startDate) > now && (apt.status === 'scheduled' || apt.status === 'confirmed'))
             .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
-          if (upcoming.length > 0) {
+          if (upcoming.length > 1) {
+            // Multiple appointments — disambiguate
+            const allServices = await storage.getServices(businessId);
+            const tz = business.timezone || 'America/New_York';
+            const aptList = upcoming.map((apt: any, i: number) => {
+              const d = new Date(apt.startDate);
+              const dateStr = d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' });
+              const timeStr = d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+              const svc = apt.serviceId ? allServices.find((s: any) => s.id === apt.serviceId) : null;
+              return { id: apt.id, dateStr, timeStr, serviceName: svc?.name || 'Appointment' };
+            });
+            const listText = aptList.map((a: any, i: number) => `${i + 1}. ${a.serviceName} - ${a.dateStr} at ${a.timeStr}`).join('\n');
+            await storage.createSmsConversation({
+              businessId,
+              customerId: customer.id,
+              customerPhone: From,
+              agentType: 'disambiguation',
+              state: 'disambiguating',
+              context: { action: 'cancel', appointments: aptList },
+              lastMessageSentAt: new Date(),
+              expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            });
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`Which appointment would you like to cancel?\n${listText}\nReply 1-${upcoming.length}. - ${business.name}`);
+            console.log(`[SMS] CANCEL: disambiguating ${upcoming.length} appointments for customer ${customer.id}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          } else if (upcoming.length === 1) {
             const nextApt = upcoming[0];
             const aptDate = new Date(nextApt.startDate);
             const biz = await storage.getBusiness(nextApt.businessId);
@@ -4829,7 +4881,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // ── Handle RESCHEDULE keyword (send booking link for self-service rescheduling) ──
+      // ── Handle RESCHEDULE keyword (conversational AI rescheduling via LangGraph) ──
+      // Creates an SMS conversation and routes through the Reply Intelligence Graph
+      // for AI-powered date/time parsing, availability checking, and direct DB updates.
+      // Falls back to manage link if graph is unavailable.
       if (bodyTrimmed === 'RESCHEDULE' && customer) {
         try {
           const appointments = await storage.getAppointmentsByCustomerId(customer.id);
@@ -4840,31 +4895,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
 
-          if (upcoming.length > 0) {
+          if (upcoming.length > 1) {
+            // Multiple appointments — disambiguate first, then reschedule
+            const allServices = await storage.getServices(businessId);
+            const tz = business.timezone || 'America/New_York';
+            const aptList = upcoming.map((apt: any, i: number) => {
+              const d = new Date(apt.startDate);
+              const dateStr = d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' });
+              const timeStr = d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+              const svc = apt.serviceId ? allServices.find((s: any) => s.id === apt.serviceId) : null;
+              return { id: apt.id, dateStr, timeStr, serviceName: svc?.name || 'Appointment' };
+            });
+            const listText = aptList.map((a: any, i: number) => `${i + 1}. ${a.serviceName} - ${a.dateStr} at ${a.timeStr}`).join('\n');
+            await storage.createSmsConversation({
+              businessId,
+              customerId: customer.id,
+              customerPhone: From,
+              agentType: 'disambiguation',
+              state: 'disambiguating',
+              context: { action: 'reschedule', appointments: aptList },
+              lastMessageSentAt: new Date(),
+              expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            });
+            const twiml = new twilio.twiml.MessagingResponse();
+            twiml.message(`Which appointment would you like to reschedule?\n${listText}\nReply 1-${upcoming.length}. - ${business.name}`);
+            console.log(`[SMS] RESCHEDULE: disambiguating ${upcoming.length} appointments for customer ${customer.id}`);
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          } else if (upcoming.length === 1) {
             const nextApt = upcoming[0];
             const aptDate = new Date(nextApt.startDate);
-            const biz = await storage.getBusiness(nextApt.businessId);
-            const tz = biz?.timezone || 'America/New_York';
+            const tz = business.timezone || 'America/New_York';
             const dateStr = aptDate.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' });
             const timeStr = aptDate.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+            const svc = nextApt.serviceId ? (await storage.getService(nextApt.serviceId))?.name : null;
 
-            // Use manage token if available, otherwise fall back to booking page
-            let rescheduleLink: string;
-            if (nextApt.manageToken && business.bookingSlug) {
-              rescheduleLink = `${appUrl}/book/${business.bookingSlug}/manage/${nextApt.manageToken}`;
-            } else if (business.bookingSlug) {
-              rescheduleLink = `${appUrl}/book/${business.bookingSlug}`;
-            } else {
-              // No booking page — tell them to call
-              const twiml = new twilio.twiml.MessagingResponse();
-              twiml.message(`To reschedule your appointment on ${dateStr} at ${timeStr}, please call us at ${business.twilioPhoneNumber || business.phone || 'our number'}. - ${business.name}`);
-              res.type('text/xml');
-              return res.send(twiml.toString());
-            }
+            // Create reschedule conversation — next reply routes through AI graph
+            await storage.createSmsConversation({
+              businessId,
+              customerId: customer.id,
+              customerPhone: From,
+              agentType: 'reschedule',
+              referenceType: 'appointment',
+              referenceId: nextApt.id,
+              state: 'reschedule_awaiting',
+              context: {
+                appointmentId: nextApt.id,
+                oldDate: dateStr,
+                oldTime: timeStr,
+                serviceName: svc || 'Appointment',
+              },
+              lastMessageSentAt: new Date(),
+              expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            });
 
             const twiml = new twilio.twiml.MessagingResponse();
-            twiml.message(`Your current appointment is ${dateStr} at ${timeStr}. Reschedule here: ${rescheduleLink} — or call ${business.twilioPhoneNumber || business.phone || 'us'}. - ${business.name}`);
-            console.log(`[SMS] RESCHEDULE keyword: sent manage link for appointment ${nextApt.id} to customer ${customer.id}`);
+            twiml.message(`Sure! Your current appointment is ${dateStr} at ${timeStr}. What day and time works better for you? - ${business.name}`);
+            console.log(`[SMS] RESCHEDULE keyword: created reschedule conversation for appointment ${nextApt.id}, customer ${customer.id}`);
             res.type('text/xml');
             return res.send(twiml.toString());
           } else {
@@ -5159,7 +5246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (From && business) {
             try {
               await twilioService.sendSms(From,
-                `Your appointment with ${business.name} is confirmed for ${decodeURIComponent(pendingTimeDescription || '')}. Reply RESCHEDULE or C to change.`
+                `Your appointment with ${business.name} is confirmed for ${decodeURIComponent(pendingTimeDescription || '')}. Reply CONFIRM, RESCHEDULE to change, or C to cancel.`
               );
             } catch (smsError) {
               console.error('Error sending appointment confirmation SMS:', smsError);

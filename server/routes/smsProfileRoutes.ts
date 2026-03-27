@@ -151,7 +151,7 @@ router.post('/preview', async (req: Request, res: Response) => {
         useTemplate: false,
         context: { customerName: 'Mike', serviceName: 'Beard Trim', appointmentDate: 'Tomorrow', appointmentTime: '10:30 AM', businessName: business.name },
         isMarketing: false,
-      }).catch(() => ({ body: `Hey Mike! Just a reminder — your Beard Trim is tomorrow at 10:30 AM. Reply CONFIRM, RESCHEDULE, or C. - ${profile.signOffName || business.name}` })),
+      }).catch(() => ({ body: `Hey Mike! Just a reminder — your Beard Trim is tomorrow at 10:30 AM. Reply CONFIRM, RESCHEDULE to change, or C to cancel. - ${profile.signOffName || business.name}` })),
 
       generateMessage({
         messageType: 'FOLLOW_UP_THANK_YOU',
