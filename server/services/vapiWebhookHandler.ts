@@ -357,15 +357,10 @@ export { dataCache };
 function formatDateForVoice(date: Date, timezone?: string): string {
   const opts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
   if (timezone) opts.timeZone = timezone;
-  const base = date.toLocaleDateString('en-US', opts);
-  // Add ordinal suffix: "March 27" → "March 27th"
-  return base.replace(/(\d+)$/, (_, num) => {
-    const n = parseInt(num);
-    const suffix = (n % 10 === 1 && n !== 11) ? 'st' :
-                   (n % 10 === 2 && n !== 12) ? 'nd' :
-                   (n % 10 === 3 && n !== 13) ? 'rd' : 'th';
-    return `${n}${suffix}`;
-  });
+  // Return plain "Saturday, March 28" — NO ordinal suffixes.
+  // ElevenLabs TTS reads "28th" as "20 eighth" and "31st" as "30 first".
+  // Plain numbers are pronounced correctly by all TTS engines.
+  return date.toLocaleDateString('en-US', opts);
 }
 
 /**
@@ -1060,22 +1055,20 @@ export async function getAvailableSlotsForDay(
     // Use business hours
     const dayHours = businessHours.find(h => h.day === daysMap[dayOfWeek]);
 
-    // Check if explicitly closed
+    // Check if closed — explicit isClosed flag OR no hours configured for this day
     if (dayHours?.isClosed === true) {
+      console.log(`[getAvailableSlotsForDay] Business ${businessId}: ${dayName} is explicitly closed (isClosed=true)`);
+      return { slots: [], isClosed: true, dayName };
+    }
+    if (!dayHours || (!dayHours.open && !dayHours.close)) {
+      console.log(`[getAvailableSlotsForDay] Business ${businessId}: ${dayName} has no hours row or empty open/close — treating as closed. businessHours has ${businessHours.length} entries: [${businessHours.map(h => h.day).join(', ')}]`);
       return { slots: [], isClosed: true, dayName };
     }
 
-    // If no hours row exists for this day (e.g., Saturday/Sunday after express onboarding
-    // which only creates Mon-Fri rows), fall back to default 9am-5pm so the AI can offer
-    // slots rather than silently blocking the day. Businesses that are truly closed should
-    // set isClosed: true explicitly in their business hours settings.
-    if (!dayHours || (!dayHours.open && !dayHours.close)) {
-      openTime = '09:00';
-      closeTime = '17:00';
-    } else {
-      openTime = dayHours.open || '09:00';
-      closeTime = dayHours.close || '17:00';
-    }
+    // Use the actual configured hours for this day
+    openTime = dayHours.open || '09:00';
+    closeTime = dayHours.close || '17:00';
+    console.log(`[getAvailableSlotsForDay] Business ${businessId}: ${dayName} hours = ${openTime} to ${closeTime}`);
   }
 
   const [openH, openM] = openTime.split(':').map(Number);
