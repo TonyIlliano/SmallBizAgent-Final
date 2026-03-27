@@ -38,11 +38,8 @@ const SplitCompareScene: FC<SplitCompareSceneProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const localFrame = frame - startFrame;
-
-  if (localFrame < 0 || localFrame >= durationFrames) {
-    return null;
-  }
+  // frame is already relative inside <Sequence> — no offset needed
+  const localFrame = frame;
 
   const isVertical = aspectRatio === "9:16";
   const midpoint = Math.floor(durationFrames * 0.45);

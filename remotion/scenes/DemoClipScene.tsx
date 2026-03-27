@@ -38,11 +38,8 @@ const DemoClipScene: FC<DemoClipSceneProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const localFrame = frame - startFrame;
-
-  if (localFrame < 0 || localFrame >= durationFrames) {
-    return null;
-  }
+  // frame is already relative inside <Sequence> — no offset needed
+  const localFrame = frame;
 
   // Ken Burns zoom: scale interpolates 1.0 → zoomScale over duration
   const scale = interpolate(localFrame, [0, durationFrames], [1.0, zoomScale], {

@@ -36,11 +36,8 @@ const TestimonialScene: FC<TestimonialSceneProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const localFrame = frame - startFrame;
-
-  if (localFrame < 0 || localFrame >= durationFrames) {
-    return null;
-  }
+  // frame is already relative inside <Sequence> — no offset needed
+  const localFrame = frame;
 
   const padding = getContentPadding(aspectRatio);
   const quoteFontSize = getResponsiveFontSize(24, aspectRatio);
@@ -153,7 +150,7 @@ const TestimonialScene: FC<TestimonialSceneProps> = ({
               textAlign: "center",
             }}
           >
-            “
+            "
           </div>
 
           {/* Quote text - word by word reveal */}

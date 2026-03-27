@@ -26,11 +26,8 @@ const HookScene: FC<HookSceneProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const localFrame = frame - startFrame;
-
-  if (localFrame < 0 || localFrame >= durationFrames) {
-    return null;
-  }
+  // frame is already relative inside <Sequence> — no offset needed
+  const localFrame = frame;
 
   const words = text.split(" ");
   const wordStagger = 4;

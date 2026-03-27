@@ -30,11 +30,8 @@ const LogoRevealScene: FC<LogoRevealSceneProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const localFrame = frame - startFrame;
-
-  if (localFrame < 0 || localFrame >= durationFrames) {
-    return null;
-  }
+  // frame is already relative inside <Sequence> — no offset needed
+  const localFrame = frame;
 
   // Logo scales from 0 to 1
   const logoSpring = spring({
