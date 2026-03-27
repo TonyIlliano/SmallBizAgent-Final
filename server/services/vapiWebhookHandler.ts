@@ -1556,7 +1556,9 @@ async function checkAvailability(
 
   const result = await getAvailableSlotsForDay(businessId, date, businessHours, appointments, duration, staffHoursData.length > 0 ? staffHoursData : undefined, slotIntervalMinutes, businessTimezone);
 
-  // Format date for voice output with ordinal suffix (prevents "March 20 seventh" TTS bug)
+  console.log(`[checkAvailability] Business ${businessId}: date=${date.toISOString().split('T')[0]} (${result.dayName}), isClosed=${result.isClosed}, slotsFound=${result.slots.length}, duration=${duration}min, staffId=${resolvedStaffId || 'none'}, interval=${slotIntervalMinutes}min`);
+
+  // Format date for voice output — plain numbers, no ordinal suffixes (TTS reads "28th" as "20 eighth")
   const displayDate = formatDateForVoice(date);
 
   if (result.isClosed) {
