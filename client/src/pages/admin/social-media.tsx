@@ -1693,7 +1693,11 @@ function ClipLibrarySection() {
       const headers: Record<string, string> = {};
       if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
 
-      const res = await fetch("/api/social-media/clips", {
+      // Route GIFs to the converter endpoint, videos to direct upload
+      const isGif = uploadFile.type === "image/gif" || uploadFile.name.toLowerCase().endsWith(".gif");
+      const endpoint = isGif ? "/api/social-media/clips/from-gif" : "/api/social-media/clips";
+
+      const res = await fetch(endpoint, {
         method: "POST",
         body: formData,
         headers,
@@ -1879,11 +1883,11 @@ function ClipLibrarySection() {
               </DialogHeader>
               <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label>Video File</Label>
+                  <Label>Video or GIF File</Label>
                   <Input
                     ref={fileInputRef}
                     type="file"
-                    accept="video/*"
+                    accept="video/*,image/gif"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) {
