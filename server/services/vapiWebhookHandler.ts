@@ -1060,19 +1060,22 @@ export async function getAvailableSlotsForDay(
     // Use business hours
     const dayHours = businessHours.find(h => h.day === daysMap[dayOfWeek]);
 
-    // Check if closed - handle both explicit isClosed and missing hours (no entry = closed)
+    // Check if explicitly closed
     if (dayHours?.isClosed === true) {
       return { slots: [], isClosed: true, dayName };
     }
 
-    // If no hours found for this day, treat as closed (safer default)
+    // If no hours row exists for this day (e.g., Saturday/Sunday after express onboarding
+    // which only creates Mon-Fri rows), fall back to default 9am-5pm so the AI can offer
+    // slots rather than silently blocking the day. Businesses that are truly closed should
+    // set isClosed: true explicitly in their business hours settings.
     if (!dayHours || (!dayHours.open && !dayHours.close)) {
-      return { slots: [], isClosed: true, dayName };
+      openTime = '09:00';
+      closeTime = '17:00';
+    } else {
+      openTime = dayHours.open || '09:00';
+      closeTime = dayHours.close || '17:00';
     }
-
-    // Set open/close times from business hours
-    openTime = dayHours.open || '09:00';
-    closeTime = dayHours.close || '17:00';
   }
 
   const [openH, openM] = openTime.split(':').map(Number);
@@ -1420,7 +1423,7 @@ async function checkAvailability(
     // Get availability for the next 7 business days (in business timezone)
     const today = getTodayInTimezone(businessTimezone);
 
-    const availableDays: { day: string, date: string, slots: string[] }[] = [];
+    const availableDays: { day: string, date: string, slots: string[], totalAvailable?: number }[] = [];
     let daysChecked = 0;
     let currentDate = new Date(today);
 
@@ -1459,31 +1462,17 @@ async function checkAvailability(
           month: 'long',
           day: 'numeric'
         });
-        // Get representative slots from different times of day
-        const allSlots = result.slots;
-        const sampleSlots: string[] = [];
-
-        // Get first morning slot (before noon)
-        const morningSlot = allSlots.find(s => {
-          const hour = parseInt(s.split(':')[0]);
-          const isPM = s.toLowerCase().includes('pm');
-          return !isPM || hour === 12;
-        });
-        if (morningSlot) sampleSlots.push(morningSlot);
-
-        // Get first afternoon slot (12-5 PM)
-        const afternoonSlot = allSlots.find(s => {
-          const hour = parseInt(s.split(':')[0]);
-          const isPM = s.toLowerCase().includes('pm');
-          const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-          return hour24 >= 12 && hour24 < 17;
-        });
-        if (afternoonSlot && !sampleSlots.includes(afternoonSlot)) sampleSlots.push(afternoonSlot);
+        // Use the same pickBestSlots logic as single-day requests — 3-5 representative
+        // slots spread across morning/midday/afternoon/evening. The old 2-slot
+        // morning+afternoon sampling was hiding most of the day's availability,
+        // causing the AI to tell callers "we only have 9:30 and 12" when 3pm was open.
+        const representativeSlots = pickBestSlots(result.slots, 5);
 
         availableDays.push({
           day: result.dayName,
           date: dateDisplay,
-          slots: sampleSlots.length > 0 ? sampleSlots : result.slots.slice(0, 2)
+          slots: representativeSlots,
+          totalAvailable: result.slots.length,
         });
       }
 
