@@ -3,7 +3,12 @@ import { AbsoluteFill, Audio, Sequence } from "remotion";
 import { z } from "zod";
 import { BRAND } from "../utils/colors";
 import { FONT_FAMILY } from "../utils/fonts";
-import type { AspectRatio } from "../utils/aspect-ratio";
+
+import HookScene from "../scenes/HookScene";
+import DemoClipScene from "../scenes/DemoClipScene";
+import FeatureHighlightScene from "../scenes/FeatureHighlightScene";
+import CTAScene from "../scenes/CTAScene";
+import { BrandBar } from "../components/BrandBar";
 
 const screenSequenceItemSchema = z.object({
   description: z.string(),
@@ -41,6 +46,8 @@ export const adVideoSchema = z.object({
 
 export type AdVideoProps = z.infer<typeof adVideoSchema>;
 
+const FPS = 30;
+
 export const AdVideo: React.FC<AdVideoProps> = ({
   hook,
   voiceoverUrl,
@@ -55,6 +62,27 @@ export const AdVideo: React.FC<AdVideoProps> = ({
   logoUrl,
   stats,
 }) => {
+  const hookDurationFrames = 3 * FPS; // 3 seconds
+  const ctaDurationFrames = 4 * FPS;  // 4 seconds
+  const ctaStartFrame = totalDurationFrames - ctaDurationFrames;
+
+  // Calculate scene start frames from durations
+  let currentFrame = hookDurationFrames;
+  const sceneTimings = screenSequence.map((scene) => {
+    const start = currentFrame;
+    const dur = Math.round(scene.durationSec * FPS);
+    currentFrame += dur;
+    return { startFrame: start, durationFrames: dur };
+  });
+
+  // BrandBar visible during content scenes (after hook, before CTA)
+  const brandBarStart = hookDurationFrames;
+  const brandBarEnd = ctaStartFrame;
+
+  // Coerce aspectRatio for scene components that only accept "9:16"|"16:9"
+  const sceneAspect: "9:16" | "16:9" =
+    aspectRatio === "16:9" ? "16:9" : "9:16";
+
   return (
     <AbsoluteFill
       style={{
@@ -62,120 +90,77 @@ export const AdVideo: React.FC<AdVideoProps> = ({
         fontFamily: FONT_FAMILY,
       }}
     >
-      {/* Hook scene */}
-      <Sequence from={0} durationInFrames={90} name="Hook">
-        <AbsoluteFill
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 60,
-          }}
-        >
-          <h1
-            style={{
-              color: BRAND.white,
-              fontSize: 72,
-              fontWeight: 800,
-              textAlign: "center",
-              lineHeight: 1.2,
-            }}
-          >
-            {hook}
-          </h1>
-        </AbsoluteFill>
+      {/* Hook scene — animated word-by-word reveal */}
+      <Sequence from={0} durationInFrames={hookDurationFrames} name="Hook">
+        <HookScene
+          text={hook}
+          startFrame={0}
+          durationFrames={hookDurationFrames}
+          aspectRatio={sceneAspect}
+        />
       </Sequence>
 
       {/* Screen sequence scenes */}
       {screenSequence.map((scene, index) => {
-        const startFrame = 90 + index * 90;
+        const timing = sceneTimings[index];
+        if (!timing || timing.durationFrames <= 0) return null;
+
         return (
           <Sequence
             key={index}
-            from={startFrame}
-            durationInFrames={Math.round(scene.durationSec * 30)}
+            from={timing.startFrame}
+            durationInFrames={timing.durationFrames}
             name={`Scene-${index}`}
           >
-            <AbsoluteFill
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 60,
-              }}
-            >
-              <p
-                style={{
-                  color: BRAND.textSecondary,
-                  fontSize: 48,
-                  textAlign: "center",
-                }}
-              >
-                {scene.description}
-              </p>
-            </AbsoluteFill>
+            {scene.clipUrl ? (
+              /* Scene has a matched clip — show with Ken Burns effect */
+              <DemoClipScene
+                clipUrl={scene.clipUrl}
+                startFrame={timing.startFrame}
+                durationFrames={timing.durationFrames}
+                label={scene.description}
+                aspectRatio={sceneAspect}
+              />
+            ) : (
+              /* No clip — show description as a feature highlight */
+              <FeatureHighlightScene
+                features={[scene.description]}
+                startFrame={timing.startFrame}
+                durationFrames={timing.durationFrames}
+                aspectRatio={sceneAspect}
+              />
+            )}
           </Sequence>
         );
       })}
 
-      {/* CTA scene */}
+      {/* CTA scene — logo + call-to-action + brand URL */}
       <Sequence
-        from={totalDurationFrames - 120}
-        durationInFrames={120}
+        from={ctaStartFrame}
+        durationInFrames={ctaDurationFrames}
         name="CTA"
       >
-        <AbsoluteFill
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 60,
-            background: BRAND.gradients.cta,
-          }}
-        >
-          <h2
-            style={{
-              color: BRAND.white,
-              fontSize: 64,
-              fontWeight: 700,
-              textAlign: "center",
-              marginBottom: 40,
-            }}
-          >
-            {ctaOverlay}
-          </h2>
-          <p
-            style={{
-              color: BRAND.white,
-              fontSize: 36,
-              opacity: 0.9,
-            }}
-          >
-            {brandUrl}
-          </p>
-        </AbsoluteFill>
+        <CTAScene
+          ctaText={ctaOverlay}
+          brandUrl={brandUrl}
+          logoUrl={logoUrl ?? undefined}
+          startFrame={ctaStartFrame}
+          durationFrames={ctaDurationFrames}
+          aspectRatio={sceneAspect}
+        />
       </Sequence>
 
-      {/* Brand watermark */}
-      <AbsoluteFill
-        style={{
-          justifyContent: "flex-end",
-          alignItems: "center",
-          padding: 30,
-          pointerEvents: "none",
-        }}
-      >
-        <p
-          style={{
-            color: BRAND.white,
-            fontSize: 20,
-            opacity: 0.4,
-          }}
-        >
-          {brandUrl}
-        </p>
-      </AbsoluteFill>
+      {/* BrandBar — small logo + URL bar during content scenes */}
+      {brandBarEnd > brandBarStart && (
+        <BrandBar
+          logoUrl={logoUrl ?? undefined}
+          brandUrl={brandUrl}
+          startFrame={brandBarStart}
+          endFrame={brandBarEnd}
+          position="bottom"
+          aspectRatio={sceneAspect}
+        />
+      )}
 
       {/* Audio layers */}
       {voiceoverUrl && (

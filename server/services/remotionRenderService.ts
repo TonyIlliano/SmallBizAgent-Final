@@ -9,10 +9,11 @@
  * 1. Parse brief's screen_sequence -> match to clip library entries
  * 2. Fetch stock b-roll from Pexels using brief's stock_search_terms
  * 3. Generate voiceover audio from brief's voiceover script via OpenAI TTS
- * 4. Calculate scene timings from voiceover duration
- * 5. Build AdVideoProps (JSON-serializable input for Remotion composition)
- * 6. selectComposition("AdVideo") + renderMedia() -> /tmp MP4
- * 7. Upload to S3 -> update DB -> return result
+ * 4. Map voiceover words to scenes via GPT for precise cut timing
+ * 5. Calculate scene timings from word-count ratios
+ * 6. Build AdVideoProps (JSON-serializable input for Remotion composition)
+ * 7. selectComposition("AdVideo") + renderMedia() -> /tmp MP4
+ * 8. Upload to S3 -> update DB -> return result
  *
  * Bundle is cached after first init — subsequent renders skip the
  * webpack step entirely.
@@ -21,6 +22,7 @@
 import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs";
+import OpenAI from "openai";
 import { db } from "../db";
 import { videoBriefs, videoClips } from "../../shared/schema";
 import { eq } from "drizzle-orm";
@@ -104,6 +106,12 @@ interface AdVideoProps {
   stats: null;
 }
 
+interface SceneWordMapping {
+  sceneIndex: number;
+  words: string;
+  wordCount: number;
+}
+
 // ── Bundle Cache ────────────────────────────────────────────────────────
 
 let bundleLocation: string | null = null;
@@ -172,6 +180,165 @@ async function ensureBundle(): Promise<string> {
   }
 
   return bundleLocation;
+}
+
+// ── Scene-Word Sync ─────────────────────────────────────────────────────
+
+/**
+ * Use OpenAI to map voiceover words to screen_sequence scenes for
+ * precise cut timing. Each word of the voiceover is assigned to exactly
+ * one scene so that visual cuts align with the narration.
+ *
+ * Falls back to even word distribution if the GPT call fails.
+ *
+ * @param voiceoverText  Full voiceover script text
+ * @param screenSequence Scene labels from the brief
+ * @returns Array of mappings: sceneIndex, words, wordCount
+ */
+async function mapWordsToScenes(
+  voiceoverText: string,
+  screenSequence: Array<{ durationSec: number; clip: string; note: string }>
+): Promise<SceneWordMapping[]> {
+  const totalWords = voiceoverText.split(/\s+/).filter(Boolean);
+  const sceneCount = screenSequence.length;
+
+  // If there are no words or no scenes, return empty
+  if (totalWords.length === 0 || sceneCount === 0) {
+    return [];
+  }
+
+  // Build scene labels for the prompt
+  const sceneLabels = screenSequence.map((s, i) =>
+    `Scene ${i}: "${s.clip}" – ${s.note || "no description"} (${s.durationSec}s)`
+  );
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.warn("[RemotionRender] No OPENAI_API_KEY — falling back to even word distribution");
+    return evenWordDistribution(voiceoverText, sceneCount);
+  }
+
+  try {
+    const openai = new OpenAI({ apiKey });
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a video editor. Given a voiceover script and a list of visual scenes, " +
+            "split the script into segments that match each scene. Each word of the script " +
+            "must be assigned to exactly one scene. The words must stay in their original order " +
+            "and no words may be skipped or repeated. Return a JSON object with a single key " +
+            '"segments" containing an array where each entry has "sceneIndex" (0-based integer) ' +
+            'and "words" (the exact substring of the voiceover for that scene). Every scene must ' +
+            "have at least one word assigned to it.",
+        },
+        {
+          role: "user",
+          content:
+            "VOICEOVER SCRIPT:\n" +
+            voiceoverText +
+            "\n\nSCENES:\n" +
+            sceneLabels.join("\n") +
+            "\n\nSplit the voiceover into " +
+            sceneCount +
+            " segments, one per scene. " +
+            "Assign more words to scenes that need more narration based on their visual content. " +
+            "Return JSON: { segments: [{ sceneIndex, words }] }",
+        },
+      ],
+    });
+
+    const content = response.choices?.[0]?.message?.content;
+    if (!content) {
+      console.warn("[RemotionRender] GPT returned empty response — falling back to even distribution");
+      return evenWordDistribution(voiceoverText, sceneCount);
+    }
+
+    const parsed = JSON.parse(content);
+    const segments: Array<{ sceneIndex: number; words: string }> = parsed.segments;
+
+    if (!Array.isArray(segments) || segments.length === 0) {
+      console.warn("[RemotionRender] GPT returned invalid segments — falling back to even distribution");
+      return evenWordDistribution(voiceoverText, sceneCount);
+    }
+
+    // Validate: every scene index must be present and in range
+    const seenIndices = new Set(segments.map((s) => s.sceneIndex));
+    for (let i = 0; i < sceneCount; i++) {
+      if (!seenIndices.has(i)) {
+        console.warn(
+          "[RemotionRender] GPT skipped scene " + i + " — falling back to even distribution"
+        );
+        return evenWordDistribution(voiceoverText, sceneCount);
+      }
+    }
+
+    // Calculate word counts and build result
+    const result: SceneWordMapping[] = segments.map((seg) => ({
+      sceneIndex: seg.sceneIndex,
+      words: seg.words,
+      wordCount: seg.words.split(/\s+/).filter(Boolean).length,
+    }));
+
+    // Ensure every segment has at least 1 word
+    const allHaveWords = result.every((r) => r.wordCount > 0);
+    if (!allHaveWords) {
+      console.warn("[RemotionRender] GPT assigned 0 words to a scene — falling back to even distribution");
+      return evenWordDistribution(voiceoverText, sceneCount);
+    }
+
+    const mappedWordCount = result.reduce((sum, r) => sum + r.wordCount, 0);
+    console.log(
+      "[RemotionRender] Scene-word sync: " + mappedWordCount + " words mapped across " +
+      result.length + " scenes via GPT"
+    );
+
+    return result;
+  } catch (error: any) {
+    console.warn(
+      "[RemotionRender] GPT scene-word mapping failed (" +
+      (error.message || error) + ") — falling back to even distribution"
+    );
+    return evenWordDistribution(voiceoverText, sceneCount);
+  }
+}
+
+/**
+ * Fallback: distribute voiceover words evenly across scenes.
+ * Each scene gets approximately the same number of words.
+ */
+function evenWordDistribution(
+  voiceoverText: string,
+  sceneCount: number
+): SceneWordMapping[] {
+  const words = voiceoverText.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || sceneCount === 0) return [];
+
+  const wordsPerScene = Math.floor(words.length / sceneCount);
+  const remainder = words.length % sceneCount;
+  const result: SceneWordMapping[] = [];
+  let offset = 0;
+
+  for (let i = 0; i < sceneCount; i++) {
+    // Distribute remainder words to earlier scenes (1 extra each)
+    const count = wordsPerScene + (i < remainder ? 1 : 0);
+    const segmentWords = words.slice(offset, offset + count).join(" ");
+
+    result.push({
+      sceneIndex: i,
+      words: segmentWords,
+      wordCount: count,
+    });
+
+    offset += count;
+  }
+
+  return result;
 }
 
 // ── Main Render Function ────────────────────────────────────────────────
@@ -264,7 +431,22 @@ export async function renderVideoFromBrief(
       brollMap.size + " b-roll, voiceover=" + (!!voiceoverUrl)
     );
 
-    // 3. Calculate scene timings
+    // 3. Scene-word sync: map voiceover words to scenes for precise cut timing
+    let wordMappings: SceneWordMapping[] = [];
+    if (briefData.voiceover && briefData.screen_sequence.length > 0) {
+      const sequenceWithNotes = briefData.screen_sequence.map((s) => ({
+        durationSec: (() => {
+          const m = s.duration.match(/(\d+)/);
+          return m ? parseInt(m[1]) : 5;
+        })(),
+        clip: s.clip,
+        note: s.note || "",
+      }));
+
+      wordMappings = await mapWordsToScenes(briefData.voiceover, sequenceWithNotes);
+    }
+
+    // 4. Calculate scene timings
     const hookDurationSec = 3;
     const ctaDurationSec = 4;
 
@@ -298,21 +480,42 @@ export async function renderVideoFromBrief(
 
     const totalDurationFrames = Math.round(totalDurationSec * FPS);
 
-    // 4. Build screen sequence items with scaled timing
+    // 5. Build screen sequence items with timing from word-count ratios
     const screenSequence: ScreenSequenceItem[] = [];
+
+    // Determine total word count from mappings (if available)
+    const totalMappedWords = wordMappings.reduce((sum, m) => sum + m.wordCount, 0);
+    const useWordSync = wordMappings.length === briefData.screen_sequence.length && totalMappedWords > 0;
+
+    if (useWordSync) {
+      console.log(
+        "[RemotionRender] Using word-count ratios for scene timing (" +
+        totalMappedWords + " words across " + wordMappings.length + " scenes)"
+      );
+    }
 
     for (let i = 0; i < briefData.screen_sequence.length; i++) {
       const scene = briefData.screen_sequence[i];
-      const m = scene.duration.match(/(\d+)/);
-      const rawDur = m ? parseInt(m[1]) : 5;
 
-      // Scale proportionally to fill the effective sequence duration
-      let sceneDur =
-        rawSequenceDuration > 0
-          ? Math.round((rawDur / rawSequenceDuration) * effectiveSequenceDuration)
-          : Math.round(
-              effectiveSequenceDuration / briefData.screen_sequence.length
-            );
+      let sceneDur: number;
+
+      if (useWordSync) {
+        // Use word-count ratio: scene gets proportional share of content time
+        const mapping = wordMappings.find((m) => m.sceneIndex === i);
+        const sceneWordCount = mapping ? mapping.wordCount : 1;
+        const ratio = sceneWordCount / totalMappedWords;
+        sceneDur = Math.round(ratio * effectiveSequenceDuration);
+      } else {
+        // Fall back to original proportional scaling
+        const m = scene.duration.match(/(\d+)/);
+        const rawDur = m ? parseInt(m[1]) : 5;
+        sceneDur =
+          rawSequenceDuration > 0
+            ? Math.round((rawDur / rawSequenceDuration) * effectiveSequenceDuration)
+            : Math.round(
+                effectiveSequenceDuration / briefData.screen_sequence.length
+              );
+      }
 
       sceneDur = Math.max(sceneDur, 2); // Minimum 2 seconds per scene
 
@@ -325,7 +528,7 @@ export async function renderVideoFromBrief(
       });
     }
 
-    // 5. Build b-roll clips array
+    // 6. Build b-roll clips array
     const brollClips: BRollClip[] = [];
     let brollFrameOffset = 0;
 
@@ -339,7 +542,7 @@ export async function renderVideoFromBrief(
       brollFrameOffset += Math.round(dur * FPS);
     }
 
-    // 6. Build the AdVideoProps object (JSON-serializable)
+    // 7. Build the AdVideoProps object (JSON-serializable)
     const inputProps: AdVideoProps = {
       hook: briefData.hook || "Your phone is costing you money.",
       voiceoverUrl,
@@ -355,15 +558,15 @@ export async function renderVideoFromBrief(
       stats: null,
     };
 
-    // 7. Ensure Remotion bundle is ready
+    // 8. Ensure Remotion bundle is ready
     const serveUrl = await ensureBundle();
 
-    // 8. Dynamically import Remotion renderer (ESM-safe)
+    // 9. Dynamically import Remotion renderer (ESM-safe)
     const { selectComposition, renderMedia } = await import(
       "@remotion/renderer"
     );
 
-    // 9. Select the composition with calculated metadata
+    // 10. Select the composition with calculated metadata
     console.log(
       "[RemotionRender] Selecting composition \"AdVideo\" (" +
       totalDurationFrames + " frames @ " + FPS + "fps)..."
@@ -375,7 +578,7 @@ export async function renderVideoFromBrief(
       inputProps: { ...inputProps } as Record<string, unknown>,
     });
 
-    // 10. Render to MP4
+    // 11. Render to MP4
     console.log("[RemotionRender] Rendering to " + tmpPath + "...");
     const renderStartMs = performance.now();
     let lastLoggedPct = 0;
@@ -403,7 +606,7 @@ export async function renderVideoFromBrief(
     const renderElapsed = ((performance.now() - renderStartMs) / 1000).toFixed(1);
     console.log("[RemotionRender] Render complete in " + renderElapsed + "s");
 
-    // 11. Read the rendered file and upload to S3
+    // 12. Read the rendered file and upload to S3
     const mp4Buffer = await fs.promises.readFile(tmpPath);
 
     let finalVideoUrl: string;
@@ -420,14 +623,14 @@ export async function renderVideoFromBrief(
       );
     }
 
-    // 12. Cleanup tmp file
+    // 13. Cleanup tmp file
     try {
       await fs.promises.unlink(tmpPath);
     } catch {
       // Ignore cleanup errors — /tmp is ephemeral
     }
 
-    // 13. Update brief record with final result
+    // 14. Update brief record with final result
     await db
       .update(videoBriefs)
       .set({
