@@ -572,14 +572,22 @@ export async function renderVideoFromBrief(
       totalDurationFrames + " frames @ " + FPS + "fps)..."
     );
 
-    // Find system Chromium (installed via nixpacks on Railway)
+    // Find system Chromium (installed via Dockerfile apt-get or nixpacks)
     const chromiumExecutable = await (async () => {
+      // Check env var first (set in Dockerfile: CHROMIUM_PATH=/usr/bin/chromium)
+      if (process.env.CHROMIUM_PATH) {
+        console.log("[RemotionRender] Using CHROMIUM_PATH: " + process.env.CHROMIUM_PATH);
+        return process.env.CHROMIUM_PATH;
+      }
+      // Try common system paths
+      const paths = ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
       try {
-        const { execSync } = await import("child_process");
-        const which = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null", { encoding: "utf-8" }).trim();
-        if (which) {
-          console.log("[RemotionRender] Using system Chromium at: " + which);
-          return which;
+        const { existsSync } = await import("fs");
+        for (const p of paths) {
+          if (existsSync(p)) {
+            console.log("[RemotionRender] Using system Chromium at: " + p);
+            return p;
+          }
         }
       } catch { /* fall through */ }
       console.log("[RemotionRender] No system Chromium found, using Remotion bundled browser");
