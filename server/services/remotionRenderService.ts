@@ -572,10 +572,28 @@ export async function renderVideoFromBrief(
       totalDurationFrames + " frames @ " + FPS + "fps)..."
     );
 
+    // Find system Chromium (installed via nixpacks on Railway)
+    const chromiumExecutable = await (async () => {
+      try {
+        const { execSync } = await import("child_process");
+        const which = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null", { encoding: "utf-8" }).trim();
+        if (which) {
+          console.log("[RemotionRender] Using system Chromium at: " + which);
+          return which;
+        }
+      } catch { /* fall through */ }
+      console.log("[RemotionRender] No system Chromium found, using Remotion bundled browser");
+      return undefined;
+    })();
+
     const composition = await selectComposition({
       serveUrl,
       id: "AdVideo",
       inputProps: { ...inputProps } as Record<string, unknown>,
+      chromiumOptions: {
+        enableMultiProcessOnLinux: true,
+      },
+      ...(chromiumExecutable ? { browserExecutable: chromiumExecutable } : {}),
     });
 
     // 11. Render to MP4
@@ -593,6 +611,7 @@ export async function renderVideoFromBrief(
       chromiumOptions: {
         enableMultiProcessOnLinux: true,
       },
+      ...(chromiumExecutable ? { browserExecutable: chromiumExecutable } : {}),
       onProgress: ({ progress }: { progress: number }) => {
         const pct = Math.round(progress * 100);
         // Log at 25% intervals to avoid noise

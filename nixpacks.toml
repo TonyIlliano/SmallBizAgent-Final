@@ -1,9 +1,38 @@
-# Remotion requires Chromium for headless video rendering
+# Remotion requires Chromium + system libraries for headless video rendering
 [phases.setup]
-nixPkgs = ["chromium", "nss", "freetype", "harfbuzz", "ca-certificates", "fontconfig"]
+nixPkgs = [
+  "chromium",
+  "nss",
+  "nspr",
+  "at-spi2-atk",
+  "cups",
+  "libdrm",
+  "libxkbcommon",
+  "mesa",
+  "pango",
+  "cairo",
+  "alsa-lib",
+  "dbus",
+  "gtk3",
+  "glib",
+  "freetype",
+  "harfbuzz",
+  "fontconfig",
+  "ca-certificates",
+  "xorg.libX11",
+  "xorg.libXcomposite",
+  "xorg.libXdamage",
+  "xorg.libXext",
+  "xorg.libXfixes",
+  "xorg.libXrandr",
+  "xorg.libxcb",
+]
 
 [phases.build]
-cmds = ["npm install --legacy-peer-deps", "npx remotion browser ensure", "npm run build"]
+cmds = ["npm install --legacy-peer-deps", "npm run build"]
 
 [start]
 cmd = "npm run start"
+
+[variables]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
