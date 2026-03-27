@@ -1,0 +1,9 @@
+# Remotion requires Chromium for headless video rendering
+[phases.setup]
+nixPkgs = ["chromium", "nss", "freetype", "harfbuzz", "ca-certificates", "fontconfig"]
+
+[phases.build]
+cmds = ["npm install --legacy-peer-deps", "npx remotion browser ensure", "npm run build"]
+
+[start]
+cmd = "npm run start"

@@ -360,6 +360,14 @@ app.use((req, res, next) => {
       console.warn('[ReplyGraph] Init failed (non-fatal) — SMS replies will use existing router:', err);
     }
 
+    // Initialize Remotion bundle cache (non-blocking)
+    try {
+      const { initRemotionBundle } = await import('./services/remotionRenderService');
+      initRemotionBundle();
+    } catch (err) {
+      console.warn('[Remotion] Init failed (non-fatal) — video rendering will bundle on first request:', err);
+    }
+
     // Health check endpoints (before auth middleware)
     app.get('/health', async (_req, res) => {
       try {

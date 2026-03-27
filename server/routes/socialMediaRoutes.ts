@@ -1193,7 +1193,10 @@ router.post('/video-briefs/:id/render', isAdmin, async (req: Request, res: Respo
     const { aspectRatio = '9:16', voice = 'nova' } = req.body;
 
     // Start rendering in background (don't await)
-    const { renderVideoFromBrief } = await import('../services/videoAssemblyService');
+    const useRemotion = process.env.USE_REMOTION === "true";
+    const { renderVideoFromBrief } = useRemotion
+      ? await import('../services/remotionRenderService')
+      : await import('../services/videoAssemblyService');
 
     // Fire and forget — responds immediately
     renderVideoFromBrief(id, { aspectRatio, voice }).catch((err) => {
@@ -1219,7 +1222,10 @@ router.get('/video-briefs/:id/render-status', isAdmin, async (req: Request, res:
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid brief ID' });
 
-    const { getBriefRenderStatus } = await import('../services/videoAssemblyService');
+    const useRemotion = process.env.USE_REMOTION === "true";
+    const { getBriefRenderStatus } = useRemotion
+      ? await import('../services/remotionRenderService')
+      : await import('../services/videoAssemblyService');
     const status = await getBriefRenderStatus(id);
     if (!status) return res.status(404).json({ error: 'Brief not found' });
 
@@ -1260,6 +1266,7 @@ router.get('/pipeline-status', isAdmin, async (_req: Request, res: Response) => 
       tts: isTTSAvailable(),
       s3: isS3Configured(),
       ffmpeg: isFFmpegAvailable(),
+      remotion: true,
       ready: isVideoAssemblyAvailable() && isS3Configured(),
     });
   } catch (error: any) {

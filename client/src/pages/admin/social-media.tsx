@@ -1048,7 +1048,7 @@ function VideoBriefSection() {
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [showRenderDialog, setShowRenderDialog] = useState(false);
   const [renderBriefId, setRenderBriefId] = useState<number | null>(null);
-  const [renderAspectRatio, setRenderAspectRatio] = useState<"9:16" | "16:9">("9:16");
+  const [renderAspectRatio, setRenderAspectRatio] = useState<"9:16" | "16:9" | "1:1">("9:16");
   const [renderVoice, setRenderVoice] = useState("nova");
   const [viewingBrief, setViewingBrief] = useState<VideoBrief | null>(null);
   const [briefVertical, setBriefVertical] = useState("Barbershops");
@@ -1201,7 +1201,7 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
             {/* Pipeline status indicators */}
             {pipelineStatus && (
               <div className="hidden sm:flex items-center gap-1.5 mr-2">
-                <div title="Shotstack (Video Rendering)" className={`h-2 w-2 rounded-full ${pipelineStatus.shotstack ? 'bg-green-500' : 'bg-red-400'}`} />
+                <div title="Remotion (Video Rendering)" className={`h-2 w-2 rounded-full ${pipelineStatus.shotstack ? 'bg-green-500' : 'bg-red-400'}`} />
                 <div title="Pexels (Stock Footage)" className={`h-2 w-2 rounded-full ${pipelineStatus.pexels ? 'bg-green-500' : 'bg-yellow-400'}`} />
                 <div title="TTS (Voiceover)" className={`h-2 w-2 rounded-full ${pipelineStatus.tts ? 'bg-green-500' : 'bg-yellow-400'}`} />
                 <div title="S3 (Storage)" className={`h-2 w-2 rounded-full ${pipelineStatus.s3 ? 'bg-green-500' : 'bg-red-400'}`} />
@@ -1436,6 +1436,14 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
                   <p className="text-sm font-medium">16:9 Landscape</p>
                   <p className="text-xs text-muted-foreground">YouTube, LinkedIn, Facebook</p>
                 </button>
+                <button
+                  onClick={() => setRenderAspectRatio("1:1")}
+                  className={`flex-1 border rounded-lg p-3 text-center transition-colors ${renderAspectRatio === "1:1" ? "border-primary bg-primary/5" : "hover:border-muted-foreground/50"}`}
+                >
+                  <div className="mx-auto w-8 h-8 border-2 rounded mb-1" style={{ borderColor: renderAspectRatio === "1:1" ? "hsl(var(--primary))" : "currentColor" }} />
+                  <p className="text-sm font-medium">1:1 Square</p>
+                  <p className="text-xs text-muted-foreground">Instagram Feed, Facebook Feed</p>
+                </button>
               </div>
             </div>
             <div className="space-y-2">
@@ -1462,7 +1470,7 @@ STOCK SEARCH TERMS: ${b.stock_search_terms?.join(", ") || "N/A"}`;
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="flex items-center gap-2">
                   <div className={`h-2 w-2 rounded-full ${pipelineStatus?.shotstack ? 'bg-green-500' : 'bg-red-400'}`} />
-                  <span>Shotstack</span>
+                  <span>Remotion</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className={`h-2 w-2 rounded-full ${pipelineStatus?.pexels ? 'bg-green-500' : 'bg-yellow-400'}`} />
