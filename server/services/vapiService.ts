@@ -1452,13 +1452,18 @@ export async function createAssistantForBusiness(
     // Default onNoPunctuationSeconds is 1.5s — WAY too slow for phone conversations.
     // This single config is the biggest latency win: cuts perceived response time from ~1.5s to ~0.5s.
     startSpeakingPlan: {
-      waitSeconds: 0.5, // Minimum wait before speaking — natural conversational pause
-      smartEndpointingEnabled: false, // Disabled — we use transcription endpointing instead (faster)
+      waitSeconds: 0.2, // Short base wait — smart endpointing handles the rest
+      smartEndpointingEnabled: true, // ML model detects when caller is done vs just pausing
       transcriptionEndpointingPlan: {
-        onPunctuationSeconds: 0.3, // After punctuation — enough buffer for mid-sentence pauses ("I need... a haircut")
-        onNoPunctuationSeconds: 0.6, // After speech without punctuation — balanced between responsiveness and letting callers finish
-        onNumberSeconds: 0.5, // After numbers (phone numbers, dates) — let them finish the full number
+        onPunctuationSeconds: 0.1, // After clear sentence end — respond fast
+        onNoPunctuationSeconds: 0.4, // After trailing speech — give thinkers a beat
+        onNumberSeconds: 0.3, // After numbers — protect phone number dictation
       },
+    },
+    stopSpeakingPlan: {
+      numWords: 4, // Caller says 4 words → AI stops (avoids filler words like "uh huh" cutting off AI)
+      voiceSeconds: 0.2, // Require 200ms of voice before treating as interruption (filters coughs/noise)
+      backoffSeconds: 1.0, // After being interrupted, AI waits 1s before trying again
     },
     firstMessage: configGreeting,
     serverUrl: `${BASE_URL}/api/vapi/webhook`,
@@ -1650,13 +1655,18 @@ export async function updateAssistant(
           optimizeStreamingLatency: 3, // High optimization but avoids first-word clipping at level 4
         },
         startSpeakingPlan: {
-          waitSeconds: 0.5, // Minimum wait before speaking — natural conversational pause
-          smartEndpointingEnabled: false,
+          waitSeconds: 0.2, // Short base wait — smart endpointing handles the rest
+          smartEndpointingEnabled: true, // ML model detects when caller is done vs just pausing
           transcriptionEndpointingPlan: {
-            onPunctuationSeconds: 0.3, // After punctuation — enough buffer for mid-sentence pauses
-            onNoPunctuationSeconds: 0.6, // Balanced between responsiveness and letting callers finish
-            onNumberSeconds: 0.5, // Let callers finish full numbers
+            onPunctuationSeconds: 0.1, // After clear sentence end — respond fast
+            onNoPunctuationSeconds: 0.4, // After trailing speech — give thinkers a beat
+            onNumberSeconds: 0.3, // After numbers — protect phone number dictation
           },
+        },
+        stopSpeakingPlan: {
+          numWords: 4, // Caller says 4 words → AI stops (avoids filler words cutting off AI)
+          voiceSeconds: 0.2, // Require 200ms of voice before treating as interruption
+          backoffSeconds: 1.0, // After being interrupted, AI waits 1s before trying again
         },
         firstMessage: configGreeting,
         recordingEnabled: configRecordingEnabled,
