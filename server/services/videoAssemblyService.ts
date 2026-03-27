@@ -24,6 +24,7 @@ import { eq, desc } from "drizzle-orm";
 import { findBRollForTerms, isPexelsConfigured } from "./pexelsService";
 import { generateVoiceover, isTTSAvailable, type TTSVoice } from "./ttsService";
 import { uploadUrlToS3, isS3Configured } from "../utils/s3Upload";
+import OpenAI from "openai";
 
 const SHOTSTACK_API_KEY = process.env.SHOTSTACK_API_KEY || "";
 const SHOTSTACK_ENV = process.env.SHOTSTACK_ENV || "v1";
@@ -142,6 +143,12 @@ export async function renderVideoFromBrief(
 
     console.log(`[VideoAssembly] Assets: ${clipMatches.length} clips, ${brollMap.size} b-roll, voiceover=${voiceoverResult?.success || false}`);
 
+    // 2.5. Word-sync: map voiceover words to scenes for precise cut timing
+    let wordSyncDurations: number[] | null = null;
+    if (briefData.voiceover && voiceoverResult?.success) {
+      wordSyncDurations = await mapWordsToScenes(briefData.voiceover, briefData.screen_sequence);
+    }
+
     // 3. Build the Shotstack timeline
     const timeline = buildAssemblyTimeline({
       briefData,
@@ -152,6 +159,7 @@ export async function renderVideoFromBrief(
       isVertical,
       width,
       height,
+      wordSyncDurations,
     });
 
     // 4. Submit to Shotstack
@@ -291,6 +299,68 @@ async function matchClipsToSequence(
   return matches;
 }
 
+// ── Voiceover-to-Scene Word Sync ────────────────────────────────────────
+
+/**
+ * Uses GPT to map voiceover words to screen_sequence scenes so visual cuts
+ * happen exactly when the topic changes in the narration.
+ * Returns per-scene word counts for proportional timing.
+ * Falls back to even distribution on any error.
+ */
+async function mapWordsToScenes(
+  voiceoverText: string,
+  screenSequence: Array<{ duration: string; clip: string; note?: string }>
+): Promise<number[] | null> {
+  if (!process.env.OPENAI_API_KEY || !voiceoverText || screenSequence.length === 0) {
+    return null;
+  }
+
+  try {
+    const openai = new OpenAI();
+    const sceneLabels = screenSequence.map((s, i) =>
+      `Scene ${i}: ${s.clip}${s.note ? " — " + s.note : ""}`
+    ).join("\n");
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You are a video editor. Given a voiceover script and visual scenes, split the script into segments — one per scene. Each word must be assigned to exactly one scene in order. Return JSON: { "segments": [{ "sceneIndex": 0, "words": "exact words for this scene" }, ...] }. Every scene must have at least one word. Preserve word order — no skipping or repeating.`,
+        },
+        {
+          role: "user",
+          content: `VOICEOVER SCRIPT:\n"${voiceoverText}"\n\nSCENES:\n${sceneLabels}\n\nSplit the voiceover into ${screenSequence.length} segments matching the scenes above.`,
+        },
+      ],
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+
+    const parsed = JSON.parse(content);
+    const segments = parsed.segments;
+    if (!Array.isArray(segments) || segments.length !== screenSequence.length) return null;
+
+    // Convert to word counts per scene
+    const wordCounts = segments.map((s: { words: string }) => {
+      const words = s.words?.trim().split(/\s+/).filter(Boolean);
+      return words ? words.length : 1;
+    });
+
+    // Validate: every scene must have at least 1 word
+    if (wordCounts.some((c: number) => c < 1)) return null;
+
+    console.log(`[VideoAssembly] Word sync: ${wordCounts.join(", ")} words per scene`);
+    return wordCounts;
+  } catch (err) {
+    console.warn("[VideoAssembly] Word sync failed (using even distribution):", err);
+    return null;
+  }
+}
+
 // ── Timeline Builder ────────────────────────────────────────────────────
 
 function buildAssemblyTimeline(params: {
@@ -302,8 +372,9 @@ function buildAssemblyTimeline(params: {
   isVertical: boolean;
   width: number;
   height: number;
+  wordSyncDurations?: number[] | null;
 }): any {
-  const { briefData, clipMatches, brollMap, voiceoverUrl, voiceoverDuration, isVertical, width, height } = params;
+  const { briefData, clipMatches, brollMap, voiceoverUrl, voiceoverDuration, isVertical, width, height, wordSyncDurations } = params;
 
   // Calculate total duration from screen sequence
   let totalDuration = briefData.estimated_duration || 0;
@@ -318,6 +389,25 @@ function buildAssemblyTimeline(params: {
 
   const hookDuration = 3; // Hook text visible for 3 seconds
   const ctaDuration = 4; // CTA visible at the end
+  const contentDuration = totalDuration - hookDuration - ctaDuration;
+
+  // Pre-compute scene durations (word-sync or raw)
+  const sceneDurations: number[] = [];
+  if (wordSyncDurations && wordSyncDurations.length === briefData.screen_sequence.length) {
+    // Use word-count ratios to distribute content duration
+    const totalWords = wordSyncDurations.reduce((a, b) => a + b, 0);
+    for (const wc of wordSyncDurations) {
+      const ratio = totalWords > 0 ? wc / totalWords : 1 / wordSyncDurations.length;
+      sceneDurations.push(Math.max(2, Math.round(contentDuration * ratio * 10) / 10));
+    }
+    console.log(`[VideoAssembly] Word-synced scene durations: ${sceneDurations.map(d => d + "s").join(", ")}`);
+  } else {
+    // Fall back to raw durations from brief
+    for (const scene of briefData.screen_sequence) {
+      const match = scene.duration.match(/(\d+)/);
+      sceneDurations.push(match ? parseInt(match[1]) : 5);
+    }
+  }
 
   const tracks: any[] = [];
 
@@ -367,8 +457,7 @@ function buildAssemblyTimeline(params: {
 
   for (let i = 0; i < briefData.screen_sequence.length; i++) {
     const scene = briefData.screen_sequence[i];
-    const durationMatch = scene.duration.match(/(\d+)/);
-    const sceneDuration = durationMatch ? parseInt(durationMatch[1]) : 5;
+    const sceneDuration = sceneDurations[i] || 5;
 
     // Only add label if it's short enough to be a caption
     if (scene.note && scene.note.length < 80) {
@@ -403,9 +492,7 @@ function buildAssemblyTimeline(params: {
 
     for (let i = 0; i < clipMatches.length; i++) {
       const clip = clipMatches[i];
-      const scene = briefData.screen_sequence[i];
-      const durationMatch = scene?.duration.match(/(\d+)/);
-      const sceneDuration = durationMatch ? parseInt(durationMatch[1]) : 5;
+      const sceneDuration = sceneDurations[i] || 5;
 
       if (clipStart >= totalDuration - ctaDuration) break;
 
