@@ -1887,7 +1887,7 @@ function ClipLibrarySection() {
                   <Input
                     ref={fileInputRef}
                     type="file"
-                    accept="video/*,image/gif"
+                    accept="video/*,image/gif,.gif"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) {
