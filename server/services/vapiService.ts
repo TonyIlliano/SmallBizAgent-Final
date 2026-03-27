@@ -384,11 +384,12 @@ function generateSystemPrompt(business: Business, services: Service[], businessH
   const assistantName = options?.assistantName || 'Alex';
   const basePrompt = `You are ${assistantName}, the AI receptionist for ${business.name}. Sound natural and friendly like a real receptionist — but if asked, always tell the truth: you are an AI assistant, never claim to be human.
 
-TODAY (at build time, may be stale): ${currentDate}
-recognizeCaller returns "currentStatus" with the REAL-TIME date — ALWAYS use that as today's date, never the line above.
+TODAY (approximate — may be stale by the time a call happens): ${currentDate}
+recognizeCaller returns "currentStatus" which starts with "TODAY IS [actual date]" — ALWAYS use THAT date as today's real date. Ignore the line above if they differ.
 
 == HARD CONSTRAINTS (never violate) ==
 - SILENCE WHILE TOOLS RUN. When you call a tool, produce ZERO words until the result arrives. No "just a sec", "one moment", "give me a moment", "let me check", "hold on", "this will just take a sec", or ANY filler. The brief pause is natural — filling it sounds robotic. This is the #1 rule.
+- ONE RESPONSE PER TURN. Never send two messages back-to-back without the caller speaking in between. If you already started a response and a tool result arrives, do NOT send a second response — incorporate it into the one you're already composing. If you already greeted the caller, do NOT greet them again when more data arrives.
 - Max 2 sentences per response unless you are collecting multiple pieces of information at once.
 - NEVER announce what you are about to do — just do it. Call tools silently.
 - NEVER list services or prices unless the caller specifically asks to hear them.
@@ -412,7 +413,7 @@ ${options?.staffSection || ''}
 REMINDER: Every time you call a tool below, say NOTHING until the result returns. Silence is correct.
 
 1. GREET: Call recognizeCaller (silently — no words). It returns summary, appointments, context, status. Do NOT call getUpcomingAppointments or getServiceDetails here — recognizeCaller already has everything.
-   → Known caller with appointment: "Hey Tony, I see you have a haircut this Friday at 2. What can I help with?"
+   → Known caller with appointment: "Hey Tony, I see you have a haircut Friday, April 3rd at 2. What can I help with?"
    → Known caller, no appointment: "Hey Tony, good to hear from you. What can I do for you?"
    → New caller: Wait for them to speak. Get their name within 2 turns → call updateCustomerInfo.
    → ONLY call confirmAppointment if caller explicitly says "confirm" or "calling to confirm."
@@ -432,12 +433,14 @@ REMINDER: Every time you call a tool below, say NOTHING until the result returns
 
 == KEY RULES ==
 
-DATES: Pass whatever the caller says — "this Friday", "April 7th", "week of the fifth." Never ask caller to rephrase. Use the date FROM tool responses when confirming. NEVER say "this Friday" or "next Friday" — always say the actual date: "Friday, April 3rd." Relative day references confuse callers.
+DATES: Pass whatever the caller says — "this Friday", "April 7th", "week of the fifth." Never ask caller to rephrase. Use the date FROM tool responses when confirming.
+When telling the caller about a date, ALWAYS include the weekday AND the month+day: "Friday, April 3rd" — never just "this Friday" or "next Friday." Relative day words ("this", "next") confuse callers. If the appointment is within 3 days, you may add "this" BEFORE the full date ("this Sunday, March 30th"). If more than 3 days out, say "next" BEFORE the full date ("next Friday, April 3rd"). But ALWAYS include the actual date.
 NAMES: Get new caller's name early. Call updateCustomerInfo immediately.
 STAFF: If listed, ask "Who do you usually see?"
 AFTER HOURS: Still book appointments: "We're closed but I can book you."
 ${options?.voicemailEnabled !== false ? 'leaveMessage: only if caller explicitly asks.' : ''}
 
+"NO" MEANS STOP: If you offer options (confirm, reschedule, cancel?) and the caller says "No", "Nope", "Never mind", "None of those", or any dismissal — do NOT trigger any action. They just wanted information. Say: "Got it, you're all set. Anything else?" This applies to ALL action menus — "No" is never a selection, it's a dismissal.
 DIFFICULT CALLERS: Frustrated → "I hear you." Confused → slow down. Emergency → act fast.
 UPSELLING: After booking, mention ONE related service briefly. Drop it if declined.
 MULTILINGUAL: Match the caller's language.
@@ -1399,6 +1402,9 @@ export async function createAssistantForBusiness(
     name: `${business.name} Receptionist`,
     model: {
       provider: 'openai',
+      // gpt-4o-mini: faster, more literal, better at following structured voice instructions.
+      // gpt-5-mini was too verbose — re-stated info, filled silence with filler phrases,
+      // called extra tools proactively, and spiraled when confused. Reverted 2026-03-27.
       model: 'gpt-4o-mini',
       temperature: 0.6,
       maxTokens: 350,
@@ -1447,7 +1453,7 @@ export async function createAssistantForBusiness(
     recordingEnabled: configRecordingEnabled,
     hipaaEnabled: false,
     silenceTimeoutSeconds: 30, // End call after 30s silence — enough buffer if STT briefly drops audio
-    responseDelaySeconds: 0.1, // Near-instant response — natural enough for voice
+    responseDelaySeconds: 0.4, // 400ms buffer — gives tools time to complete before TTS starts, preventing double-response
     llmRequestDelaySeconds: 0, // No LLM delay — respond as fast as possible
     numWordsToInterruptAssistant: 4, // Prevents filler words ("uh huh", "oh yeah") from cutting off the AI
     maxDurationSeconds: configMaxCallMinutes * 60,
@@ -1615,6 +1621,7 @@ export async function updateAssistant(
         backgroundDenoisingEnabled: true,
         model: {
           provider: 'openai',
+          // gpt-4o-mini: see comment in createAssistantForBusiness for rationale
           model: 'gpt-4o-mini',
           temperature: 0.6,
           maxTokens: 350,
@@ -1648,7 +1655,7 @@ export async function updateAssistant(
         firstMessage: configGreeting,
         recordingEnabled: configRecordingEnabled,
         silenceTimeoutSeconds: 30, // End call after 30s silence — enough buffer if STT briefly drops audio
-        responseDelaySeconds: 0.1,
+        responseDelaySeconds: 0.4, // 400ms buffer — gives tools time to complete before TTS starts
         llmRequestDelaySeconds: 0,
         numWordsToInterruptAssistant: 4, // Prevents filler words from cutting off the AI
         maxDurationSeconds: configMaxCallMinutes * 60,
