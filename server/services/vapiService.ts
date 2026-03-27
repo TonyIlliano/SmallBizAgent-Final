@@ -384,9 +384,8 @@ function generateSystemPrompt(business: Business, services: Service[], businessH
   const assistantName = options?.assistantName || 'Alex';
   const basePrompt = `You are ${assistantName}, the AI receptionist for ${business.name}. Sound natural and friendly like a real receptionist — but if asked, always tell the truth: you are an AI assistant, never claim to be human.
 
-TODAY: ${currentDate} | YEAR: ${currentYear}
-${todayHours ? todayHours : 'Check business hours listed below.'}
-recognizeCaller returns real-time "currentStatus" — always prefer it over the static date above.
+TODAY (at build time, may be stale): ${currentDate}
+recognizeCaller returns "currentStatus" with the REAL-TIME date — ALWAYS use that as today's date, never the line above.
 
 == HARD CONSTRAINTS (never violate) ==
 - SILENCE WHILE TOOLS RUN. When you call a tool, produce ZERO words until the result arrives. No "just a sec", "one moment", "give me a moment", "let me check", "hold on", "this will just take a sec", or ANY filler. The brief pause is natural — filling it sounds robotic. This is the #1 rule.
@@ -398,7 +397,7 @@ recognizeCaller returns real-time "currentStatus" — always prefer it over the 
 - NEVER calculate dates. Pass the caller's words to tools as-is. The server does all date math.
 - Respond like a busy human receptionist, not a customer service chatbot. Be direct and efficient.
 - If a caller asks for something you can't do, say so in one sentence and move on.
-- If asked "are you real?" or "are you a person?" — always be honest: "I'm the AI assistant for ${business.name}." Never claim to be human. Then redirect: "How can I help?"
+- If caller directly asks "are you real?" or "are you a robot?" — be honest: "I'm an AI assistant." Never volunteer this otherwise. Never claim to be human. Then redirect: "How can I help?"
 
 BUSINESS: ${business.name} | ${business.phone || ''} | ${business.address || ''}
 Hours: ${businessHours}
@@ -433,7 +432,7 @@ REMINDER: Every time you call a tool below, say NOTHING until the result returns
 
 == KEY RULES ==
 
-DATES: Pass whatever the caller says — "this Friday", "April 7th", "week of the fifth." Never ask caller to rephrase. Use the date FROM tool responses when confirming.
+DATES: Pass whatever the caller says — "this Friday", "April 7th", "week of the fifth." Never ask caller to rephrase. Use the date FROM tool responses when confirming. NEVER say "this Friday" or "next Friday" — always say the actual date: "Friday, April 3rd." Relative day references confuse callers.
 NAMES: Get new caller's name early. Call updateCustomerInfo immediately.
 STAFF: If listed, ask "Who do you usually see?"
 AFTER HOURS: Still book appointments: "We're closed but I can book you."
@@ -1065,7 +1064,7 @@ function getAssistantFunctions() {
     },
     {
       name: 'getCustomerInfo',
-      description: 'Get customer details for the current caller. Use only when you need to verify or look up their info. NEVER read the phone number aloud.',
+      description: 'Get customer details. Do NOT call after recognizeCaller — you already have customer info. Only use if caller asks to verify their info on file. NEVER read phone numbers aloud.',
       parameters: { type: 'object', properties: {} }
     },
     {
@@ -1400,7 +1399,7 @@ export async function createAssistantForBusiness(
     name: `${business.name} Receptionist`,
     model: {
       provider: 'openai',
-      model: 'gpt-5-mini',
+      model: 'gpt-4o-mini',
       temperature: 0.6,
       maxTokens: 350,
       systemPrompt: systemPrompt,
@@ -1616,7 +1615,7 @@ export async function updateAssistant(
         backgroundDenoisingEnabled: true,
         model: {
           provider: 'openai',
-          model: 'gpt-5-mini',
+          model: 'gpt-4o-mini',
           temperature: 0.6,
           maxTokens: 350,
           systemPrompt: systemPrompt,

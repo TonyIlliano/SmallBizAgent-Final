@@ -3693,11 +3693,12 @@ async function getCurrentBusinessStatus(businessId: number): Promise<string> {
     ]);
     const timezone = business?.timezone || 'America/New_York';
     const now = new Date();
+    const todayFull = now.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     const today = now.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'long' }).toLowerCase();
     const todayHours = hours?.find((h: any) => h.day === today);
 
     if (!todayHours || todayHours.isClosed || (!todayHours.open && !todayHours.close)) {
-      return `CLOSED today. Hours resume next open day.`;
+      return `TODAY IS ${todayFull}. CLOSED today. Hours resume next open day.`;
     }
 
     // Parse current time in business timezone
@@ -3709,9 +3710,9 @@ async function getCurrentBusinessStatus(businessId: number): Promise<string> {
     const closeMin = parseTimeToMinutes(todayHours.close);
 
     if (currentMinutes >= openMin && currentMinutes < closeMin) {
-      return `OPEN now (today's hours: ${todayHours.open} to ${todayHours.close})`;
+      return `TODAY IS ${todayFull}. OPEN now (hours: ${todayHours.open} to ${todayHours.close})`;
     } else {
-      return `CLOSED right now (today's hours were ${todayHours.open} to ${todayHours.close}). You can still book appointments and answer questions.`;
+      return `TODAY IS ${todayFull}. CLOSED right now (hours were ${todayHours.open} to ${todayHours.close}). You can still book appointments.`;
     }
   } catch (err) {
     console.error(`[getCurrentBusinessStatus] Error for business ${businessId}:`, err);
