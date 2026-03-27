@@ -3864,6 +3864,20 @@ async function recognizeCaller(
     likelyReason = `Likely calling about: ${intelligence.pendingFollowUp}`;
   }
 
+  // Build structured upcoming appointments list (so AI can reschedule/cancel without re-fetching)
+  const upcomingAppointments = upcoming.slice(0, 3).map(apt => {
+    const aptDate = new Date(apt.startDate);
+    const svc = apt.serviceId ? allServices.find((s: any) => s.id === apt.serviceId) : null;
+    return {
+      appointmentId: apt.id,
+      date: aptDate.toLocaleDateString('en-US', { timeZone: recogTimezone, weekday: 'long', month: 'long', day: 'numeric' }),
+      time: aptDate.toLocaleTimeString('en-US', { timeZone: recogTimezone, hour: 'numeric', minute: '2-digit', hour12: true }),
+      serviceName: svc?.name || 'appointment',
+      serviceId: apt.serviceId || undefined,
+      staffId: apt.staffId || undefined,
+    };
+  });
+
   // Build a concise narrative summary combining all intelligence into natural language
   // This gives the AI everything it needs in a format it can weave into conversation
   const summaryParts: string[] = [];
@@ -3962,6 +3976,7 @@ async function recognizeCaller(
       likelyReason,
       summary,
       currentStatus,
+      upcomingAppointments: upcomingAppointments.length > 0 ? upcomingAppointments : undefined,
     }
   };
 }
