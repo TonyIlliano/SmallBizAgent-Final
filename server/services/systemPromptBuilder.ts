@@ -444,7 +444,7 @@ ${options?.staffSection || ''}
 == CALL FLOW ==
 ${silenceReminder}
 
-1. GREET: Call recognizeCaller (silently — no words). It returns summary, appointments, context, status. Do NOT call getUpcomingAppointments or getServiceDetails here — recognizeCaller already has everything.
+1. GREET: Speak the greeting FIRST, then call recognizeCaller while talking. Once results come back, personalize — reference their name, upcoming appointment, or preferences naturally. Do NOT call getUpcomingAppointments or getServiceDetails here — recognizeCaller already has everything.
    → Known caller with appointment: "Hey Tony, I see you have a haircut Friday, April 3rd at 2. What can I help with?"
    → Known caller, no appointment: "Hey Tony, good to hear from you. What can I do for you?"
    → New caller: Wait for them to speak. Get their name within 2 turns → call updateCustomerInfo.

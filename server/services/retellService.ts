@@ -324,8 +324,9 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'Identify returning caller. Call once at start. Returns summary, customer context, currentStatus, and upcomingAppointments.',
-    { type: 'object', properties: {} }
+    'Identify returning caller. Call once at start WHILE you speak the greeting. Returns summary, customer context, currentStatus, and upcomingAppointments.',
+    { type: 'object', properties: {} },
+    { speakDuring: true, speakAfter: true, timeout: 8000 }
   ));
 
   tools.push(customTool(
@@ -1079,7 +1080,7 @@ SERVICES:
 ${serviceList}
 
 == CALL FLOW ==
-1. GREET: Call recognizeCaller silently. Personalize greeting from the results.
+1. GREET: Speak the greeting FIRST, then call recognizeCaller while talking. Once results come back, personalize — reference their name, upcoming appointment, or preferences naturally.
 2. UNDERSTAND: One question to clarify what they need, then act.
 3. CHECK: Call checkAvailability silently. Offer 2-3 slots.
 4. BOOK: Confirm once, then book on "yes."
