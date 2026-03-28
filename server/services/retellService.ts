@@ -691,7 +691,7 @@ export async function createLlmForBusiness(
 
   const result = await retellFetch<{ llm_id: string }>('POST', '/create-retell-llm', {
     model: 'gpt-5-mini',
-    model_temperature: 0.6,
+    model_temperature: 0.3,
     general_prompt: systemPrompt,
     general_tools: tools,
     begin_message: beginMessage,
@@ -765,7 +765,7 @@ export async function updateLlm(
 
   const result = await retellFetch('PATCH', `/update-retell-llm/${llmId}`, {
     model: 'gpt-5-mini',
-    model_temperature: 0.6,
+    model_temperature: 0.3,
     general_prompt: systemPrompt,
     general_tools: tools,
     begin_message: beginMessage,
