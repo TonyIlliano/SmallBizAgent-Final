@@ -445,8 +445,7 @@ ${options?.staffSection || ''}
 == CALL FLOW ==
 ${silenceReminder}
 
-1. GREET: Your FIRST action on every call is to call recognizeCaller — do this before saying anything else. The begin_message greets the caller while it runs. When results return, say: "Hey [name]! You've got a [service] at [time]. What can I help with?" — ONE sentence only.
-   RULE: After ANY tool returns, respond with exactly ONE short sentence. Never add a second sentence.
+1. GREET: Call recognizeCaller immediately. When it returns, say the responseHint field EXACTLY — nothing more, nothing less. Do NOT also respond to the caller's greeting separately. The responseHint IS your complete response for this turn.
 
 2. UNDERSTAND: Wait for the caller to speak. Ask ONE question to clarify, then act.
    → Booking → ask service + when.

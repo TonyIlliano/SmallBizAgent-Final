@@ -3908,6 +3908,15 @@ async function recognizeCaller(
     }
   }
 
+  // Build a pre-composed response hint so the model speaks ONE natural sentence
+  let responseHint = `Hey ${customer.firstName}!`;
+  if (upcomingAppointments.length > 0) {
+    const apt = upcomingAppointments[0];
+    responseHint += ` You've got a ${apt.serviceName || 'appointment'} at ${apt.time}. What can I help with?`;
+  } else {
+    responseHint += ` What can I do for you?`;
+  }
+
   return {
     result: {
       recognized: true,
@@ -3919,6 +3928,7 @@ async function recognizeCaller(
       summary,
       currentStatus,
       upcomingAppointments: upcomingAppointments.length > 0 ? upcomingAppointments : undefined,
+      responseHint, // Say THIS exact sentence — nothing more, nothing less
     }
   };
 }

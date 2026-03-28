@@ -300,15 +300,11 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
     { speakDuring: true }  // AI says "Let me book that for you" while DB processes
   ));
 
-  tools.push(customTool(
-    'getServices',
-    'Get services with prices.',
-    { type: 'object', properties: {} }
-  ));
+  // NOTE: getServices removed — services are in the system prompt. Model was calling it unprompted.
 
   tools.push(customTool(
     'getStaffMembers',
-    'Refresh team member list (already pre-loaded in prompt -- only call if needed mid-call).',
+    'Check who is working today. Only call when the caller asks about staff availability.',
     { type: 'object', properties: {} }
   ));
 
@@ -324,11 +320,8 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
     }
   ));
 
-  tools.push(customTool(
-    'getBusinessHours',
-    'Get business hours and open/closed status.',
-    { type: 'object', properties: {} }
-  ));
+  // NOTE: getBusinessHours removed as a tool — hours are already in the system prompt.
+  // The model was calling it unprompted on every call, adding latency and double-responses.
 
   tools.push(customTool(
     'recognizeCaller',
@@ -337,11 +330,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
     { speakDuring: false, speakAfter: true, timeout: 4000 }
   ));
 
-  tools.push(customTool(
-    'getUpcomingAppointments',
-    'Get caller\'s upcoming appointments. Only call if recognizeCaller did not already return appointment details.',
-    { type: 'object', properties: {} }
-  ));
+  // NOTE: getUpcomingAppointments removed — recognizeCaller already returns appointment data.
 
   tools.push(customTool(
     'rescheduleAppointment',
