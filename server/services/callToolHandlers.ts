@@ -1033,8 +1033,8 @@ export async function getAvailableSlotsForDay(
 
     // Skip if appointment would end after business hours
     if (endTimeInMinutes > closeMinutes) continue;
-    // Skip if in the past (today only)
-    if (isToday && slotStart <= currentMinutes) continue;
+    // Skip if in the past or within 30 minutes from now (today only)
+    if (isToday && slotStart <= currentMinutes + 30) continue;
 
     // Check if this slot overlaps with any booked appointment
     // Overlap occurs when: new slot starts before existing ends AND new slot ends after existing starts
