@@ -294,7 +294,8 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
         notes: { type: 'string', description: 'Special requests or notes' },
       },
       required: ['customerPhone', 'customerName', 'date', 'time'],
-    }
+    },
+    { speakDuring: true }  // AI says "Let me book that for you" while DB processes
   ));
 
   tools.push(customTool(
@@ -352,7 +353,8 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
         staffName: { type: 'string', description: 'New staff member name if switching' },
       },
       required: ['newDate', 'newTime'],
-    }
+    },
+    { speakDuring: true }  // AI says "Let me move that for you" while DB processes
   ));
 
   tools.push(customTool(
@@ -679,11 +681,18 @@ export async function createLlmForBusiness(
     transferNumber,
   });
 
+  // Build the begin_message (greeting + optional recording disclosure)
+  const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
+  const configGreeting = receptionistConfig?.greeting || undefined;
+  const beginMessage = buildFirstMessage(business.name, configGreeting, configRecordingEnabled);
+  console.log(`[Retell] createLlm begin_message: "${beginMessage.substring(0, 100)}"`);
+
   const result = await retellFetch<{ llm_id: string }>('POST', '/create-retell-llm', {
     model: 'gpt-5-mini',
     model_temperature: 0.6,
     general_prompt: systemPrompt,
     general_tools: tools,
+    begin_message: beginMessage,
     default_dynamic_variables: {
       businessId: String(business.id),
     },
@@ -746,11 +755,18 @@ export async function updateLlm(
     transferNumber,
   });
 
+  // Build the begin_message (greeting + optional recording disclosure)
+  const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
+  const configGreeting = receptionistConfig?.greeting || undefined;
+  const beginMessage = buildFirstMessage(business.name, configGreeting, configRecordingEnabled);
+  console.log(`[Retell] updateLlm begin_message: "${beginMessage.substring(0, 100)}"`);
+
   const result = await retellFetch('PATCH', `/update-retell-llm/${llmId}`, {
     model: 'gpt-5-mini',
     model_temperature: 0.6,
     general_prompt: systemPrompt,
     general_tools: tools,
+    begin_message: beginMessage,
   });
 
   if (result.error) {
