@@ -5740,7 +5740,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle legacy function-call format (for backwards compatibility)
       // Route through provider-agnostic callToolHandlers
-      const messageType = req.body?.message?.type;
       if (messageType === 'function-call' && req.body?.message?.functionCall) {
         const { dispatchToolCall } = await import('./services/callToolHandlers');
         const fcName = req.body.message.functionCall.name;

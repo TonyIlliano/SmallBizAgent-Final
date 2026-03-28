@@ -5380,12 +5380,7 @@ async function handleCancelReservation(
   }
 }
 
-// Export the provider-agnostic interfaces and functions
-export { dataCache, dispatchToolCall, processEndOfCall };
-export { getCurrentBusinessStatus, extractCallerNameFromTranscript };
-// Date/time utilities also used by SMS reply intelligence graph
-export { createDateInTimezone, parseNaturalDate, parseNaturalTime, getAvailableSlotsForDay };
-
+// Default export (all named exports are already inline above)
 export default {
   dispatchToolCall,
   processEndOfCall,
