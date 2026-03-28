@@ -206,7 +206,7 @@ function buildFirstMessage(
     return `${recordingNotice}${customGreeting.trim()}`;
   }
 
-  return `${recordingNotice}Hi, thanks for calling ${businessName}! How can I help you today?`;
+  return `${recordingNotice}Thanks for calling ${businessName}! How can I help you today?`;
 }
 
 // ---------------------------------------------------------------------------
@@ -859,6 +859,7 @@ export async function updateAgent(
   const configGreeting = receptionistConfig?.greeting || undefined;
 
   const beginMessage = buildFirstMessage(business.name, configGreeting, configRecordingEnabled);
+  console.log(`[Retell] updateAgent: recording=${configRecordingEnabled}, greeting="${configGreeting?.substring(0, 50)}", beginMessage="${beginMessage.substring(0, 80)}"`);
 
   const updateConfig: Record<string, any> = {
     response_engine: {
