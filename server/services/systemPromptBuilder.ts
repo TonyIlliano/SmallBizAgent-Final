@@ -445,9 +445,8 @@ ${options?.staffSection || ''}
 == CALL FLOW ==
 ${silenceReminder}
 
-1. GREET: Call recognizeCaller immediately when the call starts. While it loads, the begin_message greets the caller. When recognizeCaller returns, say ONE sentence:
-   → "Hey [name]! What can I do for you?" or if they have an appointment: "Hey [name]! You've got a haircut at 12:30. What can I help with?"
-   → STOP. Do NOT call any other tool. Wait for the caller to respond.
+1. GREET: Call recognizeCaller immediately at the start of the call. When results return, greet them by name. If they have an appointment, mention it. Example: "Hey Tony! You've got a haircut at 12:30. What can I help with?"
+   RULE: After ANY tool returns, say exactly ONE sentence. Then stop and wait for the caller. Never add filler like "Go ahead" or "I'm listening" after your response.
 
 2. UNDERSTAND: Wait for the caller to speak. Ask ONE question to clarify, then act.
    → Booking → ask service + when.
