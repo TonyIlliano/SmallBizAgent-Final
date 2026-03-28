@@ -295,7 +295,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
       },
       required: ['customerPhone', 'customerName', 'date', 'time'],
     },
-    { speakDuring: true }  // AI says "Let me book that for you" while DB processes
+    { speakDuring: false }  // Silent during booking — prevents double confirmation
   ));
 
   // NOTE: getServices removed — services are in the system prompt. Model was calling it unprompted.
@@ -343,7 +343,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
       },
       required: ['newDate', 'newTime'],
     },
-    { speakDuring: true }  // AI says "Let me move that for you" while DB processes
+    { speakDuring: false }  // Silent during reschedule — prevents double confirmation
   ));
 
   tools.push(customTool(
