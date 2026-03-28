@@ -1520,8 +1520,7 @@ async function checkAvailability(
     };
   }
 
-  // Return 3-5 curated slots spread across the day instead of all 48
-  // The AI composes its own natural phrasing from these
+  // Return 3-5 curated slots for the AI to offer, PLUS all slots for exact-time checks
   const bestSlots = pickBestSlots(availableSlots, 5);
 
   // Include service info so the AI can answer "how much?" and "how long?" without an extra tool call
@@ -1535,9 +1534,9 @@ async function checkAvailability(
       dateForBooking: isoDate, // Use this exact date when calling bookAppointment — do NOT calculate your own
       timezone: tzAbbr,
       staffName: staffLabel,
-      slots: bestSlots,
+      suggestedSlots: bestSlots, // Offer these 3-5 slots to the caller
+      allSlots: availableSlots, // ALL available slots — if caller asks for a specific time, check this list
       totalAvailable: availableSlots.length,
-      moreAvailable: availableSlots.length > bestSlots.length,
       ...(serviceInfo && {
         servicePrice: serviceInfo.price ? `$${(serviceInfo.price / 100).toFixed(2)}` : null,
         serviceDuration: `${serviceInfo.duration || 30} minutes`,
