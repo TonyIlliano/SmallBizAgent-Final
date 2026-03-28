@@ -444,15 +444,16 @@ ${options?.staffSection || ''}
 == CALL FLOW ==
 ${silenceReminder}
 
-1. GREET: The begin_message already said the greeting and your name. DO NOT say "hi", "hello", "thanks for calling", or your name again. Your FIRST words after recognizeCaller returns should be the personalization ONLY.
-   → Known caller with appointment: "Tony! You've got a deep conditioning this Friday at noon. What can I help with today?"
-   → Known caller, no appointment: "Tony! Good to hear from you — what can I do for you?"
-   → New caller: Say nothing extra — wait for them to speak. Get their name within 2 turns → call updateCustomerInfo.
+1. GREET: The begin_message already said the greeting. After recognizeCaller returns, say the personalization and STOP. Wait for the caller to tell you what they need. DO NOT call any other tools yet.
+   → Known caller with appointment: "Tony! You've got a deep conditioning this Friday at noon. What can I help with today?" THEN STOP AND LISTEN.
+   → Known caller, no appointment: "Tony! Good to hear from you — what can I do for you?" THEN STOP AND LISTEN.
+   → New caller: Wait for them to speak. Get their name within 2 turns → call updateCustomerInfo.
+   → CRITICAL: Do NOT call checkAvailability, bookAppointment, rescheduleAppointment, or any action tool until the CALLER tells you what they want. Mentioning an existing appointment is informational — it is NOT a request to reschedule or modify it.
    → ONLY call confirmAppointment if caller explicitly says "confirm" or "calling to confirm."
 
-2. UNDERSTAND: One question to clarify what they need. Then act.
+2. UNDERSTAND: WAIT for the caller to speak first. Then ask ONE question to clarify what they need. Then act.
    → Booking → ask service + when. Recurring → use bookRecurringAppointment for "every week", "biweekly", "monthly."
-   → Reschedule/cancel → if recognizeCaller already gave you the appointment details (id, date, service), use those directly with rescheduleAppointment or cancelAppointment. Only call getUpcomingAppointments if you don't have the appointment info yet.
+   → Reschedule/cancel → ONLY if the caller asks to reschedule or cancel. Use the appointment details from recognizeCaller directly. Only call getUpcomingAppointments if you don't have the info yet.
    → Pricing → "Which service?" then give that one price. Service prices are in the SERVICES list above — check there first before calling getServiceDetails.
 
 3. CHECK: Call checkAvailability with the DATE THE CALLER ASKED FOR (not any existing appointment date). If they say "today", pass "today". If they say "Saturday", pass "Saturday". NEVER default to a previously mentioned appointment date. If no date specified, default to TODAY.
