@@ -332,9 +332,9 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'Identify the caller. Call once at the start of the conversation.',
+    'MUST call this immediately at the very start of every call. Returns caller name, appointments, and context.',
     { type: 'object', properties: {} },
-    { speakDuring: false, speakAfter: true, timeout: 5000 }
+    { speakDuring: false, speakAfter: true, timeout: 4000 }
   ));
 
   tools.push(customTool(
@@ -692,6 +692,7 @@ export async function createLlmForBusiness(
   const result = await retellFetch<{ llm_id: string }>('POST', '/create-retell-llm', {
     model: 'gpt-5-mini',
     model_temperature: 0.3,
+    tool_call_strict_mode: true,    // Strict tool calls — prevents random tool invocations
     general_prompt: systemPrompt,
     general_tools: tools,
     begin_message: beginMessage,
@@ -766,6 +767,7 @@ export async function updateLlm(
   const result = await retellFetch('PATCH', `/update-retell-llm/${llmId}`, {
     model: 'gpt-5-mini',
     model_temperature: 0.3,
+    tool_call_strict_mode: true,
     general_prompt: systemPrompt,
     general_tools: tools,
     begin_message: beginMessage,
