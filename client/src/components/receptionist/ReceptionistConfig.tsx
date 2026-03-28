@@ -37,31 +37,33 @@ import {
 } from "@/components/ui/select";
 import { Plus, X, AlertTriangle, Volume2, VolumeX, Loader2, Sparkles } from "lucide-react";
 
-/** Available voices for AI receptionist (ElevenLabs, Cartesia, OpenAI via Retell AI) */
+/** Available voices for AI receptionist (ElevenLabs, Cartesia Sonic-3, OpenAI via Retell AI) */
 const VOICE_OPTIONS = [
   // ElevenLabs voices
   { id: '11labs-Adrian', name: 'Adrian', gender: 'Male', provider: 'ElevenLabs' },
   { id: '11labs-Myra', name: 'Myra', gender: 'Female', provider: 'ElevenLabs' },
   { id: '11labs-Brian', name: 'Brian', gender: 'Male', provider: 'ElevenLabs' },
-  { id: '11labs-Aria', name: 'Aria', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-Hailey', name: 'Hailey', gender: 'Female', provider: 'ElevenLabs' },
   { id: '11labs-Sarah', name: 'Sarah', gender: 'Female', provider: 'ElevenLabs' },
-  { id: '11labs-Roger', name: 'Roger', gender: 'Male', provider: 'ElevenLabs' },
-  { id: '11labs-Laura', name: 'Laura', gender: 'Female', provider: 'ElevenLabs' },
-  { id: '11labs-George', name: 'George', gender: 'Male', provider: 'ElevenLabs' },
-  // Cartesia voices
-  { id: 'Tina', name: 'Tina', gender: 'Female', provider: 'Cartesia' },
-  { id: 'Marissa', name: 'Marissa', gender: 'Female', provider: 'Cartesia' },
-  { id: 'Nathan', name: 'Nathan', gender: 'Male', provider: 'Cartesia' },
-  { id: 'Ryan', name: 'Ryan', gender: 'Male', provider: 'Cartesia' },
-  { id: 'Paola', name: 'Paola', gender: 'Female', provider: 'Cartesia' },
-  { id: 'Kian', name: 'Kian', gender: 'Male', provider: 'Cartesia' },
+  { id: '11labs-Jason', name: 'Jason', gender: 'Male', provider: 'ElevenLabs' },
+  { id: '11labs-Jenny', name: 'Jenny', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-James', name: 'James', gender: 'Male', provider: 'ElevenLabs' },
+  // Cartesia Sonic-3 voices
+  { id: 'cartesia-Ryan', name: 'Ryan', gender: 'Male', provider: 'Cartesia' },
+  { id: 'cartesia-Marissa', name: 'Marissa', gender: 'Female', provider: 'Cartesia' },
+  { id: 'cartesia-Nathan', name: 'Nathan', gender: 'Male', provider: 'Cartesia' },
+  { id: 'cartesia-Cimo', name: 'Cimo', gender: 'Female', provider: 'Cartesia' },
+  { id: 'cartesia-Sarah', name: 'Sarah', gender: 'Female', provider: 'Cartesia' },
+  { id: 'cartesia-Adam', name: 'Adam', gender: 'Male', provider: 'Cartesia' },
+  { id: 'cartesia-Hailey', name: 'Hailey', gender: 'Female', provider: 'Cartesia' },
+  { id: 'cartesia-Jason', name: 'Jason', gender: 'Male', provider: 'Cartesia' },
   // OpenAI voices
-  { id: 'openai-alloy', name: 'Alloy', gender: 'Neutral', provider: 'OpenAI' },
-  { id: 'openai-echo', name: 'Echo', gender: 'Male', provider: 'OpenAI' },
-  { id: 'openai-fable', name: 'Fable', gender: 'Male', provider: 'OpenAI' },
-  { id: 'openai-onyx', name: 'Onyx', gender: 'Male', provider: 'OpenAI' },
-  { id: 'openai-nova', name: 'Nova', gender: 'Female', provider: 'OpenAI' },
-  { id: 'openai-shimmer', name: 'Shimmer', gender: 'Female', provider: 'OpenAI' },
+  { id: 'openai-Alloy', name: 'Alloy', gender: 'Male', provider: 'OpenAI' },
+  { id: 'openai-Echo', name: 'Echo', gender: 'Male', provider: 'OpenAI' },
+  { id: 'openai-Nova', name: 'Nova', gender: 'Female', provider: 'OpenAI' },
+  { id: 'openai-Shimmer', name: 'Shimmer', gender: 'Female', provider: 'OpenAI' },
+  { id: 'openai-Sage', name: 'Sage', gender: 'Female', provider: 'OpenAI' },
+  { id: 'openai-Coral', name: 'Coral', gender: 'Female', provider: 'OpenAI' },
 ];
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { HelpTooltip } from "@/components/ui/help-tooltip";

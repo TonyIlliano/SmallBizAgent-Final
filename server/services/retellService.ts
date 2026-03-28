@@ -35,29 +35,31 @@ const RETELL_PROVIDER_HINTS = {
 
 /** Voice options from all providers (ElevenLabs, Cartesia, OpenAI) */
 export const RETELL_VOICE_OPTIONS = [
-  // ElevenLabs voices
-  { id: '11labs-Adrian', name: 'Adrian', gender: 'Male', provider: 'ElevenLabs', accent: 'American' },
-  { id: '11labs-Myra', name: 'Myra', gender: 'Female', provider: 'ElevenLabs', accent: 'American' },
-  { id: '11labs-Brian', name: 'Brian', gender: 'Male', provider: 'ElevenLabs', accent: 'American' },
-  { id: '11labs-Aria', name: 'Aria', gender: 'Female', provider: 'ElevenLabs', accent: 'American' },
-  { id: '11labs-Sarah', name: 'Sarah', gender: 'Female', provider: 'ElevenLabs', accent: 'American' },
-  { id: '11labs-Roger', name: 'Roger', gender: 'Male', provider: 'ElevenLabs', accent: 'American' },
-  { id: '11labs-Laura', name: 'Laura', gender: 'Female', provider: 'ElevenLabs', accent: 'American' },
-  { id: '11labs-George', name: 'George', gender: 'Male', provider: 'ElevenLabs', accent: 'British' },
-  // Cartesia voices
-  { id: 'Tina', name: 'Tina', gender: 'Female', provider: 'Cartesia', accent: 'American' },
-  { id: 'Marissa', name: 'Marissa', gender: 'Female', provider: 'Cartesia', accent: 'American' },
-  { id: 'Nathan', name: 'Nathan', gender: 'Male', provider: 'Cartesia', accent: 'American' },
-  { id: 'Ryan', name: 'Ryan', gender: 'Male', provider: 'Cartesia', accent: 'American' },
-  { id: 'Paola', name: 'Paola', gender: 'Female', provider: 'Cartesia', accent: 'American' },
-  { id: 'Kian', name: 'Kian', gender: 'Male', provider: 'Cartesia', accent: 'American' },
-  // OpenAI voices
-  { id: 'openai-alloy', name: 'Alloy', gender: 'Neutral', provider: 'OpenAI', accent: 'American' },
-  { id: 'openai-echo', name: 'Echo', gender: 'Male', provider: 'OpenAI', accent: 'American' },
-  { id: 'openai-fable', name: 'Fable', gender: 'Male', provider: 'OpenAI', accent: 'British' },
-  { id: 'openai-onyx', name: 'Onyx', gender: 'Male', provider: 'OpenAI', accent: 'American' },
-  { id: 'openai-nova', name: 'Nova', gender: 'Female', provider: 'OpenAI', accent: 'American' },
-  { id: 'openai-shimmer', name: 'Shimmer', gender: 'Female', provider: 'OpenAI', accent: 'American' },
+  // ElevenLabs voices (prefix: 11labs-)
+  { id: '11labs-Adrian', name: 'Adrian', gender: 'Male', provider: 'ElevenLabs' },
+  { id: '11labs-Myra', name: 'Myra', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-Brian', name: 'Brian', gender: 'Male', provider: 'ElevenLabs' },
+  { id: '11labs-Hailey', name: 'Hailey', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-Sarah', name: 'Sarah', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-Jason', name: 'Jason', gender: 'Male', provider: 'ElevenLabs' },
+  { id: '11labs-Jenny', name: 'Jenny', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-James', name: 'James', gender: 'Male', provider: 'ElevenLabs' },
+  // Cartesia Sonic-3 voices (prefix: cartesia-)
+  { id: 'cartesia-Ryan', name: 'Ryan', gender: 'Male', provider: 'Cartesia' },
+  { id: 'cartesia-Marissa', name: 'Marissa', gender: 'Female', provider: 'Cartesia' },
+  { id: 'cartesia-Nathan', name: 'Nathan', gender: 'Male', provider: 'Cartesia' },
+  { id: 'cartesia-Cimo', name: 'Cimo', gender: 'Female', provider: 'Cartesia' },
+  { id: 'cartesia-Sarah', name: 'Sarah', gender: 'Female', provider: 'Cartesia' },
+  { id: 'cartesia-Adam', name: 'Adam', gender: 'Male', provider: 'Cartesia' },
+  { id: 'cartesia-Hailey', name: 'Hailey', gender: 'Female', provider: 'Cartesia' },
+  { id: 'cartesia-Jason', name: 'Jason', gender: 'Male', provider: 'Cartesia' },
+  // OpenAI voices (prefix: openai-)
+  { id: 'openai-Alloy', name: 'Alloy', gender: 'Male', provider: 'OpenAI' },
+  { id: 'openai-Echo', name: 'Echo', gender: 'Male', provider: 'OpenAI' },
+  { id: 'openai-Nova', name: 'Nova', gender: 'Female', provider: 'OpenAI' },
+  { id: 'openai-Shimmer', name: 'Shimmer', gender: 'Female', provider: 'OpenAI' },
+  { id: 'openai-Sage', name: 'Sage', gender: 'Female', provider: 'OpenAI' },
+  { id: 'openai-Coral', name: 'Coral', gender: 'Female', provider: 'OpenAI' },
 ];
 
 /**
@@ -80,14 +82,18 @@ const VAPI_TO_RETELL_VOICE_MAP: Record<string, string> = {
 
 function resolveVoiceId(voiceId: string | null | undefined): string {
   if (!voiceId) return '11labs-Adrian';
-  // If it's already a valid Retell ID (has prefix or is a known Retell voice), use it
-  if (voiceId.startsWith('11labs-') || voiceId.startsWith('openai-') || voiceId.startsWith('retell-')) return voiceId;
-  // Check Cartesia names (no prefix)
-  const cartesiaNames = ['Tina', 'Marissa', 'Nathan', 'Ryan', 'Paola', 'Kian', 'Cimo'];
-  if (cartesiaNames.some(n => n.toLowerCase() === voiceId.toLowerCase())) return voiceId;
-  // Map old Vapi voice IDs
+  // If it already has a valid provider prefix, use it directly
+  if (voiceId.startsWith('11labs-') || voiceId.startsWith('openai-') || voiceId.startsWith('retell-') || voiceId.startsWith('cartesia-') || voiceId.startsWith('minimax-') || voiceId.startsWith('fish_audio-')) return voiceId;
+  // Map old Vapi voice IDs (bare ElevenLabs names like 'paula', 'rachel')
   const mapped = VAPI_TO_RETELL_VOICE_MAP[voiceId.toLowerCase()];
   if (mapped) return mapped;
+  // Try treating bare name as Cartesia voice (old UI stored 'Ryan' not 'cartesia-Ryan')
+  const asCartesia = `cartesia-${voiceId}`;
+  const validCartesia = RETELL_VOICE_OPTIONS.find(v => v.id === asCartesia);
+  if (validCartesia) return asCartesia;
+  // Try treating bare name as any provider
+  const exactMatch = RETELL_VOICE_OPTIONS.find(v => v.name.toLowerCase() === voiceId.toLowerCase());
+  if (exactMatch) return exactMatch.id;
   // Unknown voice — default
   console.warn(`[Retell] Unknown voice ID "${voiceId}", defaulting to 11labs-Adrian`);
   return '11labs-Adrian';
@@ -100,9 +106,8 @@ function resolveVoiceId(voiceId: string | null | undefined): string {
 function getVoiceModel(voiceId: string): string | null {
   if (!voiceId) return null;
   const id = voiceId.toLowerCase();
-  // Cartesia voices (no prefix — Retell native IDs like "Tina", "Nathan", etc.)
-  const cartesiaVoices = ['tina', 'marissa', 'nathan', 'ryan', 'paola', 'kian', 'cimo'];
-  if (cartesiaVoices.some(v => id.includes(v)) || id.startsWith('retell-')) {
+  // Cartesia voices (prefix: cartesia-) or Retell platform voices
+  if (id.startsWith('cartesia-') || id.startsWith('retell-')) {
     return 'sonic-3';
   }
   // ElevenLabs voices
