@@ -37,18 +37,31 @@ import {
 } from "@/components/ui/select";
 import { Plus, X, AlertTriangle, Volume2, VolumeX, Loader2, Sparkles } from "lucide-react";
 
-/** Curated ElevenLabs voices available for VAPI assistants (must match server VOICE_OPTIONS) */
+/** Available voices for AI receptionist (ElevenLabs, Cartesia, OpenAI via Retell AI) */
 const VOICE_OPTIONS = [
-  { id: 'paula', name: 'Paula', gender: 'Female' },
-  { id: 'rachel', name: 'Rachel', gender: 'Female' },
-  { id: 'domi', name: 'Domi', gender: 'Female' },
-  { id: 'bella', name: 'Bella', gender: 'Female' },
-  { id: 'elli', name: 'Elli', gender: 'Female' },
-  { id: 'adam', name: 'Adam', gender: 'Male' },
-  { id: 'antoni', name: 'Antoni', gender: 'Male' },
-  { id: 'josh', name: 'Josh', gender: 'Male' },
-  { id: 'arnold', name: 'Arnold', gender: 'Male' },
-  { id: 'sam', name: 'Sam', gender: 'Male' },
+  // ElevenLabs voices
+  { id: '11labs-Adrian', name: 'Adrian', gender: 'Male', provider: 'ElevenLabs' },
+  { id: '11labs-Myra', name: 'Myra', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-Brian', name: 'Brian', gender: 'Male', provider: 'ElevenLabs' },
+  { id: '11labs-Aria', name: 'Aria', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-Sarah', name: 'Sarah', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-Roger', name: 'Roger', gender: 'Male', provider: 'ElevenLabs' },
+  { id: '11labs-Laura', name: 'Laura', gender: 'Female', provider: 'ElevenLabs' },
+  { id: '11labs-George', name: 'George', gender: 'Male', provider: 'ElevenLabs' },
+  // Cartesia voices
+  { id: 'Tina', name: 'Tina', gender: 'Female', provider: 'Cartesia' },
+  { id: 'Marissa', name: 'Marissa', gender: 'Female', provider: 'Cartesia' },
+  { id: 'Nathan', name: 'Nathan', gender: 'Male', provider: 'Cartesia' },
+  { id: 'Ryan', name: 'Ryan', gender: 'Male', provider: 'Cartesia' },
+  { id: 'Paola', name: 'Paola', gender: 'Female', provider: 'Cartesia' },
+  { id: 'Kian', name: 'Kian', gender: 'Male', provider: 'Cartesia' },
+  // OpenAI voices
+  { id: 'openai-alloy', name: 'Alloy', gender: 'Neutral', provider: 'OpenAI' },
+  { id: 'openai-echo', name: 'Echo', gender: 'Male', provider: 'OpenAI' },
+  { id: 'openai-fable', name: 'Fable', gender: 'Male', provider: 'OpenAI' },
+  { id: 'openai-onyx', name: 'Onyx', gender: 'Male', provider: 'OpenAI' },
+  { id: 'openai-nova', name: 'Nova', gender: 'Female', provider: 'OpenAI' },
+  { id: 'openai-shimmer', name: 'Shimmer', gender: 'Female', provider: 'OpenAI' },
 ];
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
@@ -347,7 +360,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                         <SelectContent>
                           {VOICE_OPTIONS.map((voice) => (
                             <SelectItem key={voice.id} value={voice.id}>
-                              {voice.name} ({voice.gender})
+                              {voice.name} ({voice.gender}) — {voice.provider}
                             </SelectItem>
                           ))}
                         </SelectContent>

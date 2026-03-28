@@ -57,6 +57,7 @@ interface PhoneNumber {
   status: "active" | "inactive" | "pending";
   isPrimary: boolean;
   vapiConnected: boolean;
+  retellConnected?: boolean;
   dateProvisioned: string | null;
 }
 
@@ -245,8 +246,8 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
     },
     onSuccess: () => {
       toast({
-        title: "Connected to AI Assistant",
-        description: "The phone number is now connected to your Vapi AI assistant.",
+        title: "Connected to AI Receptionist",
+        description: "The phone number is now connected to your AI receptionist.",
       });
       queryClient.invalidateQueries({
         queryKey: [`/api/business/${businessId}/phone-numbers`],
@@ -479,8 +480,8 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
                           </Button>
                         )}
 
-                        {/* Connect to Vapi */}
-                        {!phone.vapiConnected && phone.status === "active" && (
+                        {/* Connect to AI Receptionist */}
+                        {!phone.vapiConnected && !phone.retellConnected && phone.status === "active" && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -495,7 +496,7 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
                             )}
                           </Button>
                         )}
-                        {phone.vapiConnected && (
+                        {(phone.vapiConnected || phone.retellConnected) && (
                           <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
                             AI Connected
                           </Badge>

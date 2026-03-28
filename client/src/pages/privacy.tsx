@@ -86,7 +86,7 @@ export default function PrivacyPolicy() {
               <h3 className="text-xl font-medium mb-3 mt-6 text-neutral-200">2.3 Information from Third-Party Services</h3>
               <ul className="list-disc pl-6 space-y-2 text-neutral-300">
                 <li><strong className="text-white">Telephony Data:</strong> Call metadata, recordings, and transcriptions processed through Twilio.</li>
-                <li><strong className="text-white">AI Processing:</strong> Voice interactions processed through our AI receptionist partner (Vapi) for call handling and appointment booking.</li>
+                <li><strong className="text-white">AI Processing:</strong> Voice interactions processed through our AI receptionist partner (Retell AI) for call handling and appointment booking.</li>
                 <li><strong className="text-white">Payment Data:</strong> Transaction details and subscription status from Stripe.</li>
               </ul>
             </section>
@@ -126,7 +126,7 @@ export default function PrivacyPolicy() {
               <h2 className="text-2xl font-semibold mb-4 text-white">5. How We Share Your Information</h2>
               <p className="text-neutral-300 leading-relaxed mb-4">We do not sell your personal information. We may share information with:</p>
               <ul className="list-disc pl-6 space-y-2 text-neutral-300">
-                <li><strong className="text-white">Service Providers:</strong> Third-party companies that help us operate the Service, including Twilio (telephony and SMS), Vapi (AI voice processing), Stripe (payment processing), and email delivery services. These providers are contractually obligated to protect your information.</li>
+                <li><strong className="text-white">Service Providers:</strong> Third-party companies that help us operate the Service, including Twilio (telephony and SMS), Retell AI (AI voice processing), Stripe (payment processing), and email delivery services. These providers are contractually obligated to protect your information.</li>
                 <li><strong className="text-white">Business Owners:</strong> If you are a customer of a business using SmallBizAgent, the business owner has access to your information as stored in their account (e.g., contact details, appointment history, invoices).</li>
                 <li><strong className="text-white">Legal Requirements:</strong> We may disclose your information if required by law, regulation, legal process, or governmental request.</li>
                 <li><strong className="text-white">Business Transfers:</strong> In connection with a merger, acquisition, or sale of assets, your information may be transferred as part of the transaction.</li>

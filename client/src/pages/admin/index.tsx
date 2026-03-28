@@ -61,6 +61,7 @@ interface AdminBusiness {
   subscriptionStatus: string | null;
   twilioPhoneNumber: string | null;
   vapiAssistantId: string | null;
+  retellAgentId: string | null;
   createdAt: string | null;
   ownerUsername: string | null;
   ownerEmail: string | null;
@@ -244,6 +245,9 @@ interface BusinessDetail {
   twilioPhoneNumberSid: string | null;
   vapiAssistantId: string | null;
   vapiPhoneNumberId: string | null;
+  retellAgentId: string | null;
+  retellLlmId: string | null;
+  retellPhoneNumberId: string | null;
   bookingSlug: string | null;
   receptionistEnabled: boolean | null;
   stripeCustomerId: string | null;
@@ -1000,8 +1004,8 @@ function BusinessesTab() {
                   <p className="text-sm">{businessDetail.twilioPhoneNumber || "Not provisioned"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Vapi Assistant</p>
-                  <p className="text-sm font-mono text-xs">{businessDetail.vapiAssistantId ? businessDetail.vapiAssistantId.slice(0, 20) + "..." : "Not set"}</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">AI Receptionist</p>
+                  <p className="text-sm font-mono text-xs">{(businessDetail.retellAgentId || businessDetail.vapiAssistantId) ? ((businessDetail.retellAgentId || businessDetail.vapiAssistantId) as string).slice(0, 20) + "..." : "Not set"}</p>
                 </div>
               </div>
 
@@ -1080,8 +1084,8 @@ function BusinessesTab() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmAction?.type === "provision"
-                ? `This will provision a Twilio phone number and Vapi assistant for "${confirmAction?.businessName}". This may incur costs.`
-                : `This will release the Twilio phone number and delete the Vapi assistant for "${confirmAction?.businessName}". The business will no longer receive AI calls.`
+                ? `This will provision a Twilio phone number and AI receptionist for "${confirmAction?.businessName}". This may incur costs.`
+                : `This will release the Twilio phone number and delete the AI receptionist for "${confirmAction?.businessName}". The business will no longer receive AI calls.`
               }
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -2333,7 +2337,7 @@ function CostsTab() {
                 total={costsData.totalCosts}
               />
               <CostRow
-                service="Vapi (AI Voice)"
+                service="Retell AI (Voice)"
                 details={`${costsData.costs.vapi.callCount} calls — transport, STT, LLM, TTS`}
                 cost={costsData.costs.vapi.total}
                 total={costsData.totalCosts}

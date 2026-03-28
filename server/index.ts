@@ -44,7 +44,7 @@ function validateEnvironment() {
     'STRIPE_WEBHOOK_SECRET',
     'TWILIO_ACCOUNT_SID',
     'TWILIO_AUTH_TOKEN',
-    'VAPI_API_KEY',
+    'RETELL_API_KEY',
   ];
 
   // In production, BASE_URL is critical for webhooks, password reset links, etc.
@@ -131,7 +131,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://api.stripe.com", "https://api.vapi.ai", "https://maps.googleapis.com", "wss:", "https://*.sentry.io", "https://*.ingest.sentry.io", "https://www.google-analytics.com", "https://analytics.google.com", "https://*.google-analytics.com", "https://*.analytics.google.com"],
+      connectSrc: ["'self'", "https://api.stripe.com", "https://api.retellai.com", "https://maps.googleapis.com", "wss:", "https://*.sentry.io", "https://*.ingest.sentry.io", "https://www.google-analytics.com", "https://analytics.google.com", "https://*.google-analytics.com", "https://*.analytics.google.com"],
       frameSrc: ["'self'", "https://js.stripe.com", "https://challenges.cloudflare.com"],
     },
   },
@@ -200,7 +200,7 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => {
     // Skip rate limiting for webhooks (they have their own validation)
-    return req.path.startsWith('/webhook') || req.path.startsWith('/twilio') || req.path.startsWith('/vapi');
+    return req.path.startsWith('/webhook') || req.path.startsWith('/twilio') || req.path.startsWith('/vapi') || req.path.startsWith('/retell');
   },
 });
 
@@ -274,6 +274,7 @@ app.use((req, res, next) => {
     '/api/subscription/webhook',
     '/api/twilio/',
     '/api/vapi/',
+    '/api/retell/',
     '/api/clover-webhook',
     '/api/square-webhook',
     '/api/config/public',

@@ -40,7 +40,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-// Normalize raw Vapi status strings to standard values
+// Normalize call status strings from any voice AI provider (Retell, legacy Vapi)
 function normalizeStatus(status: string): string {
   if (!status) return "answered";
   const s = status.toLowerCase();
@@ -50,10 +50,12 @@ function normalizeStatus(status: string): string {
     s.includes("customer-ended") ||
     s.includes("assistant-ended") ||
     s.includes("end-call") ||
-    s.includes("assistant-said")
+    s.includes("assistant-said") ||
+    s.includes("agent_hangup") ||
+    s.includes("user_hangup")
   )
     return "answered";
-  if (s === "missed" || s.includes("did-not-answer") || s.includes("silence") || s.includes("no-input"))
+  if (s === "missed" || s.includes("did-not-answer") || s.includes("silence") || s.includes("no-input") || s.includes("dial_no_answer") || s.includes("no_answer"))
     return "missed";
   if (s === "voicemail" || s.includes("voicemail"))
     return "voicemail";
@@ -63,7 +65,7 @@ function normalizeStatus(status: string): string {
 // Normalize intent
 function normalizeIntent(intent: string): string {
   if (!intent) return "General";
-  if (intent === "vapi-ai-call") return "AI Call";
+  if (intent === "ai-call" || intent === "vapi-ai-call") return "AI Call";
   return intent.charAt(0).toUpperCase() + intent.slice(1);
 }
 

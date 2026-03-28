@@ -593,9 +593,9 @@ async function fixExistingTables() {
     console.log('Seeding subscription plans...');
     await pool.query(`
       INSERT INTO subscription_plans (name, description, plan_tier, price, interval, features, max_call_minutes, overage_rate_per_minute, max_staff, active, sort_order) VALUES
-      ('Starter', 'Perfect for solo operators', 'starter', 79, 'monthly', '["75 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]', 75, 0.99, 1, true, 1),
-      ('Professional', 'Most popular for growing businesses', 'professional', 149, 'monthly', '["200 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS notifications", "Calendar sync (Google, Apple, Microsoft)", "QuickBooks integration", "Staff scheduling (up to 5)", "Review request automation", "Advanced analytics"]', 200, 0.89, 5, true, 2),
-      ('Business', 'For established businesses', 'business', 249, 'monthly', '["500 AI receptionist minutes/mo", "Everything in Professional, plus:", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support"]', 500, 0.79, 15, true, 3)
+      ('Starter', 'Perfect for solo operators', 'starter', 149, 'monthly', '["150 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]', 150, 0.05, 1, true, 1),
+      ('Growth', 'Most popular for growing businesses', 'growth', 299, 'monthly', '["300 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS automation suite", "Google Business Profile sync", "Calendar sync (Google, Apple, Microsoft)", "Staff scheduling (up to 5)", "Website chat widget", "Advanced analytics + call transcripts", "QuickBooks integration (Coming Soon)"]', 300, 0.05, 5, true, 2),
+      ('Pro', 'For established businesses', 'pro', 449, 'monthly', '["500 AI receptionist minutes/mo", "Everything in Growth, plus:", "Up to 3 locations", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support", "White-label ready", "Social media content pipeline (Coming Soon)"]', 500, 0.05, 15, true, 3)
     `);
     console.log('Subscription plans seeded');
   }
@@ -607,36 +607,36 @@ async function fixExistingTables() {
         name = 'Starter',
         description = 'Perfect for solo operators',
         plan_tier = 'starter',
-        price = 79,
-        features = '["75 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]',
-        max_call_minutes = 75,
-        overage_rate_per_minute = 0.99,
+        price = 149,
+        features = '["150 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]',
+        max_call_minutes = 150,
+        overage_rate_per_minute = 0.05,
         max_staff = 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE sort_order = 1
     `);
     await pool.query(`
       UPDATE subscription_plans SET
-        name = 'Professional',
+        name = 'Growth',
         description = 'Most popular for growing businesses',
-        plan_tier = 'professional',
-        price = 149,
-        features = '["200 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS notifications", "Calendar sync (Google, Apple, Microsoft)", "QuickBooks integration", "Staff scheduling (up to 5)", "Review request automation", "Advanced analytics"]',
-        max_call_minutes = 200,
-        overage_rate_per_minute = 0.89,
+        plan_tier = 'growth',
+        price = 299,
+        features = '["300 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS automation suite", "Google Business Profile sync", "Calendar sync (Google, Apple, Microsoft)", "Staff scheduling (up to 5)", "Website chat widget", "Advanced analytics + call transcripts", "QuickBooks integration (Coming Soon)"]',
+        max_call_minutes = 300,
+        overage_rate_per_minute = 0.05,
         max_staff = 5,
         updated_at = CURRENT_TIMESTAMP
       WHERE sort_order = 2
     `);
     await pool.query(`
       UPDATE subscription_plans SET
-        name = 'Business',
+        name = 'Pro',
         description = 'For established businesses',
-        plan_tier = 'business',
-        price = 249,
-        features = '["500 AI receptionist minutes/mo", "Everything in Professional, plus:", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support"]',
+        plan_tier = 'pro',
+        price = 449,
+        features = '["500 AI receptionist minutes/mo", "Everything in Growth, plus:", "Up to 3 locations", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support", "White-label ready", "Social media content pipeline (Coming Soon)"]',
         max_call_minutes = 500,
-        overage_rate_per_minute = 0.79,
+        overage_rate_per_minute = 0.05,
         max_staff = 15,
         updated_at = CURRENT_TIMESTAMP
       WHERE sort_order = 3
@@ -2277,6 +2277,22 @@ async function runMigrations() {
 
     // SMS Intelligence Layer tables
     await addSmsIntelligenceTables();
+
+    // Run pricing v2 migration (Starter $149, Growth $299, Pro $449)
+    try {
+      const { migrate: migratePricingV2 } = await import('./update_pricing_v2.js');
+      await migratePricingV2();
+    } catch (error) {
+      console.error('Error running pricing v2 migration:', error);
+    }
+
+    // Vapi → Retell AI migration: add retell columns
+    try {
+      const { migrateVapiToRetell } = await import('./migrate_vapi_to_retell.js');
+      await migrateVapiToRetell(pool);
+    } catch (error) {
+      console.error('Error running Vapi→Retell migration:', error);
+    }
 
     console.log('All migrations applied successfully');
   } catch (error) {

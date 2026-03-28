@@ -429,9 +429,9 @@ async function rescheduleNode(state: ReplyIntelligenceState): Promise<Partial<Re
       };
     }
 
-    // ── Import scheduling utilities from vapiWebhookHandler ──
-    const webhookHandler = await import('./vapiWebhookHandler');
-    const { parseNaturalDate, parseNaturalTime, createDateInTimezone, getAvailableSlotsForDay } = webhookHandler;
+    // ── Import scheduling utilities from callToolHandlers (provider-agnostic) ──
+    const toolHandlers = await import('./callToolHandlers');
+    const { parseNaturalDate, parseNaturalTime, createDateInTimezone, getAvailableSlotsForDay } = toolHandlers;
 
     // Parse the customer's requested date/time
     const parsedDate = requestedDate ? parseNaturalDate(requestedDate, tz) : new Date(state.upcomingAppointment.startDate);
@@ -666,7 +666,7 @@ async function findNearestAlternatives(
   businessId: number, startDate: Date, businessHours: any[], appointments: any[],
   duration: number, tz: string, business: any,
 ): Promise<Array<{ day: string; slot: string }>> {
-  const { getAvailableSlotsForDay } = await import('./vapiWebhookHandler');
+  const { getAvailableSlotsForDay } = await import('./callToolHandlers');
   const alternatives: Array<{ day: string; slot: string }> = [];
   const checkDate = new Date(startDate);
   const interval = (business as any).bookingSlotIntervalMinutes || 30;

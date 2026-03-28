@@ -19,7 +19,7 @@ import {
   disconnectHeartland,
   getCachedMenu,
 } from '../services/heartlandService';
-import { debouncedUpdateVapiAssistant } from '../services/vapiProvisioningService';
+import { debouncedUpdateRetellAgent } from '../services/retellProvisioningService';
 
 const router = Router();
 
@@ -80,7 +80,7 @@ router.post('/connect', isAuthenticated, async (req, res) => {
 
     // Auto-refresh VAPI assistant so it picks up the synced menu
     try {
-      debouncedUpdateVapiAssistant(business.id);
+      debouncedUpdateRetellAgent(business.id);
       console.log(`Triggered VAPI assistant refresh after Heartland connection for business ${business.id}`);
     } catch (e) {
       console.error('Failed to trigger VAPI refresh after Heartland connection:', e);
@@ -109,7 +109,7 @@ router.post('/sync-menu', isAuthenticated, async (req, res) => {
 
     // Auto-refresh VAPI assistant so it picks up the updated menu
     try {
-      debouncedUpdateVapiAssistant(businessId);
+      debouncedUpdateRetellAgent(businessId);
       console.log(`Triggered VAPI assistant refresh after Heartland menu sync for business ${businessId}`);
     } catch (e) {
       console.error('Failed to trigger VAPI refresh after menu sync:', e);
@@ -165,7 +165,7 @@ router.post('/disconnect', isAuthenticated, async (req, res) => {
 
     // Refresh VAPI assistant to remove menu data
     try {
-      debouncedUpdateVapiAssistant(businessId);
+      debouncedUpdateRetellAgent(businessId);
     } catch (e) {
       console.error('Failed to trigger VAPI refresh after Heartland disconnect:', e);
     }

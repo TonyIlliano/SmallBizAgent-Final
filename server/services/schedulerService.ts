@@ -2,7 +2,7 @@ import { storage } from "../storage";
 import { Business } from "@shared/schema";
 import reminderService from "./reminderService";
 import { processDueRecurringSchedules } from "../routes/recurring";
-import { updateVapiAssistant } from "./vapiProvisioningService";
+import { updateRetellAgent } from "./retellProvisioningService";
 import { sendQuoteFollowUpNotification, sendInvoiceReminderNotification } from "./notificationService";
 import { sendBirthdayCampaigns } from "./marketingService";
 import { deprovisionBusiness } from "./businessProvisioningService";
@@ -207,9 +207,9 @@ async function runVapiRefresh(): Promise<void> {
     let updated = 0;
 
     for (const business of allBusinesses) {
-      if (business.vapiAssistantId && business.receptionistEnabled !== false) {
+      if ((business.retellAgentId || business.vapiAssistantId) && business.receptionistEnabled !== false) {
         try {
-          await updateVapiAssistant(business.id);
+          await updateRetellAgent(business.id);
           updated++;
         } catch (err) {
           console.error(`[VapiRefresh] Failed for business ${business.id}:`, err);

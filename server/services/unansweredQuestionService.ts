@@ -15,7 +15,7 @@
 
 import OpenAI from 'openai';
 import { storage } from '../storage';
-import { debouncedUpdateVapiAssistant } from './vapiProvisioningService';
+import { debouncedUpdateRetellAgent } from './retellProvisioningService';
 
 /**
  * Analyze a call transcript to detect unanswered questions.
@@ -220,7 +220,7 @@ export async function promoteToKnowledge(
 
     // Trigger Vapi assistant update to include the new knowledge
     try {
-      debouncedUpdateVapiAssistant(question.businessId);
+      debouncedUpdateRetellAgent(question.businessId);
     } catch (e) {
       console.warn('Could not trigger Vapi update after promoting question:', e);
     }

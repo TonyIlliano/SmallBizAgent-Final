@@ -12,7 +12,7 @@
 
 import OpenAI from 'openai';
 import { storage } from '../storage';
-import { debouncedUpdateVapiAssistant } from './vapiProvisioningService';
+import { debouncedUpdateRetellAgent } from './retellProvisioningService';
 
 // ── Greeting disclosure check ────────────────────────────────────────
 const DISCLOSURE_KEYWORDS = ['recorded', 'recording', 'monitored', 'monitor'];
@@ -296,7 +296,7 @@ export async function acceptSuggestion(
 
     // Trigger Vapi assistant update so changes take effect on calls
     if (suggestion.type !== 'GENERAL_INSIGHT') {
-      debouncedUpdateVapiAssistant(suggestion.businessId);
+      debouncedUpdateRetellAgent(suggestion.businessId);
     }
 
     return { success: true };

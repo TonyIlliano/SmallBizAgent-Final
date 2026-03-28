@@ -141,6 +141,7 @@
     "recharts": "^2.15.2",
     "remotion": "^4.0.441",
     "resend": "^6.9.2",
+    "retell-sdk": "^5.10.1",
     "stripe": "^18.0.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",

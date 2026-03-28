@@ -184,7 +184,7 @@ export default function TermsOfService() {
               <p className="text-neutral-300 leading-relaxed mb-4">
                 By using the Service, you grant us a limited, non-exclusive license to use, process, and store
                 Your Data solely for the purpose of providing the Service to you. This includes processing data
-                through third-party services (e.g., Twilio for SMS, Vapi for AI voice, Stripe for payments) as
+                through third-party services (e.g., Twilio for SMS, Retell AI for AI voice, Stripe for payments) as
                 necessary to deliver the features you use.
               </p>
 

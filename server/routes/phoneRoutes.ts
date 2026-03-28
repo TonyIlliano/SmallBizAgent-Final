@@ -14,7 +14,7 @@ import {
   releaseSpecificPhoneNumber,
   searchAvailablePhoneNumbers,
 } from "../services/twilioProvisioningService";
-import { connectSpecificPhoneToVapi } from "../services/vapiProvisioningService";
+import { connectSpecificPhoneToRetell } from "../services/retellProvisioningService";
 
 const router = Router();
 
@@ -277,20 +277,20 @@ router.post(
         return res.status(403).json({ error: "Phone number does not belong to this business" });
       }
 
-      // Connect the specific phone number to Vapi
-      const result = await connectSpecificPhoneToVapi(businessId, phoneId);
+      // Connect the specific phone number to Retell AI
+      const result = await connectSpecificPhoneToRetell(businessId, phoneId);
 
       if (!result.success) {
-        return res.status(500).json({ error: "Failed to connect phone to Vapi", details: result.error });
+        return res.status(500).json({ error: "Failed to connect phone to AI receptionist", details: result.error });
       }
 
-      // Re-fetch the updated phone record (vapiPhoneNumberId was set by connectSpecificPhoneToVapi)
+      // Re-fetch the updated phone record
       const updated = await storage.getPhoneNumber(phoneId);
 
       res.json({
         success: true,
         phoneNumber: updated,
-        vapiPhoneNumberId: result.vapiPhoneNumberId,
+        retellPhoneNumberId: result.retellPhoneNumberId,
       });
     } catch (error: any) {
       console.error("[Phone] Error connecting phone to Vapi:", error);

@@ -124,12 +124,11 @@ import twilioService from "./services/twilioService";
 import * as virtualReceptionistService from "./services/virtualReceptionistService";
 
 // Import cache for invalidation when data changes
-import { dataCache } from "./services/vapiWebhookHandler";
+import { dataCache } from "./services/callToolHandlers";
 
-// Vapi.ai setup (new AI voice receptionist)
-import vapiService from "./services/vapiService";
-import vapiWebhookHandler from "./services/vapiWebhookHandler";
-import vapiProvisioningService from "./services/vapiProvisioningService";
+// Retell AI setup (voice receptionist)
+import retellProvisioningService from "./services/retellProvisioningService";
+import { handleRetellFunction, handleRetellWebhook, validateRetellWebhook } from './services/retellWebhookHandler';
 import businessProvisioningService from "./services/businessProvisioningService";
 import twilioProvisioningService from "./services/twilioProvisioningService";
 import calendarRoutes from "./routes/calendarRoutes";
@@ -475,11 +474,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Business update validated data for id ${id}:`, JSON.stringify(validatedData));
       const business = await storage.updateBusiness(id, validatedData);
 
-      // Update Vapi assistant if any business info that affects the AI prompt changed (debounced)
+      // Update Retell agent if any business info that affects the AI prompt changed (debounced)
       if (validatedData.name || validatedData.industry || validatedData.businessHours ||
           validatedData.phone || validatedData.address || validatedData.city || validatedData.state || validatedData.zip ||
           validatedData.restaurantPickupEnabled !== undefined || validatedData.restaurantDeliveryEnabled !== undefined) {
-        vapiProvisioningService.debouncedUpdateVapiAssistant(id);
+        retellProvisioningService.debouncedUpdateRetellAgent(id);
       }
 
       // Fire-and-forget GBP sync to detect conflicts (pull only, no auto-push)
@@ -528,7 +527,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         provisioningResult: business.provisioningResult ? JSON.parse(business.provisioningResult) : null,
         provisioningCompletedAt: business.provisioningCompletedAt,
         twilioPhoneNumber: business.twilioPhoneNumber,
-        vapiAssistantId: business.vapiAssistantId,
+        retellAgentId: business.retellAgentId,
       });
     } catch (error) {
       console.error("Error fetching provisioning status:", error);
@@ -600,8 +599,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const services = await storage.getServices(businessId);
       const hasServices = services.length > 0;
 
-      // Check receptionist: must have a VAPI assistant created
-      const hasReceptionist = !!(business.vapiAssistantId);
+      // Check receptionist: must have a Retell agent created
+      const hasReceptionist = !!(business.retellAgentId);
 
       // Check calendar/integrations: has business hours configured
       const businessHours = await storage.getBusinessHours(businessId);
@@ -656,7 +655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           serviceCount: services.length,
           staffCount: staff.length,
           customerCount: customers.length,
-          vapiAssistantId: business.vapiAssistantId || null,
+          retellAgentId: business.retellAgentId || null,
           twilioPhoneNumber: business.twilioPhoneNumber || null,
           businessHoursDays: businessHours.length,
           bookingSlug: business.bookingSlug || null,
@@ -789,11 +788,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dataCache.invalidate(hours.businessId, 'hours');
       }
 
-      // Auto-refresh Vapi assistant when business hours are created (includes knowledge base)
+      // Auto-refresh Retell agent when business hours are created (includes knowledge base)
       if (hours.businessId) {
         const business = await storage.getBusiness(hours.businessId);
-        if (business?.vapiAssistantId) {
-          vapiProvisioningService.debouncedUpdateVapiAssistant(hours.businessId);
+        if (business?.retellAgentId) {
+          retellProvisioningService.debouncedUpdateRetellAgent(hours.businessId);
         }
       }
 
@@ -828,11 +827,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dataCache.invalidate(hours.businessId, 'hours');
       }
 
-      // Auto-refresh Vapi assistant when business hours change (includes knowledge base)
+      // Auto-refresh Retell agent when business hours change (includes knowledge base)
       if (hours.businessId) {
         const business = await storage.getBusiness(hours.businessId);
-        if (business?.vapiAssistantId) {
-          vapiProvisioningService.debouncedUpdateVapiAssistant(hours.businessId);
+        if (business?.retellAgentId) {
+          retellProvisioningService.debouncedUpdateRetellAgent(hours.businessId);
         }
       }
 
@@ -889,8 +888,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Invalidate services cache
       dataCache.invalidate(businessId, 'services');
 
-      // Update Vapi assistant with new services (debounced to prevent race conditions)
-      vapiProvisioningService.debouncedUpdateVapiAssistant(businessId);
+      // Update Retell agent with new services (debounced to prevent race conditions)
+      retellProvisioningService.debouncedUpdateRetellAgent(businessId);
 
       res.status(201).json(service);
     } catch (error) {
@@ -1025,8 +1024,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Invalidate services cache
       dataCache.invalidate(existing.businessId, 'services');
 
-      // Update Vapi assistant with updated services (debounced to prevent race conditions)
-      vapiProvisioningService.debouncedUpdateVapiAssistant(existing.businessId);
+      // Update Retell agent with updated services (debounced to prevent race conditions)
+      retellProvisioningService.debouncedUpdateRetellAgent(existing.businessId);
 
       res.json(service);
     } catch (error) {
@@ -1054,8 +1053,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Invalidate services cache
       dataCache.invalidate(businessId, 'services');
 
-      // Update Vapi assistant after service deletion (debounced to prevent race conditions)
-      vapiProvisioningService.debouncedUpdateVapiAssistant(businessId);
+      // Update Retell agent after service deletion (debounced to prevent race conditions)
+      retellProvisioningService.debouncedUpdateRetellAgent(businessId);
 
       res.status(204).end();
     } catch (error) {
@@ -1822,7 +1821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         note: note || null,
       });
 
-      // Invalidate availability cache so Vapi picks up time-off changes
+      // Invalidate availability cache so Retell picks up time-off changes
       dataCache.invalidate(businessId);
 
       res.status(201).json(entry);
@@ -1854,7 +1853,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Time off entry not found" });
       }
 
-      // Invalidate availability cache so Vapi picks up time-off changes
+      // Invalidate availability cache so Retell picks up time-off changes
       dataCache.invalidate(businessId);
 
       res.json(updated);
@@ -1874,7 +1873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const businessId = getBusinessId(req);
       await storage.deleteStaffTimeOff(timeOffId, businessId);
 
-      // Invalidate availability cache so Vapi picks up time-off changes
+      // Invalidate availability cache so Retell picks up time-off changes
       dataCache.invalidate(businessId);
 
       res.json({ success: true });
@@ -3346,13 +3345,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Business not found' });
       }
 
-      // Validate prerequisites: Vapi assistant and phone number must be provisioned
-      if (!business.vapiAssistantId) {
+      // Validate prerequisites: Retell agent and phone number must be provisioned
+      if (!business.retellAgentId) {
         return res.status(400).json({
           error: 'AI receptionist not set up yet. Please provision your receptionist first.'
         });
       }
-      if (!business.vapiPhoneNumberId) {
+      if (!business.retellPhoneNumberId) {
         return res.status(400).json({
           error: 'No phone number configured for your AI receptionist. Please set up a phone number first.'
         });
@@ -3383,10 +3382,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Call Vapi outbound API
-      const result = await vapiService.createOutboundCall(
-        business.vapiAssistantId,
-        business.vapiPhoneNumberId,
+      // Call Retell outbound API
+      const retellService = (await import('./services/retellService')).default;
+      const result = await retellService.createOutboundCall(
+        business.retellAgentId,
+        business.twilioPhoneNumber!,
         phoneNumber
       );
 
@@ -3437,8 +3437,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertReceptionistConfigSchema.parse({ ...req.body, businessId });
       const config = await storage.createReceptionistConfig(validatedData);
 
-      // Auto-refresh VAPI assistant when receptionist config is created (syncs transfer numbers etc.)
-      vapiProvisioningService.debouncedUpdateVapiAssistant(businessId);
+      // Auto-refresh Retell agent when receptionist config is created (syncs transfer numbers etc.)
+      retellProvisioningService.debouncedUpdateRetellAgent(businessId);
 
       res.status(201).json(config);
     } catch (error) {
@@ -3465,8 +3465,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertReceptionistConfigSchema.partial().parse(req.body);
       const config = await storage.updateReceptionistConfig(id, validatedData);
 
-      // Auto-refresh VAPI assistant when receptionist config changes (syncs transfer numbers etc.)
-      vapiProvisioningService.debouncedUpdateVapiAssistant(userBusinessId);
+      // Auto-refresh Retell agent when receptionist config changes (syncs transfer numbers etc.)
+      retellProvisioningService.debouncedUpdateRetellAgent(userBusinessId);
 
       res.json(config);
     } catch (error) {
@@ -3728,11 +3728,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         priority: 10, // Manual entries get highest priority
       });
 
-      // Trigger Vapi update to include new knowledge
+      // Trigger Retell agent update to include new knowledge
       try {
-        const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
-        debouncedUpdateVapiAssistant(businessId);
-      } catch (e) { console.error(`[Knowledge] Failed to update Vapi assistant for business ${businessId}:`, e); }
+        const { debouncedUpdateRetellAgent } = await import('./services/retellProvisioningService');
+        debouncedUpdateRetellAgent(businessId);
+      } catch (e) { console.error(`[Knowledge] Failed to update Retell agent for business ${businessId}:`, e); }
 
       res.json(entry);
     } catch (error) {
@@ -3760,11 +3760,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(priority !== undefined && { priority }),
       });
 
-      // Trigger Vapi update
+      // Trigger Retell agent update
       try {
-        const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
-        debouncedUpdateVapiAssistant(existing.businessId);
-      } catch (e) { console.error(`[Knowledge] Failed to update Vapi assistant for business ${existing.businessId}:`, e); }
+        const { debouncedUpdateRetellAgent } = await import('./services/retellProvisioningService');
+        debouncedUpdateRetellAgent(existing.businessId);
+      } catch (e) { console.error(`[Knowledge] Failed to update Retell agent for business ${existing.businessId}:`, e); }
 
       res.json(updated);
     } catch (error) {
@@ -3785,11 +3785,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       await storage.deleteBusinessKnowledge(id, existing.businessId);
 
-      // Trigger Vapi update
+      // Trigger Retell agent update
       try {
-        const { debouncedUpdateVapiAssistant } = await import('./services/vapiProvisioningService');
-        debouncedUpdateVapiAssistant(existing.businessId);
-      } catch (e) { console.error(`[Knowledge] Failed to update Vapi assistant for business ${existing.businessId}:`, e); }
+        const { debouncedUpdateRetellAgent } = await import('./services/retellProvisioningService');
+        debouncedUpdateRetellAgent(existing.businessId);
+      } catch (e) { console.error(`[Knowledge] Failed to update Retell agent for business ${existing.businessId}:`, e); }
 
       res.json({ message: "Knowledge entry deleted" });
     } catch (error) {
@@ -3914,7 +3914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Accept a suggestion (applies change to config/knowledge + triggers Vapi update)
+  // Accept a suggestion (applies change to config/knowledge + triggers Retell agent update)
   app.post("/api/receptionist/suggestions/:id/accept", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
@@ -4240,9 +4240,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           description: "SMS notifications, AI receptionist phone numbers",
         },
         {
-          name: "Vapi (Voice AI)",
-          key: "vapi",
-          configured: !!(process.env.VAPI_API_KEY),
+          name: "Retell AI (Voice AI)",
+          key: "retell",
+          configured: !!(process.env.RETELL_API_KEY),
           required: true,
           description: "AI receptionist voice calls",
         },
@@ -5707,7 +5707,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
 
           try {
-            const result = await vapiWebhookHandler.handleVapiWebhook(syntheticRequest);
+            // Route legacy Vapi tool-calls through the provider-agnostic callToolHandlers
+            const { dispatchToolCall } = await import('./services/callToolHandlers');
+            const result = await dispatchToolCall(functionName, businessId, parameters || {}, callerPhone);
 
             if (result && 'result' in result) {
               results.push({
@@ -5737,21 +5739,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Handle legacy function-call format (for backwards compatibility)
-      const result = await vapiWebhookHandler.handleVapiWebhook(req.body);
-
-      if (result === null) {
-        // No response needed for non-function-call messages
-        res.status(200).json({ success: true });
-      } else if ('error' in result) {
-        res.status(200).json({ error: result.error });
-      } else {
+      // Route through provider-agnostic callToolHandlers
+      const messageType = req.body?.message?.type;
+      if (messageType === 'function-call' && req.body?.message?.functionCall) {
+        const { dispatchToolCall } = await import('./services/callToolHandlers');
+        const fcName = req.body.message.functionCall.name;
+        const fcParams = req.body.message.functionCall.parameters || {};
+        const fcCallerPhone = req.body.message?.call?.customer?.number;
+        const result = await dispatchToolCall(fcName, businessId, fcParams, fcCallerPhone);
         res.status(200).json(result);
+      } else if (messageType === 'end-of-call-report') {
+        const { processEndOfCall } = await import('./services/callToolHandlers');
+        const msg = req.body.message;
+        await processEndOfCall({
+          businessId,
+          callerPhone: msg?.call?.customer?.number || null,
+          transcript: msg?.transcript || null,
+          callDurationSeconds: msg?.durationSeconds ? Math.round(msg.durationSeconds) : 0,
+          endedReason: msg?.endedReason || '',
+          recordingUrl: msg?.call?.recordingUrl || null,
+          callStartedAt: msg?.call?.startedAt || null,
+          callEndedAt: msg?.call?.endedAt || null,
+          calledNumber: msg?.call?.phoneNumber?.number || null,
+        });
+        res.status(200).json({ success: true });
+      } else {
+        // Non-function-call messages (transcript, status-update) — acknowledge
+        res.status(200).json({ success: true });
       }
     } catch (error) {
       console.error('Error handling Vapi webhook:', error);
       res.status(200).json({ error: 'Internal server error' });
     }
   });
+
+  // Retell AI webhook endpoints
+  app.post('/api/retell/webhook', validateRetellWebhook, handleRetellWebhook);
+  app.post('/api/retell/function', validateRetellWebhook, handleRetellFunction);
 
   // Check what's missing for AI receptionist to work properly
   app.get("/api/vapi/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
@@ -5795,10 +5819,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         configured.push('Receptionist configuration set');
       }
 
-      if (!business.vapiAssistantId) {
-        missing.push('Vapi AI assistant not provisioned');
+      if (!business.retellAgentId) {
+        missing.push('Retell AI agent not provisioned');
       } else {
-        configured.push('Vapi AI assistant active');
+        configured.push('Retell AI agent active');
       }
 
       res.json({
@@ -5811,7 +5835,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           hours: hours.map(h => ({ day: h.day, open: h.open, close: h.close, isClosed: h.isClosed })),
           services: services.map(s => ({ id: s.id, name: s.name, price: s.price, duration: s.duration })),
           hasReceptionistConfig: !!receptionistConfig,
-          vapiAssistantId: business.vapiAssistantId
+          retellAgentId: business.retellAgentId
         },
         setupInstructions: missing.length > 0 ? [
           'Go to Settings > Business Hours to configure your schedule',
@@ -5820,7 +5844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ] : null
       });
     } catch (error) {
-      console.error('Error checking Vapi status:', error);
+      console.error('Error checking receptionist status:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -5852,7 +5876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: business.id,
           name: business.name,
           industry: business.industry,
-          vapiAssistantId: business.vapiAssistantId,
+          retellAgentId: business.retellAgentId,
           twilioPhoneNumber: business.twilioPhoneNumber
         },
         businessHours: {
@@ -5875,23 +5899,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         diagnosis: {
           hasHours: hours.length > 0,
           hasServices: services.length > 0,
-          hasVapiAssistant: !!business.vapiAssistantId,
+          hasRetellAgent: !!business.retellAgentId,
           hasReceptionistConfig: !!receptionistConfig,
           issues: [
             ...(hours.length === 0 ? ['No business hours configured - availability will use defaults (Mon-Fri 9-5)'] : []),
             ...(services.length === 0 ? ['No services configured - AI will offer general appointments only'] : []),
-            ...(!business.vapiAssistantId ? ['No Vapi assistant configured - run provisioning'] : []),
+            ...(!business.retellAgentId ? ['No Retell agent configured - run provisioning'] : []),
             ...(!receptionistConfig ? ['No receptionist config - run provisioning'] : [])
           ]
         }
       });
     } catch (error) {
-      console.error('Error in Vapi diagnostic:', error);
+      console.error('Error in Retell diagnostic:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
 
-  // Force refresh Vapi assistant (for debugging - updates serverUrl and system prompt)
+  // Force refresh Retell agent (for debugging - updates webhook URL and system prompt)
   app.post("/api/vapi/refresh/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
@@ -5901,99 +5925,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Authorization: user must be admin or belong to this business
       if (!checkIsAdmin(req) && !checkBelongsToBusiness(req, businessId)) {
-        return res.status(403).json({ message: "Not authorized to refresh this business's assistant" });
+        return res.status(403).json({ message: "Not authorized to refresh this business's agent" });
       }
 
-      console.log(`Force refreshing Vapi assistant for business ${businessId}`);
+      console.log(`Force refreshing Retell agent for business ${businessId}`);
 
       const business = await storage.getBusiness(businessId);
       if (!business) {
         return res.status(404).json({ error: 'Business not found' });
       }
 
-      // If no assistant exists, CREATE one (+ connect phone if available)
-      if (!business.vapiAssistantId) {
-        console.log(`[VapiRefresh] Business ${businessId} has no assistant — creating new one via full provisioning`);
-        const provisionResult = await vapiProvisioningService.provisionVapiForBusiness(businessId);
+      // If no agent exists, CREATE one (+ connect phone if available)
+      if (!business.retellAgentId) {
+        console.log(`[RetellRefresh] Business ${businessId} has no agent — creating new one via full provisioning`);
+        const provisionResult = await retellProvisioningService.provisionRetellForBusiness(businessId);
         if (!provisionResult.success) {
-          console.error('[VapiRefresh] Failed to create Vapi assistant:', provisionResult.error);
-          return res.status(500).json({ error: provisionResult.error || 'Failed to create assistant' });
+          console.error('[RetellRefresh] Failed to create Retell agent:', provisionResult.error);
+          return res.status(500).json({ error: provisionResult.error || 'Failed to create agent' });
         }
         // Re-enable receptionist
         await storage.updateBusiness(businessId, { receptionistEnabled: true } as any);
-        console.log(`[VapiRefresh] Created new assistant ${provisionResult.assistantId} for business ${businessId}`);
+        console.log(`[RetellRefresh] Created new agent ${provisionResult.agentId} for business ${businessId}`);
         return res.json({
           success: true,
-          assistantId: provisionResult.assistantId,
+          agentId: provisionResult.agentId,
           phoneConnected: provisionResult.phoneConnected,
-          message: 'New assistant created and connected successfully',
-          webhookUrl: `${process.env.APP_URL || process.env.BASE_URL}/api/vapi/webhook`
+          message: 'New agent created and connected successfully',
+          webhookUrl: `${process.env.APP_URL || process.env.BASE_URL}/api/retell/webhook`
         });
       }
 
-      const services = await storage.getServices(businessId);
-      const businessHours = await storage.getBusinessHours(businessId);
-      const rcConfig = await storage.getReceptionistConfig(businessId);
+      // Agent exists — update it
+      const updateResult = await retellProvisioningService.updateRetellAgent(businessId);
 
-      // Build knowledge section (FAQs, website scrape data, answered questions)
-      let knowledgeSection = '';
-      try {
-        const { buildKnowledgeSection } = await import('./services/knowledgePromptBuilder');
-        knowledgeSection = await buildKnowledgeSection(businessId);
-      } catch (e) {
-        console.warn('[VapiRefresh] Could not load knowledge section:', e);
+      if (!updateResult.success) {
+        console.error('Failed to update Retell agent:', updateResult.error);
+        return res.status(500).json({ error: updateResult.error });
       }
 
-      console.log(`Updating assistant ${business.vapiAssistantId} with ${services.length} services, ${businessHours.length} hour entries, ${knowledgeSection.length} chars knowledge`);
-
-      const result = await vapiService.updateAssistant(
-        business.vapiAssistantId,
-        business,
-        services,
-        businessHours,
-        rcConfig,
-        knowledgeSection
-      );
-
-      if (!result.success) {
-        console.error('Failed to update Vapi assistant:', result.error);
-        return res.status(500).json({ error: result.error });
-      }
-
-      console.log('Vapi assistant updated successfully');
-
-      // ALWAYS ensure phone is connected to Vapi after updating
-      // This fixes the case where assistant exists but phone was never connected
-      let phoneConnected = !!business.vapiPhoneNumberId;
-      if (!phoneConnected && business.twilioPhoneNumber) {
-        console.log(`[VapiRefresh] Phone not connected to Vapi — connecting now...`);
-        try {
-          const phoneResult = await vapiProvisioningService.connectPhoneToVapi(businessId, business.vapiAssistantId!);
-          phoneConnected = phoneResult.success;
-          if (phoneResult.success) {
-            console.log(`[VapiRefresh] Phone connected to Vapi: ${phoneResult.phoneNumberId}`);
-          } else {
-            console.error(`[VapiRefresh] Failed to connect phone: ${phoneResult.error}`);
-          }
-        } catch (phoneErr) {
-          console.error('[VapiRefresh] Error connecting phone to Vapi:', phoneErr);
-        }
-      }
+      console.log('Retell agent updated successfully');
 
       res.json({
         success: true,
-        assistantId: business.vapiAssistantId,
-        phoneConnected,
-        message: phoneConnected ? 'Assistant refreshed and phone connected' : 'Assistant refreshed (phone connection may need attention)',
-        webhookUrl: `${process.env.APP_URL || process.env.BASE_URL}/api/vapi/webhook`
+        agentId: business.retellAgentId,
+        message: 'Agent refreshed successfully',
+        webhookUrl: `${process.env.APP_URL || process.env.BASE_URL}/api/retell/webhook`
       });
     } catch (error) {
-      console.error('Error refreshing Vapi assistant:', error);
+      console.error('Error refreshing Retell agent:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
 
-  // Create or update Vapi assistant for a business
+  // Create or update Retell agent for a business
   app.post("/api/vapi/assistant", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { businessId } = req.body;
@@ -6016,26 +6000,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const businessHours = await storage.getBusinessHours(businessId);
       const rcConfig = await storage.getReceptionistConfig(businessId);
 
-      // Build knowledge section (FAQs, website scrape data, answered questions)
-      let knowledgeSection = '';
-      try {
-        const { buildKnowledgeSection } = await import('./services/knowledgePromptBuilder');
-        knowledgeSection = await buildKnowledgeSection(businessId);
-      } catch (e) {
-        console.warn('[VapiAssistant] Could not load knowledge section:', e);
-      }
-
-      // Check if business already has a Vapi assistant
-      if (business.vapiAssistantId) {
-        // Update existing assistant
-        const result = await vapiService.updateAssistant(
-          business.vapiAssistantId,
-          business,
-          services,
-          businessHours,
-          rcConfig,
-          knowledgeSection
-        );
+      // Check if business already has a Retell agent
+      if (business.retellAgentId) {
+        // Update existing agent
+        const result = await retellProvisioningService.updateRetellAgent(businessId);
 
         if (!result.success) {
           return res.status(500).json({ error: result.error });
@@ -6043,35 +6011,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         res.json({
           success: true,
-          assistantId: business.vapiAssistantId,
-          message: 'Assistant updated successfully'
+          agentId: business.retellAgentId,
+          message: 'Agent updated successfully'
         });
       } else {
-        // Create new assistant
-        const result = await vapiService.createAssistantForBusiness(business, services, businessHours, rcConfig, knowledgeSection);
+        // Create new agent
+        const result = await retellProvisioningService.provisionRetellForBusiness(businessId);
 
-        if (!result.assistantId) {
+        if (!result.success) {
           return res.status(500).json({ error: result.error });
         }
 
-        // Save assistant ID to business
-        await storage.updateBusiness(businessId, {
-          vapiAssistantId: result.assistantId
-        });
-
         res.json({
           success: true,
-          assistantId: result.assistantId,
-          message: 'Assistant created successfully'
+          agentId: result.agentId,
+          message: 'Agent created successfully'
         });
       }
     } catch (error) {
-      console.error('Error creating/updating Vapi assistant:', error);
-      res.status(500).json({ error: 'Failed to create/update assistant' });
+      console.error('Error creating/updating Retell agent:', error);
+      res.status(500).json({ error: 'Failed to create/update agent' });
     }
   });
 
-  // Connect Twilio phone number to Vapi
+  // Connect Twilio phone number to Retell
   app.post("/api/vapi/connect-phone", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { businessId } = req.body;
@@ -6094,39 +6057,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Business does not have a phone number provisioned' });
       }
 
-      if (!business.vapiAssistantId) {
-        return res.status(400).json({ error: 'Business does not have a Vapi assistant. Create one first.' });
+      if (!business.retellAgentId) {
+        return res.status(400).json({ error: 'Business does not have a Retell agent. Create one first.' });
       }
 
-      // Import the phone number to Vapi
-      const result = await vapiService.importPhoneNumber(
-        business.twilioPhoneNumber,
-        process.env.TWILIO_ACCOUNT_SID || '',
-        process.env.TWILIO_AUTH_TOKEN || '',
-        business.vapiAssistantId
-      );
+      // Connect the phone number to Retell via provisioning service
+      const result = await retellProvisioningService.connectPhoneToRetell(businessId, business.retellAgentId);
 
-      if (result.error) {
+      if (!result.success) {
         return res.status(500).json({ error: result.error });
       }
-
-      // Save the Vapi phone number ID
-      await storage.updateBusiness(businessId, {
-        vapiPhoneNumberId: result.phoneNumberId
-      });
 
       res.json({
         success: true,
         phoneNumberId: result.phoneNumberId,
-        message: 'Phone number connected to Vapi successfully'
+        message: 'Phone number connected to Retell successfully'
       });
     } catch (error) {
-      console.error('Error connecting phone to Vapi:', error);
+      console.error('Error connecting phone to Retell:', error);
       res.status(500).json({ error: 'Failed to connect phone number' });
     }
   });
 
-  // Get Vapi assistant status for a business
+  // Get Retell agent status for a business
   app.get("/api/vapi/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
@@ -6143,29 +6096,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Business not found' });
       }
 
-      let assistantInfo = null;
-      if (business.vapiAssistantId) {
-        assistantInfo = await vapiService.getAssistant(business.vapiAssistantId);
+      // Retell agent info — get from Retell API if agent exists
+      let agentInfo = null;
+      if (business.retellAgentId) {
+        try {
+          const retellService = (await import('./services/retellService')).default;
+          agentInfo = await retellService.getAgent(business.retellAgentId);
+        } catch (e) {
+          console.warn('Could not fetch Retell agent info:', e);
+        }
       }
 
       res.json({
-        hasAssistant: !!business.vapiAssistantId,
-        assistantId: business.vapiAssistantId,
-        hasPhoneConnected: !!business.vapiPhoneNumberId,
-        phoneNumberId: business.vapiPhoneNumberId,
+        hasAgent: !!business.retellAgentId,
+        agentId: business.retellAgentId,
+        hasPhoneConnected: !!business.retellPhoneNumberId,
+        phoneNumberId: business.retellPhoneNumberId,
         phoneNumber: business.twilioPhoneNumber,
         receptionistEnabled: business.receptionistEnabled !== false, // Default to true if not set
-        assistantInfo: assistantInfo ? {
-          name: assistantInfo.name,
-          firstMessage: assistantInfo.firstMessage,
-          endCallPhrases: (assistantInfo as any).endCallPhrases || null,
-          endCallFunctionEnabled: (assistantInfo as any).endCallFunctionEnabled ?? null,
-          silenceTimeoutSeconds: (assistantInfo as any).silenceTimeoutSeconds ?? null,
-          modelTools: (assistantInfo as any).model?.tools?.map((t: any) => t.type) || [],
-        } : null
+        agentInfo: agentInfo || null
       });
     } catch (error) {
-      console.error('Error getting Vapi status:', error);
+      console.error('Error getting Retell status:', error);
       res.status(500).json({ error: 'Failed to get status' });
     }
   });
@@ -6206,7 +6158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Fully deprovision receptionist (releases Twilio number and deletes Vapi assistant)
+  // Fully deprovision receptionist (releases Twilio number and deletes Retell agent)
   app.post("/api/business/:id/receptionist/deprovision", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
@@ -6224,7 +6176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if there's anything to deprovision
-      if (!business.vapiAssistantId && !business.twilioPhoneNumberSid) {
+      if (!business.retellAgentId && !business.twilioPhoneNumberSid) {
         return res.json({
           success: true,
           message: 'No receptionist resources to deprovision'
@@ -6244,7 +6196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: 'AI Receptionist deprovisioned successfully',
         details: {
           twilioReleased: result.twilioDeprovisioned,
-          vapiRemoved: result.vapiDeprovisioned
+          retellRemoved: result.retellDeprovisioned
         }
       });
     } catch (error) {
@@ -6289,7 +6241,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Re-provision receptionist (provisions new Twilio number and creates Vapi assistant)
+  // Re-provision receptionist (provisions new Twilio number and creates Retell agent)
   app.post("/api/business/:id/receptionist/provision", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
@@ -6308,7 +6260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if already provisioned
-      if (business.vapiAssistantId && business.twilioPhoneNumberSid) {
+      if (business.retellAgentId && business.twilioPhoneNumberSid) {
         return res.status(400).json({
           error: 'Receptionist is already provisioned. Deprovision first to reprovision.'
         });
@@ -6334,7 +6286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: result.success,
         message: 'AI Receptionist provisioned successfully',
         phoneNumber: result.twilioPhoneNumber,
-        assistantId: result.vapiAssistantId
+        agentId: result.retellAgentId
       });
     } catch (error) {
       console.error('Error provisioning receptionist:', error);
@@ -6373,7 +6325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Provision a specific phone number for a business (FULL: Twilio + Vapi + connection)
+  // Provision a specific phone number for a business (FULL: Twilio + Retell + connection)
   app.post("/api/admin/phone-numbers/provision", isAdmin, async (req: Request, res: Response) => {
     try {
       const { businessId, phoneNumber } = req.body;
@@ -6397,7 +6349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Use the FULL provisioning service (Twilio + Vapi + phone connection)
+      // Use the FULL provisioning service (Twilio + Retell + phone connection)
       // This ensures the assistant is created AND the phone is connected to it
       const result = await businessProvisioningService.provisionBusiness(businessId, {
         specificPhoneNumber: phoneNumber
@@ -6416,10 +6368,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: result.success,
         business: businessId,
         phoneNumber: result.twilioPhoneNumber,
-        assistantId: result.vapiAssistantId,
-        vapiConnected: result.vapiPhoneConnected,
+        agentId: result.retellAgentId,
+        retellConnected: result.retellPhoneConnected,
         message: result.success
-          ? "Phone number + AI assistant provisioned successfully"
+          ? "Phone number + AI agent provisioned successfully"
           : "Provisioning partially completed — check logs"
       });
     } catch (error) {

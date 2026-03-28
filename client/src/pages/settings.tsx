@@ -640,7 +640,7 @@ export default function Settings() {
   // Poll provisioning status when it may be in progress
   const { data: provisioningStatus } = useQuery<any>({
     queryKey: [`/api/business/${businessId}/provisioning-status`],
-    enabled: !!businessId && (!business?.twilioPhoneNumber || !business?.vapiAssistantId),
+    enabled: !!businessId && (!business?.twilioPhoneNumber || (!business?.retellAgentId && !business?.vapiAssistantId)),
     refetchInterval: (query) => {
       const status = query.state.data?.provisioningStatus;
       // Poll every 5 seconds while provisioning is in progress or pending
@@ -2372,7 +2372,7 @@ export default function Settings() {
 
           <TabsContent value="pwa" className="space-y-4">
             {/* AI Receptionist Refresh Card */}
-            {business?.vapiAssistantId && (
+            {(business?.retellAgentId || business?.vapiAssistantId) && (
               <Card>
                 <CardHeader>
                   <CardTitle>AI Receptionist Configuration</CardTitle>

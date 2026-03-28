@@ -552,10 +552,10 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     status: twilioConfigured ? "connected" : "not_configured",
   });
 
-  // Vapi
+  // Retell AI
   services.push({
-    name: "Vapi",
-    status: process.env.VAPI_API_KEY ? "connected" : "not_configured",
+    name: "Retell AI",
+    status: process.env.RETELL_API_KEY ? "connected" : "not_configured",
   });
 
   // Stripe

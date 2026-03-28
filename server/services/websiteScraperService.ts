@@ -15,7 +15,7 @@
 
 import OpenAI from 'openai';
 import { storage } from '../storage';
-import { debouncedUpdateVapiAssistant } from './vapiProvisioningService';
+import { debouncedUpdateRetellAgent } from './retellProvisioningService';
 
 // Max pages to crawl (homepage + internal links)
 const MAX_PAGES = 6;
@@ -450,7 +450,7 @@ export async function scrapeWebsite(businessId: number, url: string): Promise<{
 
     // Step 7: Trigger Vapi assistant update to inject new knowledge
     try {
-      debouncedUpdateVapiAssistant(businessId);
+      debouncedUpdateRetellAgent(businessId);
     } catch (e) {
       console.warn('Could not trigger Vapi update after scrape:', e);
     }

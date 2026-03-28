@@ -10,7 +10,7 @@ import { storage } from '../storage';
 import { db } from '../db';
 import { eq } from 'drizzle-orm';
 import twilioProvisioningService from './twilioProvisioningService';
-import vapiProvisioningService from './vapiProvisioningService';
+import retellProvisioningService from './retellProvisioningService';
 import twilioService from './twilioService';
 import { sendCallForwardingDeactivationEmail } from '../emailService';
 
@@ -186,25 +186,33 @@ export async function provisionBusiness(
       results.servicesError = error instanceof Error ? error.message : String(error);
     }
 
-    // 5. Provision Vapi AI Receptionist
-    console.log(`[Provisioning] Business ${businessId}: Starting Vapi provisioning...`);
+    // 5. Provision Retell AI Receptionist
+    console.log(`[Provisioning] Business ${businessId}: Starting Retell AI provisioning...`);
     try {
-      if (process.env.VAPI_API_KEY) {
-        const vapiResult = await vapiProvisioningService.provisionVapiForBusiness(businessId);
-        console.log(`[Provisioning] Business ${businessId}: Vapi result:`, JSON.stringify(vapiResult));
-        results.vapiProvisioned = vapiResult.success;
-        results.vapiAssistantId = vapiResult.assistantId;
-        results.vapiPhoneConnected = vapiResult.phoneConnected;
-        if (vapiResult.error) {
-          results.vapiError = vapiResult.error;
+      if (process.env.RETELL_API_KEY) {
+        const retellResult = await retellProvisioningService.provisionRetellForBusiness(businessId);
+        console.log(`[Provisioning] Business ${businessId}: Retell result:`, JSON.stringify(retellResult));
+        results.retellProvisioned = retellResult.success;
+        results.retellAgentId = retellResult.agentId;
+        results.retellPhoneConnected = retellResult.phoneConnected;
+        if (retellResult.error) {
+          results.retellError = retellResult.error;
         }
+        // Keep backward-compatible fields for existing code that checks vapiProvisioned
+        results.vapiProvisioned = retellResult.success;
+        results.vapiAssistantId = retellResult.agentId;
+        results.vapiPhoneConnected = retellResult.phoneConnected;
       } else {
-        console.warn('[Provisioning] Vapi API key not set, skipping AI receptionist provisioning');
+        console.warn('[Provisioning] Retell API key not set, skipping AI receptionist provisioning');
+        results.retellProvisioned = false;
+        results.retellSkipped = true;
         results.vapiProvisioned = false;
         results.vapiSkipped = true;
       }
     } catch (error) {
-      console.error(`[Provisioning] Business ${businessId}: Error provisioning Vapi AI receptionist:`, error);
+      console.error(`[Provisioning] Business ${businessId}: Error provisioning Retell AI receptionist:`, error);
+      results.retellProvisioned = false;
+      results.retellError = error instanceof Error ? error.message : String(error);
       results.vapiProvisioned = false;
       results.vapiError = error instanceof Error ? error.message : String(error);
     }
@@ -286,17 +294,21 @@ export async function deprovisionBusiness(businessId: number) {
       vapiDeprovisioned: false
     };
 
-    // Remove Vapi assistant if one exists
+    // Remove Retell AI agent if one exists
     try {
-      const vapiResult = await vapiProvisioningService.removeVapiAssistant(businessId);
-      results.vapiDeprovisioned = vapiResult.success;
-      if (vapiResult.error) {
-        results.vapiError = vapiResult.error;
+      const retellResult = await retellProvisioningService.removeRetellAgent(businessId);
+      results.vapiDeprovisioned = retellResult.success; // backward compat field name
+      results.retellDeprovisioned = retellResult.success;
+      if (retellResult.error) {
+        results.retellError = retellResult.error;
+        results.vapiError = retellResult.error;
       }
     } catch (error) {
-      console.error('Error removing Vapi assistant:', error);
+      console.error('Error removing Retell agent:', error);
       results.vapiDeprovisioned = false;
+      results.retellDeprovisioned = false;
       results.vapiError = error instanceof Error ? error.message : String(error);
+      results.retellError = error instanceof Error ? error.message : String(error);
     }
 
     // Call forwarding safety net: notify business owner BEFORE releasing the number

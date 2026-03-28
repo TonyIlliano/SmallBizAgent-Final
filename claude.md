@@ -8,7 +8,7 @@
 
 SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (salons, restaurants, HVAC, plumbing, dental, auto shops, etc.). It provides:
 
-- **AI Voice Receptionist** (Vapi.ai) — answers calls 24/7, books appointments, takes orders
+- **AI Voice Receptionist** (Retell AI) — answers calls 24/7, books appointments, takes orders
 - **Appointment & Job Management** — scheduling, calendar sync, job tracking
 - **Invoicing & Payments** — Stripe payments, invoice sharing, payment links
 - **Customer CRM** — auto-built from calls/bookings, SMS conversations, tags
@@ -42,8 +42,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | **Mobile** | Capacitor (iOS + Android wrappers) |
 | **Email** | SendGrid or Resend |
 | **SMS/Voice** | Twilio |
-| **AI Voice** | Vapi.ai |
-| **AI/LLM** | OpenAI (gpt-5-mini for Vapi voice, gpt-5.4-mini for other services) |
+| **AI Voice** | Retell AI (ElevenLabs + Cartesia + OpenAI voices, Twilio SIP trunking) |
+| **AI/LLM** | OpenAI (gpt-5-mini for Retell voice, gpt-5.4-mini for other services) |
 | **AI Memory** | Mem0 (persistent conversational memory) |
 | **AI Orchestration** | LangGraph.js (state machine agent graph with PostgreSQL checkpointing) |
 | **Payments** | Stripe (Checkout, Connect, Billing Portal) |
@@ -317,8 +317,11 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 ### Core Services
 | Service | Purpose |
 |---------|---------|
-| `vapiService` | Vapi.ai voice receptionist (system prompts for 15+ industries, multi-language) |
-| `vapiWebhookHandler` | Handle Vapi call webhooks (transcripts, function calls) |
+| `retellService` | Retell AI voice receptionist agent/LLM CRUD, voice config, tool definitions, KB sync |
+| `retellWebhookHandler` | Handle Retell call webhooks (custom function calls, call events) |
+| `retellProvisioningService` | Retell provisioning lifecycle (create agent, SIP trunk setup, phone import, debounced updates) |
+| `callToolHandlers` | Provider-agnostic tool handlers (availability, booking, CRM, POS, end-of-call processing) |
+| `systemPromptBuilder` | System prompt generation (15+ industry prompts, intelligence hints, knowledge base) |
 | `twilioService` | SMS/voice via Twilio (TCPA compliant, A2P 10DLC) |
 | `notificationService` | Unified email+SMS notifications for all events |
 | `emailService` | Email via SendGrid or Resend |
@@ -459,8 +462,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `TWILIO_ACCOUNT_SID` | Twilio account |
 | `TWILIO_AUTH_TOKEN` | Twilio auth |
 | `TWILIO_PHONE_NUMBER` | Default Twilio number |
-| `VAPI_API_KEY` | Vapi.ai API key |
-| `VAPI_WEBHOOK_SECRET` | Vapi webhook verification |
+| `RETELL_API_KEY` | Retell AI API key |
 
 ### Payments
 | Variable | Purpose |
@@ -675,6 +677,39 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `cf664cf` | Enhance admin dashboard: business controls, user management, live monitoring |
 
 ### Recent changes (uncommitted):
+
+#### Pricing V2 Overhaul — New Tiers & Pricing
+- **Goal**: Replace existing 3-tier pricing (Starter $79 / Professional $149 / Business $249) with new pricing (Starter $149 / Growth $299 / Pro $449). Unify overage rate to $0.05/min across all tiers. Add "Coming Soon" badges for QuickBooks (Growth) and Social media pipeline (Pro).
+
+##### Tier Renaming
+- **Professional → Growth** (plan_tier: `professional` → `growth`)
+- **Business → Pro** (plan_tier: `business` → `pro`)
+- All feature gate code updated to recognize new tier names while preserving legacy fallback for existing subscribers.
+
+##### Pricing Changes
+- **Starter**: $79/mo → $149/mo, 75 min → 150 min, $0.99/min → $0.05/min overage
+- **Growth** (was Professional): $149/mo → $299/mo, 200 min → 300 min, $0.89/min → $0.05/min overage
+- **Pro** (was Business): $249/mo → $449/mo, 500 min unchanged, $0.79/min → $0.05/min overage
+
+##### Files Changed
+- `server/migrations/update_pricing_v2.ts` — **NEW**: Migration that deactivates old plans, inserts 6 new plan records (3 monthly + 3 annual).
+- `server/migrations/runMigrations.ts` — Seed data and update statements changed to new prices/names/minutes/overage. Registered `update_pricing_v2` migration.
+- `client/src/pages/landing.tsx` — Hardcoded `pricingPlans` array updated: new names, prices, minutes, overage text, feature lists with `comingSoon` flag. Feature rendering updated to show "Coming Soon" badge with grayed-out circle instead of green checkmark.
+- `client/src/components/subscription/SubscriptionPlans.tsx` — "Most Popular" badge changed from `planTier === 'professional'` to `planTier === 'growth'`. Feature list rendering adds "Coming Soon" badge styling for features containing "(Coming Soon)".
+- `client/src/pages/onboarding/subscription.tsx` — Same "Most Popular" badge and "Coming Soon" feature rendering changes.
+- `server/routes/websiteBuilderRoutes.ts` — Feature gate `getWebsiteFeatures()` updated: `'growth'` gets same access as old `'professional'`, `'pro'` gets same as old `'business'`. Legacy tier names preserved as fallbacks. Custom domain error message updated.
+- `server/services/platformAgents/revenueOptimizationAgent.ts` — Upgrade recommendation text: "Professional or Business" → "Growth or Pro". `premiumTiers` set includes both new and legacy names.
+- `shared/schema.ts` — Comment on `planTier` column updated to reflect new values.
+- `server/services/subscriptionService.test.ts` — Test fixture plan names/prices updated.
+- `server/services/usageService.test.ts` — Test fixture plan name/rate/tier updated.
+- `shared/schema.test.ts` — Schema validation test updated to use new plan name/price.
+
+##### Manual Stripe Dashboard Actions Required
+- Create 3 new Stripe Products: "Starter", "Growth", "Pro"
+- Create 6 new Stripe Prices: $149/mo, $299/mo, $449/mo + annual equivalents ($1,429/yr, $2,869/yr, $4,309/yr)
+- Update the new plan records in the DB with the new `stripe_product_id` and `stripe_price_id` values
+- If metered billing for overage is in place, update the per-unit rate to $0.05
+- DO NOT delete old Stripe prices ($79/$149/$249) until confirmed no active subscribers exist on them
 
 #### SMS System Optimization — 5 Improvements
 - **Goal**: Fix SMS keyword clarity, route RESCHEDULE through LangGraph AI, add keywords to phone booking SMS, add multi-appointment disambiguation, standardize templates.
@@ -1377,7 +1412,11 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Pexels stock footage | `server/services/pexelsService.ts` |
 | TTS voiceover service | `server/services/ttsService.ts` |
 | GIF-to-MP4 converter | `server/utils/gifToMp4.ts` |
-| Vapi AI receptionist | `server/services/vapiService.ts` |
+| Retell AI receptionist | `server/services/retellService.ts` |
+| Retell webhook handler | `server/services/retellWebhookHandler.ts` |
+| Retell provisioning | `server/services/retellProvisioningService.ts` |
+| Call tool handlers (provider-agnostic) | `server/services/callToolHandlers.ts` |
+| System prompt builder | `server/services/systemPromptBuilder.ts` |
 | Subscription billing | `server/services/subscriptionService.ts` |
 | Post-call intelligence | `server/services/callIntelligenceService.ts` |
 | Customer insights/memory | `server/services/customerInsightsService.ts` |
@@ -1463,4 +1502,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 27, 2026. 345 tests passing (227 unit + 118 E2E). Zero TypeScript errors. Test mock fix: noShowAgentService.test.ts and followUpAgentService.test.ts updated to mock `messageIntelligenceService.generateMessage` instead of `twilioService.sendSms` (agents now route through MIS, not direct Twilio). Added missing `createNotificationLog` mock to followUpAgentService.test.ts. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted). Vapi AI Intelligence Upgrade (uncommitted): 17 improvements — gpt-5-mini model, maxTokens 350, likelyReason caller prediction, service price/duration in availability, reschedule safety checks, emotional caller handling, upselling, smart summary truncation, booking tips, multi-appointment cancel/reschedule, 3 missing tools registered, getDirections voice-aware, 13 industry missed call texts, name extraction, getEstimate capped at 5, system prompt condensed ~35%, automatic intelligence feedback loop. Bug fixes: appointment status filter expanded (scheduled+confirmed+pending), staff name matching fix (active !== false + partial match), date rule strengthened (AI was converting dates instead of passing raw words).*
+*Last updated: March 27, 2026. Vapi→Retell AI Migration (uncommitted): Complete voice AI provider swap. 6 new files (callToolHandlers.ts 5392 lines, systemPromptBuilder.ts 932 lines, retellService.ts 1014 lines, retellWebhookHandler.ts 408 lines, retellProvisioningService.ts 926 lines, migrate_vapi_to_retell.ts). 28+ modified files. Schema: added retellAgentId, retellLlmId, retellPhoneNumberId to businesses + business_phone_numbers. Architecture: callToolHandlers.ts is provider-agnostic (all tool handlers work with any voice AI). retellWebhookHandler dispatches custom function calls + call events. SIP trunk provisioning via Twilio Elastic SIP Trunking. Retell KB with hybrid approach (vector DB + prompt injection). Voice options expanded: ElevenLabs + Cartesia + OpenAI. Old Vapi files renamed to .deprecated. Env: RETELL_API_KEY replaces VAPI_API_KEY. Pricing V2 Overhaul (uncommitted): Renamed tiers Professional→Growth, Business→Pro. New prices: Starter $149/mo (150 min), Growth $299/mo (300 min), Pro $449/mo (500 min). Unified overage rate $0.05/min across all tiers. New migration `update_pricing_v2.ts`. Updated: landing.tsx, SubscriptionPlans.tsx, onboarding/subscription.tsx (Coming Soon badges for QuickBooks on Growth, Social media on Pro), websiteBuilderRoutes.ts (feature gates: growth/pro + legacy fallback), revenueOptimizationAgent.ts (tier name references), runMigrations.ts seed data, schema.ts comment, test files. Manual Stripe dashboard action required: create new products/prices for $149/$299/$449. Test mock fix: noShowAgentService.test.ts and followUpAgentService.test.ts updated to mock `messageIntelligenceService.generateMessage` instead of `twilioService.sendSms` (agents now route through MIS, not direct Twilio). Added missing `createNotificationLog` mock to followUpAgentService.test.ts. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted). Vapi AI Intelligence Upgrade (uncommitted): 17 improvements — gpt-5-mini model, maxTokens 350, likelyReason caller prediction, service price/duration in availability, reschedule safety checks, emotional caller handling, upselling, smart summary truncation, booking tips, multi-appointment cancel/reschedule, 3 missing tools registered, getDirections voice-aware, 13 industry missed call texts, name extraction, getEstimate capped at 5, system prompt condensed ~35%, automatic intelligence feedback loop. Bug fixes: appointment status filter expanded (scheduled+confirmed+pending), staff name matching fix (active !== false + partial match), date rule strengthened (AI was converting dates instead of passing raw words).*

@@ -47,6 +47,7 @@ interface IntegrationHealthData {
 const ICON_MAP: Record<string, typeof Shield> = {
   twilio: MessageSquare,
   vapi: Phone,
+  "retell ai": Phone,
   sendgrid: Mail,
   stripe: CreditCard,
   openai: Brain,
