@@ -329,9 +329,9 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'Identify returning caller. Call once at start WHILE you speak the greeting. Returns summary, customer context, currentStatus, and upcomingAppointments.',
+    'Identify returning caller. Call once at start — the begin_message already greets them so stay silent until results come back. Then personalize your first response using the summary.',
     { type: 'object', properties: {} },
-    { speakDuring: true, speakAfter: true, timeout: 8000 }
+    { speakDuring: false, speakAfter: true, timeout: 8000 }
   ));
 
   tools.push(customTool(

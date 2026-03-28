@@ -1024,11 +1024,12 @@ export async function getAvailableSlotsForDay(
 
   // Check if date is today (in business timezone) - skip past times
   const now = getNowInTimezone(timezone);
-  const isToday = getLocalDateString(date, timezone) === getLocalDateString(now, timezone);
+  // Compare year/month/day directly (both are "wall clock" dates in the business timezone)
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  if (isToday) {
-    console.log(`[SlotFilter] TODAY detected. tz=${timezone}, now=${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}, currentMinutes=${currentMinutes}, cutoff=${currentMinutes + 30} (${Math.floor((currentMinutes+30)/60)}:${String((currentMinutes+30)%60).padStart(2, '0')})`);
-  }
+  console.log(`[SlotFilter] tz=${timezone}, dateParam=${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}, nowDate=${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}, isToday=${isToday}, nowTime=${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}, cutoffMin=${currentMinutes + 30}`);
 
   // Generate slots based on configurable interval
   for (let slotStart = openMinutes; slotStart < closeMinutes; slotStart += slotIntervalMinutes) {
@@ -1162,6 +1163,8 @@ function pickBestSlots(slots: string[], maxSlots: number = 5): string[] {
     if (picks.length >= maxSlots) break;
     if (!picks.includes(slot)) picks.push(slot);
   }
+  // Sort chronologically so the AI reads them in order
+  picks.sort((a, b) => parseSlotHour(a) - parseSlotHour(b));
   return picks;
 }
 
