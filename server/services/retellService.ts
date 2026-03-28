@@ -822,11 +822,10 @@ export async function createAgentForBusiness(
     language: 'en-US',
     stt_mode: 'accurate',  // Best transcription quality — critical for names, dates, service names
     webhook_url: `${APP_URL}/api/retell/webhook`,
-    responsiveness: 0.7,
-    interruption_sensitivity: 0.5,
+    responsiveness: 0.5,             // Lower = more patient, waits for caller to finish
+    interruption_sensitivity: 0.4,   // Lower = harder to interrupt, prevents cutting off callers
     end_call_after_silence_ms: 30000,
     max_call_duration_ms: configMaxCallMinutes * 60 * 1000,
-    begin_message: beginMessage,
     enable_backchannel: true,
     backchannel_frequency: 0.6,
     reminder_trigger_ms: 10000,
@@ -892,11 +891,10 @@ export async function updateAgent(
     agent_name: `${business.name} Receptionist`,
     language: 'en-US',
     webhook_url: `${APP_URL}/api/retell/webhook`,
-    responsiveness: 0.7,
-    interruption_sensitivity: 0.5,
+    responsiveness: 0.5,             // Lower = more patient, waits for caller to finish
+    interruption_sensitivity: 0.4,   // Lower = harder to interrupt, prevents cutting off callers
     end_call_after_silence_ms: 30000,
     max_call_duration_ms: configMaxCallMinutes * 60 * 1000,
-    begin_message: beginMessage,
     enable_backchannel: true,
     backchannel_frequency: 0.6,
     reminder_trigger_ms: 10000,
