@@ -61,6 +61,39 @@ export const RETELL_VOICE_OPTIONS = [
 ];
 
 /**
+ * Map legacy Vapi voice IDs to Retell-compatible IDs.
+ * Old Vapi config stored ElevenLabs IDs like "paula", "rachel", etc.
+ * Retell needs IDs in format "11labs-Name" or Retell-native IDs.
+ */
+const VAPI_TO_RETELL_VOICE_MAP: Record<string, string> = {
+  'paula': '11labs-Myra',
+  'rachel': '11labs-Sarah',
+  'domi': '11labs-Aria',
+  'bella': '11labs-Laura',
+  'elli': '11labs-Myra',
+  'adam': '11labs-Adrian',
+  'antoni': '11labs-Brian',
+  'josh': '11labs-Roger',
+  'arnold': '11labs-George',
+  'sam': '11labs-Adrian',
+};
+
+function resolveVoiceId(voiceId: string | null | undefined): string {
+  if (!voiceId) return '11labs-Adrian';
+  // If it's already a valid Retell ID (has prefix or is a known Retell voice), use it
+  if (voiceId.startsWith('11labs-') || voiceId.startsWith('openai-') || voiceId.startsWith('retell-')) return voiceId;
+  // Check Cartesia names (no prefix)
+  const cartesiaNames = ['Tina', 'Marissa', 'Nathan', 'Ryan', 'Paola', 'Kian', 'Cimo'];
+  if (cartesiaNames.some(n => n.toLowerCase() === voiceId.toLowerCase())) return voiceId;
+  // Map old Vapi voice IDs
+  const mapped = VAPI_TO_RETELL_VOICE_MAP[voiceId.toLowerCase()];
+  if (mapped) return mapped;
+  // Unknown voice — default
+  console.warn(`[Retell] Unknown voice ID "${voiceId}", defaulting to 11labs-Adrian`);
+  return '11labs-Adrian';
+}
+
+/**
  * Determine the best voice_model for a given voice_id.
  * Cartesia voices use Sonic-3 (lowest latency), ElevenLabs use v2_5, OpenAI use their default.
  */
@@ -743,7 +776,7 @@ export async function createAgentForBusiness(
   business: Business,
   receptionistConfig: ReceptionistConfig | null | undefined
 ): Promise<{ agentId?: string; error?: string }> {
-  const configVoiceId = receptionistConfig?.voiceId || '11labs-Adrian';
+  const configVoiceId = resolveVoiceId(receptionistConfig?.voiceId);
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 15;
   const configGreeting = receptionistConfig?.greeting || undefined;
@@ -813,7 +846,7 @@ export async function updateAgent(
   business: Business,
   receptionistConfig: ReceptionistConfig | null | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  const configVoiceId = receptionistConfig?.voiceId || '11labs-Adrian';
+  const configVoiceId = resolveVoiceId(receptionistConfig?.voiceId);
   const configRecordingEnabled = receptionistConfig?.callRecordingEnabled ?? true;
   const configMaxCallMinutes = receptionistConfig?.maxCallLengthMinutes ?? 15;
   const configGreeting = receptionistConfig?.greeting || undefined;
