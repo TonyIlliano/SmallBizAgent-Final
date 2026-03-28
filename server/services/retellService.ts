@@ -776,10 +776,9 @@ export async function createAgentForBusiness(
     normalize_for_speech: true,
     opt_out_sensitive_data_storage: false,
     post_call_analysis_data: [
-      { type: 'transcript', description: 'Full call transcript' },
-      { type: 'custom_analysis_data', name: 'call_intent', description: 'What the caller wanted: booking, inquiry, reschedule, cancel, complaint, other' },
-      { type: 'custom_analysis_data', name: 'call_outcome', description: 'How the call ended: booked, rescheduled, cancelled, info_provided, transferred, no_action' },
-      { type: 'custom_analysis_data', name: 'caller_sentiment', description: 'Caller sentiment: positive, neutral, negative' },
+      { type: 'string', name: 'call_intent', description: 'What the caller wanted: booking, inquiry, reschedule, cancel, complaint, other' },
+      { type: 'string', name: 'call_outcome', description: 'How the call ended: booked, rescheduled, cancelled, info_provided, transferred, no_action' },
+      { type: 'enum', name: 'caller_sentiment', description: 'Overall caller sentiment', choices: ['positive', 'neutral', 'negative'] },
     ],
     metadata: {
       businessId: business.id.toString(),
