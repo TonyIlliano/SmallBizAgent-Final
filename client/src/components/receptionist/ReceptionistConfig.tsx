@@ -270,6 +270,8 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
   };
 
   // Update configuration
+  const [isSyncing, setIsSyncing] = useState(false);
+
   const updateMutation = useMutation({
     mutationFn: (data: ReceptionistConfigFormData) => {
       if (config?.id) {
@@ -278,12 +280,39 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
         return apiRequest("POST", "/api/receptionist-config", data);
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: [`/api/receptionist-config/${businessId}`] });
       toast({
-        title: "Success",
-        description: "Virtual receptionist configuration updated successfully",
+        title: "Configuration saved",
+        description: "Syncing changes to your AI receptionist...",
       });
+      // Auto-refresh the Retell agent so changes take effect immediately
+      setIsSyncing(true);
+      try {
+        const refreshRes = await apiRequest("POST", `/api/vapi/refresh/${businessId}`);
+        const refreshData = await refreshRes.json();
+        if (refreshData.success) {
+          toast({
+            title: "AI Receptionist Updated",
+            description: "Your greeting, voice, and settings are now live.",
+          });
+        } else {
+          toast({
+            title: "Settings saved, but sync failed",
+            description: "Your settings are saved. Click 'Sync to AI' below to push changes.",
+            variant: "destructive",
+          });
+        }
+      } catch (refreshErr) {
+        console.error("Error syncing to AI:", refreshErr);
+        toast({
+          title: "Settings saved, but sync failed",
+          description: "Your settings are saved. Click 'Sync to AI' below to push changes.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsSyncing(false);
+      }
     },
     onError: (error) => {
       toast({
@@ -653,9 +682,17 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
               </Alert>
             )}
 
-            <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Saving..." : "Save Configuration"}
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {isSyncing ? "Syncing changes to AI receptionist..." : "Changes are automatically pushed to your AI receptionist when you save."}
+              </p>
+              <Button type="submit" disabled={isSubmitting || isSyncing}>
+                {isSyncing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Syncing to AI...
+                  </>
+                ) : isSubmitting ? "Saving..." : "Save & Update AI"}
               </Button>
             </div>
           </form>
