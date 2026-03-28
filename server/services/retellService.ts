@@ -200,19 +200,17 @@ function buildFirstMessage(
   customGreeting?: string | null,
   callRecordingEnabled?: boolean
 ): string {
-  console.log(`[Retell] buildFirstMessage: recording=${callRecordingEnabled}, customGreeting="${customGreeting?.substring(0, 50) || 'none'}"`);
   const recordingNotice = callRecordingEnabled
     ? 'Just so you know, this call may be recorded for quality purposes. '
     : '';
 
-  if (customGreeting && customGreeting.trim()) {
-    const msg = `${recordingNotice}${customGreeting.trim()}`;
-    console.log(`[Retell] begin_message: "${msg.substring(0, 100)}"`);
-    return msg;
-  }
+  // Use the custom greeting if set, otherwise default
+  const greeting = (customGreeting && customGreeting.trim())
+    ? customGreeting.trim()
+    : `Thanks for calling ${businessName}! How can I help you today?`;
 
-  const msg = `${recordingNotice}Thanks for calling ${businessName}! How can I help you today?`;
-  console.log(`[Retell] begin_message: "${msg.substring(0, 100)}"`);
+  const msg = `${recordingNotice}${greeting}`;
+  console.log(`[Retell] begin_message: "${msg.substring(0, 120)}"`);
   return msg;
 }
 
@@ -325,7 +323,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'MUST call this immediately at the very start of every call. Returns caller name, appointments, and context.',
+    'Get detailed caller info (visit history, preferences, Mem0 memory). Caller name and appointment are already pre-loaded — only call this if you need deeper context for a specific request.',
     { type: 'object', properties: {} },
     { speakDuring: false, speakAfter: true, timeout: 4000 }
   ));
@@ -687,6 +685,10 @@ export async function createLlmForBusiness(
     begin_message: beginMessage,
     default_dynamic_variables: {
       businessId: String(business.id),
+      customer_name: '',        // Populated per-call by inbound webhook
+      customer_id: '',          // Populated per-call by inbound webhook
+      appointment_info: '',     // Populated per-call by inbound webhook
+      caller_context: 'new_caller', // Populated per-call by inbound webhook
     },
   });
 
@@ -950,10 +952,12 @@ export async function importPhoneNumber(
   terminationUri: string,
   agentId: string
 ): Promise<{ phoneNumberId?: string; error?: string }> {
+  const APP_URL = process.env.APP_URL || process.env.BASE_URL || '';
   const result = await retellFetch<{ phone_number_id: string }>('POST', '/import-phone-number', {
     phone_number: phoneNumber,
     termination_uri: terminationUri,
     inbound_agent_id: agentId,
+    inbound_webhook_url: `${APP_URL}/api/retell/inbound`,  // Pre-fetch caller data before call
   });
 
   if (result.error) {

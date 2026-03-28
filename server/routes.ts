@@ -128,7 +128,7 @@ import { dataCache } from "./services/callToolHandlers";
 
 // Retell AI setup (voice receptionist)
 import retellProvisioningService from "./services/retellProvisioningService";
-import { handleRetellFunction, handleRetellWebhook, validateRetellWebhook } from './services/retellWebhookHandler';
+import { handleRetellFunction, handleRetellWebhook, handleInboundWebhook, validateRetellWebhook } from './services/retellWebhookHandler';
 import businessProvisioningService from "./services/businessProvisioningService";
 import twilioProvisioningService from "./services/twilioProvisioningService";
 import calendarRoutes from "./routes/calendarRoutes";
@@ -5775,6 +5775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Retell AI webhook endpoints
   app.post('/api/retell/webhook', validateRetellWebhook, handleRetellWebhook);
   app.post('/api/retell/function', validateRetellWebhook, handleRetellFunction);
+  app.post('/api/retell/inbound', handleInboundWebhook);  // Pre-fetch caller data before call starts
 
   // Check what's missing for AI receptionist to work properly
   app.get("/api/vapi/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {

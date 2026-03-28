@@ -398,12 +398,147 @@ async function lookupBusinessByAgentId(
 }
 
 // ---------------------------------------------------------------------------
+// Inbound call webhook — pre-fetch caller data BEFORE the call starts
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle inbound call webhook from Retell.
+ *
+ * This fires BEFORE the call connects. We look up the caller by phone number,
+ * fetch their name + appointments, and return dynamic variables that get
+ * injected into the begin_message and system prompt.
+ *
+ * This eliminates the need for recognizeCaller as a tool during the greeting,
+ * which was causing double-responses (tool result + user speech = 2 responses).
+ *
+ * Retell expects a response with:
+ * - retell_llm_dynamic_variables: { key: "value" } — injected into prompt {{variables}}
+ * - Optional: override agent_id, metadata, etc.
+ *
+ * Must respond within 2 seconds or Retell uses defaults.
+ */
+export async function handleInboundWebhook(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const startMs = Date.now();
+  try {
+    const { from_number, to_number, agent_id } = req.body;
+    console.log(`[Retell] Inbound webhook: from=${from_number} to=${to_number}`);
+
+    // Look up business by phone number
+    let businessId: number | null = null;
+    if (to_number) {
+      const biz = await storage.getBusinessByTwilioPhoneNumber(to_number);
+      if (biz) businessId = biz.id;
+    }
+    if (!businessId && agent_id) {
+      businessId = await lookupBusinessByAgentId(agent_id);
+    }
+
+    if (!businessId) {
+      console.warn('[Retell] Inbound webhook: could not find business');
+      res.json({});
+      return;
+    }
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) {
+      res.json({});
+      return;
+    }
+
+    // Look up caller by phone number — this is the pre-fetch
+    let customerName = '';
+    let appointmentInfo = '';
+    let customerId = '';
+    let callerContext = 'new_caller';
+
+    if (from_number) {
+      const normalizedPhone = from_number.replace(/\D/g, '').slice(-10);
+      const customers = await storage.getCustomersByBusiness(businessId);
+      const customer = customers.find((c: any) => {
+        const custPhone = (c.phone || '').replace(/\D/g, '').slice(-10);
+        return custPhone === normalizedPhone;
+      });
+
+      if (customer) {
+        customerName = customer.firstName || '';
+        customerId = String(customer.id);
+        callerContext = 'returning_caller';
+
+        // Get upcoming appointments
+        const appointments = await storage.getAppointments(businessId);
+        const now = new Date();
+        const upcoming = appointments
+          .filter((a: any) =>
+            a.customerId === customer.id &&
+            new Date(a.startDate) > now &&
+            ['scheduled', 'confirmed', 'pending'].includes(a.status || 'scheduled')
+          )
+          .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+        if (upcoming.length > 0) {
+          const next = upcoming[0];
+          const timezone = business.timezone || 'America/New_York';
+          const aptDate = new Date(next.startDate);
+          const timeStr = aptDate.toLocaleTimeString('en-US', {
+            timeZone: timezone, hour: 'numeric', minute: '2-digit', hour12: true
+          });
+
+          // Get service name
+          let serviceName = 'appointment';
+          if (next.serviceId) {
+            const services = await storage.getServices(businessId);
+            const svc = services.find((s: any) => s.id === next.serviceId);
+            if (svc) serviceName = svc.name;
+          }
+
+          // Natural date reference
+          const today = new Date();
+          const todayStr = today.toLocaleDateString('en-US', { timeZone: timezone });
+          const aptStr = aptDate.toLocaleDateString('en-US', { timeZone: timezone });
+          const tomorrow = new Date(today.getTime() + 86400000);
+          const tomorrowStr = tomorrow.toLocaleDateString('en-US', { timeZone: timezone });
+
+          let dateWord = aptDate.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric' });
+          if (aptStr === todayStr) dateWord = 'today';
+          else if (aptStr === tomorrowStr) dateWord = 'tomorrow';
+
+          appointmentInfo = `${serviceName} ${dateWord} at ${timeStr}`;
+          callerContext = 'has_appointment';
+        }
+      }
+    }
+
+    const elapsed = Date.now() - startMs;
+    console.log(`[Retell] Inbound pre-fetch: ${callerContext}, name="${customerName}", apt="${appointmentInfo}" (${elapsed}ms)`);
+
+    // Return dynamic variables — Retell injects these into {{variable}} placeholders
+    res.json({
+      retell_llm_dynamic_variables: {
+        businessId: String(businessId),
+        customer_name: customerName,
+        customer_id: customerId,
+        appointment_info: appointmentInfo,
+        caller_context: callerContext,
+      },
+    });
+  } catch (error) {
+    console.error('[Retell] Inbound webhook error:', error);
+    // Return empty variables on error — call still works, just no personalization
+    res.json({});
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Default export
 // ---------------------------------------------------------------------------
 
 export default {
   handleRetellFunction,
   handleRetellWebhook,
+  handleInboundWebhook,
   validateRetellWebhook,
   verifyRetellSignature,
 };
