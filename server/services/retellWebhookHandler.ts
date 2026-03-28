@@ -426,25 +426,44 @@ export async function handleInboundWebhook(
     const { from_number, to_number, agent_id } = req.body;
     console.log(`[Retell] Inbound webhook: from=${from_number} to=${to_number}`);
 
-    // Look up business by phone number
+    // Look up business — try agent_id first (most reliable), then phone number
     let businessId: number | null = null;
-    if (to_number) {
-      const biz = await storage.getBusinessByTwilioPhoneNumber(to_number);
-      if (biz) businessId = biz.id;
-    }
-    if (!businessId && agent_id) {
+    if (agent_id) {
       businessId = await lookupBusinessByAgentId(agent_id);
+      if (businessId) console.log(`[Retell] Inbound: found business ${businessId} via agent_id`);
+    }
+    if (!businessId && to_number) {
+      const biz = await storage.getBusinessByTwilioPhoneNumber(to_number);
+      if (biz) {
+        businessId = biz.id;
+        console.log(`[Retell] Inbound: found business ${businessId} via phone number`);
+      }
     }
 
     if (!businessId) {
-      console.warn('[Retell] Inbound webhook: could not find business');
-      res.json({});
+      console.warn(`[Retell] Inbound webhook: could not find business for agent=${agent_id} phone=${to_number}`);
+      res.json({
+        retell_llm_dynamic_variables: {
+          customer_name: '',
+          customer_id: '',
+          appointment_info: '',
+          caller_context: 'new_caller',
+        }
+      });
       return;
     }
 
     const business = await storage.getBusiness(businessId);
     if (!business) {
-      res.json({});
+      res.json({
+        retell_llm_dynamic_variables: {
+          businessId: String(businessId),
+          customer_name: '',
+          customer_id: '',
+          appointment_info: '',
+          caller_context: 'new_caller',
+        }
+      });
       return;
     }
 
@@ -456,42 +475,52 @@ export async function handleInboundWebhook(
 
     if (from_number) {
       const normalizedPhone = from_number.replace(/\D/g, '').slice(-10);
-      const customers = await storage.getCustomersByBusiness(businessId);
-      const customer = customers.find((c: any) => {
-        const custPhone = (c.phone || '').replace(/\D/g, '').slice(-10);
-        return custPhone === normalizedPhone;
-      });
+      // Direct DB query — much faster than loading all customers
+      const custResult = await db.execute(
+        sql`SELECT id, first_name, last_name, phone FROM customers
+            WHERE business_id = ${businessId}
+            AND phone IS NOT NULL
+            AND phone LIKE ${'%' + normalizedPhone}
+            LIMIT 1`
+      );
+      const custRows = (custResult as any)?.rows || [];
+      const customer = custRows.length > 0 ? custRows[0] : null;
 
       if (customer) {
-        customerName = customer.firstName || '';
+        customerName = customer.first_name || customer.firstName || '';
         customerId = String(customer.id);
         callerContext = 'returning_caller';
 
-        // Get upcoming appointments
-        const appointments = await storage.getAppointments(businessId);
+        // Get upcoming appointments via direct query (faster than loading all)
         const now = new Date();
-        const upcoming = appointments
-          .filter((a: any) =>
-            a.customerId === customer.id &&
-            new Date(a.startDate) > now &&
-            ['scheduled', 'confirmed', 'pending'].includes(a.status || 'scheduled')
-          )
-          .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+        const aptResult = await db.execute(
+          sql`SELECT id, start_date, service_id, staff_id, status FROM appointments
+              WHERE business_id = ${businessId}
+              AND customer_id = ${customer.id}
+              AND start_date > ${now.toISOString()}
+              AND status IN ('scheduled', 'confirmed', 'pending')
+              ORDER BY start_date ASC
+              LIMIT 3`
+        );
+        const upcoming = (aptResult as any)?.rows || [];
 
         if (upcoming.length > 0) {
           const next = upcoming[0];
           const timezone = business.timezone || 'America/New_York';
-          const aptDate = new Date(next.startDate);
+          const aptDate = new Date(next.start_date || next.startDate);
           const timeStr = aptDate.toLocaleTimeString('en-US', {
             timeZone: timezone, hour: 'numeric', minute: '2-digit', hour12: true
           });
 
           // Get service name
           let serviceName = 'appointment';
-          if (next.serviceId) {
-            const services = await storage.getServices(businessId);
-            const svc = services.find((s: any) => s.id === next.serviceId);
-            if (svc) serviceName = svc.name;
+          const svcId = next.service_id || next.serviceId;
+          if (svcId) {
+            const svcResult = await db.execute(
+              sql`SELECT name FROM services WHERE id = ${svcId} LIMIT 1`
+            );
+            const svcRows = (svcResult as any)?.rows || [];
+            if (svcRows.length > 0) serviceName = svcRows[0].name;
           }
 
           // Natural date reference
