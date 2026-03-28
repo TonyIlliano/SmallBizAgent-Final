@@ -2031,8 +2031,13 @@ async function bookAppointment(
     const staffLabel = staffMember ? staffMember.firstName : null;
     const withStaff = staffLabel ? ` with ${staffLabel}` : '';
 
-    // Send SMS confirmation
-    const customerPhone = params.customerPhone || callerPhone;
+    // Send SMS confirmation — try multiple sources for the phone number
+    let customerPhone = params.customerPhone || callerPhone;
+    // Fallback: if no phone from params or caller, look up from the customer record
+    if (!customerPhone && customer?.phone) {
+      customerPhone = customer.phone;
+    }
+    console.log(`[bookAppointment] SMS: params.phone="${params.customerPhone}", callerPhone="${callerPhone}", customer.phone="${customer?.phone}", resolved="${customerPhone}"`);
     if (customerPhone) {
       try {
         await twilioService.sendSms(
