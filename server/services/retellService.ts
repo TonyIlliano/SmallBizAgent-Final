@@ -332,9 +332,9 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'Identify returning caller. Call once at start — the begin_message already greets them so stay silent until results come back. Then personalize your first response using the summary.',
+    'Identify the caller. Call once at the start of the conversation.',
     { type: 'object', properties: {} },
-    { speakDuring: false, speakAfter: true, timeout: 8000 }
+    { speakDuring: false, speakAfter: true, timeout: 5000 }
   ));
 
   tools.push(customTool(
@@ -824,7 +824,7 @@ export async function createAgentForBusiness(
     language: 'en-US',
     stt_mode: 'accurate',  // Best transcription quality — critical for names, dates, service names
     webhook_url: `${APP_URL}/api/retell/webhook`,
-    responsiveness: 0.5,             // Lower = more patient, waits for caller to finish
+    responsiveness: 0.6,             // Balance: not too fast (cuts off), not too slow (dead air)
     interruption_sensitivity: 0.4,   // Lower = harder to interrupt, prevents cutting off callers
     end_call_after_silence_ms: 30000,
     max_call_duration_ms: configMaxCallMinutes * 60 * 1000,
@@ -893,7 +893,7 @@ export async function updateAgent(
     agent_name: `${business.name} Receptionist`,
     language: 'en-US',
     webhook_url: `${APP_URL}/api/retell/webhook`,
-    responsiveness: 0.5,             // Lower = more patient, waits for caller to finish
+    responsiveness: 0.6,             // Balance: not too fast (cuts off), not too slow (dead air)
     interruption_sensitivity: 0.4,   // Lower = harder to interrupt, prevents cutting off callers
     end_call_after_silence_ms: 30000,
     max_call_duration_ms: configMaxCallMinutes * 60 * 1000,
