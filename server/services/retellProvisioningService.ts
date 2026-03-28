@@ -737,10 +737,13 @@ export async function updateRetellAgent(businessId: number): Promise<{
       return { success: result.success, error: result.error };
     }
 
-    // Get current services, business hours, and full receptionist config
-    const services = await storage.getServices(businessId);
-    const businessHours = await storage.getBusinessHours(businessId);
-    const receptionistConfig = await storage.getReceptionistConfig(businessId);
+    // Get ALL business data for the system prompt — this is the AI's brain
+    const [services, businessHours, receptionistConfig, staff] = await Promise.all([
+      storage.getServices(businessId),
+      storage.getBusinessHours(businessId),
+      storage.getReceptionistConfig(businessId),
+      storage.getStaff(businessId),
+    ]);
 
     // Load AI knowledge base section for the system prompt
     let knowledgeSection = '';
@@ -750,6 +753,19 @@ export async function updateRetellAgent(businessId: number): Promise<{
     } catch (e) {
       console.warn('Could not load knowledge section:', e);
     }
+
+    // Load intelligence hints (unanswered Qs, popular services, objections, sentiment)
+    let intelligenceHints: string | undefined;
+    try {
+      const { buildIntelligenceHints } = await import('./systemPromptBuilder');
+      intelligenceHints = await buildIntelligenceHints(businessId);
+    } catch (e) {
+      console.warn('Could not load intelligence hints:', e);
+    }
+
+    // Inject staff + intelligence hints for the prompt builder
+    (business as any)._staff = staff;
+    (business as any)._intelligenceHints = intelligenceHints;
 
     // Update the LLM (contains the system prompt, tools, etc.)
     const llmResult = await retellService.updateLlm(
