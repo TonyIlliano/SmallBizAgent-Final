@@ -565,18 +565,20 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
     description: 'End the call after saying goodbye.',
   });
 
-  // transfer_call: only if a transfer number is configured
+  // transferToHuman: custom tool that logs the transfer request, then Retell's
+  // agent-level transfer handles the actual call routing
   if (options.transferNumber) {
-    tools.push({
-      type: 'transfer_call',
-      name: 'transfer_call',
-      description: 'Transfer the caller to a human when they request it or when you cannot help.',
-      transfer_option: {
-        type: 'phone',
-        number: options.transferNumber,
-        description: 'Transfer to business owner or manager',
-      },
-    });
+    tools.push(customTool(
+      'transferToHuman',
+      'Transfer the caller to a human staff member. Use when caller explicitly asks to speak to a person or when you cannot resolve their issue.',
+      {
+        type: 'object',
+        properties: {
+          reason: { type: 'string', description: 'Why the caller wants to be transferred' },
+          callerName: { type: 'string', description: 'Caller name if known' },
+        },
+      }
+    ));
   }
 
   return tools;
