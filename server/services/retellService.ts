@@ -198,15 +198,20 @@ function buildFirstMessage(
   customGreeting?: string | null,
   callRecordingEnabled?: boolean
 ): string {
+  console.log(`[Retell] buildFirstMessage: recording=${callRecordingEnabled}, customGreeting="${customGreeting?.substring(0, 50) || 'none'}"`);
   const recordingNotice = callRecordingEnabled
     ? 'Just so you know, this call may be recorded for quality purposes. '
     : '';
 
   if (customGreeting && customGreeting.trim()) {
-    return `${recordingNotice}${customGreeting.trim()}`;
+    const msg = `${recordingNotice}${customGreeting.trim()}`;
+    console.log(`[Retell] begin_message: "${msg.substring(0, 100)}"`);
+    return msg;
   }
 
-  return `${recordingNotice}Thanks for calling ${businessName}! How can I help you today?`;
+  const msg = `${recordingNotice}Thanks for calling ${businessName}! How can I help you today?`;
+  console.log(`[Retell] begin_message: "${msg.substring(0, 100)}"`);
+  return msg;
 }
 
 // ---------------------------------------------------------------------------

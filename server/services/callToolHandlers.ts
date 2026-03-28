@@ -1026,6 +1026,9 @@ export async function getAvailableSlotsForDay(
   const now = getNowInTimezone(timezone);
   const isToday = getLocalDateString(date, timezone) === getLocalDateString(now, timezone);
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  if (isToday) {
+    console.log(`[SlotFilter] TODAY detected. tz=${timezone}, now=${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}, currentMinutes=${currentMinutes}, cutoff=${currentMinutes + 30} (${Math.floor((currentMinutes+30)/60)}:${String((currentMinutes+30)%60).padStart(2, '0')})`);
+  }
 
   // Generate slots based on configurable interval
   for (let slotStart = openMinutes; slotStart < closeMinutes; slotStart += slotIntervalMinutes) {
@@ -1496,10 +1499,16 @@ async function checkAvailability(
       }
     }
 
+    // Distinguish between "business closed" and "staff not working"
+    const reason = staffLabel && staffHoursData.length > 0
+      ? `${staffLabel} is not working on ${result.dayName}`
+      : `The business is closed on ${result.dayName}`;
     return {
       result: {
         available: false,
         isClosed: true,
+        staffNotWorking: staffLabel && staffHoursData.length > 0 ? true : false,
+        reason,
         staffName: staffLabel,
         dayName: result.dayName,
         suggestedDay: nextOpenDay,
@@ -2191,6 +2200,8 @@ async function getServices(businessId: number): Promise<FunctionResult> {
 async function getStaffMembers(businessId: number): Promise<FunctionResult> {
   try {
     const staffList = await getCachedStaff(businessId);
+    const business = await getCachedBusiness(businessId);
+    const businessTimezone = business?.timezone || 'America/New_York';
 
     // Filter to only active staff
     const activeStaff = staffList.filter(s => s.active);
@@ -2204,18 +2215,52 @@ async function getStaffMembers(businessId: number): Promise<FunctionResult> {
       };
     }
 
-    const staffDetails = activeStaff.map(s => ({
-      id: s.id,
-      name: `${s.firstName} ${s.lastName}`,
-      firstName: s.firstName,
-      specialty: s.specialty || null,
-      bio: s.bio || null
+    // Get today's day name in business timezone to check who's working
+    const now = getNowInTimezone(businessTimezone);
+    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const todayDayName = daysOfWeek[now.getDay()];
+    const businessHours = await storage.getBusinessHours(businessId);
+    const todayBizHours = businessHours.find(h => h.day === todayDayName);
+    const businessOpenToday = todayBizHours && !todayBizHours.isClosed;
+
+    // Check each staff member's schedule for today
+    const staffDetailsWithSchedule = await Promise.all(activeStaff.map(async (s) => {
+      let workingToday = businessOpenToday; // Default to business hours
+
+      // Check staff-specific hours
+      const staffHours = await storage.getStaffHours(s.id);
+      if (staffHours && staffHours.length > 0) {
+        const todayStaffHours = staffHours.find(h => h.day === todayDayName);
+        if (todayStaffHours) {
+          workingToday = !todayStaffHours.isOff;
+        }
+      }
+
+      // Check time-off / vacation
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const isOff = await isStaffOffOnDate(s.id, today);
+      if (isOff) workingToday = false;
+
+      return {
+        id: s.id,
+        name: `${s.firstName} ${s.lastName}`,
+        firstName: s.firstName,
+        specialty: s.specialty || null,
+        bio: s.bio || null,
+        workingToday,
+      };
     }));
+
+    const workingNow = staffDetailsWithSchedule.filter(s => s.workingToday);
+    const offToday = staffDetailsWithSchedule.filter(s => !s.workingToday);
 
     return {
       result: {
-        staff: staffDetails,
+        staff: staffDetailsWithSchedule,
         count: activeStaff.length,
+        workingToday: workingNow.map(s => s.firstName),
+        offToday: offToday.map(s => s.firstName),
+        todayIs: todayDayName,
       }
     };
   } catch (error) {
