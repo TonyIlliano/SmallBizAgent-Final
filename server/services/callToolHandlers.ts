@@ -1532,8 +1532,8 @@ async function checkAvailability(
     };
   }
 
-  // Return 3-5 curated slots for the AI to offer, PLUS all slots for exact-time checks
-  const bestSlots = pickBestSlots(availableSlots, 5);
+  // Return 3 curated slots to offer (easier to process by ear), PLUS all slots for exact-time checks
+  const bestSlots = pickBestSlots(availableSlots, 3);
 
   // Include service info so the AI can answer "how much?" and "how long?" without an extra tool call
   const serviceInfo = serviceId ? allServices.find((s: any) => s.id === serviceId) : null;
