@@ -12,6 +12,8 @@
  */
 
 import { storage } from '../storage';
+import { db } from '../db';
+import { sql } from 'drizzle-orm';
 import { Business, Service, ReceptionistConfig } from '@shared/schema';
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY;
@@ -1159,6 +1161,13 @@ async function syncKnowledgeBase(businessId: number): Promise<{ knowledgeBaseId:
     const business = await storage.getBusiness(businessId);
     if (!business) return { knowledgeBaseId: null, error: 'Business not found' };
 
+    // Get the LLM ID so we can attach the KB to it
+    const bizResult = await db.execute(
+      sql`SELECT retell_llm_id FROM businesses WHERE id = ${businessId}`
+    );
+    const bizRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const llmId = bizRow?.retell_llm_id as string | null;
+
     // Fetch approved knowledge entries
     const knowledgeEntries = await storage.getBusinessKnowledge(businessId);
     const approvedEntries = knowledgeEntries.filter((k: any) => k.isApproved !== false);
@@ -1194,7 +1203,7 @@ async function syncKnowledgeBase(businessId: number): Promise<{ knowledgeBaseId:
 
     const kbName = `${business.name} KB`.substring(0, 40); // Retell limit: 40 chars
 
-    // Create knowledge base via Retell API (retellFetch returns { data?, error?, status? })
+    // Create knowledge base via Retell API
     const result = await retellFetch<{ knowledge_base_id: string }>('POST', '/create-knowledge-base', {
       knowledge_base_name: kbName,
       ...(textSnippets.length > 0 && { knowledge_base_texts: textSnippets }),
@@ -1207,8 +1216,20 @@ async function syncKnowledgeBase(businessId: number): Promise<{ knowledgeBaseId:
     }
 
     const knowledgeBaseId = result.data?.knowledge_base_id;
-
     console.log(`[RetellKB] Created KB ${knowledgeBaseId} for business ${businessId} (${textSnippets.length} texts, ${urls.length} URLs)`);
+
+    // Attach the KB to the LLM so the agent can actually use it
+    if (knowledgeBaseId && llmId) {
+      const attachResult = await retellFetch('PATCH', `/update-retell-llm/${llmId}`, {
+        knowledge_base_ids: [knowledgeBaseId],
+      });
+      if (attachResult.error) {
+        console.error(`[RetellKB] Failed to attach KB to LLM ${llmId}:`, attachResult.error);
+      } else {
+        console.log(`[RetellKB] Attached KB ${knowledgeBaseId} to LLM ${llmId}`);
+      }
+    }
+
     return { knowledgeBaseId };
   } catch (error) {
     console.error(`[RetellKB] Error syncing KB for business ${businessId}:`, error);
