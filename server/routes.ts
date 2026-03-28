@@ -5964,9 +5964,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log('Retell agent updated successfully');
 
+      // Ensure phone is connected to Retell (may have been skipped on initial creation)
+      let phoneConnected = !!business.retellPhoneNumberId;
+      if (!phoneConnected && business.twilioPhoneNumber) {
+        console.log(`[RetellRefresh] Phone not connected — setting up SIP trunk + Retell import for business ${businessId}`);
+        try {
+          const phoneResult = await retellProvisioningService.connectPhoneToRetell(businessId, business.retellAgentId);
+          phoneConnected = phoneResult.success;
+          if (phoneResult.success) {
+            console.log(`[RetellRefresh] Phone connected successfully for business ${businessId}`);
+          } else {
+            console.error(`[RetellRefresh] Phone connection failed:`, phoneResult.error);
+          }
+        } catch (phoneErr) {
+          console.error(`[RetellRefresh] Phone connection error:`, phoneErr);
+        }
+      }
+
       res.json({
         success: true,
         agentId: business.retellAgentId,
+        phoneConnected,
         message: 'Agent refreshed successfully',
         webhookUrl: `${process.env.APP_URL || process.env.BASE_URL}/api/retell/webhook`
       });
