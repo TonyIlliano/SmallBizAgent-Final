@@ -651,9 +651,10 @@ export async function createLlmForBusiness(
       (business as any)._intelligenceHints,  // intelligenceHints
       RETELL_PROVIDER_HINTS,                 // providerHints for Retell
     );
-  } catch {
-    // systemPromptBuilder not yet created — build a minimal prompt inline
-    systemPrompt = buildFallbackSystemPrompt(business, services, hours, receptionistConfig, knowledgeSection);
+  } catch (promptErr) {
+    // systemPromptBuilder failed — use fallback (log so we can debug)
+    console.error('[Retell] generateSystemPrompt failed, using fallback:', (promptErr as Error)?.message || promptErr);
+    systemPrompt = buildFallbackSystemPrompt(business, services, hours, receptionistConfig, knowledgeSection, (business as any)._staff);
   }
 
   const isRestaurant = business.industry?.toLowerCase()?.includes('restaurant');
@@ -1014,7 +1015,8 @@ function buildFallbackSystemPrompt(
   services: Service[],
   hours: any[],
   receptionistConfig: ReceptionistConfig | null | undefined,
-  knowledgeSection: string
+  knowledgeSection: string,
+  staff?: any[]
 ): string {
   const assistantName = receptionistConfig?.assistantName || 'Alex';
   const businessTimezone = business.timezone || 'America/New_York';
@@ -1079,6 +1081,7 @@ Hours: ${businessHoursStr}
 SERVICES:
 ${serviceList}
 
+${staff && staff.length > 0 ? `TEAM:\n${staff.filter((s: any) => s.active !== false).map((s: any) => `- ${s.firstName} ${s.lastName || ''} (${s.specialty || 'Staff'})${s.id ? ' [ID:' + s.id + ']' : ''}`).join('\n')}\n` : 'TEAM: Call getStaffMembers to get the current team list.\n'}
 == CALL FLOW ==
 1. GREET: Speak the greeting FIRST, then call recognizeCaller while talking. Once results come back, personalize — reference their name, upcoming appointment, or preferences naturally. Keep it warm and brief.
 2. UNDERSTAND: One question to clarify what they need, then act. Don't over-clarify — if they say "book a haircut tomorrow," go straight to checking availability.
