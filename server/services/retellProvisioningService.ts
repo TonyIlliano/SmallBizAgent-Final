@@ -415,11 +415,12 @@ export async function provisionRetellForBusiness(businessId: number): Promise<{
 
     // Check if Retell agent already exists — read retellAgentId via raw SQL
     // since the column may not be in the Drizzle schema yet
-    const [bizRow] = await db.execute(
+    const bizResult = await db.execute(
       sql`SELECT retell_agent_id, retell_llm_id FROM businesses WHERE id = ${businessId}`
     );
-    const existingAgentId = (bizRow as any)?.retell_agent_id as string | null;
-    const existingLlmId = (bizRow as any)?.retell_llm_id as string | null;
+    const bizRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const existingAgentId = bizRow?.retell_agent_id as string | null;
+    const existingLlmId = bizRow?.retell_llm_id as string | null;
 
     let agentId: string;
     let llmId: string;
@@ -641,10 +642,11 @@ export async function connectPhoneToRetell(
     // Resolve the Retell agent ID
     let targetAgentId = agentId;
     if (!targetAgentId) {
-      const [bizRow] = await db.execute(
+      const bizResult = await db.execute(
         sql`SELECT retell_agent_id FROM businesses WHERE id = ${businessId}`
       );
-      targetAgentId = (bizRow as any)?.retell_agent_id as string | null || undefined;
+      const cpRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+      targetAgentId = cpRow?.retell_agent_id as string | null || undefined;
     }
 
     if (!targetAgentId) {
@@ -715,11 +717,12 @@ export async function updateRetellAgent(businessId: number): Promise<{
     }
 
     // Check if agent exists via raw SQL
-    const [bizRow] = await db.execute(
+    const bizResult = await db.execute(
       sql`SELECT retell_agent_id, retell_llm_id FROM businesses WHERE id = ${businessId}`
     );
-    const existingAgentId = (bizRow as any)?.retell_agent_id as string | null;
-    const existingLlmId = (bizRow as any)?.retell_llm_id as string | null;
+    const bizRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const existingAgentId = bizRow?.retell_agent_id as string | null;
+    const existingLlmId = bizRow?.retell_llm_id as string | null;
 
     if (!existingAgentId || !existingLlmId) {
       // No agent yet, create one
@@ -793,11 +796,12 @@ export async function removeRetellAgent(businessId: number): Promise<{
 
   try {
     // Read current Retell IDs via raw SQL
-    const [bizRow] = await db.execute(
+    const bizResult = await db.execute(
       sql`SELECT retell_agent_id, retell_llm_id FROM businesses WHERE id = ${businessId}`
     );
-    const existingAgentId = (bizRow as any)?.retell_agent_id as string | null;
-    const existingLlmId = (bizRow as any)?.retell_llm_id as string | null;
+    const bizRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const existingAgentId = bizRow?.retell_agent_id as string | null;
+    const existingLlmId = bizRow?.retell_llm_id as string | null;
 
     if (!existingAgentId && !existingLlmId) {
       return { success: true }; // Nothing to delete
@@ -863,11 +867,12 @@ export async function getRetellStatus(businessId: number): Promise<{
   }
 
   // Read Retell IDs via raw SQL since columns may not be in Drizzle schema yet
-  const [bizRow] = await db.execute(
+  const statusResult = await db.execute(
     sql`SELECT retell_agent_id, retell_phone_number_id FROM businesses WHERE id = ${businessId}`
   );
-  const retellAgentId = (bizRow as any)?.retell_agent_id as string | null;
-  const retellPhoneNumberId = (bizRow as any)?.retell_phone_number_id as string | null;
+  const statusRow = (statusResult as any)?.rows?.[0] || (statusResult as any)?.[0];
+  const retellAgentId = statusRow?.retell_agent_id as string | null;
+  const retellPhoneNumberId = statusRow?.retell_phone_number_id as string | null;
 
   return {
     configured: !!retellAgentId,
@@ -912,10 +917,11 @@ export async function connectSpecificPhoneToRetell(
     }
 
     // Get the business's Retell agent ID
-    const [bizRow] = await db.execute(
+    const bizResult = await db.execute(
       sql`SELECT retell_agent_id FROM businesses WHERE id = ${businessId}`
     );
-    const retellAgentId = (bizRow as any)?.retell_agent_id as string | null;
+    const csRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const retellAgentId = csRow?.retell_agent_id as string | null;
 
     if (!retellAgentId) {
       return { success: false, error: 'No Retell agent for this business' };
