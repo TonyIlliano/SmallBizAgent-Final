@@ -302,19 +302,26 @@ export async function setupElasticSIPTrunk(
   // ── Success ────────────────────────────────────────────────────────────
 
   // Build the termination URI that Retell needs for inbound call routing.
-  // Format: the trunk's termination SIP domain (auto-assigned by Twilio).
-  // We'll fetch it from the trunk resource.
+  // The friendly name was set to SBA-Retell-{phoneNumber} which Twilio uses as the domain.
+  // Retell expects format: {friendly-name-slug}.pstn.twilio.com (NO sip: prefix)
   let terminationUri: string | undefined;
   try {
     const trunk = await client.trunking.v1.trunks(trunkSid).fetch();
-    // Twilio assigns a termination domain in the format: {trunkSid}.pstn.twilio.com
-    // The actual domain is available from the trunk's terminatingSipUri or we construct it
-    terminationUri = trunk.domainName
-      ? `sip:${trunk.domainName}`
-      : undefined;
-    console.log(`${logPrefix} Termination URI: ${terminationUri || '(not yet assigned — check Twilio console)'}`);
+    if (trunk.domainName) {
+      // domainName is already the full PSTN domain (e.g., "sba-retell-14436725395.pstn.twilio.com")
+      // Retell wants it WITHOUT sip: prefix
+      terminationUri = trunk.domainName.replace(/^sip:/i, '');
+      console.log(`${logPrefix} Termination URI from trunk.domainName: ${terminationUri}`);
+    }
   } catch (err) {
-    console.warn(`${logPrefix} Could not fetch termination URI from trunk (non-critical):`, err);
+    console.warn(`${logPrefix} Could not fetch domainName from trunk:`, err);
+  }
+
+  // Fallback: construct from the friendly name we used
+  if (!terminationUri) {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    terminationUri = `sba-retell-${cleanPhone}.pstn.twilio.com`;
+    console.log(`${logPrefix} Termination URI (constructed fallback): ${terminationUri}`);
   }
 
   console.log(`${logPrefix} SIP Trunk setup COMPLETE`);
