@@ -571,7 +571,11 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
       type: 'transfer_call',
       name: 'transfer_call',
       description: 'Transfer the caller to a human when they request it or when you cannot help.',
-      number: options.transferNumber,
+      transfer_destination: {
+        type: 'phone',
+        number: options.transferNumber,
+        description: 'Transfer to business owner or manager',
+      },
     });
   }
 
