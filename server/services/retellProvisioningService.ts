@@ -793,6 +793,16 @@ export async function updateRetellAgent(businessId: number): Promise<{
       return { success: false, error: agentResult.error };
     }
 
+    // Sync knowledge base to Retell vector DB (FAQs + website content) — fire and forget
+    try {
+      const kbResult = await retellService.syncKnowledgeBase(businessId);
+      if (kbResult.knowledgeBaseId) {
+        console.log(`[Retell] KB synced for business ${businessId}: ${kbResult.knowledgeBaseId}`);
+      }
+    } catch (kbErr) {
+      console.warn(`[Retell] KB sync failed for business ${businessId} (non-critical):`, kbErr);
+    }
+
     console.log(`[Retell] Updated agent for business ${businessId}`);
     return { success: true };
   } catch (error) {
