@@ -287,32 +287,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
         description: "Syncing changes to your AI receptionist...",
       });
       // Auto-refresh the Retell agent so changes take effect immediately
-      setIsSyncing(true);
-      try {
-        const refreshRes = await apiRequest("POST", `/api/vapi/refresh/${businessId}`);
-        const refreshData = await refreshRes.json();
-        if (refreshData.success) {
-          toast({
-            title: "AI Receptionist Updated",
-            description: "Your greeting, voice, and settings are now live.",
-          });
-        } else {
-          toast({
-            title: "Settings saved, but sync failed",
-            description: "Your settings are saved. Click 'Sync to AI' below to push changes.",
-            variant: "destructive",
-          });
-        }
-      } catch (refreshErr) {
-        console.error("Error syncing to AI:", refreshErr);
-        toast({
-          title: "Settings saved, but sync failed",
-          description: "Your settings are saved. Click 'Sync to AI' below to push changes.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsSyncing(false);
-      }
+      await syncToAI();
     },
     onError: (error) => {
       toast({
@@ -323,6 +298,33 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
       console.error("Error updating configuration:", error);
     },
   });
+
+  const [syncFailed, setSyncFailed] = useState(false);
+
+  const syncToAI = async () => {
+    setIsSyncing(true);
+    setSyncFailed(false);
+    try {
+      const refreshRes = await fetch(`/api/vapi/refresh/${businessId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      const refreshData = await refreshRes.json().catch(() => ({}));
+      if (refreshRes.ok && refreshData.success) {
+        toast({ title: "AI Receptionist Updated", description: "Your greeting, voice, and settings are now live." });
+        setSyncFailed(false);
+      } else {
+        toast({ title: "Sync failed", description: refreshData.error || "Could not push changes. Try again.", variant: "destructive" });
+        setSyncFailed(true);
+      }
+    } catch {
+      toast({ title: "Sync failed", description: "Could not reach the server. Try again.", variant: "destructive" });
+      setSyncFailed(true);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const onSubmit = async (data: ReceptionistConfigFormData) => {
     setIsSubmitting(true);
@@ -686,14 +688,22 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
               <p className="text-sm text-muted-foreground">
                 {isSyncing ? "Syncing changes to AI receptionist..." : "Changes are automatically pushed to your AI receptionist when you save."}
               </p>
-              <Button type="submit" disabled={isSubmitting || isSyncing}>
-                {isSyncing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Syncing to AI...
-                  </>
-                ) : isSubmitting ? "Saving..." : "Save & Update AI"}
-              </Button>
+              <div className="flex gap-2">
+                {syncFailed && (
+                  <Button type="button" variant="outline" onClick={syncToAI} disabled={isSyncing}>
+                    {isSyncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Retry Sync to AI
+                  </Button>
+                )}
+                <Button type="submit" disabled={isSubmitting || isSyncing}>
+                  {isSyncing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Syncing to AI...
+                    </>
+                  ) : isSubmitting ? "Saving..." : "Save & Update AI"}
+                </Button>
+              </div>
             </div>
           </form>
         </Form>
