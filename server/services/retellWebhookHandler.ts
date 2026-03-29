@@ -443,11 +443,13 @@ export async function handleInboundWebhook(
     if (!businessId) {
       console.warn(`[Retell] Inbound webhook: could not find business for agent=${agent_id} phone=${to_number}`);
       res.json({
-        retell_llm_dynamic_variables: {
-          customer_name: '',
-          customer_id: '',
-          appointment_info: '',
-          caller_context: 'new_caller',
+        call_inbound: {
+          dynamic_variables: {
+            customer_name: '',
+            customer_id: '',
+            appointment_info: '',
+            caller_context: 'new_caller',
+          },
         }
       });
       return;
@@ -456,12 +458,14 @@ export async function handleInboundWebhook(
     const business = await storage.getBusiness(businessId);
     if (!business) {
       res.json({
-        retell_llm_dynamic_variables: {
-          businessId: String(businessId),
-          customer_name: '',
-          customer_id: '',
-          appointment_info: '',
-          caller_context: 'new_caller',
+        call_inbound: {
+          dynamic_variables: {
+            businessId: String(businessId),
+            customer_name: '',
+            customer_id: '',
+            appointment_info: '',
+            caller_context: 'new_caller',
+          },
         }
       });
       return;
@@ -543,20 +547,31 @@ export async function handleInboundWebhook(
     const elapsed = Date.now() - startMs;
     console.log(`[Retell] Inbound pre-fetch: ${callerContext}, name="${customerName}", apt="${appointmentInfo}" (${elapsed}ms)`);
 
-    // Return dynamic variables — Retell injects these into {{variable}} placeholders
+    // Return dynamic variables in Retell's expected format: call_inbound.dynamic_variables
     res.json({
-      retell_llm_dynamic_variables: {
-        businessId: String(businessId),
-        customer_name: customerName,
-        customer_id: customerId,
-        appointment_info: appointmentInfo,
-        caller_context: callerContext,
+      call_inbound: {
+        dynamic_variables: {
+          businessId: String(businessId),
+          customer_name: customerName,
+          customer_id: customerId,
+          appointment_info: appointmentInfo,
+          caller_context: callerContext,
+        },
       },
     });
   } catch (error) {
     console.error('[Retell] Inbound webhook error:', error);
     // Return empty variables on error — call still works, just no personalization
-    res.json({});
+    res.json({
+      call_inbound: {
+        dynamic_variables: {
+          customer_name: '',
+          customer_id: '',
+          appointment_info: '',
+          caller_context: 'new_caller',
+        },
+      }
+    });
   }
 }
 
