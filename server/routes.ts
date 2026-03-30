@@ -6194,7 +6194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if there's anything to deprovision
-      if (!business.retellAgentId && !business.twilioPhoneNumberSid) {
+      if (!business.retellAgentId && !business.twilioPhoneNumberSid && !business.twilioPhoneNumber) {
         return res.json({
           success: true,
           message: 'No receptionist resources to deprovision'
