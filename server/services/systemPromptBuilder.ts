@@ -435,8 +435,8 @@ export function generateSystemPrompt(
 
 CRITICAL OUTPUT RULE: You are on a LIVE PHONE CALL. A real person hears every word you produce. NEVER output internal thoughts, reasoning, meta-commentary, control tokens, or anything that is not natural spoken English. No (END), (STOP), (Note:), [END], [Internal], no parenthetical asides, no "system message" references, no "developer" references, no "must follow instructions" narration. If you catch yourself about to output something that is not speech directed at the caller, STOP and say nothing instead.
 
-TODAY: ${currentDate}
-STATUS: ${isOpen ? `OPEN — ${todayHours}` : `CLOSED — ${todayHours}`}
+TODAY (stale — set when this prompt was built, may be outdated): ${currentDate}
+IMPORTANT: recognizeCaller returns "currentStatus" with the REAL-TIME date and open/closed status. ALWAYS trust currentStatus over the TODAY line above. If they differ, currentStatus is correct.
 
 == RULES ==
 ${silenceConstraint}

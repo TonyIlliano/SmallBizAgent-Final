@@ -324,9 +324,9 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'MANDATORY: Call this FIRST on every call before responding. Looks up the caller by phone in the database. Returns name, customer ID, appointments, history. If recognized, greet by name. If new caller, ask for their name.',
+    'MANDATORY: Call this FIRST on every call before responding. Looks up the caller by phone in the database. Returns name, customer ID, appointments, history, and the REAL-TIME date/open status in currentStatus. If recognized, greet by name. If new caller, ask for their name. ALWAYS use currentStatus for today\'s date — it is live and accurate.',
     { type: 'object', properties: {} },
-    { speakDuring: false, speakAfter: true, timeout: 5000 }  // Silent during lookup, speak after with personalized greeting
+    { speakDuring: false, speakAfter: true, timeout: 3000 }  // 3s timeout — lookup takes ~150ms
   ));
 
   // NOTE: getUpcomingAppointments removed — recognizeCaller already returns appointment data.
