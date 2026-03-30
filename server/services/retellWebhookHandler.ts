@@ -479,16 +479,24 @@ export async function handleInboundWebhook(
 
     if (from_number) {
       const normalizedPhone = from_number.replace(/\D/g, '').slice(-10);
+      console.log(`[Retell] Inbound lookup: from_number="${from_number}" normalized="${normalizedPhone}" businessId=${businessId}`);
       // Direct DB query — much faster than loading all customers
+      // Try multiple phone formats: LIKE match on last 10 digits, OR exact match on full E.164
       const custResult = await db.execute(
         sql`SELECT id, first_name, last_name, phone FROM customers
             WHERE business_id = ${businessId}
             AND phone IS NOT NULL
-            AND phone LIKE ${'%' + normalizedPhone}
+            AND (
+              phone LIKE ${'%' + normalizedPhone}
+              OR phone = ${from_number}
+              OR phone = ${'+1' + normalizedPhone}
+              OR phone = ${normalizedPhone}
+            )
             LIMIT 1`
       );
       const custRows = (custResult as any)?.rows || [];
       const customer = custRows.length > 0 ? custRows[0] : null;
+      console.log(`[Retell] Inbound lookup result: ${customer ? `found id=${customer.id} name="${customer.first_name}" phone="${customer.phone}"` : 'NOT FOUND'}`);
 
       if (customer) {
         customerName = customer.first_name || customer.firstName || '';
