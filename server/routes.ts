@@ -6204,10 +6204,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Call the deprovision service
       const result = await businessProvisioningService.deprovisionBusiness(businessId);
 
-      // Also disable the receptionist
+      // Disable the receptionist and clear all phone/agent fields so UI shows empty state
       await storage.updateBusiness(businessId, {
-        receptionistEnabled: false
+        receptionistEnabled: false,
+        twilioPhoneNumber: null,
+        twilioPhoneNumberSid: null,
+        twilioPhoneNumberStatus: null,
       });
+      // Clear Retell fields via raw SQL
+      await db.execute(
+        sql`UPDATE businesses SET retell_agent_id = NULL, retell_llm_id = NULL, retell_phone_number_id = NULL WHERE id = ${businessId}`
+      ).catch(() => {});
 
       res.json({
         success: result.success,
