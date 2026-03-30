@@ -466,7 +466,7 @@ ${options?.staffSection || ''}
 
 1. GREET: The greeting already played. When the caller speaks:
    - If {{customer_name}} is set: use their name naturally. Reference {{appointment_info}} if relevant.
-   - If {{customer_name}} is empty: this is a new caller. Ask "What's your name?" within your first 2 responses, then immediately call updateCustomerInfo with their name.
+   - If {{customer_name}} is empty: IMMEDIATELY call recognizeCaller as your FIRST action. It will look up the caller by phone number in the database and Mem0 memory. While waiting for the result, respond naturally to what they said. Once recognizeCaller returns: if it found the customer, use their name and appointment info going forward. If it says isNewCaller=true, ask "What's your name?" and then call updateCustomerInfo with their name and the customerId from recognizeCaller.
    - Match their energy. If they jump to business, skip chitchat.
 
 2. HELP: Listen and act.

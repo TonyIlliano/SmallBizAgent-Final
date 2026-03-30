@@ -324,9 +324,9 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'Get deep caller context (visit history, preferences, memory). The caller name, ID, and next appointment are ALREADY pre-loaded in the prompt — do NOT call this just to greet or check their schedule. Only call if you need visit history, preferences, or intelligence for a specific request.',
+    'Look up the caller by phone number in the database and Mem0 memory. Returns their name, customer ID, upcoming appointments, visit history, preferences, and conversational memory. ALWAYS call this as your first action if {{customer_name}} is empty. Also call if you need deeper context for a returning caller.',
     { type: 'object', properties: {} },
-    { speakDuring: false, speakAfter: true, timeout: 4000 }
+    { speakDuring: true, speakAfter: true, timeout: 5000 }  // Speak during — respond naturally while lookup runs
   ));
 
   // NOTE: getUpcomingAppointments removed — recognizeCaller already returns appointment data.
@@ -1110,7 +1110,7 @@ ${serviceList}
 
 ${staff && staff.length > 0 ? `TEAM:\n${staff.filter((s: any) => s.active !== false).map((s: any) => `- ${s.firstName} ${s.lastName || ''} (${s.specialty || 'Staff'})${s.id ? ' [ID:' + s.id + ']' : ''}`).join('\n')}\n` : 'TEAM: Call getStaffMembers to get the current team list.\n'}
 == CALL FLOW ==
-1. GREET: The greeting already played. Use {{customer_name}} and {{appointment_info}} to personalize. If {{customer_name}} is empty, ask their name within 2 responses and call updateCustomerInfo.
+1. GREET: The greeting already played. Use {{customer_name}} and {{appointment_info}} to personalize. If {{customer_name}} is empty, IMMEDIATELY call recognizeCaller — it looks up the caller by phone in the database. If it finds them, use their name. If isNewCaller=true, ask their name and call updateCustomerInfo.
 2. HELP: Listen and act. Booking → ask service + date, call checkAvailability. Reschedule/cancel → only when asked.
 3. CHECK: Call checkAvailability with the caller's exact words. Offer 2-3 slots naturally.
 4. BOOK: Confirm once, then book on "yes." Use dateForBooking from the checkAvailability response.
