@@ -202,6 +202,54 @@ export async function handleRetellFunction(
       return;
     }
 
+    // ---- Auto-inject caller recognition on first tool call ----
+    // With SIP trunking, the inbound webhook can't pre-fetch caller data.
+    // So on every function call, if the caller hasn't been identified yet
+    // (dynamic_variables.customer_name is empty), we run a quick DB lookup
+    // in parallel with the actual tool and inject the result.
+
+    const customerNameFromVars = call?.retell_llm_dynamic_variables?.customer_name;
+    const needsCallerLookup = callerPhone && (!customerNameFromVars || customerNameFromVars === '');
+
+    let callerInfo: any = null;
+    if (needsCallerLookup && name !== 'recognizeCaller') {
+      // Run caller lookup in parallel with the tool — zero extra latency
+      const callerLookupPromise = dispatchToolCall('recognizeCaller', businessId, {}, callerPhone)
+        .then(r => (r && typeof r === 'object' && 'result' in r) ? (r as any).result : r)
+        .catch(() => null);
+
+      const toolResultPromise = dispatchToolCall(name, businessId, args || {}, callerPhone);
+      const [callerResult, toolResult] = await Promise.all([callerLookupPromise, toolResultPromise]);
+
+      callerInfo = callerResult;
+
+      // Merge caller info into the tool response so the LLM sees it
+      let response: any;
+      if (toolResult && typeof toolResult === 'object' && 'result' in toolResult) {
+        response = (toolResult as { result: unknown }).result;
+      } else {
+        response = toolResult;
+      }
+
+      // Inject caller data alongside the tool result
+      if (callerInfo && typeof response === 'object' && response !== null) {
+        response._callerInfo = {
+          customerName: callerInfo.customerName || callerInfo.firstName || '',
+          customerId: callerInfo.customerId || '',
+          recognized: callerInfo.recognized || false,
+          isNewCaller: callerInfo.isNewCaller || false,
+          appointmentInfo: callerInfo.upcomingAppointments?.[0]
+            ? `${callerInfo.upcomingAppointments[0].serviceName || 'appointment'} ${callerInfo.upcomingAppointments[0].date} at ${callerInfo.upcomingAppointments[0].time}`
+            : '',
+          summary: callerInfo.summary || '',
+        };
+        console.log(`[Retell] Auto-injected caller info: name="${response._callerInfo.customerName}" recognized=${response._callerInfo.recognized}`);
+      }
+
+      res.json(response);
+      return;
+    }
+
     // ---- Dispatch to provider-agnostic tool handler ----
 
     const result = await dispatchToolCall(
