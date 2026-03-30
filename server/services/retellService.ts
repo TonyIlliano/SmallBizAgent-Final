@@ -273,7 +273,8 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
         staffName: { type: 'string', description: 'Staff member name if preferred' },
       },
       required: ['date'],
-    }
+    },
+    { speakDuring: false, speakAfter: true }  // Silent while checking, speak after with results
   ));
 
   tools.push(customTool(
@@ -323,7 +324,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'Get detailed caller info (visit history, preferences, Mem0 memory). Caller name and appointment are already pre-loaded — only call this if you need deeper context for a specific request.',
+    'Get deep caller context (visit history, preferences, memory). The caller name, ID, and next appointment are ALREADY pre-loaded in the prompt — do NOT call this just to greet or check their schedule. Only call if you need visit history, preferences, or intelligence for a specific request.',
     { type: 'object', properties: {} },
     { speakDuring: false, speakAfter: true, timeout: 4000 }
   ));
@@ -380,12 +381,13 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
     {
       type: 'object',
       properties: {
-        customerId: { type: 'number', description: 'Customer ID from recognizeCaller' },
+        customerId: { type: 'number', description: 'Customer ID from pre-loaded data or recognizeCaller' },
         firstName: { type: 'string', description: 'First name' },
         lastName: { type: 'string', description: 'Last name' },
         email: { type: 'string', description: 'Email address' },
       },
-    }
+    },
+    { speakDuring: false, speakAfter: false }  // Silent — background CRM save, don't acknowledge aloud
   ));
 
   tools.push(customTool(
@@ -398,7 +400,8 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
         confirmed: { type: 'boolean', description: 'true to confirm' },
       },
       required: ['confirmed'],
-    }
+    },
+    { speakDuring: false }  // Silent during DB update
   ));
 
   tools.push(customTool(
@@ -677,7 +680,7 @@ export async function createLlmForBusiness(
   console.log(`[Retell] createLlm begin_message: "${beginMessage.substring(0, 100)}"`);
 
   const result = await retellFetch<{ llm_id: string }>('POST', '/create-retell-llm', {
-    model: 'gpt-5-mini',
+    model: 'claude-4.5-haiku',
     model_temperature: 0.3,
     tool_call_strict_mode: true,    // Strict tool calls — prevents random tool invocations
     general_prompt: systemPrompt,
@@ -756,7 +759,7 @@ export async function updateLlm(
   console.log(`[Retell] updateLlm begin_message: "${beginMessage.substring(0, 100)}"`);
 
   const result = await retellFetch('PATCH', `/update-retell-llm/${llmId}`, {
-    model: 'gpt-5-mini',
+    model: 'claude-4.5-haiku',
     model_temperature: 0.3,
     tool_call_strict_mode: true,
     general_prompt: systemPrompt,
@@ -1081,37 +1084,43 @@ function buildFallbackSystemPrompt(
     ? `\nKNOWLEDGE BASE:\n${knowledgeSection}\n`
     : '';
 
-  return `You are ${assistantName}, the AI receptionist for ${business.name}. Sound natural and friendly like a real receptionist. If asked, you are an AI assistant — never claim to be human.
+  return `You are ${assistantName}, the AI receptionist for ${business.name}.
+
+CRITICAL OUTPUT RULE: You are on a LIVE PHONE CALL. A real person hears every word you produce. NEVER output internal thoughts, reasoning, meta-commentary, control tokens, or anything that is not natural spoken English. No (END), (STOP), (Note:), [END], no parenthetical asides, no "system message" or "developer" references. If it is not speech directed at the caller, do not output it.
 
 TODAY: ${currentDate}
 
 == RULES ==
 - Max 2 sentences per response unless listing options.
-- NEVER say IDs, phone numbers, brackets, or internal data aloud.
-- NEVER calculate dates. Pass the caller's words to tools as-is.
-- Respond like a busy human receptionist — direct and efficient.
-- If caller asks "are you real?" be honest: "I'm an AI assistant. How can I help?"
+- Never say IDs, phone numbers, brackets, or system data aloud.
+- Never calculate dates. Pass the caller's words to tools as-is.
+- Sound natural and friendly. Only reveal you are AI if directly asked.
 
 BUSINESS: ${business.name} | ${business.phone || ''} | ${business.address || ''}
 Hours: ${businessHoursStr}
+
+THIS CALLER (pre-loaded from database):
+  Name: {{customer_name}}
+  Customer ID: {{customer_id}}
+  Next appointment: {{appointment_info}}
+  Type: {{caller_context}}
 
 SERVICES:
 ${serviceList}
 
 ${staff && staff.length > 0 ? `TEAM:\n${staff.filter((s: any) => s.active !== false).map((s: any) => `- ${s.firstName} ${s.lastName || ''} (${s.specialty || 'Staff'})${s.id ? ' [ID:' + s.id + ']' : ''}`).join('\n')}\n` : 'TEAM: Call getStaffMembers to get the current team list.\n'}
 == CALL FLOW ==
-1. GREET: Speak the greeting FIRST, then call recognizeCaller while talking. Once results come back, personalize — reference their name, upcoming appointment, or preferences naturally. Keep it warm and brief.
-2. UNDERSTAND: One question to clarify what they need, then act. Don't over-clarify — if they say "book a haircut tomorrow," go straight to checking availability.
-3. CHECK: Call checkAvailability. Offer 2-3 slots naturally ("We have 10 AM, 1 PM, or 3 PM open").
-4. BOOK: Confirm once, then book on "yes."
-5. CLOSE: "Anything else?" If no → call end_call.
+1. GREET: The greeting already played. Use {{customer_name}} and {{appointment_info}} to personalize. If {{customer_name}} is empty, ask their name within 2 responses and call updateCustomerInfo.
+2. HELP: Listen and act. Booking → ask service + date, call checkAvailability. Reschedule/cancel → only when asked.
+3. CHECK: Call checkAvailability with the caller's exact words. Offer 2-3 slots naturally.
+4. BOOK: Confirm once, then book on "yes." Use dateForBooking from the checkAvailability response.
+5. CLOSE: "Anything else?" If no → "Take care!" then call end_call.
 
 == KEY RULES ==
-DATES: Pass caller's exact words to tools ("today", "tomorrow", "Saturday"). When speaking back to the caller, use natural references — say "today" not "Friday, March 28, 2026." Say "tomorrow" not "Saturday, March 29, 2026." Only use the full date for appointments more than a week out.
-NAMES: Get new caller's name within the first 2 exchanges. Call updateCustomerInfo immediately with their name.
-STAFF: When asked "who's working today/tomorrow" → call checkAvailability for that day to see which staff have slots. Report which staff members are available. Do NOT ask for clarification — just check and tell them.
-AFTER HOURS: Still book appointments. Tell them you're closed now but can book for the next open day.
-AVAILABILITY: When someone asks "do you have anything today?" or "who's available?" — immediately call checkAvailability. Don't ask follow-up questions first.
+DATES: Pass exact words. Say "today" not the full date. Say "tomorrow" not the date. Never say the year.
+NAMES: Get new caller's name early. Call updateCustomerInfo immediately.
+STAFF: Ask preference if staff listed. Report who is working today.
+AFTER HOURS: Still book. Tell them you're closed but can schedule.
 ${customInstructions}${knowledgePart}`;
 }
 
