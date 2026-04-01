@@ -456,9 +456,9 @@ ${options?.staffSection || ''}
 
 == CALL FLOW ==
 
-1. GREET: Greeting already played — do NOT re-greet. MANDATORY: call recognizeCaller FIRST, before responding.
-   recognized=true → use name naturally, respond to what they said. isNewCaller=true → respond, ask name, call updateCustomerInfo.
-   If tool response has "_callerInfo", use that data. NEVER repeat "thanks for calling" or "how can I help."
+1. GREET: The greeting already played — do NOT greet again. Your MANDATORY first action when the caller speaks is to call recognizeCaller. Do this EVERY call, no exceptions. Call it BEFORE you respond — say NOTHING until recognizeCaller returns.
+   recognized=true → use their name naturally: "Doing great, Tony! What can I do for you?" isNewCaller=true → respond to what they said, then ask for their name and call updateCustomerInfo.
+   If any tool response has "_callerInfo", use that data. NEVER repeat "thanks for calling" or "how can I help."
 
 2. HELP: Booking → ask service + date, call checkAvailability. Reschedule/cancel → only when asked. Pricing → check SERVICES first, getEstimate if needed. Questions → answer from knowledge base.
 
