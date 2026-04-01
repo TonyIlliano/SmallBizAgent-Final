@@ -1,6 +1,6 @@
 import { storage } from '../storage';
 import { appointments, services, staff, InsertAppointment } from '@shared/schema';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { createDateInTimezone } from '../utils/timezone';
 
@@ -184,6 +184,9 @@ export async function findAvailableTimeSlots(
   }
 }
 
+// Active appointment statuses that block a slot (everything except cancelled/completed/no_show)
+const BLOCKING_STATUSES = ['scheduled', 'confirmed', 'pending'];
+
 /**
  * Validates and creates a new appointment with double booking prevention.
  *
@@ -203,9 +206,10 @@ export async function createAppointmentSafely(appointmentData: InsertAppointment
     const result = await db.transaction(async (tx) => {
       // Check for conflicting appointments inside the transaction using FOR UPDATE
       // to lock matching rows and prevent concurrent inserts for the same slot.
+      // We check all non-cancelled/completed statuses to catch confirmed + pending too.
       const conditions: any[] = [
         eq(appointments.businessId, appointmentData.businessId),
-        eq(appointments.status, 'scheduled'),
+        sql`${appointments.status} IN ('scheduled', 'confirmed', 'pending')`,
         sql`${appointments.startDate} < ${appointmentData.endDate}`,
         sql`${appointments.endDate} > ${appointmentData.startDate}`,
       ];
@@ -222,7 +226,7 @@ export async function createAppointmentSafely(appointmentData: InsertAppointment
       if (conflicting.length > 0) {
         return {
           success: false as const,
-          error: 'The requested time slot is not available. Please select another time.',
+          error: 'This time slot is already booked. Please select another time.',
         };
       }
 
@@ -241,10 +245,100 @@ export async function createAppointmentSafely(appointmentData: InsertAppointment
 
     return result;
   } catch (error) {
-    console.error('Error creating appointment:', error);
+    console.error('Error creating appointment safely:', error);
     return {
       success: false,
       error: 'An error occurred while scheduling the appointment.',
+    };
+  }
+}
+
+/**
+ * Safely updates an appointment's time with double booking prevention.
+ *
+ * Used for reschedules (drag-and-drop, self-service, SMS).
+ * Uses a database transaction with row-level locking to prevent race conditions.
+ *
+ * @param appointmentId The appointment to update
+ * @param businessId The business ID (for ownership verification)
+ * @param newStartDate New start time
+ * @param newEndDate New end time
+ * @param staffId Staff member to check conflicts for (optional — uses existing if not provided)
+ * @param additionalUpdates Any other fields to update (notes, etc.)
+ * @returns Promise resolving to object with success status and updated appointment or error
+ */
+export async function updateAppointmentSafely(
+  appointmentId: number,
+  businessId: number,
+  newStartDate: Date,
+  newEndDate: Date,
+  staffId?: number | null,
+  additionalUpdates?: Record<string, any>
+): Promise<{
+  success: boolean;
+  appointment?: any;
+  error?: string;
+}> {
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Check for conflicting appointments (excluding the one being updated)
+      const conditions: any[] = [
+        eq(appointments.businessId, businessId),
+        sql`${appointments.status} IN ('scheduled', 'confirmed', 'pending')`,
+        sql`${appointments.startDate} < ${newEndDate}`,
+        sql`${appointments.endDate} > ${newStartDate}`,
+        sql`${appointments.id} != ${appointmentId}`, // Exclude self
+      ];
+
+      if (staffId) {
+        conditions.push(eq(appointments.staffId, staffId));
+      }
+
+      const conflicting = await tx.select({ id: appointments.id })
+        .from(appointments)
+        .where(and(...conditions))
+        .for('update');
+
+      if (conflicting.length > 0) {
+        return {
+          success: false as const,
+          error: 'This time slot is already booked. Please select another time.',
+        };
+      }
+
+      // No conflicts — update the appointment within the same transaction
+      const [updated] = await tx.update(appointments)
+        .set({
+          startDate: newStartDate,
+          endDate: newEndDate,
+          updatedAt: new Date(),
+          ...(additionalUpdates || {}),
+        })
+        .where(and(
+          eq(appointments.id, appointmentId),
+          eq(appointments.businessId, businessId),
+        ))
+        .returning();
+
+      if (!updated) {
+        return {
+          success: false as const,
+          error: 'Appointment not found.',
+        };
+      }
+
+      return {
+        success: true as const,
+        appointment: updated,
+      };
+    });
+
+    return result;
+  } catch (error) {
+    console.error('Error updating appointment safely:', error);
+    return {
+      success: false,
+      error: 'An error occurred while rescheduling the appointment.',
     };
   }
 }

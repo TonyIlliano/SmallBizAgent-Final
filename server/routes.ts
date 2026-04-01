@@ -1972,7 +1972,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Creating appointment, businessId:', businessId, 'body:', JSON.stringify(req.body));
       const validatedData = insertAppointmentSchema.parse({ ...req.body, businessId });
       console.log('Validated data:', JSON.stringify(validatedData));
-      const appointment = await storage.createAppointment(validatedData);
+
+      // Use transactional booking with double-booking prevention
+      const { createAppointmentSafely } = await import('./services/appointmentService');
+      const safeResult = await createAppointmentSafely(validatedData);
+      if (!safeResult.success) {
+        return res.status(409).json({ message: safeResult.error || 'Time slot is not available' });
+      }
+      const appointment = safeResult.appointment;
 
       // Invalidate appointments cache
       dataCache.invalidate(businessId, 'appointments');
@@ -2024,7 +2031,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const validatedData = insertAppointmentSchema.partial().parse(req.body);
       console.log('Validated update data:', JSON.stringify(validatedData));
-      const appointment = await storage.updateAppointment(id, validatedData);
+
+      // If the time is being changed, use safe transactional update with overlap prevention
+      let appointment;
+      if (validatedData.startDate && validatedData.endDate) {
+        const { updateAppointmentSafely } = await import('./services/appointmentService');
+        const staffIdForCheck = validatedData.staffId ?? existing.staffId;
+        const { startDate, endDate, ...otherUpdates } = validatedData;
+        const safeResult = await updateAppointmentSafely(
+          id,
+          existing.businessId,
+          new Date(startDate),
+          new Date(endDate),
+          staffIdForCheck,
+          otherUpdates
+        );
+        if (!safeResult.success) {
+          return res.status(409).json({ message: safeResult.error || 'Time slot is not available' });
+        }
+        appointment = safeResult.appointment;
+      } else {
+        // Non-time updates (status change, notes, etc.) — no overlap risk
+        appointment = await storage.updateAppointment(id, validatedData);
+      }
 
       // Invalidate appointments cache
       dataCache.invalidate(existing.businessId, 'appointments');
@@ -2338,7 +2367,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const endDate = new Date(startDate);
           endDate.setMinutes(endDate.getMinutes() + 60);
 
-          const appointment = await storage.createAppointment({
+          // Use safe transactional booking to prevent double-booking
+          const { createAppointmentSafely } = await import('./services/appointmentService');
+          const safeResult = await createAppointmentSafely({
             businessId,
             customerId: job.customerId,
             staffId: job.staffId || null,
@@ -2349,14 +2380,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             notes: `Auto-created from job: ${job.title}`,
           });
 
-          // Link the appointment back to the job
-          await storage.updateJob(job.id, { appointmentId: appointment.id });
-          job.appointmentId = appointment.id;
+          if (safeResult.success && safeResult.appointment) {
+            const appointment = safeResult.appointment;
+            // Link the appointment back to the job
+            await storage.updateJob(job.id, { appointmentId: appointment.id });
+            job.appointmentId = appointment.id;
 
-          // Invalidate appointments cache after auto-creation
-          dataCache.invalidate(businessId, 'appointments');
+            // Invalidate appointments cache after auto-creation
+            dataCache.invalidate(businessId, 'appointments');
 
-          console.log(`Auto-created appointment ${appointment.id} for job ${job.id}`);
+            console.log(`Auto-created appointment ${appointment.id} for job ${job.id}`);
+          } else {
+            console.warn(`Skipped auto-creating appointment for job ${job.id}: ${safeResult.error}`);
+          }
         } catch (aptErr: any) {
           console.error('Failed to auto-create appointment for job:', aptErr.message);
           // Non-blocking — job is still created successfully

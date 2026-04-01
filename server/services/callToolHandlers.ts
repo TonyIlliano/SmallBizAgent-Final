@@ -1917,9 +1917,10 @@ async function bookAppointment(
     }
   }
 
-  // Create the appointment
+  // Create the appointment using transactional double-booking prevention
   try {
-    const appointment = await storage.createAppointment({
+    const { createAppointmentSafely } = await import('./appointmentService');
+    const safeResult = await createAppointmentSafely({
       businessId,
       customerId: customerId!,
       serviceId: serviceId || null,
@@ -1929,6 +1930,18 @@ async function bookAppointment(
       status: 'scheduled',
       notes: params.notes || ''
     });
+
+    if (!safeResult.success) {
+      return {
+        result: {
+          success: false,
+          doubleBooked: true,
+          message: safeResult.error || 'That time slot was just booked by someone else. Would you like to try a different time?'
+        }
+      };
+    }
+
+    const appointment = safeResult.appointment;
 
     // Invalidate appointments cache after creating new appointment
     dataCache.invalidate(businessId, 'appointments');

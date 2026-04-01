@@ -208,6 +208,11 @@ router.get("/book/:slug/slots", async (req, res) => {
       const availableStaffIds: number[] = [];
 
       for (const staffMember of staffToCheck) {
+        // Check staff time off (vacation, sick, PTO) for this specific date
+        const slotDate = createDateInTimezone(rYear, rMonth - 1, rDay, 12, 0, businessTimezone);
+        const timeOffEntries = await storage.getStaffTimeOffForDate(staffMember.id, slotDate);
+        if (timeOffEntries.some((t: any) => t.allDay !== false)) continue; // Staff has time off this day
+
         // Check staff's individual hours for this day
         const staffDayHours = await storage.getStaffHoursByDay(staffMember.id, dayName);
 
@@ -711,12 +716,20 @@ router.post("/book/:slug/manage/:token/reschedule", async (req, res) => {
       });
     }
 
-    // Update the appointment
-    const updated = await storage.updateAppointment(appointment.id, {
-      startDate: newStartDate,
-      endDate: newEndDate,
-      notes: (appointment.notes || '') + `\n[Rescheduled by customer from ${new Date(appointment.startDate).toLocaleDateString()} to ${newStartDate.toLocaleDateString()}]`,
-    });
+    // Update the appointment with transactional double-booking prevention
+    const { updateAppointmentSafely } = await import('../services/appointmentService');
+    const safeResult = await updateAppointmentSafely(
+      appointment.id,
+      business.id,
+      newStartDate,
+      newEndDate,
+      appointment.staffId,
+      { notes: (appointment.notes || '') + `\n[Rescheduled by customer from ${new Date(appointment.startDate).toLocaleDateString()} to ${newStartDate.toLocaleDateString()}]` }
+    );
+    if (!safeResult.success) {
+      return res.status(409).json({ error: safeResult.error || 'This time slot is already booked. Please select another time.' });
+    }
+    const updated = safeResult.appointment;
 
     // Update linked job if exists
     try {
