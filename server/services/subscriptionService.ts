@@ -151,24 +151,24 @@ export class SubscriptionService {
       // Create a product in Stripe if it doesn't exist yet
       let stripeProduct;
       try {
-        // Check if product already exists
-        const products = await getStripe().products.list({
-          ids: [planRecord.id.toString()]
-        });
-
-        if (products.data.length > 0) {
-          stripeProduct = products.data[0];
-        } else {
-          // Create new product
-          stripeProduct = await getStripe().products.create({
-            id: planRecord.id.toString(),
-            name: planRecord.name,
-            description: planRecord.description || undefined,
-          });
+        // Try to retrieve the product by ID first
+        try {
+          stripeProduct = await getStripe().products.retrieve(planRecord.id.toString());
+        } catch (retrieveError: any) {
+          if (retrieveError?.statusCode === 404 || retrieveError?.code === 'resource_missing') {
+            // Product doesn't exist, create it
+            stripeProduct = await getStripe().products.create({
+              id: planRecord.id.toString(),
+              name: planRecord.name,
+              description: planRecord.description || undefined,
+            });
+          } else {
+            throw retrieveError;
+          }
         }
-      } catch (stripeError) {
-        console.error('Error creating product in Stripe:', stripeError);
-        throw new Error('Failed to create subscription product');
+      } catch (stripeError: any) {
+        console.error('Error creating product in Stripe:', stripeError?.message || stripeError);
+        throw new Error(`Failed to create subscription product: ${stripeError?.message || 'Unknown error'}`);
       }
       
       // Create price in Stripe
@@ -208,8 +208,20 @@ export class SubscriptionService {
       let stripeCustomer;
       try {
         if (businessRecord.stripeCustomerId) {
-          stripeCustomer = await getStripe().customers.retrieve(businessRecord.stripeCustomerId);
-        } else {
+          try {
+            stripeCustomer = await getStripe().customers.retrieve(businessRecord.stripeCustomerId);
+            // If customer was deleted in Stripe, create a new one
+            if ((stripeCustomer as any).deleted) {
+              stripeCustomer = null;
+            }
+          } catch (retrieveError: any) {
+            // Customer doesn't exist in Stripe anymore, create a new one
+            console.warn(`Stripe customer ${businessRecord.stripeCustomerId} not found, creating new one`);
+            stripeCustomer = null;
+          }
+        }
+
+        if (!stripeCustomer) {
           stripeCustomer = await getStripe().customers.create({
             email: businessRecord.email,
             name: businessRecord.name,
@@ -217,7 +229,7 @@ export class SubscriptionService {
               businessId: businessRecord.id.toString()
             }
           });
-          
+
           // Update business with Stripe customer ID
           await db.update(businesses)
             .set({
@@ -226,9 +238,9 @@ export class SubscriptionService {
             })
             .where(eq(businesses.id, businessId));
         }
-      } catch (stripeError) {
-        console.error('Error creating customer in Stripe:', stripeError);
-        throw new Error('Failed to create customer record for subscription');
+      } catch (stripeError: any) {
+        console.error('Error creating customer in Stripe:', stripeError?.message || stripeError);
+        throw new Error(`Failed to create customer record for subscription: ${stripeError?.message || 'Unknown error'}`);
       }
       
       // Create a subscription
@@ -261,9 +273,9 @@ export class SubscriptionService {
           status: subscription.status,
           clientSecret: (subscription.latest_invoice as any)?.payment_intent?.client_secret,
         };
-      } catch (stripeError) {
-        console.error('Error creating subscription in Stripe:', stripeError);
-        throw new Error('Failed to create subscription');
+      } catch (stripeError: any) {
+        console.error('Error creating subscription in Stripe:', stripeError?.message || stripeError);
+        throw new Error(`Failed to create subscription: ${stripeError?.message || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error creating subscription:', error);

@@ -109,14 +109,14 @@ const whyReasons = [
 const pricingPlans = [
   {
     name: "Starter",
-    monthlyPrice: "$79",
-    annualPrice: "$63",
-    annualTotal: "$759/yr",
+    monthlyPrice: "$149",
+    annualPrice: "$119",
+    annualTotal: "$1,429/yr",
     description: "Perfect for solo operators",
-    minutes: "75 AI receptionist min/mo",
-    overage: "$0.99/min overage",
+    minutes: "150 AI receptionist min/mo",
+    overage: "$0.05/min overage",
     features: [
-      "75 AI receptionist minutes/mo",
+      "150 AI receptionist minutes/mo",
       "Unlimited customers",
       "Appointment scheduling",
       "Invoicing & payments",
@@ -128,42 +128,46 @@ const pricingPlans = [
     popular: false
   },
   {
-    name: "Professional",
-    monthlyPrice: "$149",
-    annualPrice: "$119",
-    annualTotal: "$1,429/yr",
+    name: "Growth",
+    monthlyPrice: "$299",
+    annualPrice: "$239",
+    annualTotal: "$2,869/yr",
     description: "Most popular for growing businesses",
-    minutes: "200 AI receptionist min/mo",
-    overage: "$0.89/min overage",
+    minutes: "300 AI receptionist min/mo",
+    overage: "$0.05/min overage",
     features: [
-      "200 AI receptionist minutes/mo",
+      "300 AI receptionist minutes/mo",
       "Everything in Starter, plus:",
-      "SMS notifications",
+      "SMS automation suite",
+      "Google Business Profile sync",
       "Calendar sync (Google, Apple, Microsoft)",
-      "QuickBooks integration",
       "Staff scheduling (up to 5)",
-      "Review request automation",
-      "Advanced analytics"
+      "Website chat widget",
+      "Advanced analytics + call transcripts",
+      { text: "QuickBooks integration", comingSoon: true }
     ],
     cta: "Start Free Trial",
     popular: true
   },
   {
-    name: "Business",
-    monthlyPrice: "$249",
-    annualPrice: "$199",
-    annualTotal: "$2,389/yr",
+    name: "Pro",
+    monthlyPrice: "$449",
+    annualPrice: "$359",
+    annualTotal: "$4,309/yr",
     description: "For established businesses",
     minutes: "500 AI receptionist min/mo",
-    overage: "$0.79/min overage",
+    overage: "$0.05/min overage",
     features: [
       "500 AI receptionist minutes/mo",
-      "Everything in Professional, plus:",
+      "Everything in Growth, plus:",
+      "Up to 3 locations",
       "Up to 15 staff members",
       "API access & webhooks",
       "Custom AI receptionist training",
       "Dedicated onboarding",
-      "Priority support"
+      "Priority support",
+      "White-label ready",
+      { text: "Social media content pipeline", comingSoon: true }
     ],
     cta: "Start Free Trial",
     popular: false
@@ -473,12 +477,23 @@ function PricingSection() {
                   </Button>
                 </a>
                 <ul className="mt-6 space-y-3">
-                  {plan.features.map((feature, j) => (
-                    <li key={j} className="flex items-center gap-2 text-sm text-neutral-300">
-                      <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
-                      {feature}
-                    </li>
-                  ))}
+                  {plan.features.map((feature, j) => {
+                    const isComingSoon = typeof feature === 'object' && feature.comingSoon;
+                    const text = typeof feature === 'object' ? feature.text : feature;
+                    return (
+                      <li key={j} className={`flex items-center gap-2 text-sm ${isComingSoon ? 'text-neutral-500' : 'text-neutral-300'}`}>
+                        {isComingSoon ? (
+                          <div className="h-4 w-4 rounded-full border border-neutral-600 flex-shrink-0" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                        )}
+                        {text}
+                        {isComingSoon && (
+                          <span className="text-xs bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded ml-1">Coming Soon</span>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </CardContent>
             </Card>

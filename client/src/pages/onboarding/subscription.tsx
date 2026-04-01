@@ -140,10 +140,10 @@ export default function OnboardingSubscription() {
           {plans?.filter((p: Plan) => p.interval === billingInterval).map((plan: Plan) => (
             <Card
               key={plan.id}
-              className={`flex flex-col h-full bg-neutral-900 border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer ${selectedPlan === plan.id ? 'ring-2 ring-white border-white' : ''} ${plan.planTier === 'professional' ? 'border-white' : ''}`}
+              className={`flex flex-col h-full bg-neutral-900 border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer ${selectedPlan === plan.id ? 'ring-2 ring-white border-white' : ''} ${plan.planTier === 'growth' || plan.planTier === 'professional' ? 'border-white' : ''}`}
               onClick={() => handleSelectPlan(plan.id)}
             >
-              {plan.planTier === 'professional' && (
+              {(plan.planTier === 'growth' || plan.planTier === 'professional') && (
                 <div className="text-center py-1 bg-white text-black text-xs font-semibold rounded-t-lg">
                   Most Popular
                 </div>

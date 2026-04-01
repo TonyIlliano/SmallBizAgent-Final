@@ -398,9 +398,9 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
         {filteredPlans.map((plan: Plan) => (
           <Card
             key={plan.id}
-            className={`flex flex-col h-full ${selectedPlan === plan.id ? 'border-primary ring-2 ring-primary' : ''} ${plan.planTier === 'professional' ? 'border-primary' : ''}`}
+            className={`flex flex-col h-full ${selectedPlan === plan.id ? 'border-primary ring-2 ring-primary' : ''} ${plan.planTier === 'growth' || plan.planTier === 'professional' ? 'border-primary' : ''}`}
           >
-            {plan.planTier === 'professional' && (
+            {(plan.planTier === 'growth' || plan.planTier === 'professional') && (
               <div className="text-center py-1 bg-primary text-primary-foreground text-xs font-semibold rounded-t-lg">
                 Most Popular
               </div>
