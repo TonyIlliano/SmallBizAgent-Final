@@ -8,7 +8,7 @@
 
 import { db } from '../db';
 import { eq, sql, gte, lte, and, desc } from 'drizzle-orm';
-import { businesses, users, callLogs, invoices, agentActivityLog, notificationLog } from '../../shared/schema';
+import { businesses, users, callLogs, agentActivityLog, notificationLog, subscriptionPlans } from '../../shared/schema';
 import { sendEmail } from '../emailService';
 
 const ADMIN_TIMEZONE = process.env.ADMIN_TIMEZONE || 'America/New_York';
@@ -33,7 +33,7 @@ export async function sendAdminDigest(): Promise<void> {
     newSignups,
     expiredTrials,
     callCount,
-    revenueData,
+    mrrData,
     failedPayments,
     highChurnRisks,
     agentActions,
@@ -59,14 +59,22 @@ export async function sendAdminDigest(): Promise<void> {
       .from(callLogs)
       .where(and(gte(callLogs.callTime, start), lte(callLogs.callTime, end))),
 
-    // Revenue collected yesterday
-    db.select({ total: sql<number>`COALESCE(SUM(total), 0)`, count: sql<number>`count(*)` })
-      .from(invoices)
-      .where(and(
-        eq(invoices.status, 'paid'),
-        gte(invoices.updatedAt, start),
-        lte(invoices.updatedAt, end),
-      )),
+    // Platform MRR from active subscriptions
+    (async () => {
+      const activeBiz = await db.select({
+        stripePlanId: businesses.stripePlanId,
+      }).from(businesses).where(eq(businesses.subscriptionStatus, 'active'));
+      const plans = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.active, true));
+      const planMap = new Map(plans.map(p => [p.id, p]));
+      let mrr = 0;
+      for (const b of activeBiz) {
+        const plan = b.stripePlanId ? planMap.get(b.stripePlanId) : null;
+        if (plan?.price) {
+          mrr += plan.interval === 'yearly' ? plan.price / 12 : plan.price;
+        }
+      }
+      return { mrr: Math.round(mrr) };
+    })(),
 
     // Current failed payments
     db.select({ id: businesses.id, name: businesses.name, status: businesses.subscriptionStatus })
@@ -101,12 +109,11 @@ export async function sendAdminDigest(): Promise<void> {
   ]);
 
   const totalCalls = Number(callCount[0]?.count || 0);
-  const totalRevenue = Number(revenueData[0]?.total || 0);
-  const paidInvoices = Number(revenueData[0]?.count || 0);
+  const platformMrr = Number(mrrData.mrr || 0);
   const failedNotifCount = Number(failedNotifications[0]?.count || 0);
 
   // Check if there's any activity at all
-  const hasActivity = newSignups.length > 0 || expiredTrials.length > 0 || totalCalls > 0 || paidInvoices > 0 || failedPayments.length > 0 || highChurnRisks.length > 0;
+  const hasActivity = newSignups.length > 0 || expiredTrials.length > 0 || totalCalls > 0 || platformMrr > 0 || failedPayments.length > 0 || highChurnRisks.length > 0;
   if (!hasActivity) {
     console.log('[AdminDigest] No activity yesterday, skipping digest');
     return;
@@ -152,8 +159,8 @@ export async function sendAdminDigest(): Promise<void> {
           </td>
           <td style="width:4px;"></td>
           <td style="padding:12px;background:#F9FAFB;border-radius:8px;text-align:center;width:25%;">
-            <div style="font-size:28px;font-weight:700;">$${totalRevenue.toFixed(0)}</div>
-            <div style="font-size:12px;color:#6B7280;">Revenue</div>
+            <div style="font-size:28px;font-weight:700;">$${platformMrr.toLocaleString()}</div>
+            <div style="font-size:12px;color:#6B7280;">MRR</div>
           </td>
           <td style="width:4px;"></td>
           <td style="padding:12px;background:#F9FAFB;border-radius:8px;text-align:center;width:25%;">
@@ -194,7 +201,7 @@ export async function sendAdminDigest(): Promise<void> {
     actionItems.length > 0 ? `ACTION NEEDED:\n${actionItems.map(a => `  - ${a}`).join('\n')}\n` : '',
     `New Signups: ${newSignups.length}`,
     `Calls Handled: ${totalCalls}`,
-    `Revenue Collected: $${totalRevenue.toFixed(2)} (${paidInvoices} invoices)`,
+    `Platform MRR: $${platformMrr.toLocaleString()}`,
     `Active Subscriptions: ${currentMrr[0]?.count || 0}`,
     `Trials Expired: ${expiredTrials.length}`,
     `Failed Payments: ${failedPayments.length}`,

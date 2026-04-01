@@ -1021,7 +1021,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `client/src/pages/admin/index.tsx` — **NEW**: `AlertActionButton` component renders inline action buttons on each alert. "Re-provision" calls provision endpoint, "Contact Owner" opens mailto, "Extend Trial" calls extend-trial endpoint, "View Messages" switches tab.
 
 ##### 4. Daily Admin Digest Email
-- `server/services/adminDigestService.ts` — **NEW**: Daily platform summary email sent at 8am in admin timezone. Gathers: new signups, expired trials, total calls, revenue collected, failed payments, high churn risk businesses, agent activity summary. HTML + plain text format with "Action Needed" section. Skips if zero activity.
+- `server/services/adminDigestService.ts` — **NEW**: Daily platform summary email sent at 8am in admin timezone. Gathers: new signups, expired trials, total calls, platform MRR (from active subscriptions × plan prices), failed payments, high churn risk businesses, agent activity summary. HTML + plain text format with "Action Needed" section. Skips if zero activity. **Revenue shows platform subscription MRR, not customer invoice revenue.**
 - `server/services/schedulerService.ts` — **NEW**: `startAdminDigestScheduler()` runs hourly, sends at 8am in `ADMIN_TIMEZONE` (default: America/New_York). Uses `withReentryGuard()` + `withAdvisoryLock()`.
 
 ##### 5. Business Impersonation ("View as")
