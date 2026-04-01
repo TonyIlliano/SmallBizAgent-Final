@@ -262,7 +262,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'checkAvailability',
-    'Check available appointment slots for a specific date. Pass the caller\'s exact date words as-is.',
+    'Check available slots for a date. Pass caller\'s exact words.',
     {
       type: 'object',
       properties: {
@@ -278,7 +278,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'bookAppointment',
-    'Book after customer confirms. Pass customerId + customerName + serviceName + exact date from checkAvailability.',
+    'Book after customer confirms. Use dateForBooking from checkAvailability.',
     {
       type: 'object',
       properties: {
@@ -302,7 +302,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'getStaffMembers',
-    'Check who is working today. Only call when the caller asks about staff availability.',
+    'Check who is working today.',
     { type: 'object', properties: {} }
   ));
 
@@ -323,7 +323,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'recognizeCaller',
-    'MANDATORY: Call this FIRST on every call before responding. Looks up the caller by phone in the database. Returns name, customer ID, appointments, history, and the REAL-TIME date/open status in currentStatus. If recognized, greet by name. If new caller, ask for their name. ALWAYS use currentStatus for today\'s date — it is live and accurate.',
+    'MANDATORY first call. Looks up caller by phone. Returns name, appointments, and live currentStatus.',
     { type: 'object', properties: {} },
     { speakDuring: false, speakAfter: true, timeout: 3000 }  // 3s timeout — lookup takes ~150ms
   ));
@@ -376,7 +376,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'updateCustomerInfo',
-    'Save or update caller\'s name. Call immediately when a new caller tells you their name.',
+    'Save caller\'s name. Call when a new caller gives their name.',
     {
       type: 'object',
       properties: {
@@ -391,7 +391,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'confirmAppointment',
-    'Confirm a caller\'s upcoming appointment. Only call when the caller explicitly says "confirm".',
+    'Confirm an upcoming appointment when caller says "confirm".',
     {
       type: 'object',
       properties: {
@@ -423,7 +423,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'getServiceDetails',
-    'Get detailed info about a specific service. Only call when caller explicitly asks about price or duration.',
+    'Get price and duration for a specific service.',
     {
       type: 'object',
       properties: {
@@ -441,7 +441,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   tools.push(customTool(
     'scheduleCallback',
-    'Schedule a callback only when the caller explicitly says "call me back" or "have someone call me."',
+    'Schedule a callback when caller asks to be called back.',
     {
       type: 'object',
       properties: {
@@ -607,7 +607,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
   if (options.transferNumber) {
     tools.push(customTool(
       'transferToHuman',
-      'Transfer the caller to a human staff member. Use when caller explicitly asks to speak to a person or when you cannot resolve their issue.',
+      'Transfer to a human when caller asks to speak to a person.',
       {
         type: 'object',
         properties: {
