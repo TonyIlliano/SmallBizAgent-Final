@@ -28,7 +28,6 @@ const APP_URL = process.env.APP_URL || 'https://www.smallbizagent.ai';
 const RETELL_PROVIDER_HINTS = {
   silenceDuringTools: false,
   endCallInstruction: 'When the conversation is complete and the caller has no more questions, call the end_call tool to hang up. Do NOT just say goodbye — you MUST call end_call or the call will stay open.',
-  toolCallFormat: 'Call tools by name. Retell will execute them and return results.',
 };
 
 // ---------------------------------------------------------------------------
@@ -682,6 +681,7 @@ export async function createLlmForBusiness(
   const result = await retellFetch<{ llm_id: string }>('POST', '/create-retell-llm', {
     model: 'claude-4.5-haiku',
     model_temperature: 0.3,
+    model_high_priority: true,      // Fast LLM queue — ~25% faster response, ~50% less variance
     tool_call_strict_mode: true,    // Strict tool calls — prevents random tool invocations
     general_prompt: systemPrompt,
     general_tools: tools,
@@ -761,6 +761,7 @@ export async function updateLlm(
   const result = await retellFetch('PATCH', `/update-retell-llm/${llmId}`, {
     model: 'claude-4.5-haiku',
     model_temperature: 0.3,
+    model_high_priority: true,      // Fast LLM queue — ~25% faster response, ~50% less variance
     tool_call_strict_mode: true,
     general_prompt: systemPrompt,
     general_tools: tools,
@@ -818,9 +819,9 @@ export async function createAgentForBusiness(
     voice_model: getVoiceModel(configVoiceId),
     agent_name: `${business.name} Receptionist`,
     language: 'en-US',
-    stt_mode: 'accurate',  // Best transcription quality — critical for names, dates, service names
+    stt_mode: 'fast',      // Fast transcription — sufficient for barbershop vocabulary, names validated server-side
     webhook_url: `${APP_URL}/api/retell/webhook`,
-    responsiveness: 0.8,             // Higher = faster response, less dead air
+    responsiveness: 1.0,             // Maximum responsiveness — agent responds as soon as caller pauses
     interruption_sensitivity: 0.4,   // Lower = harder to interrupt, prevents cutting off callers
     end_call_after_silence_ms: 30000,
     max_call_duration_ms: configMaxCallMinutes * 60 * 1000,
@@ -888,8 +889,9 @@ export async function updateAgent(
     voice_model: getVoiceModel(configVoiceId),
     agent_name: `${business.name} Receptionist`,
     language: 'en-US',
+    stt_mode: 'fast',                // Fast transcription — was missing from update path (create/update drift fix)
     webhook_url: `${APP_URL}/api/retell/webhook`,
-    responsiveness: 0.8,             // Higher = faster response, less dead air
+    responsiveness: 1.0,             // Maximum responsiveness — agent responds as soon as caller pauses
     interruption_sensitivity: 0.4,   // Lower = harder to interrupt, prevents cutting off callers
     end_call_after_silence_ms: 30000,
     max_call_duration_ms: configMaxCallMinutes * 60 * 1000,
