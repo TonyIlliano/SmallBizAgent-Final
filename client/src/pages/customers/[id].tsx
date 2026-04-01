@@ -35,6 +35,19 @@ import {
   Tag,
   X,
   Plus,
+  Heart,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  AlertTriangle,
+  Star,
+  ShieldCheck,
+  Cake,
+  CheckCircle2,
+  XCircle,
+  Bot,
+  Send,
+  Receipt,
 } from "lucide-react";
 
 function formatDate(dateStr: string) {
@@ -44,6 +57,22 @@ function formatDate(dateStr: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatTime(dateStr: string) {
+  if (!dateStr) return "";
+  return new Date(dateStr).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds) return "";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins === 0) return `${secs}s`;
+  return `${mins}m ${secs}s`;
 }
 
 const typeIcons: Record<string, any> = {
@@ -69,9 +98,28 @@ const typePaths: Record<string, string> = {
   invoice: "/invoices",
   appointment: "/appointments",
   quote: "/quotes",
-  call: "/calls",
-  sms: "/calls",
 };
+
+const statusBadgeColors: Record<string, string> = {
+  completed: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  confirmed: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  scheduled: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+  pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  paid: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  overdue: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  cancelled: "bg-gray-100 text-gray-600 dark:bg-gray-800/30 dark:text-gray-400",
+  no_show: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  answered: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  missed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  sent: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+};
+
+function StatusBadge({ status }: { status: string | null }) {
+  if (!status) return null;
+  const label = status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const color = statusBadgeColors[status] || "bg-gray-100 text-gray-600";
+  return <Badge className={`text-[10px] ${color}`}>{label}</Badge>;
+}
 
 function CustomerTags({ customerId, tags }: { customerId: number; tags: string[] }) {
   const [newTag, setNewTag] = useState("");
@@ -157,6 +205,276 @@ function CustomerTags({ customerId, tags }: { customerId: number; tags: string[]
   );
 }
 
+// ── Insights Components ──
+
+function SentimentIcon({ trend }: { trend?: string | null }) {
+  if (trend === "improving") return <TrendingUp className="h-3.5 w-3.5 text-green-500" />;
+  if (trend === "declining") return <TrendingDown className="h-3.5 w-3.5 text-red-500" />;
+  return <Minus className="h-3.5 w-3.5 text-gray-400" />;
+}
+
+function RiskBadge({ level }: { level?: string | null }) {
+  if (!level || level === "low") return <Badge className="bg-green-100 text-green-800 text-[10px]">Low Risk</Badge>;
+  if (level === "medium") return <Badge className="bg-yellow-100 text-yellow-800 text-[10px]">Medium Risk</Badge>;
+  return <Badge className="bg-red-100 text-red-800 text-[10px]">High Risk</Badge>;
+}
+
+function ReliabilityBar({ score }: { score?: number | null }) {
+  const pct = Math.round((score ?? 0) * 100);
+  const color = pct >= 80 ? "bg-green-500" : pct >= 50 ? "bg-yellow-500" : "bg-red-500";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs font-medium w-8 text-right">{pct}%</span>
+    </div>
+  );
+}
+
+function InsightsCard({ insights }: { insights: any }) {
+  if (!insights || insights.message === "No insights calculated yet") {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bot className="h-4 w-4" />
+            AI Insights
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Insights will appear after more interactions are logged.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const data = insights.insights || insights;
+  const preferredServices: string[] = Array.isArray(data.preferredServices) ? data.preferredServices : [];
+  const autoTags: string[] = Array.isArray(data.autoTags) ? data.autoTags : [];
+  const riskFactors: string[] = Array.isArray(data.riskFactors) ? data.riskFactors : [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Bot className="h-4 w-4" />
+          AI Insights
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Risk & Reliability Row */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              Churn Risk
+            </div>
+            <RiskBadge level={data.riskLevel} />
+            {data.churnProbability != null && (
+              <div className="text-[10px] text-muted-foreground mt-0.5">
+                {Math.round(data.churnProbability * 100)}% probability
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <ShieldCheck className="h-3 w-3" />
+              Reliability
+            </div>
+            <ReliabilityBar score={data.reliabilityScore} />
+          </div>
+        </div>
+
+        {/* Sentiment */}
+        {data.averageSentiment != null && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <Heart className="h-3 w-3" />
+              Sentiment
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Star
+                    key={n}
+                    className={`h-3.5 w-3.5 ${n <= Math.round(data.averageSentiment) ? "text-yellow-400 fill-yellow-400" : "text-gray-200"}`}
+                  />
+                ))}
+              </div>
+              <SentimentIcon trend={data.sentimentTrend} />
+              <span className="text-xs text-muted-foreground capitalize">{data.sentimentTrend || "stable"}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Lifetime Value */}
+        {data.lifetimeValue != null && data.lifetimeValue > 0 && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <DollarSign className="h-3 w-3" />
+              Lifetime Value
+            </div>
+            <div className="text-lg font-semibold">{formatCurrency(data.lifetimeValue)}</div>
+            <div className="text-[10px] text-muted-foreground">
+              {data.totalVisits || 0} visits &middot; {data.totalCalls || 0} calls
+            </div>
+          </div>
+        )}
+
+        {/* Preferences */}
+        {(preferredServices.length > 0 || data.preferredStaff || data.preferredDayOfWeek || data.preferredTimeOfDay) && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Preferences</div>
+            <div className="space-y-1">
+              {preferredServices.length > 0 && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Services: </span>
+                  {preferredServices.join(", ")}
+                </div>
+              )}
+              {data.preferredStaff && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Staff: </span>
+                  {data.preferredStaff}
+                </div>
+              )}
+              {(data.preferredDayOfWeek || data.preferredTimeOfDay) && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Prefers: </span>
+                  {[data.preferredDayOfWeek, data.preferredTimeOfDay].filter(Boolean).join(", ")}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Visit Frequency */}
+        {data.averageVisitFrequencyDays != null && data.averageVisitFrequencyDays > 0 && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Visit Frequency</div>
+            <div className="text-sm">
+              Every ~{Math.round(data.averageVisitFrequencyDays)} days
+              {data.daysSinceLastVisit != null && (
+                <span className="text-muted-foreground"> &middot; Last visit {data.daysSinceLastVisit} days ago</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Risk Factors */}
+        {riskFactors.length > 0 && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              Risk Factors
+            </div>
+            <ul className="text-xs space-y-0.5">
+              {riskFactors.map((f, i) => (
+                <li key={i} className="text-red-600 dark:text-red-400">&bull; {f}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Auto Tags */}
+        {autoTags.length > 0 && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">AI Tags</div>
+            <div className="flex flex-wrap gap-1">
+              {autoTags.map((t, i) => (
+                <Badge key={i} variant="outline" className="text-[10px]">{t}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Timeline Entry ──
+
+function TimelineEntry({ entry, navigate }: { entry: any; navigate: (path: string) => void }) {
+  const Icon = typeIcons[entry.type] || Briefcase;
+  const colorClass = typeColors[entry.type] || "";
+  const basePath = typePaths[entry.type] || "";
+  const isClickable = !!basePath;
+
+  // Build a human-readable title
+  let title = entry.title;
+  let subtitle: string | null = null;
+
+  if (entry.type === "call") {
+    const intent = entry.intentDetected || entry.intent;
+    if (intent && intent !== "ai-call") {
+      title = `Phone Call — ${intent.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}`;
+    } else {
+      title = "Phone Call";
+    }
+    if (entry.summary) {
+      subtitle = entry.summary;
+    }
+    if (entry.callDuration) {
+      const dur = formatDuration(entry.callDuration);
+      subtitle = subtitle ? `${dur} — ${subtitle}` : dur;
+    }
+  }
+
+  if (entry.type === "sms") {
+    const preview = entry.transcript || entry.preview || "";
+    title = "SMS Message";
+    if (preview) {
+      subtitle = preview.length > 100 ? preview.substring(0, 100) + "..." : preview;
+    }
+  }
+
+  if (entry.type === "appointment") {
+    // Make appointment titles more readable
+    const serviceName = entry.serviceName || entry.service;
+    const staffName = entry.staffName || entry.staff;
+    if (serviceName) {
+      title = serviceName;
+      if (staffName) title += ` with ${staffName}`;
+    } else if (!title || title === "Appointment") {
+      title = "Appointment";
+    }
+    // Show time
+    if (entry.date) {
+      subtitle = formatTime(entry.date);
+    }
+  }
+
+  return (
+    <div
+      className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${isClickable ? "hover:bg-muted/50 cursor-pointer" : ""}`}
+      onClick={() => isClickable && navigate(`${basePath}/${entry.id}`)}
+    >
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${colorClass}`}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-medium truncate">{title}</span>
+          <StatusBadge status={entry.status} />
+        </div>
+        {subtitle && (
+          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{subtitle}</p>
+        )}
+        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+          <span>{formatDate(entry.date)}</span>
+          {entry.amount != null && entry.amount > 0 && (
+            <>
+              <span>&middot;</span>
+              <span>{formatCurrency(entry.amount)}</span>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CustomerDetail() {
   const params = useParams();
   const [, navigate] = useLocation();
@@ -173,6 +491,12 @@ export default function CustomerDetail() {
   // Fetch activity data
   const { data: activity, isLoading: activityLoading } = useQuery<any>({
     queryKey: [`/api/customers/${customerId}/activity`],
+    enabled: !isNew && !!customerId,
+  });
+
+  // Fetch AI insights
+  const { data: insights } = useQuery<any>({
+    queryKey: [`/api/customers/${customerId}/insights`],
     enabled: !isNew && !!customerId,
   });
 
@@ -261,8 +585,48 @@ export default function CustomerDetail() {
         }
       />
 
+      {/* Quick Action Buttons */}
+      <div className="flex flex-wrap gap-2 mt-4">
+        {customer?.phone && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.open(`sms:${customer.phone}`, "_self")}
+          >
+            <Send className="h-3.5 w-3.5 mr-1.5" />
+            Send SMS
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => navigate("/appointments")}
+        >
+          <Calendar className="h-3.5 w-3.5 mr-1.5" />
+          Book Appointment
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => navigate("/invoices/create")}
+        >
+          <Receipt className="h-3.5 w-3.5 mr-1.5" />
+          Create Invoice
+        </Button>
+        {customer?.email && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.open(`mailto:${customer.email}`, "_self")}
+          >
+            <Mail className="h-3.5 w-3.5 mr-1.5" />
+            Send Email
+          </Button>
+        )}
+      </div>
+
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
@@ -290,7 +654,7 @@ export default function CustomerDetail() {
               Last Visit
             </div>
             <p className="text-lg font-bold truncate">
-              {stats.lastVisit ? formatDate(stats.lastVisit) : "—"}
+              {stats.lastVisit ? formatDate(stats.lastVisit) : "\u2014"}
             </p>
           </CardContent>
         </Card>
@@ -305,10 +669,11 @@ export default function CustomerDetail() {
         </Card>
       </div>
 
-      {/* Two-column layout */}
+      {/* Three-column layout on desktop */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-        {/* Left: Customer Info */}
+        {/* Left: Customer Info + Insights */}
         <div className="md:col-span-1 space-y-4">
+          {/* Contact Information */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Contact Information</CardTitle>
@@ -337,10 +702,16 @@ export default function CustomerDetail() {
                       <div className="text-muted-foreground">
                         {customer.city}
                         {customer.state && `, ${customer.state}`}{" "}
-                        {customer.zip}
+                        {customer.zipcode || customer.zip}
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+              {customer?.birthday && (
+                <div className="flex items-center gap-3">
+                  <Cake className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <span className="text-sm">{customer.birthday}</span>
                 </div>
               )}
               {customer?.notes && (
@@ -351,6 +722,35 @@ export default function CustomerDetail() {
                   </p>
                 </div>
               )}
+
+              {/* SMS & Marketing Opt-In Status */}
+              <div className="pt-2 border-t space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">SMS Opt-In</span>
+                  {customer?.smsOptIn ? (
+                    <span className="flex items-center gap-1 text-xs text-green-600"><CheckCircle2 className="h-3 w-3" /> Yes</span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground"><XCircle className="h-3 w-3" /> No</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Marketing Opt-In</span>
+                  {customer?.marketingOptIn ? (
+                    <span className="flex items-center gap-1 text-xs text-green-600"><CheckCircle2 className="h-3 w-3" /> Yes</span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground"><XCircle className="h-3 w-3" /> No</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Source */}
+              {customer?.source && (
+                <div className="pt-2 border-t">
+                  <div className="text-xs text-muted-foreground mb-1">Created via</div>
+                  <span className="text-sm capitalize">{customer.source.replace(/_/g, " ")}</span>
+                </div>
+              )}
+
               {/* Customer Tags */}
               <div className="pt-3 border-t">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
@@ -366,6 +766,9 @@ export default function CustomerDetail() {
               </div>
             </CardContent>
           </Card>
+
+          {/* AI Insights */}
+          <InsightsCard insights={insights} />
         </div>
 
         {/* Right: Activity Timeline */}
@@ -392,49 +795,13 @@ export default function CustomerDetail() {
                 </div>
               ) : activity?.timeline?.length > 0 ? (
                 <div className="space-y-1">
-                  {activity.timeline.map((entry: any, i: number) => {
-                    const Icon = typeIcons[entry.type] || Briefcase;
-                    const colorClass = typeColors[entry.type] || "";
-                    const basePath = typePaths[entry.type] || "";
-
-                    return (
-                      <div
-                        key={`${entry.type}-${entry.id}-${i}`}
-                        className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
-                        onClick={() =>
-                          navigate(`${basePath}/${entry.id}`)
-                        }
-                      >
-                        <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${colorClass}`}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-medium truncate">
-                              {entry.title}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] flex-shrink-0"
-                            >
-                              {entry.status}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-                            <span>{formatDate(entry.date)}</span>
-                            {entry.amount != null && entry.amount > 0 && (
-                              <>
-                                <span>•</span>
-                                <span>{formatCurrency(entry.amount)}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {activity.timeline.map((entry: any, i: number) => (
+                    <TimelineEntry
+                      key={`${entry.type}-${entry.id}-${i}`}
+                      entry={entry}
+                      navigate={navigate}
+                    />
+                  ))}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">

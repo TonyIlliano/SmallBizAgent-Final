@@ -6,7 +6,19 @@ import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PlusCircle, Users, ChevronRight as ChevronRightIcon, Search, Phone, DollarSign, Calendar } from "lucide-react";
+import {
+  PlusCircle,
+  Users,
+  ChevronRight as ChevronRightIcon,
+  Search,
+  Phone,
+  DollarSign,
+  Calendar,
+  MoreHorizontal,
+  Eye,
+  Trash2,
+  ArrowUpDown,
+} from "lucide-react";
 import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
@@ -23,6 +35,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -33,7 +53,7 @@ function formatCurrency(amount: number) {
 }
 
 function formatDate(dateStr: string | null) {
-  if (!dateStr) return "—";
+  if (!dateStr) return "\u2014";
   return new Date(dateStr).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -46,12 +66,10 @@ function getCustomerStatus(customer: any): { label: string; color: string } {
   const createdAt = new Date(customer.created_at);
   const daysSinceCreated = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
 
-  // Has open invoices → "Overdue" (red)
   if (customer.open_invoice_count > 0) {
     return { label: "Overdue", color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" };
   }
 
-  // Had a visit or paid invoice in last 60 days → "Active" (green)
   const lastVisit = customer.last_visit ? new Date(customer.last_visit) : null;
   const daysSinceVisit = lastVisit ? Math.floor((now.getTime() - lastVisit.getTime()) / (1000 * 60 * 60 * 24)) : null;
 
@@ -59,19 +77,28 @@ function getCustomerStatus(customer: any): { label: string; color: string } {
     return { label: "Active", color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" };
   }
 
-  // Has revenue but no recent visit → "Inactive" (yellow)
   if (Number(customer.total_revenue) > 0 && (daysSinceVisit === null || daysSinceVisit > 60)) {
     return { label: "Inactive", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400" };
   }
 
-  // Created in last 14 days → "New" (blue)
   if (daysSinceCreated <= 14) {
     return { label: "New", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" };
   }
 
-  // Default — has record but no activity → "Lead" (gray)
   return { label: "Lead", color: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400" };
 }
+
+const STATUS_FILTERS = [
+  { label: "All", value: "all" },
+  { label: "Active", value: "Active" },
+  { label: "Inactive", value: "Inactive" },
+  { label: "New", value: "New" },
+  { label: "Lead", value: "Lead" },
+  { label: "Overdue", value: "Overdue" },
+];
+
+type SortField = "name" | "total_revenue" | "last_visit" | "created_at";
+type SortDir = "asc" | "desc";
 
 export function CustomerTable({ businessId }: { businessId?: number | null }) {
   const [, navigate] = useLocation();
@@ -81,6 +108,9 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
   const [customerToDelete, setCustomerToDelete] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortField, setSortField] = useState<SortField>("created_at");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Debounce search input
@@ -141,6 +171,50 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
     }
   };
 
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  };
+
+  // Filter and sort customers
+  const filteredCustomers = customers
+    .filter(c => {
+      if (statusFilter === "all") return true;
+      return getCustomerStatus(c).label === statusFilter;
+    })
+    .sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      switch (sortField) {
+        case "name":
+          return dir * ((a.first_name || "").localeCompare(b.first_name || ""));
+        case "total_revenue":
+          return dir * ((Number(a.total_revenue) || 0) - (Number(b.total_revenue) || 0));
+        case "last_visit": {
+          const da = a.last_visit ? new Date(a.last_visit).getTime() : 0;
+          const db = b.last_visit ? new Date(b.last_visit).getTime() : 0;
+          return dir * (da - db);
+        }
+        case "created_at": {
+          const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return dir * (da - db);
+        }
+        default:
+          return 0;
+      }
+    });
+
+  // Count per status for filter pills
+  const statusCounts: Record<string, number> = { all: customers.length };
+  for (const c of customers) {
+    const s = getCustomerStatus(c).label;
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
+  }
+
   const columns = [
     {
       header: "Name",
@@ -181,7 +255,6 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
         const invoiceCount = Number(customer.paid_invoice_count) || 0;
         const completedAppts = Number(customer.completed_appointment_count) || 0;
 
-        // Build detail parts
         const details: string[] = [];
         if (invoiceCount > 0) details.push(`${invoiceCount} invoice${invoiceCount !== 1 ? 's' : ''}`);
         if (completedAppts > 0) details.push(`${completedAppts} appt${completedAppts !== 1 ? 's' : ''}`);
@@ -189,7 +262,7 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
         return (
           <div className="text-right">
             <div className="font-medium">
-              {totalRevenue > 0 ? formatCurrency(totalRevenue) : "—"}
+              {totalRevenue > 0 ? formatCurrency(totalRevenue) : "\u2014"}
             </div>
             {details.length > 0 && (
               <div className="text-xs text-muted-foreground">
@@ -224,7 +297,7 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
                 </div>
               </div>
             ) : (
-              <span className="text-muted-foreground">—</span>
+              <span className="text-muted-foreground">\u2014</span>
             )}
           </div>
         );
@@ -246,36 +319,47 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
       header: "",
       accessorKey: "actions",
       cell: (customer: any) => (
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/customers/${customer.id}`);
-            }}
-          >
-            View
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDelete(customer);
-            }}
-          >
-            Delete
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/customers/${customer.id}`);
+              }}
+            >
+              <Eye className="h-4 w-4 mr-2" />
+              View Details
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-red-600 focus:text-red-600"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete(customer);
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ),
     },
   ];
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
         <div>
           <h2 className="text-2xl font-bold">Customer Management</h2>
           <p className="text-gray-500">Manage your customer information and history</p>
@@ -299,12 +383,60 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
         </div>
       </div>
 
+      {/* Status Filter Pills */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {STATUS_FILTERS.map(f => {
+          const count = statusCounts[f.value] || 0;
+          const isActive = statusFilter === f.value;
+          return (
+            <button
+              key={f.value}
+              onClick={() => setStatusFilter(f.value)}
+              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                isActive
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:bg-muted"
+              }`}
+            >
+              {f.label} {count > 0 && <span className="ml-1 opacity-70">{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Sort Controls */}
+      <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
+        <span>Sort by:</span>
+        {([
+          { field: "created_at" as SortField, label: "Newest" },
+          { field: "name" as SortField, label: "Name" },
+          { field: "total_revenue" as SortField, label: "Revenue" },
+          { field: "last_visit" as SortField, label: "Last Visit" },
+        ]).map(s => (
+          <button
+            key={s.field}
+            onClick={() => toggleSort(s.field)}
+            className={`px-2 py-0.5 rounded text-xs transition-colors ${
+              sortField === s.field
+                ? "bg-muted font-medium text-foreground"
+                : "hover:bg-muted/50"
+            }`}
+          >
+            {s.label}
+            {sortField === s.field && (
+              <ArrowUpDown className="inline h-3 w-3 ml-0.5" />
+            )}
+          </button>
+        ))}
+      </div>
+
       {isLoading ? (
         <SkeletonTable rows={6} />
-      ) : customers && customers.length > 0 ? (
+      ) : filteredCustomers && filteredCustomers.length > 0 ? (
         <DataTable
           columns={columns}
-          data={customers}
+          data={filteredCustomers}
+          searchable={false}
           onRowClick={(customer) => navigate(`/customers/${customer.id}`)}
           mobileCard={(customer: any) => {
             const status = getCustomerStatus(customer);
@@ -356,14 +488,16 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
             <Users className="h-8 w-8 text-primary" />
           </div>
           <h3 className="text-lg font-semibold text-foreground">
-            {debouncedSearch ? "No customers match your search" : "Build your customer base"}
+            {debouncedSearch || statusFilter !== "all"
+              ? "No customers match your filters"
+              : "Build your customer base"}
           </h3>
           <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
-            {debouncedSearch
+            {debouncedSearch || statusFilter !== "all"
               ? "Try a different search term or clear filters."
-              : "Customers are added automatically when they book appointments or call in. You can also add them manually to start tracking relationships and sending invoices."}
+              : "Customers are added automatically when they book appointments or call in. You can also add them manually."}
           </p>
-          {!debouncedSearch && (
+          {!debouncedSearch && statusFilter === "all" && (
             <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link href="/customers/new">
                 <Button>

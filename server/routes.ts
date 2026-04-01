@@ -6625,14 +6625,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Customer not found" });
       }
 
-      // Fetch all related data in parallel (including call logs for communication history)
-      const [customerJobs, customerInvoices, customerAppointments, customerQuotes, allCallLogs] = await Promise.all([
+      // Fetch all related data in parallel (including call logs, services, staff, and call intelligence)
+      const [customerJobs, customerInvoices, customerAppointments, customerQuotes, allCallLogs, allServices, allStaff] = await Promise.all([
         storage.getJobs(businessId, { customerId }),
         storage.getInvoices(businessId, { customerId }),
         storage.getAppointments(businessId, { customerId }),
         storage.getAllQuotes(businessId, { customerId }),
         storage.getCallLogs(businessId).catch(() => []),
+        storage.getServices(businessId).catch(() => []),
+        storage.getStaff(businessId).catch(() => []),
       ]);
+
+      // Build lookup maps for service/staff names
+      const serviceMap = new Map((allServices as any[]).map(s => [s.id, s.name]));
+      const staffMap = new Map((allStaff as any[]).map(s => [s.id, `${s.firstName} ${s.lastName}`.trim()]));
 
       // Filter call logs for this customer (by phone number match)
       const customerCallLogs = customer.phone
@@ -6671,6 +6677,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: string | null;
         date: string | Date | null;
         amount?: number | null;
+        // Enriched fields
+        serviceName?: string | null;
+        staffName?: string | null;
+        callDuration?: number | null;
+        summary?: string | null;
+        intentDetected?: string | null;
+        transcript?: string | null;
       }> = [];
 
       for (const job of customerJobs) {
@@ -6695,12 +6708,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       for (const apt of customerAppointments) {
+        const svcName = apt.serviceId ? serviceMap.get(apt.serviceId) : null;
+        const stfName = apt.staffId ? staffMap.get(apt.staffId) : null;
         timeline.push({
           type: "appointment",
           id: apt.id,
           title: apt.notes || "Appointment",
           status: apt.status,
           date: apt.startDate,
+          serviceName: svcName || null,
+          staffName: stfName || null,
         });
       }
 
@@ -6726,6 +6743,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             : `Phone Call${(call as any).intentDetected ? ` — ${(call as any).intentDetected}` : ''}`,
           status: callStatus,
           date: (call as any).callTime || (call as any).createdAt,
+          callDuration: isSms ? null : ((call as any).callDuration || null),
+          summary: isSms ? null : ((call as any).summary || null),
+          intentDetected: isSms ? null : ((call as any).intentDetected || null),
+          transcript: isSms ? ((call as any).transcript || null) : null,
         });
       }
 
