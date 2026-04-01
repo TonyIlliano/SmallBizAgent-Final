@@ -4351,6 +4351,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Send a direct SMS to a customer (from CRM detail page)
+  app.post("/api/customers/:id/send-sms", isAuthenticated, notificationLimiter, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const customerId = parseInt(req.params.id);
+      if (isNaN(customerId)) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
+
+      const { message } = req.body;
+      if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        return res.status(400).json({ message: "Message is required" });
+      }
+      if (message.length > 1600) {
+        return res.status(400).json({ message: "Message too long (max 1600 characters)" });
+      }
+
+      const customer = await storage.getCustomer(customerId);
+      if (!customer || customer.businessId !== businessId) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+      if (!customer.phone) {
+        return res.status(400).json({ message: "Customer has no phone number" });
+      }
+
+      const { sendSms } = await import("./services/twilioService");
+      await sendSms(customer.phone, message.trim(), undefined, businessId);
+
+      res.json({ success: true, message: "SMS sent" });
+    } catch (error) {
+      console.error("Error sending SMS to customer:", error);
+      res.status(500).json({ message: "Failed to send SMS" });
+    }
+  });
+
   // =================== EMAIL UNSUBSCRIBE ===================
   // One-click unsubscribe from drip/marketing emails (CAN-SPAM compliant)
   // Uses HMAC token to prevent unauthenticated abuse (anyone forging businessId)

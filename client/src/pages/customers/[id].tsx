@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { PageLayout } from "@/components/layout/PageLayout";
 import PageTitle from "@/components/PageTitle";
 import { CustomerForm } from "@/components/customers/CustomerForm";
@@ -9,12 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { SkeletonForm, SkeletonStats } from "@/components/ui/skeleton-loader";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { formatCurrency, formatPhoneNumber } from "@/lib/utils";
 import {
@@ -481,6 +484,24 @@ export default function CustomerDetail() {
   const customerId = params.id;
   const isNew = customerId === "new";
   const [editOpen, setEditOpen] = useState(false);
+  const [smsOpen, setSmsOpen] = useState(false);
+  const [smsMessage, setSmsMessage] = useState("");
+  const { toast } = useToast();
+
+  const sendSmsMutation = useMutation({
+    mutationFn: async (message: string) => {
+      const res = await apiRequest("POST", `/api/customers/${customerId}/send-sms`, { message });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "SMS sent", description: "Message delivered successfully." });
+      setSmsOpen(false);
+      setSmsMessage("");
+    },
+    onError: () => {
+      toast({ title: "Failed to send", description: "Could not send SMS. Please try again.", variant: "destructive" });
+    },
+  });
 
   // Fetch customer data
   const { data: customer, isLoading, error } = useQuery<any>({
@@ -591,7 +612,7 @@ export default function CustomerDetail() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => window.open(`sms:${customer.phone}`, "_self")}
+            onClick={() => setSmsOpen(true)}
           >
             <Send className="h-3.5 w-3.5 mr-1.5" />
             Send SMS
@@ -828,6 +849,41 @@ export default function CustomerDetail() {
             isEdit={true}
             onSuccess={() => setEditOpen(false)}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* Send SMS Dialog */}
+      <Dialog open={smsOpen} onOpenChange={(open) => { setSmsOpen(open); if (!open) setSmsMessage(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send SMS to {customer?.firstName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              To: {customer?.phone ? formatPhoneNumber(customer.phone) : ""}
+            </div>
+            <Textarea
+              placeholder="Type your message..."
+              value={smsMessage}
+              onChange={(e) => setSmsMessage(e.target.value)}
+              rows={4}
+              maxLength={1600}
+            />
+            <div className="text-xs text-muted-foreground text-right">
+              {smsMessage.length}/1600
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSmsOpen(false); setSmsMessage(""); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => sendSmsMutation.mutate(smsMessage)}
+              disabled={!smsMessage.trim() || sendSmsMutation.isPending}
+            >
+              {sendSmsMutation.isPending ? "Sending..." : "Send SMS"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </PageLayout>
