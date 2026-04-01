@@ -961,7 +961,7 @@ export async function importPhoneNumber(
   const result = await retellFetch<{ phone_number_id: string }>('POST', '/import-phone-number', {
     phone_number: phoneNumber,
     termination_uri: terminationUri,
-    inbound_agent_id: agentId,
+    inbound_agents: [{ agent_id: agentId, weight: 1 }],
     inbound_webhook_url: `${APP_URL}/api/retell/inbound`,  // Pre-fetch caller data before call
   });
 
