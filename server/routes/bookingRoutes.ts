@@ -198,6 +198,37 @@ router.get("/book/:slug/slots", async (req, res) => {
       staffToCheck = eligibleStaff;
     }
 
+    // Pre-fetch day-level data for each staff member (time off + hours) — avoids N×M DB queries in the slot loop
+    const dateForTimeOff = createDateInTimezone(rYear, rMonth - 1, rDay, 12, 0, businessTimezone);
+    const staffDayData = new Map<number, { isAvailableToday: boolean; startMinutes: number | null; endMinutes: number | null }>();
+
+    for (const staffMember of staffToCheck) {
+      // Check staff time off (vacation, sick, PTO) for this date
+      const timeOffEntries = await storage.getStaffTimeOffForDate(staffMember.id, dateForTimeOff);
+      if (timeOffEntries.some((t: any) => t.allDay !== false)) {
+        staffDayData.set(staffMember.id, { isAvailableToday: false, startMinutes: null, endMinutes: null });
+        continue;
+      }
+
+      // Check staff's individual hours for this day
+      const staffDayHours = await storage.getStaffHoursByDay(staffMember.id, dayName);
+      if (staffDayHours?.isOff) {
+        staffDayData.set(staffMember.id, { isAvailableToday: false, startMinutes: null, endMinutes: null });
+        continue;
+      }
+
+      let staffStart: number | null = null;
+      let staffEnd: number | null = null;
+      if (staffDayHours?.startTime && staffDayHours?.endTime) {
+        const [sh, sm] = staffDayHours.startTime.split(':').map(Number);
+        const [eh, em] = staffDayHours.endTime.split(':').map(Number);
+        staffStart = sh * 60 + sm;
+        staffEnd = eh * 60 + em;
+      }
+
+      staffDayData.set(staffMember.id, { isAvailableToday: true, startMinutes: staffStart, endMinutes: staffEnd });
+    }
+
     // Generate slots
     for (let minutes = openMinutes; minutes + serviceDuration <= closeMinutes; minutes += slotInterval) {
       const hour = Math.floor(minutes / 60);
@@ -208,24 +239,12 @@ router.get("/book/:slug/slots", async (req, res) => {
       const availableStaffIds: number[] = [];
 
       for (const staffMember of staffToCheck) {
-        // Check staff time off (vacation, sick, PTO) for this specific date
-        const slotDate = createDateInTimezone(rYear, rMonth - 1, rDay, 12, 0, businessTimezone);
-        const timeOffEntries = await storage.getStaffTimeOffForDate(staffMember.id, slotDate);
-        if (timeOffEntries.some((t: any) => t.allDay !== false)) continue; // Staff has time off this day
-
-        // Check staff's individual hours for this day
-        const staffDayHours = await storage.getStaffHoursByDay(staffMember.id, dayName);
-
-        if (staffDayHours?.isOff) continue; // Staff has day off
+        const dayData = staffDayData.get(staffMember.id);
+        if (!dayData || !dayData.isAvailableToday) continue; // Time off or day off
 
         // If staff has specific hours, check if slot is within them
-        if (staffDayHours?.startTime && staffDayHours?.endTime) {
-          const [staffStartH, staffStartM] = staffDayHours.startTime.split(':').map(Number);
-          const [staffEndH, staffEndM] = staffDayHours.endTime.split(':').map(Number);
-          const staffStartMinutes = staffStartH * 60 + staffStartM;
-          const staffEndMinutes = staffEndH * 60 + staffEndM;
-
-          if (minutes < staffStartMinutes || minutes + serviceDuration > staffEndMinutes) {
+        if (dayData.startMinutes !== null && dayData.endMinutes !== null) {
+          if (minutes < dayData.startMinutes || minutes + serviceDuration > dayData.endMinutes) {
             continue; // Outside staff's working hours
           }
         }

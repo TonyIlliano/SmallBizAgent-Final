@@ -1,6 +1,6 @@
 import { storage } from '../storage';
-import { appointments, services, staff, InsertAppointment } from '@shared/schema';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { appointments, InsertAppointment } from '@shared/schema';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { createDateInTimezone } from '../utils/timezone';
 
