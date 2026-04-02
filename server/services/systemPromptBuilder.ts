@@ -447,7 +447,7 @@ ${silenceConstraint}
 BUSINESS: ${business.name} | ${business.phone || ''} | ${business.address || ''}
 Hours: ${businessHours}
 
-THIS CALLER:
+THIS CALLER (may be empty if caller is new or data is loading — if empty, just greet warmly and ask how you can help):
   Name: {{customer_name}} | ID: {{customer_id}} | Appt: {{appointment_info}} | Type: {{caller_context}}
 
 SERVICES (ONLY these — if not listed, we don't offer it):

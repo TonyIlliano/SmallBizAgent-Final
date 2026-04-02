@@ -1408,7 +1408,7 @@ async function checkAvailability(
         staffName: staffLabel,
         availableDays: availableDays,
         ...(serviceInfo && {
-          servicePrice: serviceInfo.price ? `$${(serviceInfo.price / 100).toFixed(2)}` : null,
+          servicePrice: serviceInfo.price ? `$${Number(serviceInfo.price).toFixed(2)}` : null,
           serviceDuration: `${serviceInfo.duration || 30} minutes`,
           serviceName: serviceInfo.name,
         }),
@@ -1550,7 +1550,7 @@ async function checkAvailability(
       allSlots: availableSlots, // ALL available slots — if caller asks for a specific time, check this list
       totalAvailable: availableSlots.length,
       ...(serviceInfo && {
-        servicePrice: serviceInfo.price ? `$${(serviceInfo.price / 100).toFixed(2)}` : null,
+        servicePrice: serviceInfo.price ? `$${Number(serviceInfo.price).toFixed(2)}` : null,
         serviceDuration: `${serviceInfo.duration || 30} minutes`,
         serviceName: serviceInfo.name,
       }),
@@ -2762,8 +2762,9 @@ async function rescheduleAppointment(
     if (customer) {
       const appointments = await storage.getAppointmentsByCustomerId(customer.id);
       const now = new Date();
+      const activeStatuses = ['scheduled', 'confirmed', 'pending'];
       const upcoming = appointments
-        .filter(apt => new Date(apt.startDate) > now && apt.status === 'scheduled')
+        .filter(apt => new Date(apt.startDate) > now && activeStatuses.includes(apt.status || ''))
         .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
       if (upcoming.length > 1) {
@@ -3007,8 +3008,9 @@ async function cancelAppointment(
       const appointments = await storage.getAppointmentsByCustomerId(customer.id);
       const now = new Date();
       const cancelTimezoneForLookup = business?.timezone || 'America/New_York';
+      const activeStatuses = ['scheduled', 'confirmed', 'pending'];
       const upcoming = appointments
-        .filter(apt => new Date(apt.startDate) > now && apt.status === 'scheduled')
+        .filter(apt => new Date(apt.startDate) > now && activeStatuses.includes(apt.status || ''))
         .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
       if (upcoming.length > 1) {
@@ -3369,15 +3371,30 @@ async function transferToHuman(
     }
   }
 
-  // Note: The actual call transfer is handled by VAPI's native transferCall tool.
-  // This function serves as a logging/tracking mechanism for transfer requests.
+  // Notify the business owner via SMS that someone wants to speak to a human
+  try {
+    const { default: twilioService } = await import('./twilioService');
+    const notifyNumber = transferNumbers[0];
+    const callerName = callerPhone || 'A caller';
+    const reason = params.reason || 'requested to speak with someone';
+    const urgentTag = params.urgent ? ' [URGENT]' : '';
+    await twilioService.sendSms(
+      notifyNumber,
+      `${urgentTag} ${callerName} is on the line and ${reason}. Please call them back at ${callerPhone || 'unknown number'}.`,
+      undefined,
+      businessId
+    );
+  } catch (smsError) {
+    console.error('Error sending transfer notification SMS:', smsError);
+  }
+
   return {
     result: {
       logged: true,
-      transferNumber: transferNumbers[0],
-      message: params.urgent
-        ? "Transfer request logged as urgent. The native transferCall tool will handle the actual transfer."
-        : "Transfer request logged. The native transferCall tool will handle the actual transfer.",
+      callbackArranged: true,
+      message: callerPhone
+        ? "I've notified the team and they will call you back shortly. Is there anything else I can help with in the meantime?"
+        : "I'll have someone reach out to you. Can I get your phone number so they can call you back?",
       reason: params.reason || 'Customer requested to speak with someone'
     }
   };
