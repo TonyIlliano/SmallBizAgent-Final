@@ -480,6 +480,18 @@ vi.mock('../routes/import', () => ({
   importAppointments: vi.fn(),
 }));
 
+vi.mock('../services/appointmentService', () => ({
+  createAppointmentSafely: vi.fn().mockImplementation(async (data: any) => {
+    // Delegate to the mocked storage.createAppointment for test compatibility
+    const appointment = await mockStorage.createAppointment(data);
+    return { success: true, appointment };
+  }),
+  updateAppointmentSafely: vi.fn().mockImplementation(async (id: number, businessId: number, startDate: Date, endDate: Date, staffId: any, updates: any) => {
+    const appointment = await mockStorage.updateAppointment(id, { startDate, endDate, ...updates });
+    return { success: true, appointment };
+  }),
+}));
+
 vi.mock('../utils/encryption', () => ({
   encryptField: vi.fn((val: string) => val),
   decryptField: vi.fn((val: string) => val),
