@@ -1221,7 +1221,7 @@ async function syncKnowledgeBase(businessId: number): Promise<{ knowledgeBaseId:
       return { knowledgeBaseId: null, error: `KB creation failed: ${result.error}` };
     }
 
-    const knowledgeBaseId = result.data?.knowledge_base_id;
+    const knowledgeBaseId = result.data?.knowledge_base_id ?? null;
     console.log(`[RetellKB] Created KB ${knowledgeBaseId} for business ${businessId} (${textSnippets.length} texts, ${urls.length} URLs)`);
 
     // Attach the KB to the LLM so the agent can actually use it

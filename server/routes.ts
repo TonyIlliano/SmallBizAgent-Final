@@ -5758,8 +5758,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             callObj.customer = customerFromMessage;
           }
 
+          // Extract businessId and callerPhone for dispatchToolCall
+          const businessId = Number(assistantFromMessage?.metadata?.businessId || callObj.assistant?.metadata?.businessId || 0);
+          const callerPhone = callObj.customer?.number || customerFromMessage?.number || undefined;
+
           console.log(`Assistant metadata location check - message.assistant: ${!!assistantFromMessage}, call.assistant: ${!!callObj.assistant}`);
-          console.log(`BusinessId from message.assistant.metadata: ${assistantFromMessage?.metadata?.businessId}`);
+          console.log(`BusinessId from message.assistant.metadata: ${businessId}`);
           console.log(`Customer phone: call.customer=${callObj.customer?.number}, message.customer=${customerFromMessage?.number}`);
 
           // Create a synthetic request in the old format for the handler
@@ -5816,13 +5820,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const fcName = req.body.message.functionCall.name;
         const fcParams = req.body.message.functionCall.parameters || {};
         const fcCallerPhone = req.body.message?.call?.customer?.number;
-        const result = await dispatchToolCall(fcName, businessId, fcParams, fcCallerPhone);
+        const fcBusinessId = Number(req.body.message?.assistant?.metadata?.businessId || req.body.message?.call?.assistant?.metadata?.businessId || 0);
+        const result = await dispatchToolCall(fcName, fcBusinessId, fcParams, fcCallerPhone);
         res.status(200).json(result);
       } else if (messageType === 'end-of-call-report') {
         const { processEndOfCall } = await import('./services/callToolHandlers');
         const msg = req.body.message;
+        const eocBusinessId = Number(msg?.assistant?.metadata?.businessId || msg?.call?.assistant?.metadata?.businessId || 0);
         await processEndOfCall({
-          businessId,
+          businessId: eocBusinessId,
           callerPhone: msg?.call?.customer?.number || null,
           transcript: msg?.transcript || null,
           callDurationSeconds: msg?.durationSeconds ? Math.round(msg.durationSeconds) : 0,

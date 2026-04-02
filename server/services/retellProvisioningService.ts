@@ -594,7 +594,7 @@ async function connectSinglePhoneToRetell(
   // Step 2: Import phone number to Retell with the termination URI
   const importResult = await retellService.importPhoneNumber(
     phoneNumber,
-    trunkResult.terminationUri,
+    trunkResult.terminationUri!,
     agentId
   );
 
@@ -678,7 +678,7 @@ export async function connectPhoneToRetell(
     // Import phone number to Retell
     const importResult = await retellService.importPhoneNumber(
       business.twilioPhoneNumber,
-      trunkResult.terminationUri,
+      trunkResult.terminationUri!,
       targetAgentId
     );
 
