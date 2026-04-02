@@ -1422,4 +1422,39 @@ router.get("/sms-intelligence-stats", async (_req, res) => {
   }
 });
 
+// ─── Test: Manually fire marketing trigger evaluation + processing ───────────
+// POST /api/admin/test-triggers/:businessId
+// Admin-only. Runs the evaluator for a specific business, then processes any ready triggers.
+// Use this to test marketing opt-in and birthday collection flows without waiting for the scheduler.
+
+router.post("/test-triggers/:businessId", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.businessId);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: "Business not found" });
+
+    // Step 1: Evaluate and create triggers
+    const { evaluateAndCreateTriggers } = await import("../services/marketingTriggerEngine");
+    const evalResult = await evaluateAndCreateTriggers(businessId);
+
+    // Step 2: Process any ready triggers (sends SMS)
+    const { processReadyTriggers } = await import("../services/marketingTriggerEngine");
+    const processResult = await processReadyTriggers();
+
+    res.json({
+      business: business.name,
+      triggersCreated: evalResult.created,
+      processed: processResult.processed,
+      sent: processResult.sent,
+      skipped: processResult.skipped,
+      failed: processResult.failed,
+    });
+  } catch (error: any) {
+    console.error("[Admin] Test triggers error:", error);
+    res.status(500).json({ error: error.message || "Failed to run triggers" });
+  }
+});
+
 export default router;
