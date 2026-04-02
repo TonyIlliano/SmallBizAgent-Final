@@ -1174,7 +1174,7 @@ async function fixExistingTables() {
       total_invoices INTEGER DEFAULT 0,
       average_invoice_amount REAL DEFAULT 0,
       total_visits INTEGER DEFAULT 0,
-      avg_visit_frequency_days REAL,
+      average_visit_frequency_days REAL,
       last_visit_date TIMESTAMP,
       days_since_last_visit INTEGER,
       preferred_services JSONB,
@@ -1232,6 +1232,15 @@ async function fixExistingTables() {
     const colName = col.split(' ')[0];
     await pool.query(`ALTER TABLE customer_insights ADD COLUMN IF NOT EXISTS ${col}`).catch(() => {});
   }
+
+  // Fix column name mismatch: migration originally created avg_visit_frequency_days
+  // but Drizzle schema expects average_visit_frequency_days
+  await pool.query(`
+    ALTER TABLE customer_insights
+    RENAME COLUMN avg_visit_frequency_days TO average_visit_frequency_days
+  `).catch(() => {
+    // Column may already have the correct name (new installs) or not exist
+  });
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS customer_engagement_lock (

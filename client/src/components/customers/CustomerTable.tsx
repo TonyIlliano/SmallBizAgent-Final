@@ -18,6 +18,8 @@ import {
   Eye,
   Trash2,
   ArrowUpDown,
+  MessageSquare,
+  FileText,
 } from "lucide-react";
 import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -339,6 +341,35 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
             >
               <Eye className="h-4 w-4 mr-2" />
               View Details
+            </DropdownMenuItem>
+            {customer.phone && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(`sms:${customer.phone}`, '_self');
+                }}
+              >
+                <MessageSquare className="h-4 w-4 mr-2" />
+                Send SMS
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/invoices/create?customerId=${customer.id}`);
+              }}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Create Invoice
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/appointments?action=book&customerId=${customer.id}`);
+              }}
+            >
+              <Calendar className="h-4 w-4 mr-2" />
+              Book Appointment
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

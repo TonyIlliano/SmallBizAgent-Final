@@ -6810,7 +6810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: isSms ? "sms" : "call",
           id: call.id,
           title: isSms
-            ? `SMS: ${((call as any).transcript || '').substring(0, 60)}${((call as any).transcript || '').length > 60 ? '...' : ''}`
+            ? "SMS Message"
             : `Phone Call${(call as any).intentDetected ? ` — ${(call as any).intentDetected}` : ''}`,
           status: callStatus,
           date: (call as any).callTime || (call as any).createdAt,

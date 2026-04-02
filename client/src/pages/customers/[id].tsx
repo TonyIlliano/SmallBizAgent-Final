@@ -235,7 +235,23 @@ function ReliabilityBar({ score }: { score?: number | null }) {
   );
 }
 
-function InsightsCard({ insights }: { insights: any }) {
+function InsightsCard({ insights, isError }: { insights: any; isError?: boolean }) {
+  if (isError) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bot className="h-4 w-4" />
+            AI Insights
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Unable to load insights. Please try again later.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (!insights || insights.message === "No insights calculated yet") {
     return (
       <Card>
@@ -427,20 +443,22 @@ function TimelineEntry({ entry, navigate }: { entry: any; navigate: (path: strin
   if (entry.type === "sms") {
     const preview = entry.transcript || entry.preview || "";
     title = "SMS Message";
-    if (preview) {
+    // Only show preview if it's a real message (not bare numbers/keywords)
+    if (preview && preview.length > 2) {
       subtitle = preview.length > 100 ? preview.substring(0, 100) + "..." : preview;
     }
   }
 
   if (entry.type === "appointment") {
-    // Make appointment titles more readable
+    // Make appointment titles more readable — strip system brackets
     const serviceName = entry.serviceName || entry.service;
     const staffName = entry.staffName || entry.staff;
     if (serviceName) {
       title = serviceName;
       if (staffName) title += ` with ${staffName}`;
-    } else if (!title || title === "Appointment") {
-      title = "Appointment";
+    } else {
+      // Strip [Rescheduled...], [Recurring...], [Cancelled...] brackets from notes
+      title = (title || "Appointment").replace(/\s*\[.*?\]\s*/g, '').trim() || "Appointment";
     }
     // Show time
     if (entry.date) {
@@ -516,7 +534,7 @@ export default function CustomerDetail() {
   });
 
   // Fetch AI insights
-  const { data: insights } = useQuery<any>({
+  const { data: insights, isError: insightsError } = useQuery<any>({
     queryKey: [`/api/customers/${customerId}/insights`],
     enabled: !isNew && !!customerId,
   });
@@ -789,7 +807,7 @@ export default function CustomerDetail() {
           </Card>
 
           {/* AI Insights */}
-          <InsightsCard insights={insights} />
+          <InsightsCard insights={insights} isError={insightsError} />
         </div>
 
         {/* Right: Activity Timeline */}
