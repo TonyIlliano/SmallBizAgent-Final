@@ -893,7 +893,7 @@ GENERAL GUIDANCE:
   // Transfer hint — Retell native transfer_call handles the actual SIP transfer
   let transferHint = '';
   if (transferNumbers && transferNumbers.length > 0) {
-    transferHint = `\nTRANSFER: When caller asks to speak to a person, first call transferToHuman to log the reason, then call transfer_to_human to do the actual transfer.`;
+    transferHint = `\nTRANSFER: When caller first asks to speak to a person, do NOT transfer yet. Say something like "I'm the assistant and I'm happy to help with whatever you need! What can I do for you?" If they ask AGAIN to speak to a human after your offer, then transfer: call transferToHuman to log the reason, then call transfer_to_human to do the actual transfer.`;
   }
 
   return basePrompt + industryPrompt + menuSection + `
