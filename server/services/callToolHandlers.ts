@@ -3371,16 +3371,16 @@ async function transferToHuman(
     }
   }
 
-  // Notify the business owner via SMS that someone wants to speak to a human
+  // Notify the business owner via SMS that a transfer is incoming
   try {
     const { default: twilioService } = await import('./twilioService');
     const notifyNumber = transferNumbers[0];
-    const callerName = callerPhone || 'A caller';
+    const callerName = callerPhone || 'Unknown caller';
     const reason = params.reason || 'requested to speak with someone';
     const urgentTag = params.urgent ? ' [URGENT]' : '';
     await twilioService.sendSms(
       notifyNumber,
-      `${urgentTag} ${callerName} is on the line and ${reason}. Please call them back at ${callerPhone || 'unknown number'}.`,
+      `${urgentTag} Incoming transfer: ${callerName} ${reason}. Call is being transferred to you now.`,
       undefined,
       businessId
     );
@@ -3388,13 +3388,12 @@ async function transferToHuman(
     console.error('Error sending transfer notification SMS:', smsError);
   }
 
+  // The actual SIP transfer is handled by Retell's native transfer_to_human tool.
+  // This custom tool just logs and notifies — the AI should call transfer_to_human next.
   return {
     result: {
       logged: true,
-      callbackArranged: true,
-      message: callerPhone
-        ? "I've notified the team and they will call you back shortly. Is there anything else I can help with in the meantime?"
-        : "I'll have someone reach out to you. Can I get your phone number so they can call you back?",
+      message: "Transfer request logged. Now transferring the call.",
       reason: params.reason || 'Customer requested to speak with someone'
     }
   };

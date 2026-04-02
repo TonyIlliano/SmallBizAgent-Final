@@ -890,10 +890,10 @@ GENERAL GUIDANCE:
     menuSection = '\n\n' + formatMenuForPrompt(menuData);
   }
 
-  // Transfer number hint (if configured) — all tools are registered as function definitions
+  // Transfer hint — Retell native transfer_call handles the actual SIP transfer
   let transferHint = '';
   if (transferNumbers && transferNumbers.length > 0) {
-    transferHint = `\nFor transferCall, use destination: "${transferNumbers[0]}"`;
+    transferHint = `\nTRANSFER: When caller asks to speak to a person, first call transferToHuman to log the reason, then call transfer_to_human to do the actual transfer.`;
   }
 
   return basePrompt + industryPrompt + menuSection + `

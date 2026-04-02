@@ -602,12 +602,26 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
     description: 'End the call after saying goodbye.',
   });
 
-  // transferToHuman: custom tool that logs the transfer request, then Retell's
-  // agent-level transfer handles the actual call routing
+  // transfer_call: Retell native cold transfer to business owner/staff
   if (options.transferNumber) {
+    tools.push({
+      type: 'transfer_call',
+      name: 'transfer_to_human',
+      description: 'Transfer the call to a real person when the caller asks to speak to someone. Only use when the caller explicitly requests a human.',
+      transfer_destination: {
+        type: 'predefined',
+        number: options.transferNumber,
+      },
+      transfer_option: {
+        type: 'cold_transfer',
+        show_transferee_as_caller: true,
+      },
+    } as any);
+
+    // Also keep a custom logging tool so we track transfer requests in the DB
     tools.push(customTool(
       'transferToHuman',
-      'Transfer to a human when caller asks to speak to a person.',
+      'Log the transfer request before transferring. Call this BEFORE transfer_to_human to record the reason.',
       {
         type: 'object',
         properties: {
