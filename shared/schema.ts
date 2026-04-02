@@ -1680,7 +1680,7 @@ export const marketingTriggers = pgTable("marketing_triggers", {
   id: serial("id").primaryKey(),
   businessId: integer("business_id").notNull(),
   customerId: integer("customer_id").notNull(),
-  triggerType: text("trigger_type").notNull(), // WIN_BACK, REBOOKING_NUDGE, BIRTHDAY, REVIEW_REQUEST, ESTIMATE_FOLLOWUP, WEATHER_DELAY, CAMPAIGN_BROADCAST, CAMPAIGN_SEQUENCE_STEP
+  triggerType: text("trigger_type").notNull(), // WIN_BACK, REBOOKING_NUDGE, BIRTHDAY, REVIEW_REQUEST, ESTIMATE_FOLLOWUP, WEATHER_DELAY, CAMPAIGN_BROADCAST, CAMPAIGN_SEQUENCE_STEP, MARKETING_OPT_IN, BIRTHDAY_COLLECTION
   messageType: text("message_type").notNull(), // Maps to MessageType enum
   campaignId: integer("campaign_id"),
   sequenceId: integer("sequence_id"),

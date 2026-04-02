@@ -1098,6 +1098,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertCustomerSchema.parse({ ...req.body, businessId });
       const customer = await storage.createCustomer(validatedData);
 
+      // Send TCPA welcome SMS if customer was created with smsOptIn
+      if (customer.smsOptIn && customer.phone) {
+        import('./services/notificationService').then(ns => {
+          ns.sendSmsOptInWelcome(customer.id, businessId).catch(() => {});
+        }).catch(() => {});
+      }
+
       // Fire webhook event (fire-and-forget)
       fireEvent(businessId, 'customer.created', { customer })
         .catch(err => console.error('Webhook fire error:', err));

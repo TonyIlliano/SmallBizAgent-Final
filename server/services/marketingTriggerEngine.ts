@@ -65,8 +65,9 @@ async function processSingleTrigger(trigger: MarketingTrigger, stats: { sent: nu
     return;
   }
 
-  // Opt-out check
-  if (!customer.marketingOptIn) {
+  // Opt-out check — skip for MARKETING_OPT_IN (asking them to opt in) and BIRTHDAY_COLLECTION (requires marketingOptIn checked at creation)
+  const skipOptOutCheck = trigger.triggerType === 'MARKETING_OPT_IN' || trigger.triggerType === 'BIRTHDAY_COLLECTION';
+  if (!skipOptOutCheck && !customer.marketingOptIn) {
     await storage.updateMarketingTrigger(trigger.id, { status: 'skipped', skipReason: 'opted_out' });
     stats.skipped++;
     return;
@@ -125,6 +126,39 @@ async function processSingleTrigger(trigger: MarketingTrigger, stats: { sent: nu
     await storage.updateMarketingTrigger(trigger.id, { status: 'sent', sentAt: new Date() });
     stats.sent++;
 
+    // Create SMS conversation for reply-based triggers (opt-in, birthday collection)
+    if (trigger.triggerType === 'MARKETING_OPT_IN' && customer.phone) {
+      try {
+        await storage.createSmsConversation({
+          businessId: trigger.businessId,
+          customerId: customer.id,
+          customerPhone: customer.phone,
+          agentType: 'marketing_opt_in',
+          state: 'opt_in_awaiting',
+          context: {},
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 min expiry
+        });
+      } catch (convErr) {
+        console.error(`[MarketingTrigger] Error creating opt-in conversation:`, convErr);
+      }
+    }
+
+    if (trigger.triggerType === 'BIRTHDAY_COLLECTION' && customer.phone) {
+      try {
+        await storage.createSmsConversation({
+          businessId: trigger.businessId,
+          customerId: customer.id,
+          customerPhone: customer.phone,
+          agentType: 'birthday_collection',
+          state: 'birthday_awaiting',
+          context: { attempts: 0 },
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 min expiry
+        });
+      } catch (convErr) {
+        console.error(`[MarketingTrigger] Error creating birthday collection conversation:`, convErr);
+      }
+    }
+
     // Update campaign analytics if campaign-linked
     if (trigger.campaignId) {
       try {
@@ -173,6 +207,14 @@ async function isTriggerConditionStillValid(trigger: MarketingTrigger, customer:
       const appts = await storage.getAppointmentsByCustomerId(customer.id);
       const recentBooking = appts.some((a: any) => new Date(a.createdAt) > new Date(trigger.createdAt!) && a.status !== 'cancelled');
       return !recentBooking;
+    }
+    case 'MARKETING_OPT_IN': {
+      // Already opted in?
+      return !customer.marketingOptIn;
+    }
+    case 'BIRTHDAY_COLLECTION': {
+      // Already have birthday?
+      return !customer.birthday;
     }
     default:
       return true; // Other triggers always valid
@@ -230,6 +272,28 @@ export async function evaluateAndCreateTriggers(businessId: number): Promise<{ c
     // ESTIMATE_FOLLOWUP
     if (vertical.rules.estimateFollowUp) {
       created += await evaluateEstimateFollowups(businessId);
+    }
+
+    // MARKETING_OPT_IN — runs for customers with smsOptIn but NOT marketingOptIn
+    for (const customer of customers) {
+      if (!customer.phone || !customer.smsOptIn || customer.marketingOptIn) continue;
+      try {
+        created += await evaluateMarketingOptIn(businessId, customer);
+      } catch (err) {
+        console.error(`[MarketingTrigger] Error evaluating opt-in for customer ${customer.id}:`, err);
+      }
+    }
+
+    // BIRTHDAY_COLLECTION — runs for opted-in customers without birthday
+    if (business.birthdayCampaignEnabled) {
+      for (const customer of customers) {
+        if (!customer.phone || !customer.marketingOptIn || customer.birthday) continue;
+        try {
+          created += await evaluateBirthdayCollection(businessId, customer);
+        } catch (err) {
+          console.error(`[MarketingTrigger] Error evaluating birthday collection for customer ${customer.id}:`, err);
+        }
+      }
     }
   } catch (err) {
     console.error(`[MarketingTrigger] Error evaluating business ${businessId}:`, err);
@@ -387,6 +451,81 @@ async function evaluateEstimateFollowups(businessId: number): Promise<number> {
     created++;
   }
   return created;
+}
+
+// ─── Marketing Opt-In Evaluation ──────────────────────────────────────────────
+
+async function evaluateMarketingOptIn(businessId: number, customer: any): Promise<number> {
+  // Find completed appointments from 2+ hours ago
+  const appointments = await storage.getAppointmentsByCustomerId(customer.id);
+  const now = Date.now();
+  const twoHoursAgo = now - (2 * 60 * 60 * 1000);
+
+  const completedAppointments = appointments.filter((a: any) => {
+    if (a.status !== 'completed') return false;
+    const completedTime = new Date(a.updatedAt || a.endDate || a.startDate).getTime();
+    return completedTime < twoHoursAgo; // Completed more than 2 hours ago
+  });
+
+  if (completedAppointments.length === 0) return 0;
+
+  // Dedup — check for existing pending trigger
+  const existing = await storage.getPendingMarketingTriggers(1000);
+  const hasPending = existing.some(t => t.customerId === customer.id && t.businessId === businessId && t.triggerType === 'MARKETING_OPT_IN');
+  if (hasPending) return 0;
+
+  // Check if we already sent an opt-in message to this customer (ever)
+  const recent = await storage.getOutboundMessages(businessId, { messageType: 'MARKETING_OPT_IN', limit: 100 });
+  const alreadySent = recent.some((m: any) => m.customerId === customer.id);
+  if (alreadySent) return 0;
+
+  // Schedule for now (the 2-hour delay already passed during evaluation)
+  await storage.createMarketingTrigger({
+    businessId,
+    customerId: customer.id,
+    triggerType: 'MARKETING_OPT_IN',
+    messageType: 'MARKETING_OPT_IN',
+    scheduledFor: new Date(),
+    status: 'pending',
+  });
+  return 1;
+}
+
+// ─── Birthday Collection Evaluation ──────────────────────────────────────────
+
+async function evaluateBirthdayCollection(businessId: number, customer: any): Promise<number> {
+  // Only collect from customers who completed an appointment 24+ hours ago
+  const appointments = await storage.getAppointmentsByCustomerId(customer.id);
+  const now = Date.now();
+  const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
+
+  const completedAppointments = appointments.filter((a: any) => {
+    if (a.status !== 'completed') return false;
+    const completedTime = new Date(a.updatedAt || a.endDate || a.startDate).getTime();
+    return completedTime < twentyFourHoursAgo;
+  });
+
+  if (completedAppointments.length === 0) return 0;
+
+  // Dedup
+  const existing = await storage.getPendingMarketingTriggers(1000);
+  const hasPending = existing.some(t => t.customerId === customer.id && t.businessId === businessId && t.triggerType === 'BIRTHDAY_COLLECTION');
+  if (hasPending) return 0;
+
+  // Check if we already sent a birthday collection message (ever)
+  const recent = await storage.getOutboundMessages(businessId, { messageType: 'BIRTHDAY_COLLECTION', limit: 100 });
+  const alreadySent = recent.some((m: any) => m.customerId === customer.id);
+  if (alreadySent) return 0;
+
+  await storage.createMarketingTrigger({
+    businessId,
+    customerId: customer.id,
+    triggerType: 'BIRTHDAY_COLLECTION',
+    messageType: 'BIRTHDAY_COLLECTION',
+    scheduledFor: new Date(),
+    status: 'pending',
+  });
+  return 1;
 }
 
 // ─── Trigger Cancellation (Event-Driven) ─────────────────────────────────────

@@ -15,6 +15,8 @@ const handlers: Record<string, () => Promise<{ handler: ConversationHandler }>> 
   rebooking: () => import('./rebookingAgentService').then(m => ({ handler: m.handleRebookingReply })),
   disambiguation: () => Promise.resolve({ handler: handleDisambiguationReply }),
   reschedule: () => Promise.resolve({ handler: handleRescheduleReply }),
+  marketing_opt_in: () => Promise.resolve({ handler: handleMarketingOptInReply }),
+  birthday_collection: () => Promise.resolve({ handler: handleBirthdayCollectionReply }),
 };
 
 export async function routeConversationReply(
@@ -289,6 +291,141 @@ async function handleRescheduleReply(
     replyMessage: bookLink
       ? `Reschedule here: ${bookLink} - ${business?.name || ''}`
       : `Please call us at ${business?.phone || 'our number'} to reschedule. - ${business?.name || ''}`,
+  };
+}
+
+// ─── Marketing Opt-In Reply Handler ─────────────────────────────────────────
+
+async function handleMarketingOptInReply(
+  conversation: SmsConversation,
+  messageBody: string,
+  customer: Customer | undefined,
+  businessId: number,
+): Promise<{ replyMessage: string } | null> {
+  const trimmed = messageBody.toUpperCase().trim();
+  const business = await storage.getBusiness(businessId);
+  const bizName = business?.name || 'us';
+
+  if (trimmed === 'YES' || trimmed === 'Y' || trimmed === 'CONFIRM' || trimmed === 'YEAH' || trimmed === 'YEP' || trimmed === 'SURE') {
+    if (customer?.id) {
+      await storage.updateCustomer(customer.id, { marketingOptIn: true });
+    }
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    if (customer?.id) {
+      import('./orchestrationService').then(mod => {
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
+      }).catch(() => {});
+    }
+    return {
+      replyMessage: `Awesome! You'll get exclusive deals and updates from ${bizName}. Reply STOP anytime to opt out.`,
+    };
+  }
+
+  if (trimmed === 'NO' || trimmed === 'N' || trimmed === 'NOPE' || trimmed === 'NAH') {
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    return {
+      replyMessage: `No problem! You'll still get appointment reminders and confirmations. - ${bizName}`,
+    };
+  }
+
+  // Unclear — ask once more
+  return {
+    replyMessage: `Want deals and updates from ${bizName}? Reply YES or NO.`,
+  };
+}
+
+// ─── Birthday Collection Reply Handler ──────────────────────────────────────
+
+const MONTH_MAP: Record<string, string> = {
+  january: '01', jan: '01', february: '02', feb: '02', march: '03', mar: '03',
+  april: '04', apr: '04', may: '05', june: '06', jun: '06',
+  july: '07', jul: '07', august: '08', aug: '08', september: '09', sep: '09', sept: '09',
+  october: '10', oct: '10', november: '11', nov: '11', december: '12', dec: '12',
+};
+
+function parseBirthdayFromText(text: string): string | null {
+  const trimmed = text.trim().toLowerCase().replace(/[,]/g, '');
+
+  // Strip "birthday" prefix if present (e.g., "BIRTHDAY 03-15")
+  const cleaned = trimmed.replace(/^birthday\s+/i, '');
+
+  // MM-DD or MM/DD format
+  const numericMatch = cleaned.match(/^(\d{1,2})[\-\/](\d{1,2})$/);
+  if (numericMatch) {
+    const mm = numericMatch[1].padStart(2, '0');
+    const dd = numericMatch[2].padStart(2, '0');
+    if (parseInt(mm) >= 1 && parseInt(mm) <= 12 && parseInt(dd) >= 1 && parseInt(dd) <= 31) {
+      return `${mm}-${dd}`;
+    }
+  }
+
+  // "Month DD" or "Month DDth/st/nd/rd"
+  const monthDayMatch = cleaned.match(/^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?$/);
+  if (monthDayMatch) {
+    const mm = MONTH_MAP[monthDayMatch[1]];
+    const dd = monthDayMatch[2].padStart(2, '0');
+    if (mm && parseInt(dd) >= 1 && parseInt(dd) <= 31) {
+      return `${mm}-${dd}`;
+    }
+  }
+
+  // "DD Month" format
+  const dayMonthMatch = cleaned.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)$/);
+  if (dayMonthMatch) {
+    const dd = dayMonthMatch[1].padStart(2, '0');
+    const mm = MONTH_MAP[dayMonthMatch[2]];
+    if (mm && parseInt(dd) >= 1 && parseInt(dd) <= 31) {
+      return `${mm}-${dd}`;
+    }
+  }
+
+  return null;
+}
+
+async function handleBirthdayCollectionReply(
+  conversation: SmsConversation,
+  messageBody: string,
+  customer: Customer | undefined,
+  businessId: number,
+): Promise<{ replyMessage: string } | null> {
+  const business = await storage.getBusiness(businessId);
+  const bizName = business?.name || 'us';
+  const context = (conversation.context || {}) as any;
+  const attempts = context.attempts || 0;
+
+  const parsed = parseBirthdayFromText(messageBody);
+
+  if (parsed) {
+    // Valid birthday — save it
+    if (customer?.id) {
+      await storage.updateCustomer(customer.id, { birthday: parsed });
+    }
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+
+    const [mm, dd] = parsed.split('-');
+    const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const prettyDate = `${monthNames[parseInt(mm)]} ${parseInt(dd)}`;
+
+    return {
+      replyMessage: `Got it — ${prettyDate}! We'll have a special birthday treat waiting for you. 🎂 - ${bizName}`,
+    };
+  }
+
+  // Invalid — retry logic
+  if (attempts >= 1) {
+    // Second failure — give up gracefully
+    await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+    return {
+      replyMessage: `No worries! You can always text us BIRTHDAY MM-DD anytime (like BIRTHDAY 03-15). - ${bizName}`,
+    };
+  }
+
+  // First failure — ask again
+  await storage.updateSmsConversation(conversation.id, {
+    context: { ...context, attempts: attempts + 1 },
+  });
+  return {
+    replyMessage: `I didn't quite catch that. Please reply with your birthday like March 15 or 03-15.`,
   };
 }
 

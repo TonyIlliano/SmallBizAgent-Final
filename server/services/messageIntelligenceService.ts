@@ -47,7 +47,9 @@ export type MessageType =
   | 'HOLDING_MESSAGE'
   | 'ESCALATION_NOTICE'
   | 'FOLLOW_UP_THANK_YOU'
-  | 'FOLLOW_UP_UPSELL';
+  | 'FOLLOW_UP_UPSELL'
+  | 'MARKETING_OPT_IN'
+  | 'BIRTHDAY_COLLECTION';
 
 export interface MessageContext {
   messageType: MessageType;
@@ -509,6 +511,10 @@ function buildSmartTemplate(ctx: MessageContext, business: any, vertical: Vertic
       return `Hi ${name}! Reminder: Your reservation at ${bizName} is tomorrow at ${c?.appointmentTime || 'the time'} for ${c?.partySize || 'your party'}.`;
     case 'HOLDING_MESSAGE':
       return `Thanks for reaching out! We got your message and will follow up shortly. - ${bizName}`;
+    case 'MARKETING_OPT_IN':
+      return `Loved your visit to ${bizName}? Reply YES for exclusive deals, birthday specials, and appointment reminders! Reply STOP to opt out. - ${bizName}`;
+    case 'BIRTHDAY_COLLECTION':
+      return `We'd love to send you a birthday treat from ${bizName}! What's your birthday? Reply like March 15 or 03-15 🎂 - ${bizName}`;
     default:
       // Generic fallback for types that should use AI but don't have a template
       if (ctx.fallbackTemplate && ctx.fallbackVars) {
