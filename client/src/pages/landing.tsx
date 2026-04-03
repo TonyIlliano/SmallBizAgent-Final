@@ -630,17 +630,17 @@ export default function LandingPage() {
                 Call our AI receptionist now
               </div>
               <a
-                href={`tel:${import.meta.env.VITE_DEMO_PHONE_NUMBER || '+18001234567'}`}
+                href={`tel:${import.meta.env.VITE_DEMO_PHONE_NUMBER || '+17324020884'}`}
                 className="text-4xl md:text-5xl font-bold text-white hover:text-green-400 transition-colors"
               >
                 {import.meta.env.VITE_DEMO_PHONE_NUMBER
                   ? import.meta.env.VITE_DEMO_PHONE_NUMBER.replace(/(\+1)(\d{3})(\d{3})(\d{4})/, '($2) $3-$4')
-                  : '(800) 123-4567'}
+                  : '(732) 402-0884'}
               </a>
               <p className="text-neutral-500 text-sm mt-3">
                 Available 24/7. Try booking an appointment or asking about services.
               </p>
-              <a href={`tel:${import.meta.env.VITE_DEMO_PHONE_NUMBER || '+18001234567'}`}>
+              <a href={`tel:${import.meta.env.VITE_DEMO_PHONE_NUMBER || '+17324020884'}`}>
                 <Button size="lg" className="mt-6 bg-green-600 hover:bg-green-700 text-white px-8 py-6 text-lg">
                   <Phone className="mr-2 h-5 w-5" />
                   Call Now
