@@ -22,7 +22,11 @@ import {
   Shield,
   MessageSquare,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  PhoneCall,
+  Play,
+  Headphones,
+  Volume2
 } from "lucide-react";
 
 // Robot Logo SVG matching the SmallBizAgent brand
@@ -566,10 +570,10 @@ export default function LandingPage() {
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </a>
-              <a href="#features">
+              <a href="#demo">
                 <Button size="lg" variant="outline" className="bg-transparent border-neutral-700 text-white hover:bg-neutral-900 hover:text-white px-8 py-6 text-lg">
-                  <Phone className="mr-2 h-5 w-5" />
-                  See Features
+                  <PhoneCall className="mr-2 h-5 w-5" />
+                  Hear a Live Demo
                 </Button>
               </a>
             </div>
@@ -591,6 +595,125 @@ export default function LandingPage() {
                 <div className="text-sm text-neutral-500 mt-1">{stat.label}</div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Try It Live Demo Section */}
+      <section id="demo" className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-black via-neutral-950 to-black">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-500/10 border border-green-500/20 mb-6">
+              <Volume2 className="h-4 w-4 text-green-400" />
+              <span className="text-sm text-green-400">Live Demo</span>
+            </div>
+            <h2 className="text-3xl md:text-5xl font-bold mb-4">
+              Don't take our word for it.
+              <br />
+              <span className="bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
+                Call and hear it yourself.
+              </span>
+            </h2>
+            <p className="text-neutral-400 text-lg max-w-2xl mx-auto">
+              Call our demo number right now. Ask about pricing, try to book an appointment,
+              or ask anything — just like a real customer would.
+            </p>
+          </div>
+
+          {/* Demo Phone CTA */}
+          <div className="max-w-xl mx-auto mb-16">
+            <div className="bg-gradient-to-r from-green-500/10 via-emerald-500/10 to-green-500/10 rounded-2xl p-8 border border-green-500/20 text-center">
+              <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-green-500/20 mb-4">
+                <PhoneCall className="h-8 w-8 text-green-400" />
+              </div>
+              <div className="text-sm text-green-400 uppercase tracking-wider font-semibold mb-2">
+                Call our AI receptionist now
+              </div>
+              <a
+                href={`tel:${import.meta.env.VITE_DEMO_PHONE_NUMBER || '+18001234567'}`}
+                className="text-4xl md:text-5xl font-bold text-white hover:text-green-400 transition-colors"
+              >
+                {import.meta.env.VITE_DEMO_PHONE_NUMBER
+                  ? import.meta.env.VITE_DEMO_PHONE_NUMBER.replace(/(\+1)(\d{3})(\d{3})(\d{4})/, '($2) $3-$4')
+                  : '(800) 123-4567'}
+              </a>
+              <p className="text-neutral-500 text-sm mt-3">
+                Available 24/7. Try booking an appointment or asking about services.
+              </p>
+              <a href={`tel:${import.meta.env.VITE_DEMO_PHONE_NUMBER || '+18001234567'}`}>
+                <Button size="lg" className="mt-6 bg-green-600 hover:bg-green-700 text-white px-8 py-6 text-lg">
+                  <Phone className="mr-2 h-5 w-5" />
+                  Call Now
+                </Button>
+              </a>
+            </div>
+          </div>
+
+          {/* Sample Calls */}
+          <div className="text-center mb-8">
+            <h3 className="text-xl font-semibold text-neutral-300 mb-2">
+              <Headphones className="inline h-5 w-5 mr-2" />
+              Or listen to real sample calls
+            </h3>
+            <p className="text-neutral-500 text-sm">
+              Hear how the AI handles different scenarios across industries
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              {
+                industry: "Plumbing",
+                scenario: "Emergency drain repair booking",
+                icon: "🔧",
+                description: "Customer calls at 8 PM about a clogged drain. AI checks availability and books a morning appointment.",
+              },
+              {
+                industry: "Salon",
+                scenario: "New client booking a haircut",
+                icon: "💇",
+                description: "First-time caller asks about services and pricing. AI walks them through options and books a slot.",
+              },
+              {
+                industry: "HVAC",
+                scenario: "AC unit not cooling",
+                icon: "❄️",
+                description: "Frustrated caller with a broken AC in summer. AI handles the urgency and schedules a technician.",
+              },
+            ].map((sample, i) => (
+              <div
+                key={i}
+                className="bg-neutral-900 rounded-xl p-6 border border-neutral-800 hover:border-neutral-700 transition-colors"
+              >
+                <div className="text-3xl mb-3">{sample.icon}</div>
+                <div className="text-sm text-neutral-500 uppercase tracking-wider mb-1">{sample.industry}</div>
+                <h4 className="font-semibold text-white mb-2">{sample.scenario}</h4>
+                <p className="text-neutral-400 text-sm mb-4">{sample.description}</p>
+                {/* Audio player placeholder — replace src with real recordings */}
+                <div className="bg-neutral-950 rounded-lg p-3 border border-neutral-800">
+                  <div className="flex items-center gap-3">
+                    <button className="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors flex-shrink-0">
+                      <Play className="h-4 w-4 text-white ml-0.5" />
+                    </button>
+                    <div className="flex-1">
+                      <div className="h-1 bg-neutral-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-green-500 rounded-full" style={{ width: '0%' }} />
+                      </div>
+                      <div className="flex justify-between mt-1 text-xs text-neutral-600">
+                        <span>0:00</span>
+                        <span>Coming soon</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-center mt-8">
+            <p className="text-neutral-600 text-sm">
+              All demo calls use our standard AI receptionist. Your business gets a custom-trained version.
+            </p>
           </div>
         </div>
       </section>
@@ -689,11 +812,16 @@ export default function LandingPage() {
                 <h2 className="text-3xl md:text-4xl font-bold mb-6">
                   Meet your new receptionist. She never sleeps.
                 </h2>
-                <p className="text-neutral-400 text-lg mb-8">
+                <p className="text-neutral-400 text-lg mb-4">
                   Our AI receptionist answers calls just like a human. She knows your
                   services, checks availability, and books appointments — all without
                   you lifting a finger.
                 </p>
+                <a href="#demo" className="inline-flex items-center gap-2 text-green-400 hover:text-green-300 transition-colors text-sm font-medium mb-8">
+                  <PhoneCall className="h-4 w-4" />
+                  Call our demo to hear it in action
+                  <ArrowRight className="h-3 w-3" />
+                </a>
                 <div className="space-y-4">
                   {[
                     { icon: Clock, text: "Available 24/7, even on holidays" },

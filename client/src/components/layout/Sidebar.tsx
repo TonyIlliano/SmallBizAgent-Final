@@ -41,7 +41,6 @@ const allNavItems = [
   { path: "/marketing", label: "Marketing", icon: Megaphone, hideForRoles: ['staff'] as string[] },
   { path: "/ai-agents", label: "AI Agents", icon: Zap },
   { path: "/website", label: "Website", icon: Globe, hideForRoles: ['staff'] as string[] },
-  { path: "/google-business-profile", label: "Google", icon: MapPin, hideForRoles: ['staff'] as string[] },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
