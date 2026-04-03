@@ -16,6 +16,9 @@ import {
   ArrowDownRight,
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
+import { Button } from "@/components/ui/button";
+import { Download, Mail } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 type Period = "week" | "month" | "quarter" | "year";
 
@@ -179,6 +182,42 @@ function HourChart({ data }: { data: { hour: number; count: number }[] }) {
 
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState<Period>("month");
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isEmailing, setIsEmailing] = useState(false);
+  const { toast } = useToast();
+
+  const handleDownloadReport = async () => {
+    setIsDownloading(true);
+    try {
+      const res = await fetch(`/api/analytics/report?period=${period}&format=html`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to generate report');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `business-report-${period}-${new Date().toISOString().split('T')[0]}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Report downloaded", description: "Open the HTML file and use Print → Save as PDF" });
+    } catch {
+      toast({ title: "Error", description: "Failed to generate report", variant: "destructive" });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleEmailReport = async () => {
+    setIsEmailing(true);
+    try {
+      const res = await fetch('/api/analytics/report/email', { method: 'POST', credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to email report');
+      toast({ title: "Report sent!", description: "Check your email inbox" });
+    } catch {
+      toast({ title: "Error", description: "Failed to email report", variant: "destructive" });
+    } finally {
+      setIsEmailing(false);
+    }
+  };
 
   const { data: analytics, isLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics", period],
@@ -199,10 +238,18 @@ export default function AnalyticsPage() {
           Business performance overview
         </p>
         <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={handleDownloadReport} disabled={isDownloading}>
+            <Download className="h-4 w-4 mr-1" />
+            {isDownloading ? 'Generating...' : 'Report'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleEmailReport} disabled={isEmailing}>
+            <Mail className="h-4 w-4 mr-1" />
+            {isEmailing ? 'Sending...' : 'Email Report'}
+          </Button>
           <ExportButton
             endpoint={`/api/analytics/export?period=${period}`}
             filename={`analytics-report-${period}.csv`}
-            label="Export Report"
+            label="CSV"
           />
           <Tabs value={period} onValueChange={(v) => setPeriod(v as Period)}>
             <TabsList>

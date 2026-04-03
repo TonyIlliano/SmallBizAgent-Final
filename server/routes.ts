@@ -3100,6 +3100,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint - Get customer's appointment history by email AND phone
+  app.post("/api/portal/appointments", portalLookupLimiter, async (req: Request, res: Response) => {
+    try {
+      const { email, phone } = req.body;
+
+      if (!email || !phone) {
+        return res.status(400).json({ message: "Both email and phone are required" });
+      }
+
+      const allAppointments = await storage.getAppointmentsByCustomerContact(email, phone);
+
+      // Enrich with service, staff, and business names
+      const enriched = await Promise.all(
+        allAppointments.map(async (appt) => {
+          const [service, staffMember, business] = await Promise.all([
+            appt.serviceId ? storage.getService(appt.serviceId) : null,
+            appt.staffId ? storage.getStaffMember(appt.staffId) : null,
+            storage.getBusiness(appt.businessId),
+          ]);
+
+          const now = new Date();
+          const startDate = new Date(appt.startDate);
+          const isFuture = startDate > now;
+          const isCancellable = isFuture && appt.status !== 'cancelled' && appt.status !== 'completed';
+
+          return {
+            id: appt.id,
+            startDate: appt.startDate,
+            endDate: appt.endDate,
+            status: appt.status,
+            serviceName: service?.name || 'Service',
+            servicePrice: service?.price || null,
+            staffName: staffMember ? `${staffMember.firstName} ${staffMember.lastName || ''}`.trim() : null,
+            businessName: business?.name || 'Unknown Business',
+            businessSlug: business?.bookingSlug || null,
+            manageToken: isFuture ? appt.manageToken : null, // Only expose manage token for future appointments
+            canReschedule: isCancellable,
+            canCancel: isCancellable,
+            isFuture,
+          };
+        })
+      );
+
+      res.json({
+        count: enriched.length,
+        upcoming: enriched.filter(a => a.isFuture).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()),
+        past: enriched.filter(a => !a.isFuture).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()),
+      });
+    } catch (error) {
+      console.error("Error looking up appointments:", error);
+      res.status(500).json({ message: "Error looking up appointments" });
+    }
+  });
+
   // =================== INVOICE ITEMS API ===================
   app.get("/api/invoice-items/:invoiceId", async (req: Request, res: Response) => {
     try {

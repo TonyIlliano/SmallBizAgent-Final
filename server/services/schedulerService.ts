@@ -1628,6 +1628,9 @@ export async function startAllSchedulers(): Promise<void> {
     startMarketingTriggerProcessor();
     startMarketingTriggerEvaluator();
 
+    // Start weekly business report scheduler (Monday 8 AM per business timezone)
+    startWeeklyReportScheduler();
+
     console.log('All schedulers started');
   } catch (error) {
     console.error('Error starting schedulers:', error);
@@ -1784,6 +1787,45 @@ export function startAdminDigestScheduler(): void {
   console.log('Admin digest scheduler started (checks hourly, sends at 8am ET)');
 }
 
+// ── Weekly Business Report (checks hourly, sends Monday 8 AM per business timezone) ──
+
+export function startWeeklyReportScheduler(): void {
+  const jobKey = 'weekly-report';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalId = setInterval(() => {
+    withReentryGuard('weekly-report', async () => {
+      try {
+        // Only run on Mondays (getDay() === 1)
+        const now = new Date();
+        if (now.getDay() !== 1) return;
+
+        // Get all active businesses with a timezone
+        const allBusinesses = await storage.getAllBusinesses();
+        const eligibleIds = allBusinesses
+          .filter(b => {
+            const tz = b.timezone || 'America/New_York';
+            const localHour = getLocalHour(tz);
+            const status = b.subscriptionStatus;
+            return localHour === 8 && (status === 'active' || status === 'trialing');
+          })
+          .map(b => b.id);
+
+        if (eligibleIds.length === 0) return;
+
+        console.log(`[WeeklyReport] Sending reports to ${eligibleIds.length} businesses`);
+        const { processWeeklyReports } = await import('./weeklyReportService');
+        await processWeeklyReports(eligibleIds);
+      } catch (error) {
+        console.error('[WeeklyReport] Scheduler error:', error);
+      }
+    });
+  }, 60 * 60 * 1000); // Check every hour
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log('Weekly report scheduler started (checks hourly, sends Monday 8 AM per business timezone)');
+}
+
 export function stopAllSchedulers(): void {
   scheduledJobs.forEach((intervalId, jobKey) => {
     clearInterval(intervalId);
@@ -1818,6 +1860,7 @@ export default {
   startMorningBriefScheduler,
   startAdminDigestScheduler,
   startGbpSyncScheduler,
+  startWeeklyReportScheduler,
   startAllSchedulers,
   stopAllSchedulers
 };

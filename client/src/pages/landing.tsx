@@ -464,6 +464,10 @@ function PricingSection() {
                   </div>
                 )}
                 <p className="text-sm text-neutral-400 mb-2">{plan.description}</p>
+                <div className="flex items-center gap-1.5 text-sm font-medium text-white mb-1">
+                  <Phone className="h-4 w-4 text-green-400" />
+                  <span>{plan.minutes}</span>
+                </div>
                 <p className="text-xs text-neutral-500 mb-6">{plan.overage}</p>
                 <a href="#get-started">
                   <Button

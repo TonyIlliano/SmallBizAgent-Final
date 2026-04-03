@@ -174,6 +174,7 @@ export interface IStorage {
   getAppointmentByManageToken(token: string): Promise<Appointment | undefined>;
   getAppointmentsByBusinessId(businessId: number): Promise<Appointment[]>;
   getAppointmentsByCustomerId(customerId: number): Promise<Appointment[]>;
+  getAppointmentsByCustomerContact(email: string, phone: string): Promise<Appointment[]>;
   createAppointment(appointment: InsertAppointment): Promise<Appointment>;
   updateAppointment(id: number, appointment: Partial<Appointment>): Promise<Appointment>;
   deleteAppointment(id: number, businessId: number): Promise<void>;
@@ -1107,6 +1108,28 @@ export class DatabaseStorage implements IStorage {
   async getAppointmentsByCustomerId(customerId: number): Promise<Appointment[]> {
     return db.select().from(appointments)
       .where(eq(appointments.customerId, customerId));
+  }
+
+  async getAppointmentsByCustomerContact(email: string, phone: string): Promise<Appointment[]> {
+    if (!email && !phone) return [];
+
+    // Find all customers matching email OR phone
+    const conditions = [];
+    if (email) conditions.push(eq(customers.email, email));
+    if (phone) conditions.push(eq(customers.phone, phone));
+
+    const matchingCustomers = await db.select().from(customers)
+      .where(conditions.length > 1 ? or(...conditions) : conditions[0]);
+
+    if (matchingCustomers.length === 0) return [];
+
+    const customerIds = matchingCustomers.map(c => c.id);
+    return db.select().from(appointments)
+      .where(
+        sql`${appointments.customerId} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`
+      )
+      .orderBy(desc(appointments.startDate))
+      .limit(50);
   }
 
   // Jobs

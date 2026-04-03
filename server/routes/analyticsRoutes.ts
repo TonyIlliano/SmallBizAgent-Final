@@ -652,4 +652,53 @@ export function registerAnalyticsRoutes(app: any) {
       res.status(500).json({ message: "Error fetching AI ROI analytics" });
     }
   });
+
+  /**
+   * Generate HTML business report (for download/print-to-PDF)
+   */
+  app.get("/api/analytics/report", isOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { period = 'month' } = analyticsRequestSchema.parse({
+        period: req.query.period as string || 'month'
+      });
+
+      const { generateReport } = await import("../services/weeklyReportService");
+      const { html, subject } = await generateReport({ businessId, period: period as 'week' | 'month' | 'quarter' | 'year' });
+
+      // If ?format=html, return raw HTML for download/print
+      if (req.query.format === 'html') {
+        const today = new Date().toISOString().split('T')[0];
+        res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Content-Disposition', `attachment; filename="business-report-${period}-${today}.html"`);
+        return res.send(html);
+      }
+
+      // Default: return JSON with HTML content for frontend rendering
+      res.json({ html, subject, period });
+    } catch (error) {
+      console.error("Error generating report:", error);
+      res.status(500).json({ message: "Error generating report" });
+    }
+  });
+
+  /**
+   * Email the business report to the owner
+   */
+  app.post("/api/analytics/report/email", isOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const businessId = getBusinessId(req);
+      const { sendWeeklyReport } = await import("../services/weeklyReportService");
+      const sent = await sendWeeklyReport(businessId);
+
+      if (sent) {
+        res.json({ message: "Report emailed successfully" });
+      } else {
+        res.status(500).json({ message: "Failed to send report email" });
+      }
+    } catch (error) {
+      console.error("Error emailing report:", error);
+      res.status(500).json({ message: "Error emailing report" });
+    }
+  });
 }

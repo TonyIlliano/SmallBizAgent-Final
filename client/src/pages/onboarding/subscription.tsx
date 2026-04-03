@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Check, ArrowRight, Loader2 } from 'lucide-react';
+import { Check, ArrowRight, Loader2, Phone } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 
 interface Plan {
@@ -162,8 +162,12 @@ export default function OnboardingSubscription() {
                     Billed annually at ${plan.price}/yr
                   </p>
                 )}
-                <p className="text-xs text-neutral-500 mt-2">
-                  ${plan.overageRatePerMinute?.toFixed(2)}/min overage
+                <div className="flex items-center gap-1.5 mt-3 text-sm font-medium text-white">
+                  <Phone className="h-4 w-4 text-green-400" />
+                  <span>{plan.maxCallMinutes} AI minutes/mo</span>
+                </div>
+                <p className="text-xs text-neutral-500 mt-1">
+                  then ${plan.overageRatePerMinute?.toFixed(2)}/min overage
                 </p>
               </CardHeader>
               <CardContent className="flex-grow">

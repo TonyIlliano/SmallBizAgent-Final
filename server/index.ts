@@ -371,22 +371,56 @@ app.use((req, res, next) => {
 
     // Health check endpoints (before auth middleware)
     app.get('/health', async (_req, res) => {
+      const start = Date.now();
+      const checks: Record<string, { status: string; latencyMs?: number; details?: string }> = {};
+      let overallHealthy = true;
+
+      // 1. Database connectivity + latency
       try {
+        const dbStart = Date.now();
         const client = await pool.connect();
         await client.query('SELECT 1');
         client.release();
-        res.status(200).json({
-          status: 'healthy',
-          timestamp: new Date().toISOString(),
-          uptime: process.uptime(),
-        });
-      } catch (error) {
-        res.status(503).json({
-          status: 'unhealthy',
-          error: 'Database connection failed',
-          timestamp: new Date().toISOString(),
-        });
+        checks.database = { status: 'healthy', latencyMs: Date.now() - dbStart };
+      } catch (error: any) {
+        checks.database = { status: 'unhealthy', details: error.message };
+        overallHealthy = false;
       }
+
+      // 2. Database pool metrics
+      checks.databasePool = {
+        status: (pool as any).totalCount < 25 ? 'healthy' : 'warning',
+        details: `active: ${(pool as any).totalCount - (pool as any).idleCount}, idle: ${(pool as any).idleCount}, waiting: ${(pool as any).waitingCount}, total: ${(pool as any).totalCount}/25`,
+      };
+
+      // 3. Memory pressure check
+      const mem = process.memoryUsage();
+      const heapUsedMB = Math.round(mem.heapUsed / 1024 / 1024);
+      const heapTotalMB = Math.round(mem.heapTotal / 1024 / 1024);
+      const heapPercent = Math.round((mem.heapUsed / mem.heapTotal) * 100);
+      checks.memory = {
+        status: heapPercent < 85 ? 'healthy' : heapPercent < 95 ? 'warning' : 'unhealthy',
+        details: `${heapUsedMB}MB / ${heapTotalMB}MB (${heapPercent}%)`,
+      };
+      if (heapPercent >= 95) overallHealthy = false;
+
+      // 4. External services configured
+      checks.retellAi = { status: process.env.RETELL_API_KEY ? 'configured' : 'not_configured' };
+      checks.twilio = { status: (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) ? 'configured' : 'not_configured' };
+      checks.stripe = { status: process.env.STRIPE_SECRET_KEY ? 'configured' : 'not_configured' };
+      checks.openai = { status: process.env.OPENAI_API_KEY ? 'configured' : 'not_configured' };
+      checks.sentry = { status: process.env.SENTRY_DSN ? 'configured' : 'not_configured' };
+
+      const statusCode = overallHealthy ? 200 : 503;
+      res.status(statusCode).json({
+        status: overallHealthy ? 'healthy' : 'unhealthy',
+        timestamp: new Date().toISOString(),
+        uptime: Math.floor(process.uptime()),
+        version: process.env.npm_package_version || '1.0.0',
+        environment: process.env.NODE_ENV || 'development',
+        responseTimeMs: Date.now() - start,
+        checks,
+      });
     });
 
     app.get('/health/live', (_req, res) => {
@@ -395,14 +429,58 @@ app.use((req, res, next) => {
 
     const server = await registerRoutes(app);
 
+    // Sentry request instrumentation — track request latency, attach context
+    if (process.env.SENTRY_DSN) {
+      Sentry.setupExpressErrorHandler(app);
+    }
+
+    // Request performance tracking middleware
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const start = Date.now();
+      const originalEnd = res.end;
+      res.end = function (...args: any[]) {
+        const duration = Date.now() - start;
+        // Log slow requests (> 2 seconds)
+        if (duration > 2000 && !req.path.startsWith('/health')) {
+          console.warn(`⚠️ Slow request: ${req.method} ${req.path} took ${duration}ms (status: ${res.statusCode})`);
+          if (process.env.SENTRY_DSN) {
+            Sentry.captureMessage(`Slow request: ${req.method} ${req.path}`, {
+              level: 'warning',
+              extra: {
+                duration,
+                statusCode: res.statusCode,
+                businessId: (req as any).user?.businessId,
+                userId: (req as any).user?.id,
+              },
+            });
+          }
+        }
+        return originalEnd.apply(res, args as any);
+      } as any;
+      next();
+    });
+
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
 
       if (status >= 500) {
         console.error('Server error:', err);
-        // Report 5xx errors to Sentry
-        Sentry.captureException(err);
+        // Report 5xx errors to Sentry with context
+        Sentry.withScope((scope) => {
+          scope.setTag('error.type', 'server_error');
+          scope.setTag('status_code', String(status));
+          if ((_req as any).user) {
+            scope.setUser({
+              id: String((_req as any).user.id),
+              username: (_req as any).user.username,
+            });
+            scope.setTag('businessId', String((_req as any).user.businessId));
+          }
+          scope.setExtra('path', _req.path);
+          scope.setExtra('method', _req.method);
+          Sentry.captureException(err);
+        });
       }
 
       if (!res.headersSent) {

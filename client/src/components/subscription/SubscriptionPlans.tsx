@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Check, Loader2, Tag, ExternalLink } from 'lucide-react';
+import { Check, Loader2, Tag, ExternalLink, Phone } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 
 // Define the plan type
@@ -419,8 +419,12 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
                   Billed annually at ${plan.price}/yr
                 </p>
               )}
-              <p className="text-xs text-muted-foreground mt-2">
-                ${plan.overageRatePerMinute?.toFixed(2)}/min overage
+              <div className="flex items-center gap-1.5 mt-3 text-sm font-medium text-primary">
+                <Phone className="h-4 w-4" />
+                <span>{plan.maxCallMinutes} AI minutes/mo</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                then ${plan.overageRatePerMinute?.toFixed(2)}/min overage
               </p>
             </CardHeader>
             <CardContent className="flex-grow">
