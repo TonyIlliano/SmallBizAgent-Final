@@ -213,6 +213,40 @@ export async function migrate() {
         'Social media content pipeline (Coming Soon)'
       ])]);
 
+      // Update Stripe product/price IDs for all new plans
+      // Starter Monthly
+      await pool.query(`
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoxfcoNgTSNX', stripe_price_id = 'price_1TIqyOGhZUHro355OPfniPCS'
+        WHERE plan_tier = 'starter' AND interval = 'monthly' AND price = 149 AND active = true
+      `);
+      // Starter Annual
+      await pool.query(`
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoxfcoNgTSNX', stripe_price_id = 'price_1TIqyOGhZUHro355CEfXB9yR'
+        WHERE plan_tier = 'starter' AND interval = 'yearly' AND price = 1429 AND active = true
+      `);
+      // Growth Monthly
+      await pool.query(`
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoTdZbrpIBY7', stripe_price_id = 'price_1TIqyPGhZUHro3557T0H8Wyi'
+        WHERE plan_tier = 'growth' AND interval = 'monthly' AND price = 299 AND active = true
+      `);
+      // Growth Annual
+      await pool.query(`
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoTdZbrpIBY7', stripe_price_id = 'price_1TIqyPGhZUHro355WGRqB8hx'
+        WHERE plan_tier = 'growth' AND interval = 'yearly' AND price = 2869 AND active = true
+      `);
+      // Pro Monthly
+      await pool.query(`
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPotvXMDPvqyW', stripe_price_id = 'price_1TIqyQGhZUHro3552G9zrtbc'
+        WHERE plan_tier = 'pro' AND interval = 'monthly' AND price = 449 AND active = true
+      `);
+      // Pro Annual
+      await pool.query(`
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPotvXMDPvqyW', stripe_price_id = 'price_1TIqyQGhZUHro355jmMeo4kp'
+        WHERE plan_tier = 'pro' AND interval = 'yearly' AND price = 4309 AND active = true
+      `);
+
+      console.log('Updated Stripe product/price IDs for all 6 plans');
+
       // Record the migration
       await pool.query(
         'INSERT INTO migrations (name) VALUES ($1)',

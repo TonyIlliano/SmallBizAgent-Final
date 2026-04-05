@@ -2295,6 +2295,19 @@ async function runMigrations() {
       console.error('Error running pricing v2 migration:', error);
     }
 
+    // Always update Stripe price IDs (idempotent — runs every deploy to ensure IDs are set)
+    try {
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoxfcoNgTSNX', stripe_price_id = 'price_1TIqyOGhZUHro355OPfniPCS' WHERE plan_tier = 'starter' AND interval = 'monthly' AND price = 149 AND active = true AND stripe_price_id IS NULL`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoxfcoNgTSNX', stripe_price_id = 'price_1TIqyOGhZUHro355CEfXB9yR' WHERE plan_tier = 'starter' AND interval = 'yearly' AND price = 1429 AND active = true AND stripe_price_id IS NULL`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoTdZbrpIBY7', stripe_price_id = 'price_1TIqyPGhZUHro3557T0H8Wyi' WHERE plan_tier = 'growth' AND interval = 'monthly' AND price = 299 AND active = true AND stripe_price_id IS NULL`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoTdZbrpIBY7', stripe_price_id = 'price_1TIqyPGhZUHro355WGRqB8hx' WHERE plan_tier = 'growth' AND interval = 'yearly' AND price = 2869 AND active = true AND stripe_price_id IS NULL`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPotvXMDPvqyW', stripe_price_id = 'price_1TIqyQGhZUHro3552G9zrtbc' WHERE plan_tier = 'pro' AND interval = 'monthly' AND price = 449 AND active = true AND stripe_price_id IS NULL`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPotvXMDPvqyW', stripe_price_id = 'price_1TIqyQGhZUHro355jmMeo4kp' WHERE plan_tier = 'pro' AND interval = 'yearly' AND price = 4309 AND active = true AND stripe_price_id IS NULL`);
+      console.log('Stripe price IDs verified/updated');
+    } catch (error) {
+      console.error('Error updating Stripe price IDs:', error);
+    }
+
     // Vapi → Retell AI migration: add retell columns
     try {
       const { migrateVapiToRetell } = await import('./migrate_vapi_to_retell.js');
