@@ -143,6 +143,171 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
+// ── Onboarding GBP: Pre-fill business data without requiring a business record ──
+
+// Get OAuth URL for onboarding (no businessId needed yet)
+router.get('/onboarding/auth-url', isAuthenticated, async (req, res) => {
+  try {
+    // Use 'onboarding' as the state — the callback will handle differently
+    const url = gbpService.generateAuthUrl(0); // 0 = onboarding flow
+    if (!url) {
+      return res.status(500).json({ error: 'Could not generate auth URL. Check Google credentials.' });
+    }
+    // Replace state=0 with state=onboarding_<userId>
+    const userId = (req.user as any)?.id;
+    const onboardingUrl = url.replace('state=0', `state=onboarding_${userId}`);
+    res.json({ url: onboardingUrl });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Handle OAuth callback for onboarding — fetches business data and returns via postMessage
+router.get('/onboarding/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+
+    if (!code || !state || typeof code !== 'string' || typeof state !== 'string' || !state.startsWith('onboarding_')) {
+      return res.status(400).send('Invalid onboarding callback');
+    }
+
+    // Exchange code for tokens (don't persist to DB — just get the tokens)
+    const { google } = await import('googleapis');
+    const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+    const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = process.env.GBP_REDIRECT_URI ||
+      (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/api/gbp/onboarding/callback` : 'http://localhost:5000/api/gbp/onboarding/callback');
+
+    const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirectUri);
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    // Fetch accounts and locations
+    let businessData: any = {};
+    try {
+      const mybusiness = google.mybusinessaccountmanagement({ version: 'v1', auth: oauth2Client });
+      const accountsRes = await oauth2Client.request({ url: 'https://mybusinessaccountmanagement.googleapis.com/v1/accounts' });
+      const accounts = (accountsRes.data as any)?.accounts || [];
+
+      if (accounts.length > 0) {
+        // Get first account's locations
+        const accountName = accounts[0].name;
+        const mybusinessInfo = google.mybusinessbusinessinformation({ version: 'v1', auth: oauth2Client });
+
+        let locations: any[] = [];
+        try {
+          const locRes = await mybusinessInfo.accounts.locations.list({
+            parent: accountName,
+            readMask: 'name,title,storefrontAddress,websiteUri,phoneNumbers,regularHours,profile,categories',
+          });
+          locations = locRes.data?.locations || [];
+        } catch {
+          // Try wildcard locations endpoint as fallback
+          try {
+            const locRes = await oauth2Client.request({
+              url: 'https://mybusinessbusinessinformation.googleapis.com/v1/accounts/-/locations',
+              params: { readMask: 'name,title,storefrontAddress,websiteUri,phoneNumbers,regularHours,profile,categories' },
+            });
+            locations = (locRes.data as any)?.locations || [];
+          } catch { /* ignore */ }
+        }
+
+        if (locations.length > 0) {
+          const loc = locations[0]; // Use the first location
+          const addr = loc.storefrontAddress;
+          const primaryCategory = loc.categories?.primaryCategory?.displayName || '';
+
+          businessData = {
+            name: loc.title || '',
+            phone: loc.phoneNumbers?.primaryPhone || '',
+            address: addr ? [addr.addressLines?.[0]].filter(Boolean).join(', ') : '',
+            city: addr?.locality || '',
+            state: addr?.administrativeArea || '',
+            zipCode: addr?.postalCode || '',
+            website: loc.websiteUri || '',
+            description: loc.profile?.description || '',
+            industry: mapGbpCategoryToIndustry(primaryCategory),
+            gbpCategory: primaryCategory,
+            hours: loc.regularHours?.periods || [],
+            locationCount: locations.length,
+            accountName,
+            locationName: loc.name,
+            // Store tokens for later — will save to DB after business is created
+            gbpTokens: {
+              accessToken: tokens.access_token,
+              refreshToken: tokens.refresh_token,
+              expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
+            },
+          };
+        }
+      }
+    } catch (fetchErr: any) {
+      console.error('[GBP Onboarding] Error fetching business data:', fetchErr?.message);
+    }
+
+    // Send data back to the opener window via postMessage
+    const safeData = JSON.stringify(businessData).replace(/'/g, "\\'").replace(/</g, '\\u003c');
+    res.send(`
+      <html>
+        <body style="font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb;">
+          <div style="text-align: center; padding: 40px;">
+            <div style="font-size: 48px; margin-bottom: 16px;">&#10004;&#65039;</div>
+            <h1 style="color: #333; margin-bottom: 8px;">Business Info Found!</h1>
+            <p style="color: #666;">Filling in your details now...</p>
+            <p style="color: #999; font-size: 14px;">This window will close shortly...</p>
+          </div>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'gbp-onboarding-data', data: JSON.parse('${safeData}') }, '*');
+            }
+            setTimeout(function() { window.close(); }, 2000);
+          </script>
+        </body>
+      </html>
+    `);
+  } catch (error: any) {
+    console.error('[GBP Onboarding] Callback error:', error);
+    res.status(500).send(`
+      <html>
+        <body style="font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb;">
+          <div style="text-align: center; padding: 40px;">
+            <div style="font-size: 48px; margin-bottom: 16px;">&#10060;</div>
+            <h1 style="color: #333;">Could not fetch business info</h1>
+            <p style="color: #666;">You can still fill in your details manually.</p>
+          </div>
+          <script>setTimeout(function() { window.close(); }, 3000);</script>
+        </body>
+      </html>
+    `);
+  }
+});
+
+/**
+ * Map a GBP category name to our industry list
+ */
+function mapGbpCategoryToIndustry(category: string): string {
+  if (!category) return '';
+  const c = category.toLowerCase();
+  if (c.includes('barber') || c.includes('salon') || c.includes('hair') || c.includes('beauty') || c.includes('nail') || c.includes('spa')) return 'Barber/Salon';
+  if (c.includes('restaurant') || c.includes('cafe') || c.includes('pizza') || c.includes('food') || c.includes('bakery') || c.includes('bar')) return 'Restaurant';
+  if (c.includes('plumb')) return 'Plumbing';
+  if (c.includes('electric')) return 'Electrical';
+  if (c.includes('landscap') || c.includes('lawn') || c.includes('garden')) return 'Landscaping';
+  if (c.includes('clean') || c.includes('maid') || c.includes('janitorial')) return 'Cleaning';
+  if (c.includes('hvac') || c.includes('heating') || c.includes('air condition') || c.includes('cooling')) return 'HVAC';
+  if (c.includes('paint')) return 'Painting';
+  if (c.includes('roof')) return 'Roofing';
+  if (c.includes('floor')) return 'Flooring';
+  if (c.includes('pest') || c.includes('exterminator')) return 'Pest Control';
+  if (c.includes('pool')) return 'Pool Maintenance';
+  if (c.includes('auto') || c.includes('car') || c.includes('mechanic') || c.includes('tire') || c.includes('body shop')) return 'Auto Repair';
+  if (c.includes('computer') || c.includes('phone repair') || c.includes('it service')) return 'Computer Repair';
+  if (c.includes('construct') || c.includes('contractor') || c.includes('builder')) return 'General Contracting';
+  if (c.includes('carpent') || c.includes('cabinet') || c.includes('woodwork')) return 'Carpentry';
+  if (c.includes('appliance')) return 'Appliance Repair';
+  return 'Other';
+}
+
 // Debug GBP connection (returns detailed diagnostic info)
 router.get('/debug/:businessId', isAuthenticated, async (req, res) => {
   try {

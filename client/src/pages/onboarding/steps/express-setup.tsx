@@ -25,7 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Zap, CheckCircle2, Phone, Building2 } from 'lucide-react';
+import { Loader2, Zap, CheckCircle2, Phone, Building2, MapPin } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
 
 const INDUSTRIES = [
   'Barber/Salon',
@@ -71,6 +72,9 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [provisioningStep, setProvisioningStep] = useState<string | null>(null);
+  const [gbpConnected, setGbpConnected] = useState(false);
+  const [isConnectingGbp, setIsConnectingGbp] = useState(false);
+  const [gbpTokens, setGbpTokens] = useState<any>(null);
 
   const form = useForm<ExpressSetupData>({
     resolver: zodResolver(expressSetupSchema),
@@ -116,8 +120,59 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
     },
   });
 
+  // Listen for GBP onboarding data from OAuth popup
+  useState(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'gbp-onboarding-data' && event.data.data) {
+        const d = event.data.data;
+        setGbpConnected(true);
+        setIsConnectingGbp(false);
+
+        // Pre-fill form fields from GBP data
+        if (d.name) form.setValue('name', d.name);
+        if (d.phone) form.setValue('phone', d.phone);
+        if (d.address) form.setValue('address', d.address);
+        if (d.city) form.setValue('city', d.city);
+        if (d.state) form.setValue('state', d.state);
+        if (d.zipCode) form.setValue('zipCode', d.zipCode);
+        if (d.industry) form.setValue('industry', d.industry);
+        if (d.email || userEmail) form.setValue('email', d.email || userEmail || '');
+
+        // Store tokens to pass along with express setup
+        if (d.gbpTokens) setGbpTokens(d.gbpTokens);
+
+        toast({
+          title: 'Business info imported!',
+          description: `Found "${d.name}" on Google. Review the details and continue.`,
+        });
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  });
+
+  const handleConnectGbp = async () => {
+    setIsConnectingGbp(true);
+    try {
+      const res = await apiRequest('GET', '/api/gbp/onboarding/auth-url');
+      const { url } = await res.json();
+      if (url) {
+        const popup = window.open(url, 'gbp-onboarding', 'width=600,height=700');
+        // If popup was blocked
+        if (!popup) {
+          toast({ title: 'Popup blocked', description: 'Please allow popups and try again.', variant: 'destructive' });
+          setIsConnectingGbp(false);
+        }
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Could not connect to Google. Fill in your details manually.', variant: 'destructive' });
+      setIsConnectingGbp(false);
+    }
+  };
+
   const onSubmit = (data: ExpressSetupData) => {
-    setupMutation.mutate(data);
+    // Pass GBP tokens along so they can be saved after business creation
+    setupMutation.mutate({ ...data, gbpTokens } as any);
   };
 
   // Show provisioning progress
@@ -185,6 +240,46 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Connect Google Business button */}
+          {!gbpConnected && (
+            <div className="mb-6">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full py-6 border-2 border-dashed hover:border-blue-500 hover:bg-blue-50/5 transition-all"
+                onClick={handleConnectGbp}
+                disabled={isConnectingGbp}
+              >
+                {isConnectingGbp ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Connecting to Google...
+                  </>
+                ) : (
+                  <>
+                    <MapPin className="mr-2 h-5 w-5 text-blue-500" />
+                    Connect Google Business Profile
+                    <span className="ml-2 text-xs text-muted-foreground">(auto-fills everything)</span>
+                  </>
+                )}
+              </Button>
+              <div className="flex items-center gap-3 my-4">
+                <Separator className="flex-1" />
+                <span className="text-xs text-muted-foreground">or fill in manually</span>
+                <Separator className="flex-1" />
+              </div>
+            </div>
+          )}
+
+          {gbpConnected && (
+            <div className="mb-4 flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+              <span className="text-sm text-green-700 dark:text-green-400">
+                Business info imported from Google. Review and continue.
+              </span>
+            </div>
+          )}
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
