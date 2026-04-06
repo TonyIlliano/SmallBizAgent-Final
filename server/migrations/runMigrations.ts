@@ -2295,15 +2295,15 @@ async function runMigrations() {
       console.error('Error running pricing v2 migration:', error);
     }
 
-    // Always update Stripe price IDs (idempotent — runs every deploy to ensure IDs are set)
+    // Always update Stripe price IDs (idempotent — runs every deploy to ensure LIVE IDs are set)
     try {
-      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoxfcoNgTSNX', stripe_price_id = 'price_1TIqyOGhZUHro355OPfniPCS' WHERE plan_tier = 'starter' AND interval = 'monthly' AND price = 149 AND active = true AND stripe_price_id IS NULL`);
-      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoxfcoNgTSNX', stripe_price_id = 'price_1TIqyOGhZUHro355CEfXB9yR' WHERE plan_tier = 'starter' AND interval = 'yearly' AND price = 1429 AND active = true AND stripe_price_id IS NULL`);
-      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoTdZbrpIBY7', stripe_price_id = 'price_1TIqyPGhZUHro3557T0H8Wyi' WHERE plan_tier = 'growth' AND interval = 'monthly' AND price = 299 AND active = true AND stripe_price_id IS NULL`);
-      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoTdZbrpIBY7', stripe_price_id = 'price_1TIqyPGhZUHro355WGRqB8hx' WHERE plan_tier = 'growth' AND interval = 'yearly' AND price = 2869 AND active = true AND stripe_price_id IS NULL`);
-      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPotvXMDPvqyW', stripe_price_id = 'price_1TIqyQGhZUHro3552G9zrtbc' WHERE plan_tier = 'pro' AND interval = 'monthly' AND price = 449 AND active = true AND stripe_price_id IS NULL`);
-      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHPotvXMDPvqyW', stripe_price_id = 'price_1TIqyQGhZUHro355jmMeo4kp' WHERE plan_tier = 'pro' AND interval = 'yearly' AND price = 4309 AND active = true AND stripe_price_id IS NULL`);
-      console.log('Stripe price IDs verified/updated');
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1AlLdpezxdI', stripe_price_id = 'price_1TJ1pVGsu75nju9ZTiEjCwx1' WHERE plan_tier = 'starter' AND interval = 'monthly' AND price = 149 AND active = true AND (stripe_price_id IS NULL OR stripe_price_id LIKE 'price_%Hro355%')`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1AlLdpezxdI', stripe_price_id = 'price_1TJ1pVGsu75nju9Zx8jHBC5P' WHERE plan_tier = 'starter' AND interval = 'yearly' AND price = 1429 AND active = true AND (stripe_price_id IS NULL OR stripe_price_id LIKE 'price_%Hro355%')`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1kYekOvbwtQ', stripe_price_id = 'price_1TJ1pWGsu75nju9ZeU7KwokL' WHERE plan_tier = 'growth' AND interval = 'monthly' AND price = 299 AND active = true AND (stripe_price_id IS NULL OR stripe_price_id LIKE 'price_%Hro355%')`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1kYekOvbwtQ', stripe_price_id = 'price_1TJ1pWGsu75nju9ZlRED5EKz' WHERE plan_tier = 'growth' AND interval = 'yearly' AND price = 2869 AND active = true AND (stripe_price_id IS NULL OR stripe_price_id LIKE 'price_%Hro355%')`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1RdPh7BRDei', stripe_price_id = 'price_1TJ1pXGsu75nju9ZDpkPs7NM' WHERE plan_tier = 'pro' AND interval = 'monthly' AND price = 449 AND active = true AND (stripe_price_id IS NULL OR stripe_price_id LIKE 'price_%Hro355%')`);
+      await pool.query(`UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1RdPh7BRDei', stripe_price_id = 'price_1TJ1pXGsu75nju9ZowL2F8og' WHERE plan_tier = 'pro' AND interval = 'yearly' AND price = 4309 AND active = true AND (stripe_price_id IS NULL OR stripe_price_id LIKE 'price_%Hro355%')`);
+      console.log('Stripe LIVE price IDs verified/updated');
     } catch (error) {
       console.error('Error updating Stripe price IDs:', error);
     }

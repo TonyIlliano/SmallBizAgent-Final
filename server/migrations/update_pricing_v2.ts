@@ -213,35 +213,35 @@ export async function migrate() {
         'Social media content pipeline (Coming Soon)'
       ])]);
 
-      // Update Stripe product/price IDs for all new plans
+      // Update Stripe product/price IDs for all new plans (LIVE)
       // Starter Monthly
       await pool.query(`
-        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoxfcoNgTSNX', stripe_price_id = 'price_1TIqyOGhZUHro355OPfniPCS'
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1AlLdpezxdI', stripe_price_id = 'price_1TJ1pVGsu75nju9ZTiEjCwx1'
         WHERE plan_tier = 'starter' AND interval = 'monthly' AND price = 149 AND active = true
       `);
       // Starter Annual
       await pool.query(`
-        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoxfcoNgTSNX', stripe_price_id = 'price_1TIqyOGhZUHro355CEfXB9yR'
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1AlLdpezxdI', stripe_price_id = 'price_1TJ1pVGsu75nju9Zx8jHBC5P'
         WHERE plan_tier = 'starter' AND interval = 'yearly' AND price = 1429 AND active = true
       `);
       // Growth Monthly
       await pool.query(`
-        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoTdZbrpIBY7', stripe_price_id = 'price_1TIqyPGhZUHro3557T0H8Wyi'
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1kYekOvbwtQ', stripe_price_id = 'price_1TJ1pWGsu75nju9ZeU7KwokL'
         WHERE plan_tier = 'growth' AND interval = 'monthly' AND price = 299 AND active = true
       `);
       // Growth Annual
       await pool.query(`
-        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPoTdZbrpIBY7', stripe_price_id = 'price_1TIqyPGhZUHro355WGRqB8hx'
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1kYekOvbwtQ', stripe_price_id = 'price_1TJ1pWGsu75nju9ZlRED5EKz'
         WHERE plan_tier = 'growth' AND interval = 'yearly' AND price = 2869 AND active = true
       `);
       // Pro Monthly
       await pool.query(`
-        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPotvXMDPvqyW', stripe_price_id = 'price_1TIqyQGhZUHro3552G9zrtbc'
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1RdPh7BRDei', stripe_price_id = 'price_1TJ1pXGsu75nju9ZDpkPs7NM'
         WHERE plan_tier = 'pro' AND interval = 'monthly' AND price = 449 AND active = true
       `);
       // Pro Annual
       await pool.query(`
-        UPDATE subscription_plans SET stripe_product_id = 'prod_UHPotvXMDPvqyW', stripe_price_id = 'price_1TIqyQGhZUHro355jmMeo4kp'
+        UPDATE subscription_plans SET stripe_product_id = 'prod_UHb1RdPh7BRDei', stripe_price_id = 'price_1TJ1pXGsu75nju9ZowL2F8og'
         WHERE plan_tier = 'pro' AND interval = 'yearly' AND price = 4309 AND active = true
       `);
 
