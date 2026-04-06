@@ -196,9 +196,13 @@ export default function OnboardingSubscription() {
         </div>
 
         <div className="flex flex-col items-center mt-10">
-          <p className="text-neutral-500 mb-6 text-center max-w-2xl">
-            14-day free trial. No credit card required. Cancel anytime.
-          </p>
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 mb-6 text-center max-w-lg">
+            <p className="text-white font-medium mb-1">14-day free trial</p>
+            <p className="text-neutral-400 text-sm">
+              Your card will be charged after the 14-day trial period ends.
+              Cancel anytime during the trial and you won't be charged.
+            </p>
+          </div>
 
           <Button
             size="lg"

@@ -417,8 +417,11 @@ function PricingSection() {
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
             Simple, transparent pricing
           </h2>
-          <p className="text-neutral-400 text-lg mb-8">
-            14-day free trial. No credit card required. Cancel anytime.
+          <p className="text-neutral-400 text-lg mb-2">
+            14-day free trial. Cancel anytime before you're charged.
+          </p>
+          <p className="text-neutral-500 text-sm mb-8">
+            Card required at signup. You won't be billed until after your trial ends.
           </p>
           <div className="inline-flex items-center gap-3 bg-neutral-900 border border-neutral-800 rounded-full p-1">
             <button
@@ -578,7 +581,7 @@ export default function LandingPage() {
               </a>
             </div>
             <p className="mt-6 text-sm text-neutral-500">
-              No credit card required. 14-day free trial.
+              14-day free trial. Cancel anytime before you're charged.
             </p>
           </div>
 
@@ -912,7 +915,7 @@ export default function LandingPage() {
               </p>
               <div className="space-y-4">
                 {[
-                  "14-day free trial, no credit card required",
+                  "14-day free trial, cancel anytime",
                   "Set up in under 15 minutes",
                   "Cancel anytime, no questions asked",
                   "AI receptionist minutes included in every plan"

@@ -123,85 +123,11 @@ export class SubscriptionService {
 
       const planRecord = plan[0];
 
-      // If business is in active trial, save plan selection without requiring payment
-      const isTrialActive = businessRecord.trialEndsAt && new Date(businessRecord.trialEndsAt) > new Date();
-      const hasNoStripeSubscription = !businessRecord.stripeSubscriptionId;
-
-      if (isTrialActive && hasNoStripeSubscription) {
-        // Save the selected plan so we know what to bill when trial ends
-        await db.update(businesses)
-          .set({
-            stripePlanId: planId,
-            subscriptionStatus: 'trialing',
-            updatedAt: new Date(),
-          })
-          .where(eq(businesses.id, businessId));
-
-        console.log(`Business ${businessId} selected plan ${planRecord.name} during trial (expires ${businessRecord.trialEndsAt})`);
-
-        return {
-          subscriptionId: null,
-          status: 'trialing',
-          clientSecret: null,
-          trialEndsAt: businessRecord.trialEndsAt,
-          planName: planRecord.name,
-        };
-      }
-
-      // Create a product in Stripe if it doesn't exist yet
-      let stripeProduct;
-      try {
-        // Try to retrieve the product by ID first
-        try {
-          stripeProduct = await getStripe().products.retrieve(planRecord.id.toString());
-        } catch (retrieveError: any) {
-          if (retrieveError?.statusCode === 404 || retrieveError?.code === 'resource_missing') {
-            // Product doesn't exist, create it
-            stripeProduct = await getStripe().products.create({
-              id: planRecord.id.toString(),
-              name: planRecord.name,
-              description: planRecord.description || undefined,
-            });
-          } else {
-            throw retrieveError;
-          }
-        }
-      } catch (stripeError: any) {
-        console.error('Error creating product in Stripe:', stripeError?.message || stripeError);
-        throw new Error(`Failed to create subscription product: ${stripeError?.message || 'Unknown error'}`);
-      }
-      
-      // Create price in Stripe
-      let stripePrice;
-      const stripeInterval = planRecord.interval === 'monthly' ? 'month' : 'year';
-      const unitAmount = Math.round(planRecord.price * 100); // Convert to cents
-      try {
-        // Look for an existing price that matches this exact amount and interval
-        const prices = await getStripe().prices.list({
-          product: stripeProduct.id,
-          active: true,
-        });
-
-        const matchingPrice = prices.data.find(
-          (p) => p.unit_amount === unitAmount && p.recurring?.interval === stripeInterval
-        );
-
-        if (matchingPrice) {
-          stripePrice = matchingPrice;
-        } else {
-          // Create new price for this amount and interval
-          stripePrice = await getStripe().prices.create({
-            product: stripeProduct.id,
-            unit_amount: unitAmount,
-            currency: 'usd',
-            recurring: {
-              interval: stripeInterval,
-            },
-          });
-        }
-      } catch (stripeError) {
-        console.error('Error creating price in Stripe:', stripeError);
-        throw new Error('Failed to create subscription price');
+      // Use the pre-created Stripe price ID from the plan record (set by migration)
+      // This avoids creating duplicate products/prices on every subscription
+      const stripePriceId = planRecord.stripePriceId;
+      if (!stripePriceId) {
+        throw new Error(`Plan ${planRecord.name} (${planRecord.planTier}/${planRecord.interval}) has no Stripe price ID. Run migrations to set it.`);
       }
       
       // Create or get customer in Stripe
@@ -243,35 +169,67 @@ export class SubscriptionService {
         throw new Error(`Failed to create customer record for subscription: ${stripeError?.message || 'Unknown error'}`);
       }
       
-      // Create a subscription
+      // Determine if this should be a trial subscription
+      // New businesses get a 14-day trial with card on file
+      const isNewSubscription = !businessRecord.stripeSubscriptionId;
+      const hasActiveTrialDays = businessRecord.trialEndsAt && new Date(businessRecord.trialEndsAt) > new Date();
+      const trialDays = (isNewSubscription && hasActiveTrialDays)
+        ? Math.max(1, Math.ceil((new Date(businessRecord.trialEndsAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+        : isNewSubscription ? 14 : undefined;
+
+      // Create a subscription (with trial if applicable)
       let subscription;
       try {
-        subscription = await getStripe().subscriptions.create({
+        const subscriptionParams: any = {
           customer: stripeCustomer.id,
           items: [
-            { price: stripePrice.id }
+            { price: stripePriceId }
           ],
           payment_behavior: 'default_incomplete',
+          payment_settings: {
+            save_default_payment_method: 'on_subscription',
+          },
           expand: ['latest_invoice.payment_intent'],
           ...(promoCode ? { promotion_code: promoCode } : {}),
-        });
-        
+        };
+
+        // Add trial period — card collected upfront, charged after trial ends
+        if (trialDays) {
+          subscriptionParams.trial_period_days = trialDays;
+          // For trials, we need to collect payment method upfront
+          subscriptionParams.payment_behavior = 'default_incomplete';
+          subscriptionParams.trial_settings = {
+            end_behavior: { missing_payment_method: 'cancel' },
+          };
+        }
+
+        subscription = await getStripe().subscriptions.create(subscriptionParams);
+
         // Update the business with subscription info
+        const trialEnd = subscription.trial_end
+          ? new Date(subscription.trial_end * 1000)
+          : null;
+
         await db.update(businesses)
           .set({
             stripeSubscriptionId: subscription.id,
             stripePlanId: planId,
-            subscriptionStatus: subscription.status,
+            subscriptionStatus: subscription.status, // 'trialing' or 'incomplete'
             subscriptionStartDate: new Date(),
             subscriptionPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+            ...(trialEnd ? { trialEndsAt: trialEnd } : {}),
             updatedAt: new Date()
           })
           .where(eq(businesses.id, businessId));
-        
+
+        console.log(`Business ${businessId} subscribed to ${planRecord.name} (${subscription.status}${trialDays ? `, ${trialDays}-day trial` : ''})`);
+
         return {
           subscriptionId: subscription.id,
           status: subscription.status,
           clientSecret: (subscription.latest_invoice as any)?.payment_intent?.client_secret,
+          trialEndsAt: trialEnd?.toISOString() || null,
+          planName: planRecord.name,
         };
       } catch (stripeError: any) {
         console.error('Error creating subscription in Stripe:', stripeError?.message || stripeError);
