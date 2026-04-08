@@ -507,6 +507,8 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
     return { answer, tokensUsed: totalTokens };
   } catch (error: any) {
     console.error('[SupportChat] Error:', error.message);
+    console.error('[SupportChat] Full error:', JSON.stringify(error.response?.data || error.error || error, null, 2));
+    if (error.status) console.error('[SupportChat] Status:', error.status);
     return {
       answer: "I'm having a temporary issue. Please try again in a moment, or email Bark@smallbizagent.ai for help.",
       tokensUsed: 0,
