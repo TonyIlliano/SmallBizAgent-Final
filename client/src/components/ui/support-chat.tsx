@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
-import { MessageCircle, X, Send, Bot, Loader2 } from "lucide-react";
+import { X, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -129,9 +129,7 @@ export function SupportChat() {
           {/* Header */}
           <div className="bg-black text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-white/10 flex items-center justify-center">
-                <Bot className="h-4 w-4" />
-              </div>
+              <img src="/smallbizagent-logo-1024x1024.png" alt="SmallBizAgent" className="h-8 w-8 rounded-full object-cover" />
               <div>
                 <div className="text-sm font-semibold">SmallBizAgent Support</div>
                 <div className="text-[10px] text-gray-400 flex items-center gap-1">
@@ -151,9 +149,7 @@ export function SupportChat() {
             {messages.length === 0 && (
               <div className="space-y-3">
                 <div className="flex gap-2">
-                  <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Bot className="h-3.5 w-3.5 text-white" />
-                  </div>
+                  <img src="/smallbizagent-logo-1024x1024.png" alt="SmallBizAgent" className="h-7 w-7 rounded-full object-cover flex-shrink-0 mt-0.5" />
                   <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-3 py-2 max-w-[85%]">
                     <p className="text-sm text-gray-800">
                       Hi! I'm your SmallBizAgent assistant. Ask me anything about setting up or using the platform.
@@ -182,9 +178,7 @@ export function SupportChat() {
             {messages.map((msg, i) => (
               <div key={i} className={cn("flex gap-2", msg.role === "user" && "flex-row-reverse")}>
                 {msg.role === "assistant" && (
-                  <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Bot className="h-3.5 w-3.5 text-white" />
-                  </div>
+                  <img src="/smallbizagent-logo-1024x1024.png" alt="SmallBizAgent" className="h-7 w-7 rounded-full object-cover flex-shrink-0 mt-0.5" />
                 )}
                 <div
                   className={cn(
@@ -202,9 +196,7 @@ export function SupportChat() {
             {/* Typing indicator */}
             {isLoading && (
               <div className="flex gap-2">
-                <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <Bot className="h-3.5 w-3.5 text-white" />
-                </div>
+                <img src="/smallbizagent-logo-1024x1024.png" alt="SmallBizAgent" className="h-7 w-7 rounded-full object-cover flex-shrink-0 mt-0.5" />
                 <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
                   <div className="flex gap-1">
                     <span className="h-2 w-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -260,7 +252,7 @@ export function SupportChat() {
         {isOpen ? (
           <X className="h-5 w-5" />
         ) : (
-          <MessageCircle className="h-5 w-5" />
+          <img src="/smallbizagent-logo-1024x1024.png" alt="SmallBizAgent" className="h-8 w-8 rounded-full object-cover" />
         )}
       </button>
     </>
