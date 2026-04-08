@@ -445,10 +445,11 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
     let totalTokens = 0;
     const MAX_TOOL_LOOPS = 3; // Safety: prevent infinite tool loops
     let loopCount = 0;
+    const MODEL = 'gpt-4o-mini'; // Reliable model with tool support
 
     // Initial call (may return tool calls or direct answer)
     let response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
+      model: MODEL,
       temperature: 0.3,
       max_tokens: 400,
       messages,
@@ -481,7 +482,7 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
       // Feed tool results back to the model
       messages.push(assistantMessage, ...toolResults);
       response = await openai.chat.completions.create({
-        model: 'gpt-5.4-mini',
+        model: MODEL,
         temperature: 0.3,
         max_tokens: 400,
         messages,
