@@ -164,6 +164,47 @@ export const STATUS_COLORS: Record<
   },
 };
 
+// Job status colors for field service calendar view
+export const JOB_STATUS_COLORS: Record<
+  string,
+  { bg: string; text: string; border: string; dot: string }
+> = {
+  pending: {
+    bg: "bg-gray-50",
+    text: "text-gray-700",
+    border: "border-l-gray-400",
+    dot: "bg-gray-400",
+  },
+  in_progress: {
+    bg: "bg-blue-50",
+    text: "text-blue-700",
+    border: "border-l-blue-500",
+    dot: "bg-blue-500",
+  },
+  waiting_parts: {
+    bg: "bg-yellow-50",
+    text: "text-yellow-700",
+    border: "border-l-yellow-500",
+    dot: "bg-yellow-500",
+  },
+  completed: {
+    bg: "bg-green-50",
+    text: "text-green-700",
+    border: "border-l-green-500",
+    dot: "bg-green-500",
+  },
+  cancelled: {
+    bg: "bg-red-50/60",
+    text: "text-red-700",
+    border: "border-l-red-500",
+    dot: "bg-red-500",
+  },
+};
+
+export function getJobStatusColor(status: string) {
+  return JOB_STATUS_COLORS[status] || JOB_STATUS_COLORS.pending;
+}
+
 export const RESERVATION_STATUS_COLORS: Record<
   string,
   { bg: string; text: string; border: string; dot: string }

@@ -27,12 +27,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LocationSwitcher } from "@/components/layout/LocationSwitcher";
+import { isJobCategory } from "@shared/industry-categories";
 
 const allNavItems = [
   { path: "/", label: "Dashboard", icon: Home },
   { path: "/customers", label: "Customers", icon: Users },
-  { path: "/appointments", label: "Appointments", icon: Calendar, labelForIndustry: { restaurant: "Reservations" } as Record<string, string> },
-  { path: "/jobs", label: "Jobs", icon: Briefcase, hideForIndustries: ['restaurant'] },
+  { path: "/appointments", label: "Appointments", icon: Calendar, labelForIndustry: { restaurant: "Reservations" } as Record<string, string>, hideForJobCategory: true },
+  { path: "/jobs", label: "Jobs", icon: Briefcase, hideForIndustries: ['restaurant'], jobCategoryIcon: Calendar, jobCategoryLabel: "Schedule" },
   { path: "/recurring", label: "Recurring", icon: RefreshCw, hideForIndustries: ['restaurant'] },
   { path: "/quotes", label: "Quotes", icon: Receipt },
   { path: "/invoices", label: "Invoices", icon: FileText },
@@ -95,7 +96,12 @@ export function Sidebar() {
 
   // Filter nav items based on business industry and user role
   const businessIndustry = business?.industry?.toLowerCase() || '';
+  const isJobBiz = isJobCategory(business?.industry);
   const navItems = allNavItems.filter(item => {
+    // Hide Appointments tab for job-category businesses (HVAC, plumbing, electrical, etc.)
+    if ((item as any).hideForJobCategory && isJobBiz) {
+      return false;
+    }
     if (item.hideForIndustries && item.hideForIndustries.some(ind => businessIndustry.includes(ind))) {
       return false;
     }
@@ -184,10 +190,13 @@ export function Sidebar() {
                     ? "bg-black text-white"
                     : "bg-neutral-800 text-neutral-400 group-hover:bg-neutral-700 group-hover:text-white"
                 )}>
-                  <item.icon className="h-4 w-4" />
+                  {(() => {
+                    const IconComponent = (isJobBiz && (item as any).jobCategoryIcon) ? (item as any).jobCategoryIcon : item.icon;
+                    return <IconComponent className="h-4 w-4" />;
+                  })()}
                 </div>
                 <span className="md:hidden lg:inline flex-1">
-                  {(item as any).labelForIndustry?.[businessIndustry] || item.label}
+                  {(isJobBiz && (item as any).jobCategoryLabel) ? (item as any).jobCategoryLabel : ((item as any).labelForIndustry?.[businessIndustry] || item.label)}
                 </span>
                 {isActive && (
                   <ChevronRight className="h-4 w-4 md:hidden lg:block text-black" />

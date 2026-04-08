@@ -8,18 +8,32 @@ import {
   LogOut,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-
-const bottomTabs = [
-  { path: "/", label: "Home", icon: Home },
-  { path: "/appointments", label: "Schedule", icon: Calendar },
-  { path: "/jobs", label: "Jobs", icon: Briefcase },
-  { path: "/invoices", label: "Invoices", icon: FileText },
-  { path: "__logout__", label: "Logout", icon: LogOut },
-];
+import { useQuery } from "@tanstack/react-query";
+import { isJobCategory } from "@shared/industry-categories";
 
 export function BottomNav() {
   const [location] = useLocation();
-  const { logoutMutation } = useAuth();
+  const { user, logoutMutation } = useAuth();
+
+  // Fetch business to check industry for conditional tabs
+  const { data: business } = useQuery<any>({
+    queryKey: ['/api/business'],
+    enabled: !!user?.businessId,
+  });
+
+  const isJobBiz = isJobCategory(business?.industry);
+
+  // Job-category businesses see "Schedule" (pointing to /jobs)
+  // Appointment-category businesses see "Schedule" (pointing to /appointments)
+  const bottomTabs = [
+    { path: "/", label: "Home", icon: Home },
+    ...(isJobBiz
+      ? [{ path: "/jobs", label: "Schedule", icon: Calendar }]
+      : [{ path: "/appointments", label: "Schedule", icon: Calendar }]
+    ),
+    { path: "/invoices", label: "Invoices", icon: FileText },
+    { path: "__logout__", label: "Logout", icon: LogOut },
+  ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border"

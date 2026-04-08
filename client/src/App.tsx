@@ -42,6 +42,7 @@ function lazyWithRetry(importFn: () => Promise<any>) {
 const Customers = lazyWithRetry(() => import("@/pages/customers/index"));
 const CustomerDetail = lazyWithRetry(() => import("@/pages/customers/[id]"));
 const Appointments = lazyWithRetry(() => import("@/pages/appointments/index"));
+const ScheduleRouter = lazyWithRetry(() => import("@/pages/schedule-router"));
 const AppointmentDetail = lazyWithRetry(() => import("@/pages/appointments/[id]"));
 const FullscreenSchedule = lazyWithRetry(() => import("@/pages/appointments/fullscreen"));
 const Jobs = lazyWithRetry(() => import("@/pages/jobs/index"));
@@ -143,7 +144,7 @@ function Router() {
         <ProtectedRoute path="/dashboard" component={Dashboard} />
         <ProtectedRoute path="/customers" component={Customers} />
         <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
-        <ProtectedRoute path="/appointments" component={Appointments} />
+        <ProtectedRoute path="/appointments" component={ScheduleRouter} />
         <ProtectedRoute path="/appointments/fullscreen" component={FullscreenSchedule} />
         <ProtectedRoute path="/appointments/:id" component={AppointmentDetail} />
         <ProtectedRoute path="/jobs" component={Jobs} />

@@ -130,6 +130,8 @@ export const businesses = pgTable("businesses", {
   businessGroupId: integer("business_group_id"), // FK -> business_groups.id (null for standalone single-location)
   locationLabel: text("location_label"), // "Downtown", "North Side", etc.
   isActive: boolean("is_active").default(true), // Soft-disable a location
+  // Job automation settings
+  autoInvoiceOnJobCompletion: boolean("auto_invoice_on_job_completion").default(false), // Auto-generate invoice when job is marked complete
   // Data retention settings
   dataRetentionDays: integer("data_retention_days").default(365), // How long to keep transcripts (days)
   callRecordingRetentionDays: integer("call_recording_retention_days").default(90), // How long to keep call recordings
@@ -659,6 +661,13 @@ export const notificationSettings = pgTable("notification_settings", {
   // Job notifications
   jobCompletedEmail: boolean("job_completed_email").default(true),
   jobCompletedSms: boolean("job_completed_sms").default(true),
+  // Job status change notifications (field service businesses)
+  jobInProgressSms: boolean("job_in_progress_sms").default(true),
+  jobInProgressEmail: boolean("job_in_progress_email").default(false),
+  jobWaitingPartsSms: boolean("job_waiting_parts_sms").default(true),
+  jobWaitingPartsEmail: boolean("job_waiting_parts_email").default(false),
+  jobResumedSms: boolean("job_resumed_sms").default(true),
+  jobResumedEmail: boolean("job_resumed_email").default(false),
   // Weather alerts (field service businesses)
   weatherAlertsEnabled: boolean("weather_alerts_enabled").default(true),
   createdAt: timestamp("created_at").defaultNow(),

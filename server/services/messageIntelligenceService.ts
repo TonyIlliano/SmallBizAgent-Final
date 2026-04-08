@@ -49,7 +49,9 @@ export type MessageType =
   | 'FOLLOW_UP_THANK_YOU'
   | 'FOLLOW_UP_UPSELL'
   | 'MARKETING_OPT_IN'
-  | 'BIRTHDAY_COLLECTION';
+  | 'BIRTHDAY_COLLECTION'
+  | 'JOB_WAITING_PARTS'
+  | 'JOB_RESUMED';
 
 export interface MessageContext {
   messageType: MessageType;
@@ -109,6 +111,8 @@ const MESSAGE_TYPE_INSTRUCTIONS: Record<string, string> = {
   CAMPAIGN_SEQUENCE: 'Continue the campaign sequence. Reference previous touchpoints naturally.',
   HOLDING_MESSAGE: 'Let the customer know their message was received and someone will follow up. Brief and reassuring.',
   ESCALATION_NOTICE: 'Internal: notify the business owner that a customer needs human attention.',
+  JOB_WAITING_PARTS: 'Notify the customer their job is on hold waiting for a part to arrive. Be honest, reassuring, and brief. Mention you will follow up when work resumes.',
+  JOB_RESUMED: 'Notify the customer their job has resumed after a parts delay. Be positive and brief. Express that the wait is over.',
 };
 
 // ─── Core Function ───────────────────────────────────────────────────────────

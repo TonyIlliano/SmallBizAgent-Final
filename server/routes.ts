@@ -2316,11 +2316,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         jobs.map(async (job) => {
           const customer = await storage.getCustomer(job.customerId);
           const staff = job.staffId ? await storage.getStaffMember(job.staffId) : null;
+          // Include linked appointment time data for calendar view
+          const appointment = job.appointmentId
+            ? await storage.getAppointment(job.appointmentId)
+            : null;
 
           return {
             ...job,
             customer,
-            staff
+            staff,
+            appointment: appointment ? {
+              id: appointment.id,
+              startDate: appointment.startDate,
+              endDate: appointment.endDate,
+              status: appointment.status,
+              serviceId: appointment.serviceId,
+            } : null,
           };
         })
       );
@@ -2428,6 +2439,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertJobSchema.partial().parse(req.body);
       const job = await storage.updateJob(id, validatedData);
 
+      // Job status change SMS notifications (fire-and-forget)
+      if (validatedData.status === 'in_progress' && existing.status !== 'in_progress') {
+        import('./services/notificationService').then(mod => {
+          mod.sendJobInProgressNotification(job.id, existing.businessId).catch(err =>
+            console.error('Background job in_progress notification error:', err)
+          );
+        }).catch(err => console.error('Import error:', err));
+      }
+      if (validatedData.status === 'waiting_parts' && existing.status !== 'waiting_parts') {
+        import('./services/notificationService').then(mod => {
+          mod.sendJobWaitingPartsNotification(job.id, existing.businessId).catch(err =>
+            console.error('Background job waiting_parts notification error:', err)
+          );
+        }).catch(err => console.error('Import error:', err));
+      }
+      if (validatedData.status === 'in_progress' && existing.status === 'waiting_parts') {
+        import('./services/notificationService').then(mod => {
+          mod.sendJobResumedNotification(job.id, existing.businessId).catch(err =>
+            console.error('Background job resumed notification error:', err)
+          );
+        }).catch(err => console.error('Import error:', err));
+      }
+
       // Send job completed notification if status changed to completed
       if (validatedData.status === 'completed' && existing.status !== 'completed') {
         notificationService.sendJobCompletedNotification(job.id, existing.businessId).catch(err =>
@@ -2468,6 +2502,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
             referenceId: job.id,
           }).catch(err => console.error('[Orchestrator] Error dispatching job.completed:', err));
         }).catch(err => console.error('[Orchestrator] Import error:', err));
+
+        // Auto-generate invoice on job completion if enabled
+        try {
+          const business = await storage.getBusiness(existing.businessId);
+          if (business?.autoInvoiceOnJobCompletion) {
+            const lineItems = await storage.getJobLineItems(job.id);
+            if (lineItems.length > 0) {
+              const taxRate = 0.08;
+              const subtotal = lineItems.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
+              const taxableAmount = lineItems.filter((item: any) => item.taxable).reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
+              const tax = taxableAmount * taxRate;
+              const total = subtotal + tax;
+              const invoiceDate = new Date();
+              const invoiceNumber = `INV-${invoiceDate.getFullYear()}${String(invoiceDate.getMonth() + 1).padStart(2, '0')}${String(invoiceDate.getDate()).padStart(2, '0')}-${job.id}`;
+              const dueDate = new Date();
+              dueDate.setDate(dueDate.getDate() + 30);
+              const invoice = await storage.createInvoice({
+                businessId: existing.businessId,
+                customerId: job.customerId,
+                jobId: job.id,
+                invoiceNumber,
+                amount: subtotal,
+                tax,
+                total,
+                dueDate: dueDate.toISOString().split('T')[0],
+                status: 'pending',
+              });
+              for (const lineItem of lineItems) {
+                await storage.createInvoiceItem({
+                  invoiceId: invoice.id,
+                  description: `${lineItem.type?.toUpperCase() || 'ITEM'}: ${lineItem.description}`,
+                  quantity: lineItem.quantity || 1,
+                  unitPrice: lineItem.unitPrice,
+                  amount: lineItem.amount || 0,
+                });
+              }
+              console.log(`[AutoInvoice] Created invoice ${invoiceNumber} for completed job ${job.id}`);
+            }
+          }
+        } catch (autoInvoiceErr: any) {
+          console.error(`[AutoInvoice] Error for job ${job.id}:`, autoInvoiceErr.message);
+        }
       }
 
       // Sync linked appointment when job changes

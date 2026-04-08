@@ -678,6 +678,54 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Blue-Collar Mode Phase 1 — Tab Swap, Jobs Calendar, Status SMS, Auto-Invoice
+- **Goal**: Transform the experience for job-category businesses (HVAC, plumbing, electrical, landscaping, construction, pest control, roofing, painting) so the platform feels built for field service.
+
+##### Shared Industry Category Utility
+- `shared/industry-categories.ts` — **NEW**: `isJobCategory(industry)` function as single source of truth for client + server. Uses partial matching against 10 job-category industries. Imported by Sidebar, BottomNav, Jobs page, and schedule-router.
+
+##### Tab Swap — Navigation by Industry
+- `client/src/components/layout/Sidebar.tsx` — For job-category businesses: hides Appointments tab, swaps Jobs icon to Calendar, changes Jobs label to "Schedule". Added `hideForJobCategory` and `jobCategoryIcon`/`jobCategoryLabel` properties to nav items. Uses `isJobCategory()` in filter logic.
+- `client/src/components/layout/BottomNav.tsx` — Now industry-aware: job-category shows Jobs (label: "Schedule", Calendar icon), appointment-category shows Appointments. Fetches business data via useQuery.
+- `client/src/pages/schedule-router.tsx` — **NEW**: Route wrapper for `/appointments`. Redirects to `/jobs` for job-category businesses, renders normal `<Appointments />` for others.
+- `client/src/App.tsx` — `/appointments` route now uses `ScheduleRouter` instead of `Appointments` directly.
+
+##### Jobs Calendar View
+- `client/src/pages/jobs/index.tsx` — **REWRITTEN** (232 → 568 lines): Added calendar/schedule view alongside existing list view. Calendar/list toggle button in header. Week/day view with date navigation. Job cards on time grid using linked appointment's `startDate`/`endDate` (fallback to `scheduledDate + 09:00` for unlinked jobs). Color-coded by job status (pending gray, in_progress blue, waiting_parts yellow, completed green, cancelled red). StaffFilterPills reused from appointments. QuickJobStatsBar with Booked Jobs / Earned / On Site (pulse) / Waiting Parts. Default view: calendar for job-category, list for others.
+- `client/src/components/jobs/QuickJobStatsBar.tsx` — **NEW**: Job-specific stats bar. Counts today's booked/on-site/waiting-parts jobs, sums line item amounts for earned. Uses vertical labels.
+- `client/src/lib/scheduling-utils.ts` — Added `JOB_STATUS_COLORS` (5 statuses) and `getJobStatusColor()` function.
+
+##### Jobs API Enhancement
+- `server/routes.ts` — GET /api/jobs now includes linked appointment data (`startDate`, `endDate`, `status`, `serviceId`) in each populated job response. Enables calendar view without extra API calls.
+
+##### Job Status SMS Notifications
+- `server/routes.ts` — PUT /api/jobs/:id now sends SMS on 3 status transitions: `→ in_progress` (tech on the way), `→ waiting_parts` (parts delay), `waiting_parts → in_progress` (work resumed). All fire-and-forget with import().
+- `server/services/notificationService.ts` — 3 new functions: `sendJobInProgressNotification()`, `sendJobWaitingPartsNotification()`, `sendJobResumedNotification()`. Each checks notification settings, deduplicates (60-min for in_progress), uses `canSendSms()`, logs to `notification_log`.
+- `server/services/messageIntelligenceService.ts` — 2 new MessageTypes: `JOB_WAITING_PARTS`, `JOB_RESUMED` with AI prompts and templates.
+
+##### Auto-Invoice on Job Completion
+- `server/routes.ts` — When job status → completed: checks `business.autoInvoiceOnJobCompletion`, fetches line items, calculates subtotal/tax/total, generates invoice number `INV-YYYYMMDD-{jobId}`, creates invoice + items. Non-blocking (try/catch).
+- `shared/schema.ts` — Added `autoInvoiceOnJobCompletion` boolean to businesses table.
+
+##### Schema + Migrations
+- `shared/schema.ts` — Added 6 columns to `notificationSettings`: `jobInProgressSms`, `jobInProgressEmail`, `jobWaitingPartsSms`, `jobWaitingPartsEmail`, `jobResumedSms`, `jobResumedEmail`.
+- `server/migrations/runMigrations.ts` — 7 `addColumnIfNotExists` calls for notification + business columns.
+
+##### Files Changed
+- `shared/industry-categories.ts` — **NEW** (40 lines)
+- `client/src/pages/schedule-router.tsx` — **NEW** (47 lines)
+- `client/src/components/jobs/QuickJobStatsBar.tsx` — **NEW** (114 lines)
+- `shared/schema.ts` — 7 new columns
+- `server/migrations/runMigrations.ts` — 7 migration calls
+- `client/src/components/layout/Sidebar.tsx` — Industry-aware nav filtering
+- `client/src/components/layout/BottomNav.tsx` — Industry-aware tab switching
+- `client/src/App.tsx` — ScheduleRouter import + route change
+- `client/src/pages/jobs/index.tsx` — Major rewrite with calendar view
+- `client/src/lib/scheduling-utils.ts` — JOB_STATUS_COLORS + getJobStatusColor
+- `server/routes.ts` — Jobs API (appointment data), status SMS wiring, auto-invoice
+- `server/services/notificationService.ts` — 3 new notification functions
+- `server/services/messageIntelligenceService.ts` — 2 new MessageTypes
+
 #### Pricing V2 Overhaul — New Tiers & Pricing
 - **Goal**: Replace existing 3-tier pricing (Starter $79 / Professional $149 / Business $249) with new pricing (Starter $149 / Growth $299 / Pro $449). Unify overage rate to $0.05/min across all tiers. Add "Coming Soon" badges for QuickBooks (Growth) and Social media pipeline (Pro).
 
@@ -1448,6 +1496,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Campaign Routes | `server/routes/smsCampaignRoutes.ts` |
 | Campaign Manager UI | `client/src/pages/sms-campaigns/index.tsx` |
 | Scheduling utilities | `client/src/lib/scheduling-utils.ts` |
+| Industry categories (shared) | `shared/industry-categories.ts` |
+| Jobs calendar view | `client/src/pages/jobs/index.tsx` |
+| Job stats bar | `client/src/components/jobs/QuickJobStatsBar.tsx` |
+| Schedule router | `client/src/pages/schedule-router.tsx` |
 | Business hours hook | `client/src/hooks/use-business-hours.ts` |
 | Quick stats bar | `client/src/components/appointments/QuickStatsBar.tsx` |
 | Staff filter pills | `client/src/components/appointments/StaffFilterPills.tsx` |
@@ -1502,4 +1554,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: March 27, 2026. Vapi→Retell AI Migration (uncommitted): Complete voice AI provider swap. 6 new files (callToolHandlers.ts 5392 lines, systemPromptBuilder.ts 932 lines, retellService.ts 1014 lines, retellWebhookHandler.ts 408 lines, retellProvisioningService.ts 926 lines, migrate_vapi_to_retell.ts). 28+ modified files. Schema: added retellAgentId, retellLlmId, retellPhoneNumberId to businesses + business_phone_numbers. Architecture: callToolHandlers.ts is provider-agnostic (all tool handlers work with any voice AI). retellWebhookHandler dispatches custom function calls + call events. SIP trunk provisioning via Twilio Elastic SIP Trunking. Retell KB with hybrid approach (vector DB + prompt injection). Voice options expanded: ElevenLabs + Cartesia + OpenAI. Old Vapi files renamed to .deprecated. Env: RETELL_API_KEY replaces VAPI_API_KEY. Pricing V2 Overhaul (uncommitted): Renamed tiers Professional→Growth, Business→Pro. New prices: Starter $149/mo (150 min), Growth $299/mo (300 min), Pro $449/mo (500 min). Unified overage rate $0.05/min across all tiers. New migration `update_pricing_v2.ts`. Updated: landing.tsx, SubscriptionPlans.tsx, onboarding/subscription.tsx (Coming Soon badges for QuickBooks on Growth, Social media on Pro), websiteBuilderRoutes.ts (feature gates: growth/pro + legacy fallback), revenueOptimizationAgent.ts (tier name references), runMigrations.ts seed data, schema.ts comment, test files. Manual Stripe dashboard action required: create new products/prices for $149/$299/$449. Test mock fix: noShowAgentService.test.ts and followUpAgentService.test.ts updated to mock `messageIntelligenceService.generateMessage` instead of `twilioService.sendSms` (agents now route through MIS, not direct Twilio). Added missing `createNotificationLog` mock to followUpAgentService.test.ts. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted). Vapi AI Intelligence Upgrade (uncommitted): 17 improvements — gpt-5-mini model, maxTokens 350, likelyReason caller prediction, service price/duration in availability, reschedule safety checks, emotional caller handling, upselling, smart summary truncation, booking tips, multi-appointment cancel/reschedule, 3 missing tools registered, getDirections voice-aware, 13 industry missed call texts, name extraction, getEstimate capped at 5, system prompt condensed ~35%, automatic intelligence feedback loop. Bug fixes: appointment status filter expanded (scheduled+confirmed+pending), staff name matching fix (active !== false + partial match), date rule strengthened (AI was converting dates instead of passing raw words).*
+*Last updated: April 7, 2026. Blue-Collar Mode Phase 1 (uncommitted): Tab swap (Appointments hidden, Jobs becomes "Schedule" for HVAC/plumbing/electrical/landscaping/construction/etc.), Jobs calendar view (week/day with time grid, job cards, QuickJobStatsBar, StaffFilterPills), Job status SMS (in_progress/waiting_parts/resumed notifications), Auto-invoice on job completion (optional toggle). 3 new files, 13 modified files. New shared utility: `shared/industry-categories.ts`. Schema: 6 notification columns + autoInvoiceOnJobCompletion on businesses. Vapi→Retell AI Migration (uncommitted): Complete voice AI provider swap. 6 new files (callToolHandlers.ts 5392 lines, systemPromptBuilder.ts 932 lines, retellService.ts 1014 lines, retellWebhookHandler.ts 408 lines, retellProvisioningService.ts 926 lines, migrate_vapi_to_retell.ts). 28+ modified files. Schema: added retellAgentId, retellLlmId, retellPhoneNumberId to businesses + business_phone_numbers. Architecture: callToolHandlers.ts is provider-agnostic (all tool handlers work with any voice AI). retellWebhookHandler dispatches custom function calls + call events. SIP trunk provisioning via Twilio Elastic SIP Trunking. Retell KB with hybrid approach (vector DB + prompt injection). Voice options expanded: ElevenLabs + Cartesia + OpenAI. Old Vapi files renamed to .deprecated. Env: RETELL_API_KEY replaces VAPI_API_KEY. Pricing V2 Overhaul (uncommitted): Renamed tiers Professional→Growth, Business→Pro. New prices: Starter $149/mo (150 min), Growth $299/mo (300 min), Pro $449/mo (500 min). Unified overage rate $0.05/min across all tiers. New migration `update_pricing_v2.ts`. Updated: landing.tsx, SubscriptionPlans.tsx, onboarding/subscription.tsx (Coming Soon badges for QuickBooks on Growth, Social media on Pro), websiteBuilderRoutes.ts (feature gates: growth/pro + legacy fallback), revenueOptimizationAgent.ts (tier name references), runMigrations.ts seed data, schema.ts comment, test files. Manual Stripe dashboard action required: create new products/prices for $149/$299/$449. Test mock fix: noShowAgentService.test.ts and followUpAgentService.test.ts updated to mock `messageIntelligenceService.generateMessage` instead of `twilioService.sendSms` (agents now route through MIS, not direct Twilio). Added missing `createNotificationLog` mock to followUpAgentService.test.ts. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted). Vapi AI Intelligence Upgrade (uncommitted): 17 improvements — gpt-5-mini model, maxTokens 350, likelyReason caller prediction, service price/duration in availability, reschedule safety checks, emotional caller handling, upselling, smart summary truncation, booking tips, multi-appointment cancel/reschedule, 3 missing tools registered, getDirections voice-aware, 13 industry missed call texts, name extraction, getEstimate capped at 5, system prompt condensed ~35%, automatic intelligence feedback loop. Bug fixes: appointment status filter expanded (scheduled+confirmed+pending), staff name matching fix (active !== false + partial match), date rule strengthened (AI was converting dates instead of passing raw words).*

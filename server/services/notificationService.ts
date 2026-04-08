@@ -658,6 +658,81 @@ export async function sendJobCompletedNotification(jobId: number, businessId: nu
   }
 }
 
+export async function sendJobInProgressNotification(jobId: number, businessId: number) {
+  try {
+    const settings = await storage.getNotificationSettings(businessId);
+    if (settings?.jobInProgressSms === false) return;
+
+    const job = await storage.getJob(jobId);
+    if (!job) return;
+    const customer = await storage.getCustomer(job.customerId);
+    if (!customer || !canSendSms(customer)) return;
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+    const staff = job.staffId ? await storage.getStaffMember(job.staffId) : null;
+    const staffName = staff ? `${staff.firstName}${staff.lastName ? ' ' + staff.lastName[0] + '.' : ''}` : 'Our technician';
+
+    // 60-minute deduplication
+    const recentLogs = await storage.getNotificationLogs(businessId, 100);
+    if (recentLogs?.some((log: any) => log.type === 'job_in_progress' && log.referenceId === jobId && log.channel === 'sms' && log.sentAt && (Date.now() - new Date(log.sentAt).getTime()) < 60 * 60 * 1000)) return;
+
+    const message = `Hi ${customer.firstName}! ${staffName} is on the way for your ${job.title}. Questions? Call ${getContactNumber(business)}. - ${business.name}`;
+    await twilioService.sendSms(customer.phone, message, undefined, businessId);
+    await storage.createNotificationLog({
+      businessId, customerId: customer.id, type: 'job_in_progress', channel: 'sms',
+      recipient: customer.phone, message, status: 'sent', referenceType: 'job', referenceId: jobId,
+    });
+  } catch (error) {
+    console.error(`Error in sendJobInProgressNotification for job ${jobId}:`, error);
+  }
+}
+
+export async function sendJobWaitingPartsNotification(jobId: number, businessId: number) {
+  try {
+    const settings = await storage.getNotificationSettings(businessId);
+    if (settings?.jobWaitingPartsSms === false) return;
+
+    const job = await storage.getJob(jobId);
+    if (!job) return;
+    const customer = await storage.getCustomer(job.customerId);
+    if (!customer || !canSendSms(customer)) return;
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    const message = `Hi ${customer.firstName}! Quick update on your ${job.title}: we're waiting on a part to finish up. We'll text you as soon as work resumes. - ${business.name}`;
+    await twilioService.sendSms(customer.phone, message, undefined, businessId);
+    await storage.createNotificationLog({
+      businessId, customerId: customer.id, type: 'job_waiting_parts', channel: 'sms',
+      recipient: customer.phone, message, status: 'sent', referenceType: 'job', referenceId: jobId,
+    });
+  } catch (error) {
+    console.error(`Error in sendJobWaitingPartsNotification for job ${jobId}:`, error);
+  }
+}
+
+export async function sendJobResumedNotification(jobId: number, businessId: number) {
+  try {
+    const settings = await storage.getNotificationSettings(businessId);
+    if (settings?.jobResumedSms === false) return;
+
+    const job = await storage.getJob(jobId);
+    if (!job) return;
+    const customer = await storage.getCustomer(job.customerId);
+    if (!customer || !canSendSms(customer)) return;
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    const message = `Good news ${customer.firstName}! Parts are in and work on your ${job.title} has resumed. Questions? Call ${getContactNumber(business)}. - ${business.name}`;
+    await twilioService.sendSms(customer.phone, message, undefined, businessId);
+    await storage.createNotificationLog({
+      businessId, customerId: customer.id, type: 'job_resumed', channel: 'sms',
+      recipient: customer.phone, message, status: 'sent', referenceType: 'job', referenceId: jobId,
+    });
+  } catch (error) {
+    console.error(`Error in sendJobResumedNotification for job ${jobId}:`, error);
+  }
+}
+
 /**
  * Send quote email to customer with view/accept/decline link
  */

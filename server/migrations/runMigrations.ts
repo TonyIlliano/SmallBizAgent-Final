@@ -89,6 +89,17 @@ async function fixExistingTables() {
   // Weather alerts toggle for notification settings
   await addColumnIfNotExists('notification_settings', 'weather_alerts_enabled', 'BOOLEAN DEFAULT true');
 
+  // Job status change notification settings (field service businesses)
+  await addColumnIfNotExists('notification_settings', 'job_in_progress_sms', 'BOOLEAN DEFAULT true');
+  await addColumnIfNotExists('notification_settings', 'job_in_progress_email', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('notification_settings', 'job_waiting_parts_sms', 'BOOLEAN DEFAULT true');
+  await addColumnIfNotExists('notification_settings', 'job_waiting_parts_email', 'BOOLEAN DEFAULT false');
+  await addColumnIfNotExists('notification_settings', 'job_resumed_sms', 'BOOLEAN DEFAULT true');
+  await addColumnIfNotExists('notification_settings', 'job_resumed_email', 'BOOLEAN DEFAULT false');
+
+  // Auto-invoice on job completion toggle
+  await addColumnIfNotExists('businesses', 'auto_invoice_on_job_completion', 'BOOLEAN DEFAULT false');
+
   // Inventory alert settings for restaurants
   await addColumnIfNotExists('businesses', 'inventory_alerts_enabled', 'BOOLEAN DEFAULT false');
   await addColumnIfNotExists('businesses', 'inventory_alert_channel', "TEXT DEFAULT 'both'");
