@@ -11,7 +11,7 @@ import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { ProtectedAdminRoute } from "./components/auth/ProtectedAdminRoute";
 import { ServiceWorkerNotification } from "@/components/ui/ServiceWorkerNotification";
 import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
-import { ContextHelp } from "@/components/ui/context-help";
+import { SupportChat } from "@/components/ui/support-chat";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 // Eagerly loaded (critical path)
@@ -245,7 +245,7 @@ function App() {
               <Toaster />
               <ServiceWorkerNotification />
               <PWAInstallPrompt />
-              <ContextHelp />
+              <SupportChat />
               <ImpersonationBanner />
               <Router />
             </SidebarProvider>

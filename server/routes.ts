@@ -6995,6 +6995,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register Google Business Profile routes
   app.use('/api/gbp', gbpRoutes);
 
+  // Register Support Chat routes (AI-powered in-app help)
+  const supportChatRoutes = (await import('./routes/supportChatRoutes')).default;
+  app.use('/api/support', supportChatRoutes);
+
   // Register Social Media routes (OAuth + post management)
   app.use('/api/social-media', socialMediaRoutes);
 
