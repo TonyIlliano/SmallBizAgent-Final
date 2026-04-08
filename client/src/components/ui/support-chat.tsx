@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
-import { X, Send } from "lucide-react";
+import { X, Send, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -252,7 +252,7 @@ export function SupportChat() {
         {isOpen ? (
           <X className="h-5 w-5" />
         ) : (
-          <img src="/smallbizagent-logo-1024x1024.png" alt="SmallBizAgent" className="h-8 w-8 rounded-full object-cover" />
+          <MessageCircle className="h-5 w-5" />
         )}
       </button>
     </>
