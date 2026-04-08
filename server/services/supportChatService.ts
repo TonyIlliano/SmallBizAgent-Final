@@ -362,6 +362,7 @@ interface ChatMessage {
 interface ChatResponse {
   answer: string;
   tokensUsed: number;
+  error?: string;
 }
 
 export async function answerQuestion(
@@ -445,7 +446,7 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
     let totalTokens = 0;
     const MAX_TOOL_LOOPS = 3; // Safety: prevent infinite tool loops
     let loopCount = 0;
-    const MODEL = 'gpt-4o-mini'; // Reliable model with tool support
+    const MODEL = 'gpt-5.4-mini';
 
     // Initial call (may return tool calls or direct answer)
     let response = await openai.chat.completions.create({
@@ -507,12 +508,19 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
 
     return { answer, tokensUsed: totalTokens };
   } catch (error: any) {
-    console.error('[SupportChat] Error:', error.message);
-    console.error('[SupportChat] Full error:', JSON.stringify(error.response?.data || error.error || error, null, 2));
-    if (error.status) console.error('[SupportChat] Status:', error.status);
+    const errMsg = error.message || 'Unknown error';
+    const errStatus = error.status || error.statusCode || '';
+    const errCode = error.code || error.error?.code || '';
+    console.error(`[SupportChat] Error: ${errMsg} | status: ${errStatus} | code: ${errCode}`);
+    console.error('[SupportChat] Full error:', JSON.stringify(error.response?.data || error.error || {}, null, 2));
+    // Surface the real error in dev/debug so we can diagnose
+    const debugInfo = process.env.NODE_ENV !== 'production'
+      ? ` (Debug: ${errMsg})`
+      : '';
     return {
-      answer: "I'm having a temporary issue. Please try again in a moment, or email Bark@smallbizagent.ai for help.",
+      answer: `I'm having a temporary issue. Please try again in a moment, or email Bark@smallbizagent.ai for help.${debugInfo}`,
       tokensUsed: 0,
+      error: errMsg, // Include error in response for debugging
     };
   }
 }

@@ -70,7 +70,7 @@ router.post('/chat', isAuthenticated, async (req: Request, res: Response) => {
     res.json(result);
   } catch (error: any) {
     console.error('[SupportChat Route] Error:', error.message);
-    res.status(500).json({ error: 'Failed to process your question. Please try again.' });
+    res.status(500).json({ error: 'Failed to process your question. Please try again.', debug: error.message });
   }
 });
 
