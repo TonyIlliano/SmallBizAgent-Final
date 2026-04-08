@@ -270,7 +270,7 @@ export default function Jobs() {
     const pos = getJobPosition(job);
     if (!pos) return null;
     const colors = getJobStatusColor(job.status);
-    const staffColor = job.staffId ? getStaffColor(job.staffId) : STAFF_COLORS[0];
+    const staffColor = job.staffId ? getStaffColor(job.staffId, staffMembers) : STAFF_COLORS[0];
     const customerName = job.customer ? `${job.customer.firstName} ${job.customer.lastName || ''}`.trim() : '';
 
     return (
