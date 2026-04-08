@@ -452,7 +452,7 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
     let response = await openai.chat.completions.create({
       model: MODEL,
       temperature: 0.3,
-      max_tokens: 400,
+      max_completion_tokens: 400,
       messages,
       tools: SUPPORT_TOOLS,
       tool_choice: 'auto',
@@ -485,7 +485,7 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
       response = await openai.chat.completions.create({
         model: MODEL,
         temperature: 0.3,
-        max_tokens: 400,
+        max_completion_tokens: 400,
         messages,
         tools: SUPPORT_TOOLS,
       });
