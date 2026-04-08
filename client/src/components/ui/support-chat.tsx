@@ -18,14 +18,23 @@ interface ChatMessage {
 
 // ─── API helper ──────────────────────────────────────────────────────────
 
+function getCsrfToken(): string | undefined {
+  const match = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
 async function sendChatMessage(
   question: string,
   currentPage: string,
   history: ChatMessage[]
 ): Promise<{ answer: string; tokensUsed: number }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const csrfToken = getCsrfToken();
+  if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+
   const res = await fetch("/api/support/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     credentials: "include",
     body: JSON.stringify({ question, currentPage, history }),
   });
