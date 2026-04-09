@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { claudeJson } from './claudeClient';
 import { storage } from '../storage';
 import { logAgentAction } from './agentActivityService';
 import { createDateInTimezone, formatTimeWithTimezone } from '../utils/timezone';
@@ -7,6 +7,7 @@ import notificationService from './notificationService';
 import { classifyReply, isStopRequest } from './smsReplyParser';
 import crypto from 'crypto';
 import type { SmsConversation, Customer, Staff, Service, Business } from '@shared/schema';
+import { logAndSwallow } from '../utils/safeAsync';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ interface BookingFlowContext {
 
 export async function canStartConversationalBooking(businessId: number): Promise<boolean> {
   try {
-    if (!process.env.OPENAI_API_KEY) return false;
+    if (!process.env.ANTHROPIC_API_KEY) return false;
 
     const business = await storage.getBusiness(businessId);
     if (!business?.bookingEnabled) return false;
@@ -187,7 +188,7 @@ export async function handleBookingConversation(
   if (stopWords.includes(upperMsg)) {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     if (customer?.id) {
-      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch (err) { console.error('[ConversationalBooking] Error:', err instanceof Error ? err.message : err); }
     }
     return { replyMessage: `You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
   }
@@ -621,7 +622,7 @@ async function handleConfirmingBooking(
   if (replyIntent === 'stop') {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     if (customer?.id) {
-      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch (err) { console.error('[ConversationalBooking] Error:', err instanceof Error ? err.message : err); }
     }
     return { replyMessage: `You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
   }
@@ -670,8 +671,8 @@ async function handleConfirmingBooking(
       // Release engagement lock so other agents can contact this customer
       if (customer.id) {
         import('./orchestrationService').then(mod => {
-          mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(() => {});
-        }).catch(() => {});
+          mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(logAndSwallow('ConversationalBooking'));
+        }).catch(logAndSwallow('ConversationalBooking'));
       }
       await logAgentAction({
         businessId: business.id,
@@ -721,8 +722,8 @@ async function handleConfirmingBooking(
       await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
       if (customer.id) {
         import('./orchestrationService').then(mod => {
-          mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(() => {});
-        }).catch(() => {});
+          mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(logAndSwallow('ConversationalBooking'));
+        }).catch(logAndSwallow('ConversationalBooking'));
       }
       return { replyMessage: `You already have an appointment that day. Try a different day, or call us at ${business.phone || 'our office'}.` };
     }
@@ -730,8 +731,8 @@ async function handleConfirmingBooking(
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     if (customer.id) {
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
+        mod.dispatchEvent('conversation.resolved', { businessId: business.id, customerId: customer!.id }).catch(logAndSwallow('ConversationalBooking'));
+      }).catch(logAndSwallow('ConversationalBooking'));
     }
     const link = business.bookingSlug ? `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/book/${business.bookingSlug}` : '';
     return { replyMessage: link ? `Something went wrong. Book online here: ${link}` : `Something went wrong. Call us at ${business.phone || 'our office'}.` };
@@ -763,7 +764,6 @@ async function parseBookingIntent(
     staff: Array<{ id: number; firstName: string; lastName: string }>;
   },
 ): Promise<BookingIntent> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
   const dayOfWeek = today.toLocaleDateString('en-US', { weekday: 'long', timeZone: businessInfo.timezone });
@@ -811,20 +811,11 @@ Rules:
 - If unclear, type = "ambiguous".`;
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
-      temperature: 0.1,
-      max_completion_tokens: 300,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: message },
-      ],
+    const parsed = await claudeJson<any>({
+      system: systemPrompt,
+      prompt: message,
+      maxTokens: 300,
     });
-
-    const content = response.choices[0]?.message?.content?.trim() ?? '';
-    // Strip markdown code blocks if present
-    const jsonStr = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    const parsed = JSON.parse(jsonStr);
 
     return {
       type: parsed.type || 'ambiguous',
@@ -838,7 +829,7 @@ Rules:
       propertyAddress: parsed.propertyAddress || undefined,
     };
   } catch (err) {
-    console.error('[ConversationalBooking] OpenAI parse error:', err);
+    console.error('[ConversationalBooking] AI parse error:', err);
     // Fallback: try simple keyword matching
     return fallbackIntentParse(message);
   }

@@ -60,7 +60,7 @@ export function createTestApp() {
       '/api/stripe-webhook',
       '/api/subscription/webhook',
       '/api/twilio/',
-      '/api/vapi/',
+      '/api/retell/',
       '/api/clover-webhook',
       '/api/square-webhook',
       '/api/config/public',

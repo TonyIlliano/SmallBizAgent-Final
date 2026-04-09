@@ -13,7 +13,7 @@
  * 6. Orchestrator dispatches intelligence.ready event
  */
 
-import OpenAI from 'openai';
+import { claudeJson } from './claudeClient';
 import { z } from 'zod';
 import { storage } from '../storage';
 
@@ -48,7 +48,7 @@ export async function analyzeCallIntelligence(
   transcript: string,
   callerPhone?: string
 ): Promise<void> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return;
 
   // Skip very short transcripts (hangups, wrong numbers)
@@ -86,17 +86,9 @@ export async function analyzeCallIntelligence(
       intelligenceId = row.id;
     }
 
-    const openai = new OpenAI({ apiKey });
     const truncatedTranscript = transcript.substring(0, 15000);
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
-      temperature: 0.2,
-      max_tokens: 1500,
-      messages: [
-        {
-          role: 'system',
-          content: `You are analyzing a phone call transcript between an AI receptionist and a caller for a small business.
+    const systemPrompt = `You are analyzing a phone call transcript between an AI receptionist and a caller for a small business.
 
 Extract the following structured intelligence from the call:
 
@@ -115,47 +107,26 @@ Extract the following structured intelligence from the call:
 8. **followUpNotes**: Brief description of what follow-up is needed (empty string if none)
 9. **isNewCaller**: boolean, whether this appears to be a first-time caller (based on transcript context like "I found you online" or AI greeting them as new)
 
-Return valid JSON only. No markdown, no code blocks.`
-        },
-        {
-          role: 'user',
-          content: `Analyze this call transcript:\n\n${truncatedTranscript}`
-        }
-      ],
-    });
-
-    const content = response.choices[0]?.message?.content?.trim();
-    if (!content) {
-      await storage.updateCallIntelligence(intelligenceId, {
-        processingStatus: 'failed',
-        processingError: 'Empty response from OpenAI',
-      });
-      return;
-    }
-
-    // Parse JSON (handle potential markdown wrapping)
-    let jsonStr = content;
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
+Return valid JSON only. No markdown, no code blocks.`;
 
     let rawParsed: any;
     try {
-      rawParsed = JSON.parse(jsonStr);
-    } catch {
-      console.warn('[CallIntelligence] Failed to parse JSON for call', callLogId, '— raw response:', content.substring(0, 500));
+      rawParsed = await claudeJson<any>({
+        system: systemPrompt,
+        prompt: `Analyze this call transcript:\n\n${truncatedTranscript}`,
+        maxTokens: 1500,
+      });
+    } catch (parseErr) {
+      console.warn('[CallIntelligence] Failed to get/parse JSON for call', callLogId, ':', (parseErr as Error).message);
       await storage.updateCallIntelligence(intelligenceId, {
         processingStatus: 'failed',
-        processingError: `JSON parse error. Raw: ${content.substring(0, 200)}`,
+        processingError: `AI/JSON parse error: ${(parseErr as Error).message?.substring(0, 200)}`,
       });
       return;
     }
 
     // Validate extracted data with Zod (uses .catch() defaults for invalid fields)
     const extracted = extractedIntelligenceSchema.parse(rawParsed);
-
-    // Calculate token count for cost tracking
-    const tokenCount = response.usage?.total_tokens ?? 0;
 
     // Store the extracted intelligence
     await storage.updateCallIntelligence(intelligenceId, {
@@ -171,8 +142,8 @@ Return valid JSON only. No markdown, no code blocks.`
       isNewCaller: extracted.isNewCaller,
       processingStatus: 'completed',
       processingError: null,
-      modelUsed: 'gpt-5.4-mini',
-      tokenCount,
+      modelUsed: 'claude-sonnet-4-6',
+      tokenCount: 0,
     });
 
     // Also update the call_log intentDetected field with the real intent

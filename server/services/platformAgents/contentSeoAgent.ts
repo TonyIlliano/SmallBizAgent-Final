@@ -92,7 +92,7 @@ function pickContentFormat(existingCount: number): typeof CONTENT_FORMATS[number
 }
 
 /**
- * Generate a full blog article using OpenAI.
+ * Generate a full blog article using Claude (with OpenAI fallback).
  */
 async function generateBlogWithOpenAI(industry: string, format: typeof CONTENT_FORMATS[number]): Promise<{
   title: string;
@@ -102,8 +102,7 @@ async function generateBlogWithOpenAI(industry: string, format: typeof CONTENT_F
   metaDescription: string;
   targetKeywords: string[];
 }> {
-  const OpenAI = (await import('openai')).default;
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const { claudeJson } = await import('../claudeClient');
 
   // Get real platform stats to enrich content
   let platformFacts: string[] = [];
@@ -116,12 +115,7 @@ async function generateBlogWithOpenAI(industry: string, format: typeof CONTENT_F
     ? `\n- If relevant, naturally reference these real platform stats: ${platformFacts.slice(0, 3).join('; ')}`
     : '';
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-5.4-mini',
-    messages: [
-      {
-        role: 'system',
-        content: `You are an expert content writer for SmallBizAgent, an AI-powered receptionist and business management platform for small businesses. Write SEO-optimized, genuinely helpful blog articles.
+  const systemPrompt = `You are an expert content writer for SmallBizAgent, an AI-powered receptionist and business management platform for small businesses. Write SEO-optimized, genuinely helpful blog articles.
 
 Rules:
 - Write in a conversational, authoritative tone
@@ -137,21 +131,16 @@ Respond in JSON with fields:
 - excerpt (string, 150-200 chars compelling summary)
 - metaTitle (string, max 60 chars)
 - metaDescription (string, max 155 chars)
-- targetKeywords (array of 3-5 keyword phrases)`,
-      },
-      {
-        role: 'user',
-        content: `${format.prompt} how AI receptionists and automation help ${industry} businesses handle calls, book appointments, reduce no-shows, and grow revenue. Target audience: ${industry} small business owners who are overwhelmed with phone management.`,
-      },
-    ],
-    temperature: 0.7,
-    max_tokens: 3000,
-  });
+- targetKeywords (array of 3-5 keyword phrases)`;
+
+  const userPrompt = `${format.prompt} how AI receptionists and automation help ${industry} businesses handle calls, book appointments, reduce no-shows, and grow revenue. Target audience: ${industry} small business owners who are overwhelmed with phone management.`;
 
   try {
-    const raw = response.choices[0]?.message?.content || '';
-    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const data = JSON.parse(cleaned);
+    const data = await claudeJson<any>({
+      system: systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 3000,
+    });
     return {
       title: data.title || `How AI Receptionists Help ${industry} Businesses`,
       body: data.body || '',
@@ -161,12 +150,11 @@ Respond in JSON with fields:
       targetKeywords: data.targetKeywords || [`${industry} AI receptionist`],
     };
   } catch {
-    // Fallback if JSON parse fails — the LLM may have returned raw markdown
-    const raw = response.choices[0]?.message?.content || '';
+    // Fallback to template-style defaults
     return {
       title: `How AI Receptionists Are Transforming the ${industry} Industry`,
-      body: raw,
-      excerpt: raw.substring(0, 160).replace(/[#*\n]/g, ' ').trim(),
+      body: '',
+      excerpt: `Discover how ${industry} businesses use AI receptionists to answer calls 24/7.`,
       metaTitle: `AI Receptionist for ${industry} | SmallBizAgent`,
       metaDescription: `Discover how ${industry} businesses use AI receptionists to answer calls 24/7, book appointments, and reduce no-shows.`,
       targetKeywords: [`${industry} AI receptionist`, `${industry} virtual receptionist`, `${industry} phone automation`],
@@ -268,30 +256,17 @@ async function generateSocialPost(industry: string, useOpenAI: boolean): Promise
 
   if (useOpenAI) {
     try {
-      const OpenAI = (await import('openai')).default;
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const { claudeJson } = await import('../claudeClient');
 
-      const response = await openai.chat.completions.create({
-        model: 'gpt-5.4-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `Write two social media posts for SmallBizAgent (AI receptionist platform). Return JSON with:
+      const data = await claudeJson<{ twitter: string; linkedin: string }>({
+        system: `Write two social media posts for SmallBizAgent (AI receptionist platform). Return JSON with:
 - twitter (max 270 chars, punchy, 1-2 hashtags)
 - linkedin (max 500 chars, professional, end with a question)
 No quotes or labels. Target: ${industry} small business owners.`,
-          },
-          {
-            role: 'user',
-            content: `Write a Twitter and LinkedIn post about how ${industry} businesses benefit from never missing a call with AI receptionists.`,
-          },
-        ],
-        temperature: 0.8,
+        prompt: `Write a Twitter and LinkedIn post about how ${industry} businesses benefit from never missing a call with AI receptionists.`,
+        maxTokens: 1024,
       });
 
-      const raw = response.choices[0]?.message?.content || '';
-      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const data = JSON.parse(cleaned);
       return {
         twitter: (data.twitter || '').substring(0, 280),
         linkedin: (data.linkedin || '').substring(0, 2000),
@@ -320,7 +295,7 @@ export async function runContentSeoAgent(): Promise<ContentSeoResult> {
     return { blogsCreated: 0, socialDraftsCreated: 0, industries: [] };
   }
 
-  const useOpenAI = !!process.env.OPENAI_API_KEY;
+  const useOpenAI = !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
   let blogsCreated = 0;
   let socialDraftsCreated = 0;
   const industriesProcessed: string[] = [];

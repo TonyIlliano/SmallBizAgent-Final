@@ -146,7 +146,7 @@ router.get("/customers/tags", async (req, res) => {
         try {
           const parsed = JSON.parse((c as any).tags);
           if (Array.isArray(parsed)) parsed.forEach((t: string) => tagSet.add(t));
-        } catch {}
+        } catch (err) { console.error('[CustomerRoutes] Error:', err instanceof Error ? err.message : err); }
       }
     }
     res.json(Array.from(tagSet).sort());
@@ -392,7 +392,7 @@ router.post("/customers/:id/tags", async (req, res) => {
     // Merge with existing tags
     let existingTags: string[] = [];
     if ((customer as any).tags) {
-      try { existingTags = JSON.parse((customer as any).tags); } catch {}
+      try { existingTags = JSON.parse((customer as any).tags); } catch (err) { console.error('[CustomerRoutes] Error:', err instanceof Error ? err.message : err); }
     }
     const merged = Array.from(new Set([...existingTags, ...tags]));
 
@@ -428,7 +428,7 @@ router.delete("/customers/:id/tags/:tag", async (req, res) => {
 
     let existingTags: string[] = [];
     if ((customer as any).tags) {
-      try { existingTags = JSON.parse((customer as any).tags); } catch {}
+      try { existingTags = JSON.parse((customer as any).tags); } catch (err) { console.error('[CustomerRoutes] Error:', err instanceof Error ? err.message : err); }
     }
     const filtered = existingTags.filter(t => t !== tagToRemove);
 

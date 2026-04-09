@@ -13,7 +13,7 @@
  * 5. Answer promoted to business_knowledge → Vapi prompt updated
  */
 
-import OpenAI from 'openai';
+import { claudeJson } from './claudeClient';
 import { storage } from '../storage';
 import { debouncedUpdateRetellAgent } from './retellProvisioningService';
 
@@ -27,9 +27,9 @@ export async function analyzeTranscriptForUnansweredQuestions(
   transcript: string,
   callerPhone?: string
 ): Promise<void> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    // OpenAI not configured — silently skip
+    // Claude not configured — silently skip
     return;
   }
 
@@ -39,19 +39,10 @@ export async function analyzeTranscriptForUnansweredQuestions(
   }
 
   try {
-    const openai = new OpenAI({ apiKey });
-
     // Truncate very long transcripts
     const truncatedTranscript = transcript.substring(0, 15000);
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
-      temperature: 0.2,
-      max_completion_tokens: 1500,
-      messages: [
-        {
-          role: 'system',
-          content: `You are analyzing a phone call transcript between an AI receptionist and a caller.
+    const systemPrompt = `You are analyzing a phone call transcript between an AI receptionist and a caller.
 
 Identify any questions the caller asked that the AI could NOT fully answer, deflected, or gave a vague/generic response to.
 
@@ -76,29 +67,17 @@ Rules:
 - Maximum 5 unanswered questions per call
 - If all questions were answered well, return an empty array: []
 
-Return valid JSON array only, no markdown.`
-        },
-        {
-          role: 'user',
-          content: `Analyze this call transcript for unanswered questions:\n\n${truncatedTranscript}`
-        }
-      ],
-    });
-
-    const content = response.choices[0]?.message?.content?.trim();
-    if (!content) return;
-
-    // Parse JSON response
-    let jsonStr = content;
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
+Return valid JSON array only, no markdown.`;
 
     let detectedQuestions: Array<{ question: string; context: string }>;
     try {
-      detectedQuestions = JSON.parse(jsonStr);
+      detectedQuestions = await claudeJson<Array<{ question: string; context: string }>>({
+        system: systemPrompt,
+        prompt: `Analyze this call transcript for unanswered questions:\n\n${truncatedTranscript}`,
+        maxTokens: 1500,
+      });
     } catch {
-      console.warn('Failed to parse unanswered questions JSON:', content.substring(0, 200));
+      console.warn('Failed to get/parse unanswered questions JSON for call', callLogId);
       return;
     }
 

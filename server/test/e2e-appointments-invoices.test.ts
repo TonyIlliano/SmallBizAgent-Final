@@ -74,6 +74,7 @@ const { mockStorage } = vi.hoisted(() => {
       getAppointments: vi.fn(),
       getAppointment: vi.fn(),
       getAppointmentsByBusinessId: vi.fn(),
+      getUpcomingAppointmentsByBusinessId: vi.fn(),
       createAppointment: vi.fn(),
       updateAppointment: vi.fn(),
       deleteAppointment: vi.fn(),

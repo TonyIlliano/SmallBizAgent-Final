@@ -173,7 +173,8 @@ export interface IStorage {
   getAppointment(id: number): Promise<Appointment | undefined>;
   getAppointmentByManageToken(token: string): Promise<Appointment | undefined>;
   getAppointmentsByBusinessId(businessId: number): Promise<Appointment[]>;
-  getAppointmentsByCustomerId(customerId: number): Promise<Appointment[]>;
+  getUpcomingAppointmentsByBusinessId(businessId: number, limit?: number): Promise<Appointment[]>;
+  getAppointmentsByCustomerId(customerId: number, limit?: number): Promise<Appointment[]>;
   getAppointmentsByCustomerContact(email: string, phone: string): Promise<Appointment[]>;
   createAppointment(appointment: InsertAppointment): Promise<Appointment>;
   updateAppointment(id: number, appointment: Partial<Appointment>): Promise<Appointment>;
@@ -289,6 +290,7 @@ export interface IStorage {
   // Notification Log
   createNotificationLog(entry: InsertNotificationLog): Promise<NotificationLog>;
   getNotificationLogs(businessId: number, limit?: number): Promise<NotificationLog[]>;
+  hasNotificationLogByType(businessId: number, type: string, status?: string): Promise<boolean>;
   getAllPlatformNotificationLogs(limit?: number): Promise<NotificationLog[]>;
 
   // Clover Menu Cache
@@ -1102,12 +1104,26 @@ export class DatabaseStorage implements IStorage {
   // Helper methods for Vapi integration
   async getAppointmentsByBusinessId(businessId: number): Promise<Appointment[]> {
     return db.select().from(appointments)
-      .where(eq(appointments.businessId, businessId));
+      .where(eq(appointments.businessId, businessId))
+      .limit(1000);
   }
 
-  async getAppointmentsByCustomerId(customerId: number): Promise<Appointment[]> {
+  async getUpcomingAppointmentsByBusinessId(businessId: number, limit: number = 100): Promise<Appointment[]> {
+    const now = new Date();
     return db.select().from(appointments)
-      .where(eq(appointments.customerId, customerId));
+      .where(and(
+        eq(appointments.businessId, businessId),
+        gte(appointments.startDate, now)
+      ))
+      .orderBy(appointments.startDate)
+      .limit(limit);
+  }
+
+  async getAppointmentsByCustomerId(customerId: number, limit: number = 50): Promise<Appointment[]> {
+    return db.select().from(appointments)
+      .where(eq(appointments.customerId, customerId))
+      .orderBy(desc(appointments.startDate))
+      .limit(limit);
   }
 
   async getAppointmentsByCustomerContact(email: string, phone: string): Promise<Appointment[]> {
@@ -1856,6 +1872,17 @@ export class DatabaseStorage implements IStorage {
       .where(eq(notificationLog.businessId, businessId))
       .orderBy(desc(notificationLog.sentAt))
       .limit(limit);
+  }
+
+  async hasNotificationLogByType(businessId: number, type: string, status: string = 'sent'): Promise<boolean> {
+    const [row] = await db.select({ id: notificationLog.id }).from(notificationLog)
+      .where(and(
+        eq(notificationLog.businessId, businessId),
+        eq(notificationLog.type, type),
+        eq(notificationLog.status, status),
+      ))
+      .limit(1);
+    return !!row;
   }
 
   async getAllPlatformNotificationLogs(limit: number = 100): Promise<NotificationLog[]> {

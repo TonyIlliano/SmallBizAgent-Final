@@ -24,9 +24,9 @@ import {
   Loader2,
   AlertCircle,
   PhoneCall,
-  Play,
-  Headphones,
-  Volume2
+  Volume2,
+  Menu,
+  X
 } from "lucide-react";
 
 // Robot Logo SVG matching the SmallBizAgent brand
@@ -417,11 +417,8 @@ function PricingSection() {
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
             Simple, transparent pricing
           </h2>
-          <p className="text-neutral-400 text-lg mb-2">
-            14-day free trial. Cancel anytime before you're charged.
-          </p>
-          <p className="text-neutral-500 text-sm mb-8">
-            Card required at signup. You won't be billed until after your trial ends.
+          <p className="text-neutral-400 text-lg mb-8">
+            14-day free trial. No credit card required. Cancel anytime.
           </p>
           <div className="inline-flex items-center gap-3 bg-neutral-900 border border-neutral-800 rounded-full p-1">
             <button
@@ -516,6 +513,8 @@ function PricingSection() {
 }
 
 export default function LandingPage() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-black text-white">
       {/* Navigation */}
@@ -531,7 +530,7 @@ export default function LandingPage() {
               <a href="#pricing" className="text-sm text-neutral-400 hover:text-white transition-colors">Pricing</a>
               <a href="#why" className="text-sm text-neutral-400 hover:text-white transition-colors">Why Us</a>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-4">
               <a href="#get-started">
                 <Button variant="ghost" className="text-neutral-400 hover:text-white">
                   Login
@@ -543,7 +542,35 @@ export default function LandingPage() {
                 </Button>
               </a>
             </div>
+            {/* Mobile hamburger button */}
+            <button
+              className="md:hidden p-2 text-neutral-400 hover:text-white transition-colors"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle navigation menu"
+            >
+              {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </button>
           </div>
+          {/* Mobile menu dropdown */}
+          {mobileMenuOpen && (
+            <div className="md:hidden border-t border-neutral-800 py-4 space-y-3">
+              <a href="#features" className="block text-sm text-neutral-400 hover:text-white transition-colors px-2 py-2" onClick={() => setMobileMenuOpen(false)}>Features</a>
+              <a href="#pricing" className="block text-sm text-neutral-400 hover:text-white transition-colors px-2 py-2" onClick={() => setMobileMenuOpen(false)}>Pricing</a>
+              <a href="#why" className="block text-sm text-neutral-400 hover:text-white transition-colors px-2 py-2" onClick={() => setMobileMenuOpen(false)}>Why Us</a>
+              <div className="flex items-center gap-3 pt-2 border-t border-neutral-800">
+                <a href="#get-started" onClick={() => setMobileMenuOpen(false)}>
+                  <Button variant="ghost" className="text-neutral-400 hover:text-white">
+                    Login
+                  </Button>
+                </a>
+                <a href="#get-started" onClick={() => setMobileMenuOpen(false)}>
+                  <Button className="bg-white text-black hover:bg-neutral-200">
+                    Get Started
+                  </Button>
+                </a>
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -581,7 +608,7 @@ export default function LandingPage() {
               </a>
             </div>
             <p className="mt-6 text-sm text-neutral-500">
-              14-day free trial. Cancel anytime before you're charged.
+              14-day free trial. No credit card required. Cancel anytime.
             </p>
           </div>
 
@@ -652,35 +679,22 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Sample Calls */}
-          <div className="text-center mb-8">
-            <h3 className="text-xl font-semibold text-neutral-300 mb-2">
-              <Headphones className="inline h-5 w-5 mr-2" />
-              Or listen to real sample calls
-            </h3>
-            <p className="text-neutral-500 text-sm">
-              Hear how the AI handles different scenarios across industries
-            </p>
-          </div>
-
+          {/* How it works across industries */}
           <div className="grid md:grid-cols-3 gap-6">
             {[
               {
                 industry: "Plumbing",
                 scenario: "Emergency drain repair booking",
-                icon: "🔧",
                 description: "Customer calls at 8 PM about a clogged drain. AI checks availability and books a morning appointment.",
               },
               {
                 industry: "Salon",
                 scenario: "New client booking a haircut",
-                icon: "💇",
                 description: "First-time caller asks about services and pricing. AI walks them through options and books a slot.",
               },
               {
                 industry: "HVAC",
                 scenario: "AC unit not cooling",
-                icon: "❄️",
                 description: "Frustrated caller with a broken AC in summer. AI handles the urgency and schedules a technician.",
               },
             ].map((sample, i) => (
@@ -688,34 +702,16 @@ export default function LandingPage() {
                 key={i}
                 className="bg-neutral-900 rounded-xl p-6 border border-neutral-800 hover:border-neutral-700 transition-colors"
               >
-                <div className="text-3xl mb-3">{sample.icon}</div>
-                <div className="text-sm text-neutral-500 uppercase tracking-wider mb-1">{sample.industry}</div>
+                <div className="text-sm text-green-400 uppercase tracking-wider font-semibold mb-2">{sample.industry}</div>
                 <h4 className="font-semibold text-white mb-2">{sample.scenario}</h4>
-                <p className="text-neutral-400 text-sm mb-4">{sample.description}</p>
-                {/* Audio player placeholder — replace src with real recordings */}
-                <div className="bg-neutral-950 rounded-lg p-3 border border-neutral-800">
-                  <div className="flex items-center gap-3">
-                    <button className="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors flex-shrink-0">
-                      <Play className="h-4 w-4 text-white ml-0.5" />
-                    </button>
-                    <div className="flex-1">
-                      <div className="h-1 bg-neutral-800 rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 rounded-full" style={{ width: '0%' }} />
-                      </div>
-                      <div className="flex justify-between mt-1 text-xs text-neutral-600">
-                        <span>0:00</span>
-                        <span>Coming soon</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <p className="text-neutral-400 text-sm">{sample.description}</p>
               </div>
             ))}
           </div>
 
           <div className="text-center mt-8">
-            <p className="text-neutral-600 text-sm">
-              All demo calls use our standard AI receptionist. Your business gets a custom-trained version.
+            <p className="text-neutral-500 text-sm">
+              Call our demo line above to hear the AI handle these scenarios live. Your business gets a custom-trained version.
             </p>
           </div>
         </div>

@@ -43,9 +43,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | **Email** | SendGrid or Resend |
 | **SMS/Voice** | Twilio |
 | **AI Voice** | Retell AI (ElevenLabs + Cartesia + OpenAI voices, Twilio SIP trunking) |
-| **AI/LLM** | OpenAI (gpt-5-mini for Retell voice, gpt-5.4-mini for other services) |
+| **AI/LLM** | Claude (claude-sonnet-4-6 primary, OpenAI gpt-5.4-mini fallback) for agents/SMS/content. OpenAI (gpt-5-mini) for Retell AI voice only. |
+| **AI Client** | `server/services/claudeClient.ts` -- shared helpers (claudeJson, claudeText, claudeWithTools) with automatic OpenAI fallback |
 | **AI Memory** | Mem0 (persistent conversational memory) |
-| **AI Orchestration** | LangGraph.js (state machine agent graph with PostgreSQL checkpointing) |
+| **AI Orchestration** | Direct switch/case dispatcher (orchestrationService.ts). Claude Managed Agents (Phase 9) for social media, support chat, SMS intelligence. |
 | **Payments** | Stripe (Checkout, Connect, Billing Portal) |
 | **Calendar** | Google Calendar, Microsoft Graph, Apple iCal |
 | **POS** | Clover, Square, Heartland/Genius |
@@ -79,9 +80,11 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 │   ├── routes.ts              # Main route registration (huge file, ~6000 lines)
 │   ├── routes/                # Feature-specific route files
 │   ├── services/              # Business logic services (50+ files)
-│   │   └── platformAgents/    # AI platform agents (10 files)
+│   │   ├── platformAgents/    # AI platform agents (10 files)
+│   │   ├── managedAgents/     # Claude Managed Agent wrappers
+│   │   └── claudeClient.ts    # Shared AI inference layer (Claude primary, OpenAI fallback)
 │   ├── middleware/             # Auth middleware
-│   ├── utils/                 # s3Upload, encryption, etc.
+│   ├── utils/                 # s3Upload, encryption, safeAsync, apiError, etc.
 │   └── storage.ts             # Data access layer
 ├── shared/
 │   └── schema.ts              # Drizzle ORM schema (57 tables)
@@ -169,10 +172,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `users` | User accounts | username, email, password, role (user/staff/admin), businessId, emailVerified, twoFactorEnabled |
-| `businesses` | Business profiles | name, industry, type, phone, timezone, bookingSlug, twilioPhoneNumber, vapiAssistantId, subscriptionStatus, stripeCustomerId, gbpLastSyncedAt, all POS tokens |
+| `businesses` | Business profiles | name, industry, type, phone, timezone, bookingSlug, twilioPhoneNumber, retellAgentId, retellLlmId, retellPhoneNumberId, subscriptionStatus, stripeCustomerId, gbpLastSyncedAt, all POS tokens |
 | `business_hours` | Operating hours | businessId, day, open, close, isClosed |
 | `business_groups` | Multi-location groups | ownerUserId, stripeSubscriptionId, multiLocationDiscountPercent |
-| `business_phone_numbers` | Multiple Twilio numbers | businessId, twilioPhoneNumber, twilioPhoneNumberSid, vapiPhoneNumberId, isPrimary |
+| `business_phone_numbers` | Multiple Twilio numbers | businessId, twilioPhoneNumber, twilioPhoneNumberSid, retellPhoneNumberId, isPrimary |
 | `user_business_access` | Multi-business access | userId, businessId, role |
 
 ### Customers & Communication
@@ -293,11 +296,11 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Service | Purpose | External APIs |
 |---------|---------|---------------|
 | `followUpAgentService` | Thank-you + upsell SMS after completed jobs | Twilio |
-| `noShowAgentService` | No-show SMS with conversational rescheduling | Twilio, OpenAI |
+| `noShowAgentService` | No-show SMS with conversational rescheduling | Twilio, Claude |
 | `estimateFollowUpAgentService` | Quote follow-up SMS (3 attempts) | Twilio |
-| `rebookingAgentService` | Win-back SMS for inactive customers (30+ days) | Twilio, OpenAI |
-| `reviewResponseAgentService` | AI-drafted Google review responses | OpenAI, Google Business Profile |
-| `conversationalBookingService` | Multi-turn SMS booking via AI | OpenAI |
+| `rebookingAgentService` | Win-back SMS for inactive customers (30+ days) | Twilio, Claude |
+| `reviewResponseAgentService` | AI-drafted Google review responses | Claude, Google Business Profile |
+| `conversationalBookingService` | Multi-turn SMS booking via AI | Claude |
 
 ### Platform Agents (server/services/platformAgents/)
 | Agent | Purpose | Runs |
@@ -342,15 +345,15 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `dataRetentionService` | Auto-purge old recordings (90d) and transcripts (365d) |
 | `auditService` | Security event audit logging |
 | `webhookService` | Webhook delivery with retry logic |
-| `businessProvisioningService` | New business setup (Twilio + Vapi provisioning) |
+| `businessProvisioningService` | New business setup (Twilio + Retell provisioning) |
 | `inventoryService` | POS inventory sync + low-stock alerts |
-| `callIntelligenceService` | Post-call GPT-4o-mini transcript analysis (intent, sentiment, key facts, follow-up needs). Fire-and-forget from `handleEndOfCall()`. ~$0.01/call |
+| `callIntelligenceService` | Post-call Claude transcript analysis (intent, sentiment, key facts, follow-up needs). Fire-and-forget from `handleEndOfCall()`. ~$0.01/call |
 | `customerInsightsService` | Aggregates per-customer profile (LTV, preferences, risk, sentiment). Event-driven after intelligence extraction + nightly batch recalculation |
-| `orchestrationService` | Central event dispatcher. Routes `appointment.completed`, `appointment.no_show`, `job.completed`, `intelligence.ready`, `conversation.resolved` to appropriate agents with engagement lock checks |
+| `orchestrationService` | Central event dispatcher (direct switch/case). Routes `appointment.completed`, `appointment.no_show`, `job.completed`, `intelligence.ready`, `conversation.resolved` to appropriate agents with engagement lock checks |
 | `morningBriefService` | Daily 7am email digest per business timezone. Covers calls, bookings, revenue, agent activity, attention items. Skipped if zero activity |
 | `mem0Service` | Persistent AI memory layer via Mem0 cloud. Stores conversational context from calls/events per customer. Enriches recognizeCaller() with memory search. Multi-tenant scoped: `b{businessId}_c{customerId}`. Graceful degradation if API key missing |
-| `agentGraph` | LangGraph.js state machine orchestration. Replaces switch/case dispatcher with proper state graph: check_lock → load_context → route → action → log_result. PostgreSQL checkpointing. Falls back to switch/case if LangGraph unavailable |
-| `websiteGenerationService` | Generates complete one-page websites via OpenAI (gpt-5.4-mini). Pulls all business data from DB (hours, services, staff, branding, booking), builds dynamic prompt, returns self-contained HTML with embedded CSS. 15+ vertical design presets. Customization overrides (accent color, font style, hero headline/subheadline, CTA texts, about text, footer message, section toggles) |
+| `claudeClient` | Shared AI inference layer. Provides `claudeJson()`, `claudeText()`, `claudeWithTools()` helpers with automatic OpenAI fallback when Claude is unavailable | Claude (primary), OpenAI (fallback) |
+| `websiteGenerationService` | Generates complete one-page websites via Claude (OpenAI fallback). Pulls all business data from DB (hours, services, staff, branding, booking), builds dynamic prompt, returns self-contained HTML with embedded CSS. 15+ vertical design presets. Customization overrides (accent color, font style, hero headline/subheadline, CTA texts, about text, footer message, section toggles) |
 | `googleBusinessProfileService` | Full bi-directional GBP sync. OAuth via `calendarIntegrations` (provider='google-business-profile'). Business info pull/push with conflict detection. Review sync + auto-flag low ratings. Local post creation/publishing. SEO score calculation (100-point, 12 criteria). `runGbpSync()` for scheduler. GBP API v1 (business info) + v4 (reviews/posts) |
 
 ---
@@ -388,7 +391,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `expressSetupRoutes` | `/api/onboarding/*` | Express onboarding (2-minute setup with auto-provisioning) |
 | `websiteBuilderRoutes` | `/api/website-builder/*`, `/sites/*` | Business scanner, OpenAI website generation, domain management, website serving, feature gates |
 
-**Note:** Many routes are also defined inline in `server/routes.ts` (~6000 lines), especially auth, call logs, invoices, jobs, Twilio/Vapi webhooks.
+**Note:** Many routes are also defined inline in `server/routes.ts` (~6000 lines), especially auth, call logs, invoices, jobs, Twilio/Retell webhooks.
 
 **Intelligence & Insights API endpoints (inline in routes.ts):**
 - `GET /api/call-intelligence/:callLogId` — Intelligence for a specific call
@@ -400,7 +403,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `GET /api/analytics/ai-roi` — AI-attributed revenue funnel (calls → bookings → revenue, ROI, conversion rate)
 
 **Admin business/user management endpoints (adminRoutes.ts):**
-- `POST /api/admin/businesses/:id/provision` — Re-provision Twilio + Vapi for a business
+- `POST /api/admin/businesses/:id/provision` — Re-provision Twilio + Retell for a business
 - `POST /api/admin/businesses/:id/deprovision` — Release resources and mark business canceled
 - `GET /api/admin/businesses/:id/detail` — Detailed business view (services, staff, hours, customers, calls, revenue, config)
 - `POST /api/admin/users/:id/disable` — Disable a user account
@@ -414,10 +417,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `POST /api/admin/stop-impersonation` — Stop impersonating, restore admin context
 
 **Express onboarding endpoint (expressSetupRoutes.ts):**
-- `POST /api/onboarding/express-setup` — One-step business setup (create business, services, hours, provision Twilio+Vapi)
+- `POST /api/onboarding/express-setup` — One-step business setup (create business, services, hours, provision Twilio+Retell)
 
 **Website Builder endpoints (websiteBuilderRoutes.ts):**
-- `POST /api/website-builder/generate` — Generate website from DB data via OpenAI (gpt-5.4-mini). Accepts optional `{ customizations }`. Returns `{ html, generated_at, preview_url }`
+- `POST /api/website-builder/generate` — Generate website from DB data via Claude (OpenAI fallback). Accepts optional `{ customizations }`. Returns `{ html, generated_at, preview_url }`
 - `PUT /api/website-builder/customizations` — Save customization preferences without regenerating
 - `GET /api/website-builder/domain` — Get current domain info + feature gates + customizations for UI
 - `POST /api/website-builder/set-custom-domain` — Set custom domain, return CNAME instructions (Professional+ plan)
@@ -455,6 +458,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `DATABASE_URL` | PostgreSQL connection (Neon) |
 | `SESSION_SECRET` | Express session encryption |
 | `APP_URL` | Public URL (customer links, video branding, SMS links, CORS) |
+| `ANTHROPIC_API_KEY` | Claude API key (primary AI provider) |
 
 ### Communication
 | Variable | Purpose |
@@ -474,7 +478,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 ### AI & Content
 | Variable | Purpose |
 |----------|---------|
-| `OPENAI_API_KEY` | GPT-4o-mini for agents, content, booking |
+| `OPENAI_API_KEY` | OpenAI API key (fallback AI provider + Retell voice + TTS) |
 | `SHOTSTACK_API_KEY` | Video rendering |
 | `SHOTSTACK_ENV` | `v1` (production) or `stage` (sandbox) |
 | `PEXELS_API_KEY` | Pexels stock video search (free API, optional — videos render without b-roll if missing) |
@@ -525,6 +529,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (client) |
 | `SLACK_WEBHOOK_URL` | Slack incoming webhook for admin alerts (optional) |
 | `ADMIN_TIMEZONE` | Timezone for admin digest email, default `America/New_York` (optional) |
+| `MANAGED_AGENT_ENV_ID` | Claude Managed Agents environment ID (optional) |
+| `SOCIAL_MEDIA_AGENT_ID` | Claude Managed Agent ID for social media (optional) |
+| `SUPPORT_AGENT_ID` | Claude Managed Agent ID for support chat (optional) |
+| `SMS_INTELLIGENCE_AGENT_ID` | Claude Managed Agent ID for SMS intelligence (optional) |
 
 ---
 
@@ -677,6 +685,46 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `cf664cf` | Enhance admin dashboard: business controls, user management, live monitoring |
 
 ### Recent changes (uncommitted):
+
+#### Master Overhaul — Claude Migration, Dead Code Removal, UX Fixes (Phases 1-7)
+- **Phase 1 — Vapi Dead Code Removal**: Deleted 6 Vapi service files (~305KB): vapiService.ts, vapiWebhookHandler.ts, vapiProvisioningService.ts, and 3 .deprecated variants. Renamed all /api/vapi/ routes to /api/retell/. Updated 12 frontend+backend files referencing old Vapi paths.
+- **Phase 2 — LangGraph Removal**: Deleted agentGraph.ts + replyIntelligenceGraph.ts. Removed 4 LangGraph npm packages (@langchain/langgraph, @langchain/core, @langchain/community, @langchain/openai). Orchestration now uses direct switch/case dispatcher in orchestrationService.ts. SMS reply routing falls back to smsConversationRouter.ts directly.
+- **Phase 3 — Silent Error Fix**: Fixed 86 silent `.catch(() => {})` patterns across 21 files. Created `logAndSwallow()` utility (`server/utils/safeAsync.ts`) for fire-and-forget operations that logs errors instead of swallowing them silently.
+- **Phase 4 — Appointment Query Safety**: Added `getUpcomingAppointmentsByBusinessId()` with date filter to storage layer. Added safety caps (LIMIT 100-500) on all appointment queries to prevent unbounded result sets.
+- **Phase 5 — Claude AI Migration**: Swapped 14 services from OpenAI to Claude Messages API via shared `claudeClient.ts` (`server/services/claudeClient.ts`). Provides `claudeJson()`, `claudeText()`, `claudeWithTools()` helpers with automatic OpenAI fallback when ANTHROPIC_API_KEY is missing. Support chat refactored from OpenAI function_call format to Claude tool_use format. Services migrated: callIntelligenceService, messageIntelligenceService, autoRefineService, businessScannerService, websiteGenerationService, systemPromptBuilder (intelligence hints), socialMediaAgent, contentSeoAgent, reviewResponseAgentService, conversationalBookingService, noShowAgentService, rebookingAgentService, supportChatRoutes, morningBriefService.
+- **Phase 6 — UX Overhaul**: Landing page (removed fake audio player, added mobile hamburger nav, fixed trial messaging). Settings page (19 tabs collapsed to 5 collapsible sections). Dashboard (Get Started card for new users with no data). Receptionist page (smart default tab selection, collapsible info card). Wired 6 SMS onboarding steps into wizard flow. Replaced mobile Logout button with "More" bottom sheet. Replaced contact page mailto link with real `/api/contact` POST endpoint.
+- **Phase 7 — Type Safety & Scheduler Optimization**: Removed 25+ `as any` type casts across codebase. Created `apiError` utility (`server/utils/apiError.ts`) for consistent HTTP error responses. Optimized scheduler from N independent `setInterval` timers to 1 global tick loop. Added `hasNotificationLogByType()` for efficient deduplication queries.
+
+##### Files Added
+- `server/services/claudeClient.ts` — Shared AI inference layer (Claude primary, OpenAI fallback)
+- `server/utils/safeAsync.ts` — `logAndSwallow()` utility for fire-and-forget error logging
+- `server/utils/apiError.ts` — Consistent HTTP error response helper
+- `server/services/managedAgents/` — Claude Managed Agent wrappers directory
+
+##### Files Deleted
+- `server/services/vapiService.ts` — Replaced by retellService.ts
+- `server/services/vapiWebhookHandler.ts` — Replaced by retellWebhookHandler.ts
+- `server/services/vapiProvisioningService.ts` — Replaced by retellProvisioningService.ts
+- `server/services/vapiService.deprecated.ts` — Dead code
+- `server/services/vapiWebhookHandler.deprecated.ts` — Dead code
+- `server/services/vapiProvisioningService.deprecated.ts` — Dead code
+- `server/services/agentGraph.ts` — LangGraph orchestration (replaced by direct switch/case)
+- `server/services/replyIntelligenceGraph.ts` — LangGraph SMS reply graph (replaced by smsConversationRouter)
+
+##### NPM Packages Removed
+- `@langchain/langgraph`, `@langchain/core`, `@langchain/community`, `@langchain/openai`
+
+##### NPM Packages Added
+- `@anthropic-ai/sdk` — Claude API client
+
+##### Environment Variable Changes
+- **Added**: `ANTHROPIC_API_KEY` (required — primary AI provider)
+- **Updated**: `OPENAI_API_KEY` (now fallback only + Retell voice + TTS)
+- **Removed**: `VAPI_API_KEY`, `VAPI_WEBHOOK_SECRET` (no longer used)
+
+##### Route Changes
+- All `/api/vapi/*` routes renamed to `/api/retell/*`
+- Scheduler: `startVapiDailyRefreshScheduler` renamed to `startRetellDailyRefreshScheduler`
 
 #### Blue-Collar Mode Phase 1 — Tab Swap, Jobs Calendar, Status SMS, Auto-Invoice
 - **Goal**: Transform the experience for job-category businesses (HVAC, plumbing, electrical, landscaping, construction, pest control, roofing, painting) so the platform feels built for field service.
@@ -1182,7 +1230,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - **Goal**: Reduce onboarding friction — new users can go from signup to fully provisioned AI receptionist in 2 minutes.
 - `client/src/pages/onboarding/steps/welcome.tsx` — Welcome step now shows two paths: "Quick Setup (2 minutes)" (recommended) and "Detailed Setup (5-10 minutes)" (existing 9-step wizard).
 - `client/src/pages/onboarding/steps/express-setup.tsx` — **NEW**: Single-page form: business name, industry dropdown (19 options), phone, email, address. Shows provisioning progress animation. Redirects to dashboard with setup checklist for optional refinement.
-- `server/routes/expressSetupRoutes.ts` — **NEW**: `POST /api/onboarding/express-setup` — atomic endpoint that: creates business + links to user + sets 14-day trial, maps industry to template (12 templates, 5-10 services each), bulk-creates services from matched template, creates default Mon-Fri 9am-5pm business hours, fires Twilio + Vapi provisioning in background, marks onboarding complete. Industry-to-template mapping covers all 19 industry options.
+- `server/routes/expressSetupRoutes.ts` — **NEW**: `POST /api/onboarding/express-setup` — atomic endpoint that: creates business + links to user + sets 14-day trial, maps industry to template (12 templates, 5-10 services each), bulk-creates services from matched template, creates default Mon-Fri 9am-5pm business hours, fires Twilio + Retell provisioning in background, marks onboarding complete. Industry-to-template mapping covers all 19 industry options.
 - `client/src/pages/onboarding/index.tsx` — Updated to handle express setup path selection from welcome step.
 - `server/routes.ts` — Mounted `expressSetupRoutes` at `/api/onboarding`.
 
@@ -1256,7 +1304,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - **Goal**: Fix 3 critical bugs in the subscription lifecycle that could cause revenue loss or resource leaks.
 - `server/services/schedulerService.ts` — **BUG FIX (CRITICAL)**: Trial expiration scheduler was skipping businesses with `subscriptionStatus: 'trialing'` (line 606), meaning expired trials were never detected. Fixed: now only skips `'active'` status. After deprovisioning, updates `subscriptionStatus` to `'expired'`. Also added 7-day trial warning (was only 3-day and 1-day).
 - `server/services/usageService.ts` — **BUG FIX (CRITICAL)**: `isSubscribed` check treated `'trialing'` as subscribed even when trial had expired. Fixed: `'trialing'` only counts if `isTrialActive` is true (checks actual `trialEndsAt` date). Applied to both `getUsageInfo()` and `canBusinessAcceptCalls()`.
-- `server/services/schedulerService.ts` — **NEW**: `startDunningDeprovisionScheduler()` runs every 12 hours. Checks businesses with `'past_due'` or `'payment_failed'` status for 7+ days (grace period). Deprovisions Twilio/Vapi resources, updates status to `'suspended'`, sends suspension email. Uses advisory lock for cross-instance safety.
+- `server/services/schedulerService.ts` — **NEW**: `startDunningDeprovisionScheduler()` runs every 12 hours. Checks businesses with `'past_due'` or `'payment_failed'` status for 7+ days (grace period). Deprovisions Twilio/Retell resources, updates status to `'suspended'`, sends suspension email. Uses advisory lock for cross-instance safety.
 - `server/services/subscriptionService.ts` — **NEW**: `handleInvoicePaymentSucceeded()` now auto-re-provisions businesses that were previously deprovisioned (canceled/expired/suspended/past_due). Calls `provisionBusiness()`, sets `subscriptionStartDate`, sends welcome-back email. Users no longer need to manually reprovision after resubscribing.
 - `server/services/subscriptionService.ts` — **BUG FIX**: `handleSubscriptionCanceled()` now clears `stripeSubscriptionId` to `null` so resubscription creates a clean new subscription.
 - `server/services/subscriptionService.ts` — **FIX**: `createSubscription()` now sets `subscriptionStartDate` for accurate overage billing period calculation.
@@ -1424,7 +1472,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - **Design**: Instead of immediately deprovisioning when a trial expires, the system now uses a 30-day grace period:
   - **Trial active**: Full AI features, phone number, everything works
   - **Trial expired → `grace_period` (0-30 days)**: Phone number KEPT, AI calls DISABLED (`receptionistEnabled: false`). Business can still log in, manage customers, etc. Nudge emails sent at 0, 7, 14, 21 days past expiry encouraging subscription.
-  - **30+ days past trial, no subscription → `expired`**: Phone number RELEASED, Vapi assistant deleted, final notification sent.
+  - **30+ days past trial, no subscription → `expired`**: Phone number RELEASED, Retell agent deleted, final notification sent.
 - `server/services/schedulerService.ts` — `runTrialExpirationCheck()` rewritten with 2-phase model: Phase 1 sets status to `grace_period` and disables AI. Phase 2 (after 30 days) calls `deprovisionBusiness()`. Added `sendGracePeriodNudge()` and `sendDeprovisionNotification()` helper functions. Admin businesses and founder accounts are always protected.
 - `server/services/usageService.ts` — `canBusinessAcceptCalls()` now explicitly blocks `grace_period` businesses with friendly message. `getUsageInfo()` returns `planName: 'Grace Period (AI Paused)'` and `planTier: 'grace_period'` for these businesses.
 - `server/services/subscriptionService.ts` — `handleInvoicePaymentSucceeded()` now handles `grace_period` businesses: if they still have a phone number, just re-enables AI (`receptionistEnabled: true`) without re-provisioning. If fully deprovisioned, triggers full `provisionBusiness()`.
@@ -1471,7 +1519,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Agent orchestration | `server/services/orchestrationService.ts` |
 | Morning brief email | `server/services/morningBriefService.ts` |
 | Mem0 persistent memory | `server/services/mem0Service.ts` |
-| LangGraph agent graph | `server/services/agentGraph.ts` |
+| Claude AI client | `server/services/claudeClient.ts` |
+| Safe async utility | `server/utils/safeAsync.ts` |
+| API error utility | `server/utils/apiError.ts` |
+| Managed Agents (Claude) | `server/services/managedAgents/` |
 | Express onboarding | `server/routes/expressSetupRoutes.ts` |
 | Express setup UI | `client/src/pages/onboarding/steps/express-setup.tsx` |
 | Error boundary | `client/src/components/ui/error-boundary.tsx` |
@@ -1488,7 +1539,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | GBP dashboard UI | `client/src/pages/google-business-profile.tsx` |
 | GBP settings card | `client/src/components/settings/GoogleBusinessProfile.tsx` |
 | Message Intelligence Service | `server/services/messageIntelligenceService.ts` |
-| Reply Intelligence Graph | `server/services/replyIntelligenceGraph.ts` |
+| Reply Intelligence (SMS) | `server/services/smsConversationRouter.ts` |
 | Marketing Trigger Engine | `server/services/marketingTriggerEngine.ts` |
 | Campaign Service | `server/services/smsCampaignService.ts` |
 | Vertical SMS Config | `server/config/verticals.ts` |

@@ -14,12 +14,13 @@
  *   Agent/Trigger/Notification → messageIntelligenceService.generateMessage() → twilioService.sendSms()
  */
 
-import OpenAI from 'openai';
+import { claudeText } from './claudeClient';
 import { storage } from '../storage';
 import { sendSms } from './twilioService';
 import { getVerticalConfig, type VerticalConfig } from '../config/verticals';
 import { fillTemplate } from './agentSettingsService';
 import type { SmsBusinessProfile, CustomerInsightsRow } from '@shared/schema';
+import { logAndSwallow } from '../utils/safeAsync';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -186,7 +187,7 @@ export async function generateMessage(ctx: MessageContext): Promise<MessageResul
       // ── AI generation path ──
       const profileComplete = smsProfile?.profileComplete === true;
 
-      if (!profileComplete || !process.env.OPENAI_API_KEY) {
+      if (!profileComplete || !process.env.ANTHROPIC_API_KEY) {
         // Profile not complete or no OpenAI key — use fallback template
         if (ctx.fallbackTemplate && ctx.fallbackVars) {
           body = fillTemplate(ctx.fallbackTemplate, ctx.fallbackVars);
@@ -267,15 +268,15 @@ export async function generateMessage(ctx: MessageContext): Promise<MessageResul
         lastMessageType: ctx.messageType,
         awaitingResponse: ctx.isMarketing, // Marketing messages expect a reply; transactional don't
         activeCampaignSequenceId: ctx.sequenceId ?? null,
-      }).catch(() => {});
+      }).catch(logAndSwallow('MIS'));
     }
 
     // ── 12. Store in Mem0 (fire-and-forget) ──
     if (ctx.customerId) {
       import('./mem0Service').then(({ addMemory }) => {
         const memContent = `Sent ${ctx.messageType} SMS: "${body.substring(0, 80)}..."`;
-        addMemory(ctx.businessId, ctx.customerId, [{ role: 'assistant', content: memContent }]).catch(() => {});
-      }).catch(() => {});
+        addMemory(ctx.businessId, ctx.customerId, [{ role: 'assistant', content: memContent }]).catch(logAndSwallow('MIS'));
+      }).catch(logAndSwallow('MIS'));
     }
 
     // ── 13. Write to activity feed (fire-and-forget) ──
@@ -292,8 +293,8 @@ export async function generateMessage(ctx: MessageContext): Promise<MessageResul
           messageType: ctx.messageType,
           aiGenerated: !fallbackUsed && !ctx.useTemplate,
         },
-      }).catch(() => {});
-    } catch {}
+      }).catch(logAndSwallow('MIS'));
+    } catch (err) { console.error('[MIS] Error:', err instanceof Error ? err.message : err); }
 
     return {
       success: true,
@@ -325,8 +326,6 @@ async function generateAiMessage(
   vertical: VerticalConfig,
   smsProfile: SmsBusinessProfile,
 ): Promise<AiResult> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
   // Load customer insights + memory in parallel
   let customerInsights: CustomerInsightsRow | null = null;
   let mem0Context = '';
@@ -345,17 +344,13 @@ async function generateAiMessage(
   const systemPrompt = buildSystemPrompt(business, vertical, smsProfile, customerInsights, mem0Context, ctx);
   const userPrompt = buildUserPrompt(ctx);
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-5.4-mini',
-    temperature: 0.7,
-    max_completion_tokens: 100,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
+  let body = await claudeText({
+    system: systemPrompt,
+    prompt: userPrompt,
+    maxTokens: 100,
   });
 
-  let body = response.choices[0]?.message?.content?.trim() ?? '';
+  body = body?.trim() ?? '';
 
   // Strip any wrapping quotes the AI might add
   if ((body.startsWith('"') && body.endsWith('"')) || (body.startsWith("'") && body.endsWith("'"))) {
@@ -379,8 +374,8 @@ async function generateAiMessage(
 
   return {
     body,
-    modelUsed: 'gpt-5.4-mini',
-    tokenCount: response.usage?.total_tokens ?? 0,
+    modelUsed: 'claude-sonnet-4-6',
+    tokenCount: 0,
   };
 }
 
@@ -422,7 +417,7 @@ function buildSystemPrompt(
       if (Array.isArray(services) && services.length > 0) {
         parts.push(`Services: ${services.map((s: any) => s.name).join(', ')}`);
       }
-    } catch {}
+    } catch (err) { console.error('[MIS] Error:', err instanceof Error ? err.message : err); }
   }
   if (smsProfile.staffMembers) {
     try {
@@ -430,7 +425,7 @@ function buildSystemPrompt(
       if (Array.isArray(staff) && staff.length > 0) {
         parts.push(`Team: ${staff.map((s: any) => `${s.name} (${s.role})`).join(', ')}`);
       }
-    } catch {}
+    } catch (err) { console.error('[MIS] Error:', err instanceof Error ? err.message : err); }
   }
 
   // Customer context (from Mem0 + insights)

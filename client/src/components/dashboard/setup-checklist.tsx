@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/use-auth';
 import { useQuery } from '@tanstack/react-query';
-import { apiRequest, queryClient } from '@/lib/queryClient';
-
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -352,7 +350,7 @@ function getChecklistItems(status: SetupStatus): ChecklistItemConfig[] {
 export function SetupChecklist() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const [isDismissed, setIsDismissed] = useState(user?.setupChecklistDismissed ?? false);
+  const [isDismissed, setIsDismissed] = useState(false);
 
   const { data: setupStatus, isLoading } = useQuery<SetupStatus>({
     queryKey: ['/api/business/setup-status'],
@@ -360,17 +358,15 @@ export function SetupChecklist() {
     refetchInterval: 30000,
   });
 
-  const handleDismiss = async () => {
+  const handleDismiss = () => {
     setIsDismissed(true);
-    try {
-      await apiRequest('POST', '/api/user/setup-checklist-dismiss', { dismissed: true });
-      await queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-    } catch (error) {
-      console.error('Error dismissing checklist:', error);
-    }
   };
 
-  if (isDismissed || !user?.businessId) return null;
+  const handleShow = () => {
+    setIsDismissed(false);
+  };
+
+  if (!user?.businessId) return null;
 
   if (isLoading) {
     return (
@@ -391,6 +387,22 @@ export function SetupChecklist() {
   const progressPercent = totalItems > 0 ? Math.round((completedCount / totalItems) * 100) : 0;
 
   if (completedCount === totalItems) return null;
+
+  if (isDismissed) {
+    return (
+      <div className="flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={handleShow}
+        >
+          <ChevronRight className="h-4 w-4 mr-1 rotate-90" />
+          Show Setup Guide ({completedCount}/{totalItems})
+        </Button>
+      </div>
+    );
+  }
 
   const firstIncomplete = items.find(i => !i.isCompleted);
 

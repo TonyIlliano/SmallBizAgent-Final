@@ -349,7 +349,7 @@ export function registerExpressSetupRoutes(app: Express) {
         console.log("[ExpressSetup] Business hours created (Mon-Fri 9-5, Sat+Sun closed)");
 
         // -----------------------------------------------------------------
-        // 7. Fire-and-forget: start provisioning (Twilio + Vapi)
+        // 7. Fire-and-forget: start provisioning (Twilio + Retell AI)
         // -----------------------------------------------------------------
         let provisioningStarted = false;
         try {

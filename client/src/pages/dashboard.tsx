@@ -32,8 +32,12 @@ import {
   UserPlus,
   AlertTriangle,
   ArrowRight,
-  Mic
+  Mic,
+  Bot,
+  ListChecks,
+  Share2
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 // Analytics data interface
 interface BusinessAnalytics {
@@ -287,6 +291,55 @@ export default function Dashboard() {
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </div>
         </div>
+
+        {/* Get Started Card — shown for new users with zero data */}
+        {analytics && !analyticsLoading && (
+          analytics.calls.totalCalls === 0 &&
+          analytics.appointments.totalAppointments === 0 &&
+          analytics.revenue.totalRevenue === 0
+        ) && (
+          <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 shadow-md">
+            <CardContent className="p-6">
+              <h3 className="text-xl font-bold text-foreground mb-1">Welcome! Get your business set up in 3 steps</h3>
+              <p className="text-sm text-muted-foreground mb-5">Complete these steps to start receiving AI-answered calls and online bookings.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Link href="/receptionist">
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-card border border-border hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer h-full">
+                    <div className="flex-shrink-0 p-2.5 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                      <Bot className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">1. Set up your AI receptionist</div>
+                      <p className="text-xs text-muted-foreground mt-0.5">Configure your greeting, voice, and call handling</p>
+                    </div>
+                  </div>
+                </Link>
+                <Link href="/settings?tab=services">
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-card border border-border hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer h-full">
+                    <div className="flex-shrink-0 p-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">
+                      <ListChecks className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">2. Add your services & hours</div>
+                      <p className="text-xs text-muted-foreground mt-0.5">Define what you offer and when you are available</p>
+                    </div>
+                  </div>
+                </Link>
+                <Link href="/settings?tab=booking">
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-card border border-border hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer h-full">
+                    <div className="flex-shrink-0 p-2.5 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
+                      <Share2 className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">3. Share your booking page</div>
+                      <p className="text-xs text-muted-foreground mt-0.5">Let customers book appointments online 24/7</p>
+                    </div>
+                  </div>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Setup Checklist */}
         <SetupChecklist />

@@ -161,7 +161,7 @@ export default function SupportPage() {
               </div>
               <h3 className="text-lg font-semibold text-white mb-2">Priority Support</h3>
               <p className="text-neutral-400 text-sm mb-4">
-                Professional and Business plan subscribers get priority response times.
+                Growth and Pro plan subscribers get priority response times.
               </p>
               <div className="text-sm text-neutral-300 space-y-1">
                 <p>Response within</p>

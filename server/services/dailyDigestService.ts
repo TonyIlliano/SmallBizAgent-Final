@@ -38,7 +38,7 @@ export async function processDailyDigests(businessIds?: number[]): Promise<void>
         if (!business.email) continue;
 
         // Skip inactive businesses
-        const status = (business as any).subscriptionStatus;
+        const status = business.subscriptionStatus;
         if (status === "canceled" || status === "unpaid") continue;
 
         const didSend = await sendDigestForBusiness(business);

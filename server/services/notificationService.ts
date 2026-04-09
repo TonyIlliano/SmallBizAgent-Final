@@ -104,7 +104,7 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
     }
 
     const appointmentDate = new Date(appointment.startDate);
-    const tz = (business as any).timezone || undefined;
+    const tz = business.timezone || undefined;
     const dateStr = formatDate(appointmentDate, tz);
     const timeStr = formatTime(appointmentDate, tz);
 
@@ -228,7 +228,7 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
     }
 
     const appointmentDate = new Date(appointment.startDate);
-    const tz = (business as any).timezone || undefined;
+    const tz = business.timezone || undefined;
     const dateStr = formatDate(appointmentDate, tz);
     const timeStr = formatTime(appointmentDate, tz);
 
@@ -1077,7 +1077,7 @@ export async function sendReservationConfirmation(reservationId: number, busines
     if (!business) return;
 
     const reservationDate = new Date(reservation.startDate);
-    const tz = (business as any).timezone || undefined;
+    const tz = business.timezone || undefined;
     const dateStr = formatDate(reservationDate, tz);
     const timeStr = formatTime(reservationDate, tz);
     const partyStr = reservation.partySize === 1 ? '1 guest' : `${reservation.partySize} guests`;

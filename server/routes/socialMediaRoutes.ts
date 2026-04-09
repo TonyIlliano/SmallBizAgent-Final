@@ -612,15 +612,13 @@ router.post('/generate-from-winners', isAdmin, async (req: Request, res: Respons
       })
       .join('\n\n');
 
-    const OpenAI = (await import('openai')).default;
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const { claudeJson } = await import('../services/claudeClient');
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a social media strategist for SmallBizAgent (smallbizagent.ai) — an AI-powered business management platform for small service businesses. The platform includes AI voice reception, SMS automation, CRM, scheduling, invoicing, and marketing tools.
+    let generated: Array<{ pillar: string; content: string; hashtags: string[] }>;
+
+    try {
+      generated = await claudeJson<Array<{ pillar: string; content: string; hashtags: string[] }>>({
+        system: `You are a social media strategist for SmallBizAgent (smallbizagent.ai) — an AI-powered business management platform for small service businesses. The platform includes AI voice reception, SMS automation, CRM, scheduling, invoicing, and marketing tools.
 
 Analyze these top-performing posts and create ${postCount} new ${platform} posts targeting ${vertical} business owners. Model them after what made the winners work — their hook style, tone, structure, and emotional triggers.
 
@@ -637,18 +635,9 @@ Rotate through these content pillars across the posts:
 
 Return ONLY valid JSON array. No markdown, no explanation:
 [{ "pillar": "...", "content": "full post text", "hashtags": ["tag1", "tag2"] }]`,
-        },
-      ],
-      temperature: 0.85,
-      max_completion_tokens: 2000,
-    });
-
-    const text = response.choices?.[0]?.message?.content || '';
-    const clean = text.replace(/```json|```/g, '').trim();
-    let generated: Array<{ pillar: string; content: string; hashtags: string[] }>;
-
-    try {
-      generated = JSON.parse(clean);
+        prompt: `Generate ${postCount} ${platform} posts for ${vertical} business owners based on the winner examples above.`,
+        maxTokens: 2000,
+      });
     } catch {
       return res.status(500).json({ error: 'Failed to parse AI response. Try again.' });
     }
@@ -667,7 +656,7 @@ Return ONLY valid JSON array. No markdown, no explanation:
           generatedVia: 'winner_training',
           pillar: post.pillar,
           sourceWinners: winners.map(w => w.id),
-          model: 'gpt-5.4-mini',
+          model: 'claude-sonnet-4-6',
         },
       });
       draftsGenerated++;
@@ -716,15 +705,13 @@ router.post('/video-brief', isAdmin, async (req: Request, res: Response) => {
 
     const pillarLabel = pillar || 'Pain Amplification';
 
-    const OpenAI = (await import('openai')).default;
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const { claudeJson } = await import('../services/claudeClient');
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a social media video ad strategist for SmallBizAgent (smallbizagent.ai) — an AI-powered platform for small service businesses (AI voice reception, SMS automation, CRM, scheduling, invoicing, marketing).
+    let briefData: any;
+
+    try {
+      briefData = await claudeJson<any>({
+        system: `You are a social media video ad strategist for SmallBizAgent (smallbizagent.ai) — an AI-powered platform for small service businesses (AI voice reception, SMS automation, CRM, scheduling, invoicing, marketing).
 
 Create a split-screen video ad brief targeting ${vertical} owners on ${platform}.
 
@@ -753,18 +740,9 @@ Return ONLY valid JSON, no markdown:
   "stock_search_terms": ["search term 1", "search term 2"],
   "estimated_duration": 25
 }`,
-        },
-      ],
-      temperature: 0.8,
-      max_completion_tokens: 1500,
-    });
-
-    const text = response.choices?.[0]?.message?.content || '';
-    const clean = text.replace(/```json|```/g, '').trim();
-    let briefData: any;
-
-    try {
-      briefData = JSON.parse(clean);
+        prompt: `Generate a video ad brief for ${vertical} business owners on ${platform}. Content pillar: ${pillarLabel}.`,
+        maxTokens: 1500,
+      });
     } catch {
       return res.status(500).json({ error: 'Failed to parse AI response. Try again.' });
     }

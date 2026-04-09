@@ -273,11 +273,11 @@ app.use((req, res, next) => {
     '/api/stripe-webhook',
     '/api/subscription/webhook',
     '/api/twilio/',
-    '/api/vapi/',
     '/api/retell/',
     '/api/clover-webhook',
     '/api/square-webhook',
     '/api/config/public',
+    '/api/contact',
     '/health',
   ];
 
@@ -345,21 +345,8 @@ app.use((req, res, next) => {
       console.warn('[Mem0] Init failed (non-fatal):', err);
     }
 
-    // Initialize LangGraph agent state machine (optional — falls back to switch/case orchestration)
-    try {
-      const { initAgentGraph } = await import('./services/agentGraph');
-      await initAgentGraph();
-    } catch (err) {
-      console.warn('[AgentGraph] Init failed (non-fatal) — orchestrator will use fallback:', err);
-    }
-
-    // Initialize Reply Intelligence Graph (SMS inbound AI — optional, falls back to existing router)
-    try {
-      const { initReplyIntelligenceGraph } = await import('./services/replyIntelligenceGraph');
-      await initReplyIntelligenceGraph();
-    } catch (err) {
-      console.warn('[ReplyGraph] Init failed (non-fatal) — SMS replies will use existing router:', err);
-    }
+    // [LangGraph REMOVED] — Orchestration now uses direct switch/case dispatcher
+    // SMS replies now use smsConversationRouter directly (with Claude AI classification in Phase 5)
 
     // Initialize Remotion bundle cache (non-blocking)
     try {

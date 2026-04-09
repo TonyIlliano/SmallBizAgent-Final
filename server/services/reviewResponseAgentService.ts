@@ -7,7 +7,7 @@
  * All responses require manual owner approval — nothing is auto-posted.
  */
 
-import OpenAI from 'openai';
+import { claudeText } from './claudeClient';
 import { storage } from '../storage';
 import { isAgentEnabled, getAgentConfig } from './agentSettingsService';
 import { logAgentAction } from './agentActivityService';
@@ -130,9 +130,8 @@ async function generateReviewResponse(
   review: { reviewerName: string; rating: number | null; comment: string },
   config: any,
 ): Promise<string | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.log('[ReviewResponseAgent] No OPENAI_API_KEY set — skipping AI draft');
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.log('[ReviewResponseAgent] No ANTHROPIC_API_KEY set — skipping AI draft');
     return null;
   }
 
@@ -164,20 +163,15 @@ ${config.apologizeForNegative && rating <= 2 ? '- Acknowledge the issue and apol
 Write a response:`;
 
   try {
-    const openai = new OpenAI({ apiKey });
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
-      temperature: 0.7,
-      max_tokens: 500,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
+    const result = await claudeText({
+      system: systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 500,
     });
 
-    return response.choices[0]?.message?.content?.trim() || null;
+    return result?.trim() || null;
   } catch (err) {
-    console.error('[ReviewResponseAgent] OpenAI error:', err);
+    console.error('[ReviewResponseAgent] AI error:', err);
     return null;
   }
 }

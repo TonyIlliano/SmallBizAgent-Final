@@ -56,7 +56,7 @@ interface PhoneNumber {
   label: string | null;
   status: "active" | "inactive" | "pending";
   isPrimary: boolean;
-  vapiConnected: boolean;
+  vapiConnected?: boolean;  // DEPRECATED — kept for backward compat with legacy data
   retellConnected?: boolean;
   dateProvisioned: string | null;
 }
@@ -236,11 +236,11 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
     },
   });
 
-  const connectVapiMutation = useMutation({
+  const connectRetellMutation = useMutation({
     mutationFn: async (phoneId: number) => {
       const res = await apiRequest(
         "POST",
-        `/api/business/${businessId}/phone-numbers/${phoneId}/connect-vapi`,
+        `/api/business/${businessId}/phone-numbers/${phoneId}/connect-retell`,
       );
       return res.json();
     },
@@ -336,8 +336,8 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
     releaseMutation.mutate(releasingPhone.id);
   }
 
-  function handleConnectVapi(phone: PhoneNumber) {
-    connectVapiMutation.mutate(phone.id);
+  function handleConnectRetell(phone: PhoneNumber) {
+    connectRetellMutation.mutate(phone.id);
   }
 
   // -------------------------------------------------------------------------
@@ -485,11 +485,11 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleConnectVapi(phone)}
-                            disabled={connectVapiMutation.isPending}
+                            onClick={() => handleConnectRetell(phone)}
+                            disabled={connectRetellMutation.isPending}
                             title="Connect to AI Assistant"
                           >
-                            {connectVapiMutation.isPending ? (
+                            {connectRetellMutation.isPending ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <PhoneCall className="h-4 w-4" />

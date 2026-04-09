@@ -10,7 +10,7 @@
  * contains a recording disclosure ("recorded", "recording", "monitored").
  */
 
-import OpenAI from 'openai';
+import { claudeText } from './claudeClient';
 import { storage } from '../storage';
 import { debouncedUpdateRetellAgent } from './retellProvisioningService';
 
@@ -103,9 +103,8 @@ export async function runWeeklyAutoRefine(): Promise<void> {
  * Analyze one business's calls from the past 7 days and generate suggestions.
  */
 export async function analyzeBusinessWeek(businessId: number): Promise<void> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.log('[AutoRefine] No OPENAI_API_KEY set — skipping');
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.log('[AutoRefine] No ANTHROPIC_API_KEY set — skipping');
     return;
   }
 
@@ -179,20 +178,14 @@ ${transcriptSummaries}
 
 Based on all of the above, identify gaps and suggest improvements. Return a JSON array.`;
 
-  // Call OpenAI
-  const openai = new OpenAI({ apiKey });
-  const response = await openai.chat.completions.create({
-    model: 'gpt-5.4-mini',
-    temperature: 0.3,
-    max_completion_tokens: 4000,
-    messages: [
-      { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
-      { role: 'user', content: userPrompt },
-    ],
+  // Call Claude
+  const content = await claudeText({
+    system: ANALYSIS_SYSTEM_PROMPT,
+    prompt: userPrompt,
+    maxTokens: 4000,
   });
 
-  const content = response.choices[0]?.message?.content?.trim();
-  if (!content) return;
+  if (!content?.trim()) return;
 
   // Parse response
   const suggestions = parseAIResponse(content);

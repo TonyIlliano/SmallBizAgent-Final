@@ -14,6 +14,12 @@ import StaffSetup from './steps/staff-setup';
 import CloverSetup from './steps/clover-setup';
 import VirtualReceptionistSetup from './steps/virtual-receptionist-setup';
 import CalendarSetup from './steps/calendar-setup';
+import SmsVibe from './steps/sms-vibe';
+import SmsStyle from './steps/sms-style';
+import SmsCustomer from './steps/sms-customer';
+import SmsUnique from './steps/sms-unique';
+import SmsResponseTime from './steps/sms-response-time';
+import SmsPreview from './steps/sms-preview';
 import FinalSetup from './steps/final-setup';
 
 import { Button } from '@/components/ui/button';
@@ -59,6 +65,12 @@ export default function OnboardingPage() {
     ...(isRestaurant ? [{ id: 'clover' as OnboardingStep, label: 'Clover POS', component: CloverSetup }] : []),
     { id: 'receptionist' as OnboardingStep, label: 'AI Receptionist', component: VirtualReceptionistSetup },
     { id: 'calendar' as OnboardingStep, label: 'Calendar', component: CalendarSetup },
+    { id: 'sms_vibe' as OnboardingStep, label: 'SMS Personality', component: SmsVibe },
+    { id: 'sms_style' as OnboardingStep, label: 'SMS Style', component: SmsStyle },
+    { id: 'sms_customer' as OnboardingStep, label: 'Your Customers', component: SmsCustomer },
+    { id: 'sms_unique' as OnboardingStep, label: 'Your Edge', component: SmsUnique },
+    { id: 'sms_response_time' as OnboardingStep, label: 'Response Time', component: SmsResponseTime },
+    { id: 'sms_preview' as OnboardingStep, label: 'SMS Preview', component: SmsPreview },
     { id: 'final' as OnboardingStep, label: 'Complete', component: FinalSetup },
   ];
 
@@ -200,9 +212,10 @@ export default function OnboardingPage() {
   const StepComponent = currentStep.component;
 
   // For the welcome step, pass our custom handler instead of handleNext
+  // SMS steps use onNext prop; pass both onComplete and onNext for compatibility
   const stepProps = currentStep.id === 'welcome'
-    ? { onComplete: handleWelcomeComplete, onSkip: handleSkipStep }
-    : { onComplete: handleNext, onSkip: handleSkipStep };
+    ? { onComplete: handleWelcomeComplete, onSkip: handleSkipStep, onNext: handleNext }
+    : { onComplete: handleNext, onSkip: handleSkipStep, onNext: handleNext };
 
   return (
     <div className="bg-muted/40 min-h-screen flex flex-col">

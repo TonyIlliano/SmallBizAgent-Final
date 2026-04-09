@@ -97,7 +97,7 @@ export async function sendAppointmentReminder(
 
     // Format the appointment date/time in the business timezone
     const appointmentDate = new Date(appointment.startDate);
-    const tz = (business as any).timezone || undefined;
+    const tz = business.timezone || undefined;
     const dateOpts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
     const timeOpts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
     if (tz) {

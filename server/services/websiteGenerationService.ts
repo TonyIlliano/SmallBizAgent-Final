@@ -1,14 +1,14 @@
 /**
  * Website Generation Service
  *
- * Generates complete, production-ready one-page websites using OpenAI (gpt-5.4-mini).
+ * Generates complete, production-ready one-page websites using Claude (claude-sonnet-4-6).
  * Pulls all business data from the DB — hours, services, staff, branding,
  * booking settings — and generates a self-contained HTML file with embedded CSS.
  *
- * Uses existing OPENAI_API_KEY from env. No new keys required.
+ * Uses existing ANTHROPIC_API_KEY from env. No new keys required.
  */
 
-import OpenAI from 'openai';
+import { claudeText } from './claudeClient';
 import { storage } from '../storage';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -222,26 +222,20 @@ export async function generateWebsite(
   businessId: number,
   customizations?: WebsiteCustomizations,
 ): Promise<GenerationResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
 
   console.log(`[WebsiteGeneration] Generating website for business ${businessId}`);
 
-  const openai = new OpenAI({ apiKey });
   const userMessage = await buildUserMessage(businessId, customizations);
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-5.4-mini',
-    temperature: 0.7,
-    max_completion_tokens: 16000,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userMessage },
-    ],
+  let html = await claudeText({
+    system: SYSTEM_PROMPT,
+    prompt: userMessage,
+    maxTokens: 8000,
   });
 
-  let html = response.choices[0]?.message?.content?.trim();
-  if (!html) throw new Error('OpenAI returned empty response');
+  html = html?.trim();
+  if (!html) throw new Error('AI returned empty response');
 
   // Strip code fences if present (safety)
   if (html.startsWith('```')) {
@@ -250,7 +244,7 @@ export async function generateWebsite(
 
   // Validate it's actually HTML
   if (!html.includes('<!DOCTYPE html') && !html.includes('<html')) {
-    throw new Error('OpenAI did not return valid HTML');
+    throw new Error('AI did not return valid HTML');
   }
 
   console.log(`[WebsiteGeneration] Generated ${html.length} chars of HTML for business ${businessId}`);

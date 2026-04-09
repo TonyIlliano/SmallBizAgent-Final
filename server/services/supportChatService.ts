@@ -1,12 +1,10 @@
 /**
  * Support Chat Service V2 — action-executing AI assistant.
  * Can answer questions AND take actions: set hours, add services, create staff, etc.
- * Uses OpenAI function calling to decide when to act vs when to just respond.
+ * Uses Claude tool_use (with OpenAI function calling fallback) to decide when to act vs when to just respond.
  */
-import OpenAI from 'openai';
+import { claudeWithTools } from './claudeClient';
 import { storage } from '../storage';
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ─── Page Context Map ────────────────────────────────────────────────────
 
@@ -34,7 +32,8 @@ const PLATFORM_KNOWLEDGE = `SmallBizAgent is an AI-powered platform for small se
 
 // ─── Tool Definitions ────────────────────────────────────────────────────
 
-const SUPPORT_TOOLS: OpenAI.ChatCompletionTool[] = [
+// OpenAI-format tools (kept for fallback)
+const SUPPORT_TOOLS_OPENAI: any[] = [
   {
     type: 'function',
     function: {
@@ -157,6 +156,13 @@ const SUPPORT_TOOLS: OpenAI.ChatCompletionTool[] = [
   },
 ];
 
+// Claude-format tools (primary)
+const SUPPORT_TOOLS_CLAUDE = SUPPORT_TOOLS_OPENAI.map((t: any) => ({
+  name: t.function.name,
+  description: t.function.description,
+  input_schema: t.function.parameters,
+}));
+
 // ─── Tool Executor ───────────────────────────────────────────────────────
 
 async function executeTool(
@@ -195,7 +201,7 @@ async function executeTool(
         try {
           const { debouncedUpdateRetellAgent } = await import('./retellProvisioningService');
           debouncedUpdateRetellAgent(businessId);
-        } catch {}
+        } catch (err) { console.error('[SupportChat] Error:', err instanceof Error ? err.message : err); }
         return {
           success: true,
           message: `Business hours updated:\n${updatedDays.join('\n')}\nThe AI receptionist has been updated with the new hours.`,
@@ -214,7 +220,7 @@ async function executeTool(
         try {
           const { debouncedUpdateRetellAgent } = await import('./retellProvisioningService');
           debouncedUpdateRetellAgent(businessId);
-        } catch {}
+        } catch (err) { console.error('[SupportChat] Error:', err instanceof Error ? err.message : err); }
         return {
           success: true,
           message: `Service "${service.name}" created — $${args.price}, ${args.duration || 60} minutes. The AI receptionist now knows about this service.`,
@@ -252,7 +258,7 @@ async function executeTool(
         try {
           const { debouncedUpdateRetellAgent } = await import('./retellProvisioningService');
           debouncedUpdateRetellAgent(businessId);
-        } catch {}
+        } catch (err) { console.error('[SupportChat] Error:', err instanceof Error ? err.message : err); }
         return {
           success: true,
           message: `Knowledge base entry added. When callers ask "${args.question}", the AI will answer: "${args.answer}"`,
@@ -323,7 +329,7 @@ async function executeTool(
           try {
             const { debouncedUpdateRetellAgent } = await import('./retellProvisioningService');
             debouncedUpdateRetellAgent(businessId);
-          } catch {}
+          } catch (err) { console.error('[SupportChat] Error:', err instanceof Error ? err.message : err); }
         }
         return { success: true, message: `${setting} ${enabled ? 'enabled' : 'disabled'}.` };
       }
@@ -373,13 +379,6 @@ export async function answerQuestion(
   history: ChatMessage[]
 ): Promise<ChatResponse> {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return {
-        answer: "I'm not available right now. Please email Bark@smallbizagent.ai for help!",
-        tokensUsed: 0,
-      };
-    }
-
     // Parallel fetch user context
     const [business, services, staff, hours] = await Promise.all([
       storage.getBusiness(businessId).catch(() => null),
@@ -436,9 +435,8 @@ USER STATE:
 ${setupState.join('\n')}
 ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core setup complete.'}`;
 
-    // Build messages
+    // Build messages (Claude format — no system message in array)
     const messages: any[] = [
-      { role: 'system', content: systemPrompt },
       ...history.slice(-10).map(h => ({ role: h.role, content: h.content })),
       { role: 'user', content: question },
     ];
@@ -446,54 +444,95 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
     let totalTokens = 0;
     const MAX_TOOL_LOOPS = 3; // Safety: prevent infinite tool loops
     let loopCount = 0;
-    const MODEL = 'gpt-5.4-mini';
 
     // Initial call (may return tool calls or direct answer)
-    let response = await openai.chat.completions.create({
-      model: MODEL,
-      temperature: 0.3,
-      max_completion_tokens: 400,
+    let { provider, response } = await claudeWithTools({
+      system: systemPrompt,
       messages,
-      tools: SUPPORT_TOOLS,
-      tool_choice: 'auto',
+      tools: SUPPORT_TOOLS_CLAUDE,
+      openaiTools: SUPPORT_TOOLS_OPENAI,
+      maxTokens: 400,
     });
-    totalTokens += response.usage?.total_tokens || 0;
 
     // Tool loop — execute tool calls and feed results back
-    let assistantMessage = response.choices[0]?.message;
-    while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0 && loopCount < MAX_TOOL_LOOPS) {
+    while (loopCount < MAX_TOOL_LOOPS) {
       loopCount++;
 
-      // Execute each tool call
-      const toolResults: any[] = [];
-      for (const toolCall of assistantMessage.tool_calls) {
-        let toolArgs: any = {};
-        try {
-          toolArgs = JSON.parse(toolCall.function.arguments);
-        } catch {}
-        console.log(`[SupportChat] Tool call: ${toolCall.function.name}(${JSON.stringify(toolArgs)}) for business ${businessId}`);
-        const result = await executeTool(toolCall.function.name, toolArgs, businessId);
-        toolResults.push({
-          role: 'tool' as const,
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
-        });
-      }
+      if (provider === 'claude') {
+        // Claude format: response.content is an array, check for tool_use blocks
+        const toolUseBlocks = (response.content || []).filter((b: any) => b.type === 'tool_use');
+        if (toolUseBlocks.length === 0 || response.stop_reason !== 'tool_use') break;
 
-      // Feed tool results back to the model
-      messages.push(assistantMessage, ...toolResults);
-      response = await openai.chat.completions.create({
-        model: MODEL,
-        temperature: 0.3,
-        max_completion_tokens: 400,
-        messages,
-        tools: SUPPORT_TOOLS,
-      });
-      totalTokens += response.usage?.total_tokens || 0;
-      assistantMessage = response.choices[0]?.message;
+        // Execute each tool call
+        const toolResults: any[] = [];
+        for (const block of toolUseBlocks) {
+          console.log(`[SupportChat] Tool call (Claude): ${block.name}(${JSON.stringify(block.input)}) for business ${businessId}`);
+          const result = await executeTool(block.name, block.input, businessId);
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify(result),
+          });
+        }
+
+        // Feed tool results back — Claude format
+        messages.push({ role: 'assistant', content: response.content });
+        messages.push({ role: 'user', content: toolResults });
+
+        const nextResult = await claudeWithTools({
+          system: systemPrompt,
+          messages,
+          tools: SUPPORT_TOOLS_CLAUDE,
+          openaiTools: SUPPORT_TOOLS_OPENAI,
+          maxTokens: 400,
+        });
+        provider = nextResult.provider;
+        response = nextResult.response;
+      } else {
+        // OpenAI fallback format
+        const assistantMessage = response.choices?.[0]?.message;
+        totalTokens += response.usage?.total_tokens || 0;
+        if (!assistantMessage?.tool_calls || assistantMessage.tool_calls.length === 0) break;
+
+        // Execute each tool call
+        const toolResults: any[] = [];
+        for (const toolCall of assistantMessage.tool_calls) {
+          let toolArgs: any = {};
+          try {
+            toolArgs = JSON.parse(toolCall.function.arguments);
+          } catch (err) { console.error('[SupportChat] Error:', err instanceof Error ? err.message : err); }
+          console.log(`[SupportChat] Tool call (OpenAI): ${toolCall.function.name}(${JSON.stringify(toolArgs)}) for business ${businessId}`);
+          const result = await executeTool(toolCall.function.name, toolArgs, businessId);
+          toolResults.push({
+            role: 'tool' as const,
+            tool_call_id: toolCall.id,
+            content: JSON.stringify(result),
+          });
+        }
+
+        // Feed tool results back — OpenAI format
+        messages.push(assistantMessage, ...toolResults);
+        const nextResult = await claudeWithTools({
+          system: systemPrompt,
+          messages,
+          tools: SUPPORT_TOOLS_CLAUDE,
+          openaiTools: SUPPORT_TOOLS_OPENAI,
+          maxTokens: 400,
+        });
+        provider = nextResult.provider;
+        response = nextResult.response;
+      }
     }
 
-    const answer = assistantMessage?.content || "I'm having trouble right now. Please try again or email Bark@smallbizagent.ai.";
+    // Extract final answer based on provider
+    let answer: string;
+    if (provider === 'claude') {
+      const textBlock = (response.content || []).find((b: any) => b.type === 'text');
+      answer = textBlock?.text || "I'm having trouble right now. Please try again or email Bark@smallbizagent.ai.";
+    } else {
+      totalTokens += response.usage?.total_tokens || 0;
+      answer = response.choices?.[0]?.message?.content || "I'm having trouble right now. Please try again or email Bark@smallbizagent.ai.";
+    }
 
     // Log unanswered questions
     if (answer.toLowerCase().includes("flag this for the team") || answer.toLowerCase().includes("not sure about that")) {
@@ -503,7 +542,7 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
           question: `[Support Chat] ${question} (business ${businessId}, page: ${currentPage})`,
           status: 'pending',
         });
-      } catch {}
+      } catch (err) { console.error('[SupportChat] Error:', err instanceof Error ? err.message : err); }
     }
 
     return { answer, tokensUsed: totalTokens };

@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { fireEvent } from "../services/webhookService";
 import notificationService from "../services/notificationService";
 import { createDateInTimezone, getTimezoneAbbreviation, formatTimeWithTimezone } from "../utils/timezone";
+import { logAndSwallow } from "../utils/safeAsync";
 
 const router = Router();
 
@@ -367,8 +368,8 @@ router.post("/book/:slug", async (req, res) => {
       // Send TCPA welcome SMS if opted in
       if (validatedData.customer.smsOptIn === true && customer) {
         import('../services/notificationService').then(ns => {
-          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(() => {});
-        }).catch(() => {});
+          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(logAndSwallow('BookingRoutes'));
+        }).catch(logAndSwallow('BookingRoutes'));
       }
     } else {
       // Update existing customer info + consent if given
@@ -387,8 +388,8 @@ router.post("/book/:slug", async (req, res) => {
       // Send welcome SMS if newly opted in
       if (!wasOptedIn && validatedData.customer.smsOptIn === true && customer) {
         import('../services/notificationService').then(ns => {
-          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(() => {});
-        }).catch(() => {});
+          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(logAndSwallow('BookingRoutes'));
+        }).catch(logAndSwallow('BookingRoutes'));
       }
     }
 
@@ -674,7 +675,7 @@ router.post("/book/:slug/manage/:token/cancel", async (req, res) => {
     } catch (e) { console.warn(`[Booking] Failed to cancel linked job for appointment ${appointment.id}:`, e); }
 
     // Fire webhook
-    fireEvent(business.id, 'appointment.cancelled', { appointment: updated }).catch(() => {});
+    fireEvent(business.id, 'appointment.cancelled', { appointment: updated }).catch(logAndSwallow('BookingRoutes'));
 
     res.json({ success: true, message: "Your appointment has been cancelled." });
   } catch (error) {
@@ -760,10 +761,10 @@ router.post("/book/:slug/manage/:token/reschedule", async (req, res) => {
     } catch (e) { console.warn(`[Booking] Failed to reschedule linked job for appointment ${appointment.id}:`, e); }
 
     // Fire webhook
-    fireEvent(business.id, 'appointment.updated', { appointment: updated }).catch(() => {});
+    fireEvent(business.id, 'appointment.updated', { appointment: updated }).catch(logAndSwallow('BookingRoutes'));
 
     // Send updated confirmation
-    notificationService.sendAppointmentConfirmation(appointment.id, business.id).catch(() => {});
+    notificationService.sendAppointmentConfirmation(appointment.id, business.id).catch(logAndSwallow('BookingRoutes'));
 
     res.json({
       success: true,
@@ -977,8 +978,8 @@ router.post("/book/:slug/reserve", async (req, res) => {
       // Send TCPA welcome SMS if opted in
       if (validatedData.customer.smsOptIn === true && customer) {
         import('../services/notificationService').then(ns => {
-          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(() => {});
-        }).catch(() => {});
+          ns.sendSmsOptInWelcome(customer!.id, business.id).catch(logAndSwallow('BookingRoutes'));
+        }).catch(logAndSwallow('BookingRoutes'));
       }
     } else {
       const updateData: any = {
@@ -1149,7 +1150,7 @@ router.post("/book/:slug/manage-reservation/:token/cancel", async (req, res) => 
       status: 'cancelled',
     });
 
-    fireEvent(business.id, 'reservation.cancelled', { reservation: updated }).catch(() => {});
+    fireEvent(business.id, 'reservation.cancelled', { reservation: updated }).catch(logAndSwallow('BookingRoutes'));
 
     res.json({ success: true, message: "Your reservation has been cancelled." });
   } catch (error) {
@@ -1249,10 +1250,10 @@ router.post("/book/:slug/manage-reservation/:token/modify", async (req, res) => 
 
     const updated = await storage.updateRestaurantReservation(reservation.id, updateData);
 
-    fireEvent(business.id, 'reservation.updated', { reservation: updated }).catch(() => {});
+    fireEvent(business.id, 'reservation.updated', { reservation: updated }).catch(logAndSwallow('BookingRoutes'));
 
     // Send updated confirmation
-    notificationService.sendReservationConfirmation(updated.id, business.id).catch(() => {});
+    notificationService.sendReservationConfirmation(updated.id, business.id).catch(logAndSwallow('BookingRoutes'));
 
     res.json({
       success: true,

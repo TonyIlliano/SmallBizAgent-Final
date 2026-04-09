@@ -3,7 +3,7 @@ import { useAuth } from './use-auth';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useQuery } from '@tanstack/react-query';
 
-// Define the onboarding steps (includes new hours and staff steps)
+// Define the onboarding steps (includes new hours, staff, and SMS personality steps)
 export type OnboardingStep =
   | 'welcome'
   | 'business'
@@ -13,6 +13,12 @@ export type OnboardingStep =
   | 'clover'
   | 'receptionist'
   | 'calendar'
+  | 'sms_vibe'
+  | 'sms_style'
+  | 'sms_customer'
+  | 'sms_unique'
+  | 'sms_response_time'
+  | 'sms_preview'
   | 'final';
 
 // Define the possible step statuses
@@ -40,6 +46,12 @@ const allStepDefaults: Record<OnboardingStep, StepStatus> = {
   clover: 'not_started',
   receptionist: 'not_started',
   calendar: 'not_started',
+  sms_vibe: 'not_started',
+  sms_style: 'not_started',
+  sms_customer: 'not_started',
+  sms_unique: 'not_started',
+  sms_response_time: 'not_started',
+  sms_preview: 'not_started',
   final: 'not_started',
 };
 
@@ -184,7 +196,7 @@ export function useOnboardingProgress() {
   // Get next incomplete step
   // Pass activeSteps to filter out steps not in the current flow (e.g., 'clover' for non-restaurants)
   const getNextIncompleteStep = useCallback((activeSteps?: OnboardingStep[]): OnboardingStep => {
-    const allSteps: OnboardingStep[] = ['welcome', 'business', 'services', 'hours', 'staff', 'clover', 'receptionist', 'calendar', 'final'];
+    const allSteps: OnboardingStep[] = ['welcome', 'business', 'services', 'hours', 'staff', 'clover', 'receptionist', 'calendar', 'sms_vibe', 'sms_style', 'sms_customer', 'sms_unique', 'sms_response_time', 'sms_preview', 'final'];
     const stepsToCheck = activeSteps || allSteps;
 
     for (const step of stepsToCheck) {

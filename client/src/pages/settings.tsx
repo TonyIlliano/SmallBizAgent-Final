@@ -538,6 +538,304 @@ function BookingPageBranding({
   );
 }
 
+// --- Settings Navigation with collapsible sections ---
+interface SettingsSection {
+  title: string;
+  tabs: { value: string; label: string }[];
+}
+
+function SettingsNav({
+  activeTab,
+  onTabChange,
+  isRestaurant,
+  hasPOS,
+  isAdmin,
+}: {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  isRestaurant: boolean;
+  hasPOS: boolean;
+  isAdmin?: boolean;
+}) {
+  const sections: SettingsSection[] = [
+    {
+      title: "Business",
+      tabs: [
+        { value: "profile", label: "Profile" },
+        { value: "hours", label: "Hours" },
+        ...(!isRestaurant ? [{ value: "services", label: "Services" }] : []),
+        { value: "team", label: "Team" },
+        ...(!isRestaurant ? [{ value: "booking", label: "Booking" }] : []),
+      ],
+    },
+    {
+      title: "Communication",
+      tabs: [
+        { value: "phone-numbers", label: "Phone Numbers" },
+        { value: "notifications", label: "Notifications" },
+        { value: "reviews", label: "Reviews" },
+      ],
+    },
+    {
+      title: "Integrations",
+      tabs: [
+        { value: "integrations", label: "Calendar & Payments" },
+        ...(isRestaurant ? [{ value: "restaurant", label: "POS (Restaurant)" }] : []),
+        ...(isRestaurant ? [{ value: "reservations", label: "Reservations" }] : []),
+        ...(hasPOS ? [{ value: "inventory", label: "Inventory" }] : []),
+        ...(isAdmin ? [{ value: "integrations-health", label: "Integration Health" }] : []),
+      ],
+    },
+    {
+      title: "Billing",
+      tabs: [
+        { value: "subscription", label: "Subscription" },
+        { value: "locations", label: "Locations" },
+      ],
+    },
+    {
+      title: "Account",
+      tabs: [
+        { value: "pwa", label: "App" },
+        { value: "security", label: "Security" },
+        { value: "privacy", label: "Privacy" },
+        ...(isAdmin ? [{ value: "agent-insights", label: "AI Insights" }] : []),
+      ],
+    },
+  ];
+
+  // Determine which section the active tab belongs to
+  const activeSectionForTab = (tab: string) =>
+    sections.find((s) => s.tabs.some((t) => t.value === tab))?.title;
+
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
+    const initialSection = activeSectionForTab(activeTab);
+    return new Set(initialSection ? [initialSection] : ["Business"]);
+  });
+
+  const toggleSection = (title: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) {
+        next.delete(title);
+      } else {
+        next.add(title);
+      }
+      return next;
+    });
+  };
+
+  // When the active tab changes externally, make sure its section is expanded
+  useEffect(() => {
+    const section = activeSectionForTab(activeTab);
+    if (section && !expandedSections.has(section)) {
+      setExpandedSections((prev) => new Set(prev).add(section));
+    }
+  }, [activeTab]);
+
+  const renderSections = (isMobile: boolean) =>
+    sections.map((section) => {
+      const isExpanded = expandedSections.has(section.title);
+      const hasActiveTab = section.tabs.some((t) => t.value === activeTab);
+
+      if (isMobile) {
+        return (
+          <div key={section.title} className="border border-border rounded-lg overflow-hidden">
+            <button
+              onClick={() => toggleSection(section.title)}
+              className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors ${
+                hasActiveTab ? "bg-primary/5 text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <span>{section.title}</span>
+              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+            {isExpanded && (
+              <div className="border-t border-border bg-muted/20 px-2 py-1">
+                {section.tabs.map((tab) => (
+                  <button
+                    key={tab.value}
+                    onClick={() => onTabChange(tab.value)}
+                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                      activeTab === tab.value
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Desktop sidebar
+      return (
+        <div key={section.title}>
+          <button
+            onClick={() => toggleSection(section.title)}
+            className="w-full flex items-center justify-between px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50"
+          >
+            {section.title}
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          {isExpanded && (
+            <div className="ml-1 space-y-0.5 mt-0.5">
+              {section.tabs.map((tab) => (
+                <button
+                  key={tab.value}
+                  onClick={() => onTabChange(tab.value)}
+                  className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    activeTab === tab.value
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    });
+
+  return (
+    <>
+      {/* Mobile: accordion-style layout above content */}
+      <div className="md:hidden space-y-1 mb-6">
+        {renderSections(true)}
+      </div>
+    </>
+  );
+}
+
+function SettingsDesktopSidebar({
+  activeTab,
+  onTabChange,
+  isRestaurant,
+  hasPOS,
+  isAdmin,
+}: {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  isRestaurant: boolean;
+  hasPOS: boolean;
+  isAdmin?: boolean;
+}) {
+  const sections: SettingsSection[] = [
+    {
+      title: "Business",
+      tabs: [
+        { value: "profile", label: "Profile" },
+        { value: "hours", label: "Hours" },
+        ...(!isRestaurant ? [{ value: "services", label: "Services" }] : []),
+        { value: "team", label: "Team" },
+        ...(!isRestaurant ? [{ value: "booking", label: "Booking" }] : []),
+      ],
+    },
+    {
+      title: "Communication",
+      tabs: [
+        { value: "phone-numbers", label: "Phone Numbers" },
+        { value: "notifications", label: "Notifications" },
+        { value: "reviews", label: "Reviews" },
+      ],
+    },
+    {
+      title: "Integrations",
+      tabs: [
+        { value: "integrations", label: "Calendar & Payments" },
+        ...(isRestaurant ? [{ value: "restaurant", label: "POS (Restaurant)" }] : []),
+        ...(isRestaurant ? [{ value: "reservations", label: "Reservations" }] : []),
+        ...(hasPOS ? [{ value: "inventory", label: "Inventory" }] : []),
+        ...(isAdmin ? [{ value: "integrations-health", label: "Integration Health" }] : []),
+      ],
+    },
+    {
+      title: "Billing",
+      tabs: [
+        { value: "subscription", label: "Subscription" },
+        { value: "locations", label: "Locations" },
+      ],
+    },
+    {
+      title: "Account",
+      tabs: [
+        { value: "pwa", label: "App" },
+        { value: "security", label: "Security" },
+        { value: "privacy", label: "Privacy" },
+        ...(isAdmin ? [{ value: "agent-insights", label: "AI Insights" }] : []),
+      ],
+    },
+  ];
+
+  const activeSectionForTab = (tab: string) =>
+    sections.find((s) => s.tabs.some((t) => t.value === tab))?.title;
+
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
+    const initialSection = activeSectionForTab(activeTab);
+    return new Set(initialSection ? [initialSection] : ["Business"]);
+  });
+
+  const toggleSection = (title: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) {
+        next.delete(title);
+      } else {
+        next.add(title);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const section = activeSectionForTab(activeTab);
+    if (section && !expandedSections.has(section)) {
+      setExpandedSections((prev) => new Set(prev).add(section));
+    }
+  }, [activeTab]);
+
+  return (
+    <div className="hidden md:block w-56 flex-shrink-0 space-y-1">
+      {sections.map((section) => {
+        const isExpanded = expandedSections.has(section.title);
+        return (
+          <div key={section.title}>
+            <button
+              onClick={() => toggleSection(section.title)}
+              className="w-full flex items-center justify-between px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50"
+            >
+              {section.title}
+              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+            {isExpanded && (
+              <div className="ml-1 space-y-0.5 mt-0.5">
+                {section.tabs.map((tab) => (
+                  <button
+                    key={tab.value}
+                    onClick={() => onTabChange(tab.value)}
+                    className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors ${
+                      activeTab === tab.value
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Settings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -615,15 +913,6 @@ export default function Settings() {
     (business?.cloverMerchantId && business?.cloverAccessToken) ||
     (business?.squareAccessToken && business?.squareLocationId)
   );
-
-  // Compute visible tab count for grid layout
-  // Universal tabs: Profile, Team, Hours, Phone Numbers, Notifications, Reviews, Integrations, Subscription, Locations, App, Security, Privacy = 12
-  // Service businesses add: Services, Booking = +2 = 14
-  // Restaurants add: Restaurant + Reservations = +2 = 14, + Inventory if POS = 15
-  const tabCount = 12
-    + (isRestaurant ? 0 : 2) // Services + Booking for non-restaurants
-    + (isRestaurant ? 2 : 0) // Restaurant + Reservations tabs
-    + (hasPOS ? 1 : 0);      // Inventory tab
 
   // Fetch business hours
   const { data: businessHours = [], isLoading: isLoadingHours } = useQuery<any[]>({
@@ -1061,10 +1350,10 @@ export default function Settings() {
     },
   });
 
-  // Refresh VAPI Assistant (update webhook URL and configuration)
-  const refreshVapiMutation = useMutation({
+  // Refresh Retell AI Assistant (update webhook URL and configuration)
+  const refreshAssistantMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", `/api/vapi/refresh/${businessId}`);
+      const response = await apiRequest("POST", `/api/retell/refresh/${businessId}`);
       return response.json();
     },
     onSuccess: (data) => {
@@ -1112,34 +1401,26 @@ export default function Settings() {
         </div>
         
         <Tabs defaultValue="profile" value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="inline-flex w-auto gap-1 overflow-x-auto mb-6 pb-1 scroll-smooth [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/20 [&::-webkit-scrollbar-track]:bg-transparent">
-            <TabsTrigger value="profile" className="whitespace-nowrap flex-shrink-0">Profile</TabsTrigger>
-            <TabsTrigger value="team" className="whitespace-nowrap flex-shrink-0">Team</TabsTrigger>
-            <TabsTrigger value="hours" className="whitespace-nowrap flex-shrink-0">Hours</TabsTrigger>
-            <TabsTrigger value="phone-numbers" className="whitespace-nowrap flex-shrink-0">Phone Numbers</TabsTrigger>
-            {/* Services & Booking — service businesses only (salons, plumbers, etc.) */}
-            {!isRestaurant && <TabsTrigger value="services" className="whitespace-nowrap flex-shrink-0">Services</TabsTrigger>}
-            {!isRestaurant && <TabsTrigger value="booking" className="whitespace-nowrap flex-shrink-0">Booking</TabsTrigger>}
-            <TabsTrigger value="notifications" className="whitespace-nowrap flex-shrink-0">Notifications</TabsTrigger>
-            <TabsTrigger value="reviews" className="whitespace-nowrap flex-shrink-0">Reviews</TabsTrigger>
-            {/* Restaurant-specific tabs */}
-            {isRestaurant && <TabsTrigger value="restaurant" className="whitespace-nowrap flex-shrink-0">Restaurant</TabsTrigger>}
-            {isRestaurant && <TabsTrigger value="reservations" className="whitespace-nowrap flex-shrink-0">Reservations</TabsTrigger>}
-            {hasPOS && <TabsTrigger value="inventory" className="whitespace-nowrap flex-shrink-0">Inventory</TabsTrigger>}
-            <TabsTrigger value="integrations" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
-            <TabsTrigger value="subscription" className="whitespace-nowrap flex-shrink-0">Subscription</TabsTrigger>
-            <TabsTrigger value="locations" className="whitespace-nowrap flex-shrink-0">Locations</TabsTrigger>
-            <TabsTrigger value="pwa" className="whitespace-nowrap flex-shrink-0">App</TabsTrigger>
-            <TabsTrigger value="security" className="whitespace-nowrap flex-shrink-0">Security</TabsTrigger>
-            {(user?.role === 'admin' || user?.role === 'owner') && (
-              <>
-                <TabsTrigger value="agent-insights" className="whitespace-nowrap flex-shrink-0">AI Insights</TabsTrigger>
-                <TabsTrigger value="integrations-health" className="whitespace-nowrap flex-shrink-0">Integrations</TabsTrigger>
-              </>
-            )}
-            <TabsTrigger value="privacy" className="whitespace-nowrap flex-shrink-0">Privacy</TabsTrigger>
-          </TabsList>
-          
+          <SettingsNav
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            isRestaurant={isRestaurant}
+            hasPOS={hasPOS}
+            isAdmin={user?.role === 'admin' || user?.role === 'owner'}
+          />
+
+          <div className="md:flex md:gap-6">
+            {/* Desktop sidebar */}
+            <SettingsDesktopSidebar
+              activeTab={activeTab}
+              onTabChange={handleTabChange}
+              isRestaurant={isRestaurant}
+              hasPOS={hasPOS}
+              isAdmin={user?.role === 'admin' || user?.role === 'owner'}
+            />
+
+            {/* Content area */}
+            <div className="flex-1 min-w-0">
           <TabsContent value="profile" className="space-y-4">
             <Card>
               <CardHeader>
@@ -2389,11 +2670,11 @@ export default function Settings() {
                       </p>
                     </div>
                     <Button
-                      onClick={() => refreshVapiMutation.mutate()}
-                      disabled={refreshVapiMutation.isPending}
+                      onClick={() => refreshAssistantMutation.mutate()}
+                      disabled={refreshAssistantMutation.isPending}
                       variant="outline"
                     >
-                      {refreshVapiMutation.isPending ? (
+                      {refreshAssistantMutation.isPending ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Refreshing...
@@ -2687,6 +2968,8 @@ export default function Settings() {
               </CardContent>
             </Card>
           </TabsContent>
+            </div>{/* end content area */}
+          </div>{/* end md:flex */}
         </Tabs>
       </div>
     </PageLayout>

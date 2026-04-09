@@ -8,9 +8,10 @@
 
 import { Router } from 'express';
 import { GoogleBusinessProfileService } from '../services/googleBusinessProfileService';
+import { logAndSwallow } from '../utils/safeAsync';
 import { isAuthenticated } from '../auth';
 import { storage } from '../storage';
-import OpenAI from 'openai';
+import { claudeText } from '../services/claudeClient';
 
 const router = Router();
 const gbpService = new GoogleBusinessProfileService();
@@ -339,7 +340,7 @@ router.get('/debug/:businessId', isAuthenticated, async (req, res) => {
     try {
       const connectedIds = await gbpService.getConnectedBusinessIds();
       diagnostics.inSchedulerPool = connectedIds.includes(businessId);
-    } catch (e) {}
+    } catch (err) { console.error('[GBPRoutes] Error:', err instanceof Error ? err.message : err); }
 
     res.json(diagnostics);
   } catch (error: any) {
@@ -586,7 +587,7 @@ router.delete('/:businessId', isAuthenticated, async (req, res) => {
     // Try to remove the booking link first
     const storedData = await gbpService.getStoredData(businessId);
     if (storedData?.bookingLinkName) {
-      await gbpService.deleteBookingLink(businessId, storedData.bookingLinkName).catch(() => {});
+      await gbpService.deleteBookingLink(businessId, storedData.bookingLinkName).catch(logAndSwallow('GBPRoutes'));
     }
 
     const result = await gbpService.disconnect(businessId);
@@ -856,24 +857,12 @@ router.post('/reviews/:reviewId/suggest-reply', isAuthenticated, async (req, res
 
     const business = await storage.getBusiness(businessId);
 
-    const openai = new OpenAI();
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a professional review response writer for ${business?.name || 'a local business'} (${business?.industry || 'service business'}). Write a warm, professional reply to the customer review. Keep it concise (2-3 sentences). If the review is negative, acknowledge concerns and offer to make it right. Never be defensive.`,
-        },
-        {
-          role: 'user',
-          content: `Review (${review.rating} stars): "${review.reviewText || '(no text)'}"\nReviewer: ${review.reviewerName || 'Customer'}`,
-        },
-      ],
-      max_tokens: 200,
-      temperature: 0.7,
+    const suggestedReply = await claudeText({
+      system: `You are a professional review response writer for ${business?.name || 'a local business'} (${business?.industry || 'service business'}). Write a warm, professional reply to the customer review. Keep it concise (2-3 sentences). If the review is negative, acknowledge concerns and offer to make it right. Never be defensive.`,
+      prompt: `Review (${review.rating} stars): "${review.reviewText || '(no text)'}"\nReviewer: ${review.reviewerName || 'Customer'}`,
+      maxTokens: 200,
     });
 
-    const suggestedReply = completion.choices[0]?.message?.content || '';
     res.json({ suggestedReply });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -893,24 +882,11 @@ router.post('/posts/generate/:businessId', isAuthenticated, async (req, res) => 
 
     const services = await storage.getServices(businessId);
 
-    const openai = new OpenAI();
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a social media manager for ${business.name} (${business.industry || 'local business'}). Generate a Google Business Profile post that is engaging, professional, and drives customer action. Keep it under 300 words. Include a clear call-to-action. Do NOT include hashtags (GBP doesn't use them).`,
-        },
-        {
-          role: 'user',
-          content: `Business: ${business.name}\nIndustry: ${business.industry || 'general'}\nServices: ${services.map(s => s.name).join(', ') || 'N/A'}\nDescription: ${business.description || 'N/A'}\n\nGenerate a GBP post.`,
-        },
-      ],
-      max_tokens: 400,
-      temperature: 0.8,
+    const content = await claudeText({
+      system: `You are a social media manager for ${business.name} (${business.industry || 'local business'}). Generate a Google Business Profile post that is engaging, professional, and drives customer action. Keep it under 300 words. Include a clear call-to-action. Do NOT include hashtags (GBP doesn't use them).`,
+      prompt: `Business: ${business.name}\nIndustry: ${business.industry || 'general'}\nServices: ${services.map(s => s.name).join(', ') || 'N/A'}\nDescription: ${business.description || 'N/A'}\n\nGenerate a GBP post.`,
+      maxTokens: 400,
     });
-
-    const content = completion.choices[0]?.message?.content || '';
 
     // Save as draft
     const post = await storage.createGbpPost({
@@ -961,7 +937,7 @@ router.post('/posts/publish/:businessId', isAuthenticated, async (req, res) => {
 
     res.json({ success: result.success, gbpPostId: result.gbpPostId });
   } catch (error: any) {
-    await storage.updateGbpPost(parseInt(req.body.postId), { status: 'failed' }).catch(() => {});
+    await storage.updateGbpPost(parseInt(req.body.postId), { status: 'failed' }).catch(logAndSwallow('GBPRoutes'));
     res.status(500).json({ error: error.message });
   }
 });

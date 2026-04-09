@@ -2,6 +2,8 @@ import type { SmsConversation, Customer } from '@shared/schema';
 import { storage } from '../storage';
 import { logAgentAction } from './agentActivityService';
 import { isStopRequest } from './smsReplyParser';
+import { logAndSwallow } from '../utils/safeAsync';
+import { claudeJson } from './claudeClient';
 
 type ConversationHandler = (
   conversation: SmsConversation,
@@ -31,11 +33,11 @@ export async function routeConversationReply(
   if (isStopRequest(messageBody)) {
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     if (customer?.id) {
-      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch (err) { console.error('[SMSRouter] Error:', err instanceof Error ? err.message : err); }
       // Release engagement lock
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('SMSRouter'));
+      }).catch(logAndSwallow('SMSRouter'));
     }
     await logAgentAction({
       businessId,
@@ -77,10 +79,10 @@ export async function routeConversationReply(
           // If no active conversation found, the handler resolved it — release the lock
           if (!updatedConv && customer?.id) {
             import('./orchestrationService').then(mod => {
-              mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-            }).catch(() => {});
+              mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('SMSRouter'));
+            }).catch(logAndSwallow('SMSRouter'));
           }
-        } catch {}
+        } catch (err) { console.error('[SMSRouter] Error:', err instanceof Error ? err.message : err); }
       }
       return result;
     } catch (err) {
@@ -176,8 +178,8 @@ async function handleDisambiguationReply(
           customerId: customer!.id,
           referenceType: 'appointment',
           referenceId: selectedApt.id,
-        }).catch(() => {});
-      }).catch(() => {});
+        }).catch(logAndSwallow('SMSRouter'));
+      }).catch(logAndSwallow('SMSRouter'));
     }
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     console.log(`[SMS] Disambiguation: cancelled appointment ${selectedApt.id} for customer ${customer?.id}`);
@@ -219,9 +221,8 @@ async function handleDisambiguationReply(
 }
 
 // ─── Reschedule Handler ──────────────────────────────────────────────────────
-// Routes the customer's date/time reply through the Reply Intelligence Graph
-// for AI-powered rescheduling (availability checking, slot offers, DB updates).
-// Falls back to manage link if graph is unavailable.
+// Uses Claude to parse the customer's date/time intent from freeform text.
+// Falls back to a manage link if parsing fails or no availability.
 
 async function handleRescheduleReply(
   conversation: SmsConversation,
@@ -229,59 +230,129 @@ async function handleRescheduleReply(
   customer: Customer | undefined,
   businessId: number,
 ): Promise<{ replyMessage: string } | null> {
-  try {
-    const { isReplyGraphReady, invokeReplyGraph } = await import('./replyIntelligenceGraph');
-    if (isReplyGraphReady()) {
-      const graphResult = await invokeReplyGraph({
-        businessId,
-        customerId: customer?.id,
-        customerPhone: conversation.customerPhone,
-        incomingMessage: messageBody,
-      });
-
-      if (graphResult?.responseMessage) {
-        // Check if reschedule completed — if action is 'rescheduled', resolve conversation
-        if (graphResult.action === 'rescheduled') {
-          await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
-          // Release engagement lock
-          if (customer?.id) {
-            import('./orchestrationService').then(mod => {
-              mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-            }).catch(() => {});
-          }
-          console.log(`[SMS] Reschedule completed via graph for customer ${customer?.id}`);
-        } else if (graphResult.action === 'reschedule_no_appointment' || graphResult.action === 'reschedule_error') {
-          // Terminal states — resolve conversation
-          await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
-        } else {
-          // Still in multi-turn — extend expiry
-          await storage.updateSmsConversation(conversation.id, {
-            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-            lastReplyReceivedAt: new Date(),
-          });
-        }
-        return { replyMessage: graphResult.responseMessage };
-      }
-    }
-  } catch (err) {
-    console.error('[SMSRouter] Reschedule graph error, sending manage link fallback:', err);
-  }
-
-  // Fallback: send manage link if graph fails or is unavailable
   const business = await storage.getBusiness(businessId);
   const context = conversation.context as any;
   const appUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+  const businessName = business?.name || '';
 
+  // Try Claude-powered intent classification for the customer's message
+  try {
+    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const parsed = await claudeJson<{
+      intent: 'reschedule' | 'cancel' | 'question' | 'unclear';
+      date?: string;
+      time?: string;
+      timeOfDay?: 'morning' | 'afternoon' | 'evening';
+    }>({
+      system: `You are parsing a customer's SMS reply about rescheduling an appointment. Today is ${today}. The customer's current appointment: ${context?.serviceName || 'appointment'} on ${context?.oldDate || 'unknown'} at ${context?.oldTime || 'unknown'}.
+
+Extract the customer's intent and any date/time they mention.
+
+Return JSON with:
+- intent: "reschedule" if they provide a date/time or preference, "cancel" if they want to cancel, "question" if asking something, "unclear" if can't determine
+- date: ISO date string (YYYY-MM-DD) if a specific date is mentioned or can be inferred (e.g. "Thursday" = next Thursday), or null
+- time: 24h time string (HH:MM) if a specific time is mentioned, or null
+- timeOfDay: "morning", "afternoon", or "evening" if only a general preference is given, or null
+
+Return valid JSON only, no markdown.`,
+      prompt: `Customer message: "${messageBody}"`,
+      maxTokens: 256,
+    });
+
+    if (parsed.intent === 'reschedule' && parsed.date) {
+      // Try to check availability for the requested date using callToolHandlers
+      try {
+        const { getAvailableSlotsForDay } = await import('./callToolHandlers');
+        const businessHours = await storage.getBusinessHours(businessId);
+        const dateObj = new Date(parsed.date + 'T12:00:00');
+        const appointments = await storage.getAppointments(businessId);
+        const apt = context?.appointmentId ? await storage.getAppointment(context.appointmentId) : null;
+        const duration = apt ? Math.round((new Date(apt.endDate).getTime() - new Date(apt.startDate).getTime()) / 60000) : 60;
+        const biz = business;
+        const timezone = biz?.timezone || 'America/New_York';
+
+        const result = await getAvailableSlotsForDay(businessId, dateObj, businessHours, appointments, duration, undefined, 30, timezone);
+
+        if (result.slots && result.slots.length > 0) {
+          // If they specified a time, check if it's available
+          if (parsed.time) {
+            const requestedSlot = result.slots.find((s: string) => s.startsWith(parsed.time!.substring(0, 5)));
+            if (requestedSlot && context?.appointmentId) {
+              // Slot available — update the appointment
+              const newStart = new Date(`${parsed.date}T${parsed.time}:00`);
+              const newEnd = new Date(newStart.getTime() + duration * 60 * 1000);
+
+              await storage.updateAppointment(context.appointmentId, {
+                startDate: newStart,
+                endDate: newEnd,
+                status: 'confirmed',
+              });
+              await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+
+              const dateStr = newStart.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+              const timeStr = newStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+              return {
+                replyMessage: `You're all set! Your ${context?.serviceName || 'appointment'} has been moved to ${dateStr} at ${timeStr}. See you then! - ${businessName}`,
+              };
+            }
+          }
+
+          // No exact time match — offer top 3 available slots
+          const topSlots = result.slots.slice(0, 3);
+          const dateStr = new Date(parsed.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+          const slotList = topSlots.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n');
+
+          // Extend conversation expiry for multi-turn
+          await storage.updateSmsConversation(conversation.id, {
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            context: { ...context, offeredDate: parsed.date, offeredSlots: topSlots },
+          });
+
+          return {
+            replyMessage: `Here's what's available on ${dateStr}:\n${slotList}\n\nReply with a number (1-${topSlots.length}) to confirm. - ${businessName}`,
+          };
+        } else {
+          // No slots available on that date
+          await storage.updateSmsConversation(conversation.id, {
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+          });
+          return {
+            replyMessage: `Sorry, we don't have availability on that date. Could you try a different day? - ${businessName}`,
+          };
+        }
+      } catch (err) {
+        console.error('[SMSRouter] Error checking availability:', err instanceof Error ? err.message : err);
+        // Fall through to manage link
+      }
+    }
+
+    if (parsed.intent === 'cancel') {
+      if (context?.appointmentId) {
+        await storage.updateAppointment(context.appointmentId, {
+          status: 'cancelled',
+          notes: `[Cancelled via SMS reschedule flow on ${new Date().toLocaleDateString()}]`,
+        });
+        await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+        return {
+          replyMessage: `Your ${context?.serviceName || 'appointment'} has been cancelled. To rebook, visit ${business?.bookingSlug ? `${appUrl}/book/${business.bookingSlug}` : 'our website'} or call us. - ${businessName}`,
+        };
+      }
+    }
+  } catch (err) {
+    console.error('[SMSRouter] Claude intent parsing failed, falling back to manage link:', err instanceof Error ? err.message : err);
+  }
+
+  // Fallback: send manage link
   if (context?.appointmentId && business?.bookingSlug) {
     try {
       const apt = await storage.getAppointment(context.appointmentId);
       if (apt?.manageToken) {
         await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
         return {
-          replyMessage: `Here's a link to reschedule: ${appUrl}/book/${business.bookingSlug}/manage/${apt.manageToken} - ${business.name}`,
+          replyMessage: `Here's a link to reschedule: ${appUrl}/book/${business.bookingSlug}/manage/${apt.manageToken} - ${businessName}`,
         };
       }
-    } catch {}
+    } catch (err) { console.error('[SMSRouter] Error:', err instanceof Error ? err.message : err); }
   }
 
   // Final fallback
@@ -289,8 +360,8 @@ async function handleRescheduleReply(
   const bookLink = business?.bookingSlug ? `${appUrl}/book/${business.bookingSlug}` : '';
   return {
     replyMessage: bookLink
-      ? `Reschedule here: ${bookLink} - ${business?.name || ''}`
-      : `Please call us at ${business?.phone || 'our number'} to reschedule. - ${business?.name || ''}`,
+      ? `Reschedule here: ${bookLink} - ${businessName}`
+      : `Please call us at ${business?.phone || 'our number'} to reschedule. - ${businessName}`,
   };
 }
 
@@ -313,8 +384,8 @@ async function handleMarketingOptInReply(
     await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
     if (customer?.id) {
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('SMSRouter'));
+      }).catch(logAndSwallow('SMSRouter'));
     }
     return {
       replyMessage: `Awesome! You'll get exclusive deals and updates from ${bizName}. Reply STOP anytime to opt out.`,

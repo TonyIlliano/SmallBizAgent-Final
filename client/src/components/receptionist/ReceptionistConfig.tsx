@@ -305,7 +305,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
     setIsSyncing(true);
     setSyncFailed(false);
     try {
-      const refreshRes = await fetch(`/api/vapi/refresh/${businessId}`, {
+      const refreshRes = await fetch(`/api/retell/refresh/${businessId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

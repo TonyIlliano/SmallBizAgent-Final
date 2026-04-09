@@ -76,7 +76,7 @@ export async function findAvailableTimeSlots(
   try {
     // Get business info to determine timezone
     const business = await storage.getBusiness(businessId);
-    const tz = (business as any)?.timezone || 'America/New_York';
+    const tz = business?.timezone || 'America/New_York';
 
     // Get business hours for the days in the range
     const businessHours = await storage.getBusinessHours(businessId);

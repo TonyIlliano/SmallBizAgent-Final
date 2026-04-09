@@ -13,7 +13,7 @@
  * 6. Trigger Vapi assistant update to inject new knowledge into prompt
  */
 
-import OpenAI from 'openai';
+import { claudeJson } from './claudeClient';
 import { storage } from '../storage';
 import { debouncedUpdateRetellAgent } from './retellProvisioningService';
 
@@ -186,22 +186,15 @@ async function fetchPage(url: string): Promise<string | null> {
 }
 
 /**
- * Use OpenAI to summarize raw website text into structured knowledge categories
+ * Use Claude (with OpenAI fallback) to summarize raw website text into structured knowledge categories
  */
 async function summarizeWithAI(
   rawText: string,
   businessName: string,
   industry: string
 ): Promise<Array<{ question: string; answer: string; category: string }>> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY not configured — cannot summarize website');
-  }
-
-  console.log(`[WebsiteScraper] OpenAI API key found (${apiKey.substring(0, 8)}...), calling summarizeWithAI for "${businessName}" (${industry})`);
+  console.log(`[WebsiteScraper] Calling summarizeWithAI for "${businessName}" (${industry})`);
   console.log(`[WebsiteScraper] Raw text length: ${rawText.length} chars`);
-
-  const openai = new OpenAI({ apiKey });
 
   // Truncate raw text to fit in context window
   const truncatedText = rawText.substring(0, 30000);
@@ -233,105 +226,45 @@ Guidelines:
 
 If no useful information can be extracted, return: []`;
 
-  const messages: Array<{ role: 'system' | 'user'; content: string }> = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Here is the text extracted from the business website:\n\n${truncatedText}` }
-  ];
+  console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to Claude (with OpenAI fallback)...`);
 
-  // Try models in order of preference, falling back if access is denied
-  const modelsToTry = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4.1-mini', 'gpt-4o-mini'];
-  let lastError: any = null;
+  const parsed = await claudeJson<any[]>({
+    system: systemPrompt,
+    prompt: `Here is the text extracted from the business website:\n\n${truncatedText}`,
+    maxTokens: 3000,
+  });
 
-  for (const model of modelsToTry) {
-    try {
-      console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to OpenAI ${model}...`);
-
-      const isGpt5 = model.startsWith('gpt-5');
-      const response = await openai.chat.completions.create({
-        model,
-        temperature: 0.3,
-        ...(isGpt5 ? { max_completion_tokens: 3000 } : { max_tokens: 3000 }),
-        messages,
-      });
-
-      const content = response.choices[0]?.message?.content?.trim();
-      console.log(`[WebsiteScraper] ${model} response received. Content length: ${content?.length || 0}`);
-      console.log(`[WebsiteScraper] ${model} raw response (first 500 chars): ${content?.substring(0, 500)}`);
-
-      if (!content) {
-        console.error(`[WebsiteScraper] ${model} returned empty content`);
-        lastError = new Error(`${model} returned empty content`);
-        continue;
-      }
-
-      // Parse JSON response — handle potential markdown code blocks
-      let jsonStr = content;
-      if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      }
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(jsonStr);
-      } catch (parseErr) {
-        console.error(`[WebsiteScraper] ${model} JSON parse failed. Raw content: ${content.substring(0, 1000)}`);
-        lastError = parseErr;
-        continue;
-      }
-
-      if (!Array.isArray(parsed)) {
-        console.error(`[WebsiteScraper] ${model} result is not an array, got: ${typeof parsed}`);
-        lastError = new Error(`${model} returned non-array: ${typeof parsed}`);
-        continue;
-      }
-
-      // Validate each entry and filter out unhelpful "not specified" answers
-      const unhelpfulPatterns = [
-        /does not specify/i,
-        /not specified/i,
-        /not mentioned/i,
-        /no information/i,
-        /not available on the website/i,
-        /not listed/i,
-        /not provided/i,
-        /website does not/i,
-      ];
-
-      const validated = parsed.filter((entry: any) => {
-        if (!entry || typeof entry.question !== 'string' || typeof entry.answer !== 'string' ||
-            typeof entry.category !== 'string' || entry.question.length === 0 || entry.answer.length === 0) {
-          return false;
-        }
-        // Skip entries where the AI says the website doesn't have the info
-        if (unhelpfulPatterns.some(pattern => pattern.test(entry.answer))) {
-          console.log(`[WebsiteScraper] Filtered out unhelpful entry: "${entry.question}" → "${entry.answer.substring(0, 80)}..."`);
-          return false;
-        }
-        return true;
-      }).slice(0, 20); // Cap at 20 entries
-
-      console.log(`[WebsiteScraper] ${model}: Parsed ${parsed.length} entries, ${validated.length} valid after filtering`);
-      return validated;
-
-    } catch (error: any) {
-      // Log detailed OpenAI error info
-      if (error?.status) {
-        console.error(`[WebsiteScraper] ${model} API error (HTTP ${error.status}):`, error.message);
-        if (error.error) {
-          console.error(`[WebsiteScraper] ${model} error details:`, JSON.stringify(error.error));
-        }
-      } else {
-        console.error(`[WebsiteScraper] ${model} error:`, error?.message || error);
-      }
-      lastError = error;
-      // Try next model
-      console.log(`[WebsiteScraper] ${model} failed, trying next model...`);
-      continue;
-    }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`AI returned non-array: ${typeof parsed}`);
   }
 
-  // All models failed
-  throw new Error(`AI summarization failed with all models: ${lastError?.message || 'Unknown error'}`);
+  // Validate each entry and filter out unhelpful "not specified" answers
+  const unhelpfulPatterns = [
+    /does not specify/i,
+    /not specified/i,
+    /not mentioned/i,
+    /no information/i,
+    /not available on the website/i,
+    /not listed/i,
+    /not provided/i,
+    /website does not/i,
+  ];
+
+  const validated = parsed.filter((entry: any) => {
+    if (!entry || typeof entry.question !== 'string' || typeof entry.answer !== 'string' ||
+        typeof entry.category !== 'string' || entry.question.length === 0 || entry.answer.length === 0) {
+      return false;
+    }
+    // Skip entries where the AI says the website doesn't have the info
+    if (unhelpfulPatterns.some(pattern => pattern.test(entry.answer))) {
+      console.log(`[WebsiteScraper] Filtered out unhelpful entry: "${entry.question}" → "${entry.answer.substring(0, 80)}..."`);
+      return false;
+    }
+    return true;
+  }).slice(0, 20); // Cap at 20 entries
+
+  console.log(`[WebsiteScraper] Parsed ${parsed.length} entries, ${validated.length} valid after filtering`);
+  return validated;
 }
 
 /**

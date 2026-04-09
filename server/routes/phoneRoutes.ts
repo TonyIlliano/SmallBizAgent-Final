@@ -251,11 +251,11 @@ router.patch(
 );
 
 /**
- * POST /api/business/:id/phone-numbers/:phoneId/connect-vapi
- * Connect a phone number to Vapi AI assistant
+ * POST /api/business/:id/phone-numbers/:phoneId/connect-retell
+ * Connect a phone number to Retell AI assistant
  */
 router.post(
-  "/business/:id/phone-numbers/:phoneId/connect-vapi",
+  "/business/:id/phone-numbers/:phoneId/connect-retell",
   isAuthenticated,
   verifyBusinessOwnership,
   async (req: Request, res: Response) => {

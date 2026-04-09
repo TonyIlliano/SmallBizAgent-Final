@@ -22,6 +22,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.86.1",
     "@aws-sdk/client-lex-models-v2": "^3.797.0",
     "@aws-sdk/client-lex-runtime-service": "^3.787.0",
     "@aws-sdk/client-s3": "^3.1004.0",
@@ -37,10 +38,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
-    "@langchain/core": "^1.1.32",
-    "@langchain/langgraph": "^1.2.2",
-    "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
-    "@langchain/openai": "^1.2.13",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@neondatabase/serverless": "^0.10.4",
     "@radix-ui/react-accordion": "^1.2.4",

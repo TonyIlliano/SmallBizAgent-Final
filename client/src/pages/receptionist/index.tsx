@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { ReceptionistConfig } from "@/components/receptionist/ReceptionistConfig";
@@ -8,8 +8,9 @@ import { WeeklySuggestions } from "@/components/receptionist/WeeklySuggestions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
-import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles } from "lucide-react";
+import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 import { FeatureTip } from "@/components/ui/feature-tip";
@@ -24,10 +25,48 @@ function hasRecordingDisclosure(greeting: string | null | undefined): boolean {
   return DISCLOSURE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
+// Removed global key — now scoped per business inside component
+
 export default function Receptionist() {
-  const [activeTab, setActiveTab] = useState("calls");
   const { user } = useAuth();
   const businessId = user?.businessId;
+
+  // Fetch call log count to decide default tab
+  const { data: callLogs } = useQuery<any[]>({
+    queryKey: ["/api/call-logs"],
+    enabled: !!businessId,
+  });
+
+  // Default to Configuration tab if zero call logs
+  const hasCallLogs = (callLogs?.length ?? 0) > 0;
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+
+  // Set initial tab once call log data is available
+  useEffect(() => {
+    if (activeTab === null && callLogs !== undefined) {
+      setActiveTab(hasCallLogs ? "calls" : "settings");
+    }
+  }, [callLogs, activeTab, hasCallLogs]);
+
+  // Info card collapse state — scoped per business so multi-business users get independent state
+  const infoCardKey = `sba-receptionist-info-collapsed-${businessId || 'default'}`;
+  const [infoCardCollapsed, setInfoCardCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(infoCardKey) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleInfoCard = () => {
+    const next = !infoCardCollapsed;
+    setInfoCardCollapsed(next);
+    try {
+      localStorage.setItem(infoCardKey, String(next));
+    } catch {
+      // localStorage not available
+    }
+  };
 
   // Fetch unanswered question count for notification badge
   const { data: questionCountData } = useQuery<{ count: number }>({
@@ -73,54 +112,64 @@ export default function Receptionist() {
         </div>
 
         <Card className="mb-6">
-          <CardHeader className="bg-blue-50 border-b">
-            <div className="flex items-start">
-              <Info className="h-5 w-5 text-blue-500 mr-2 mt-0.5" />
-              <div>
-                <CardTitle className="text-blue-700">Virtual Receptionist</CardTitle>
-                <CardDescription className="text-blue-600">
-                  Your virtual receptionist uses AI to handle your calls 24/7, schedule appointments,
-                  and manage customer inquiries even when you're not available.
-                </CardDescription>
+          <CardHeader
+            className="bg-blue-50 border-b cursor-pointer"
+            onClick={toggleInfoCard}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-start">
+                <Info className="h-5 w-5 text-blue-500 mr-2 mt-0.5" />
+                <div>
+                  <CardTitle className="text-blue-700">Virtual Receptionist</CardTitle>
+                  <CardDescription className="text-blue-600">
+                    Your virtual receptionist uses AI to handle your calls 24/7, schedule appointments,
+                    and manage customer inquiries even when you're not available.
+                  </CardDescription>
+                </div>
               </div>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 flex-shrink-0">
+                {infoCardCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+              </Button>
             </div>
           </CardHeader>
-          <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
-                <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center mb-3">
-                  <Phone className="h-6 w-6 text-blue-600" />
+          {!infoCardCollapsed && (
+            <CardContent className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
+                  <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center mb-3">
+                    <Phone className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <h3 className="font-medium text-lg mb-1">24/7 Call Handling</h3>
+                  <p className="text-sm text-center text-gray-500">
+                    Never miss a call. The virtual receptionist answers calls anytime, even after hours.
+                  </p>
                 </div>
-                <h3 className="font-medium text-lg mb-1">24/7 Call Handling</h3>
-                <p className="text-sm text-center text-gray-500">
-                  Never miss a call. The virtual receptionist answers calls anytime, even after hours.
-                </p>
-              </div>
 
-              <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
-                <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center mb-3">
-                  <MessageSquare className="h-6 w-6 text-green-600" />
+                <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
+                  <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center mb-3">
+                    <MessageSquare className="h-6 w-6 text-green-600" />
+                  </div>
+                  <h3 className="font-medium text-lg mb-1">Smart Conversations</h3>
+                  <p className="text-sm text-center text-gray-500">
+                    Understands caller needs and responds intelligently to schedule appointments or answer questions.
+                  </p>
                 </div>
-                <h3 className="font-medium text-lg mb-1">Smart Conversations</h3>
-                <p className="text-sm text-center text-gray-500">
-                  Understands caller needs and responds intelligently to schedule appointments or answer questions.
-                </p>
-              </div>
 
-              <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
-                <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center mb-3">
-                  <Settings className="h-6 w-6 text-purple-600" />
+                <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
+                  <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center mb-3">
+                    <Settings className="h-6 w-6 text-purple-600" />
+                  </div>
+                  <h3 className="font-medium text-lg mb-1">Fully Customizable</h3>
+                  <p className="text-sm text-center text-gray-500">
+                    Customize greetings, after-hours messages, and emergency handling to match your business needs.
+                  </p>
                 </div>
-                <h3 className="font-medium text-lg mb-1">Fully Customizable</h3>
-                <p className="text-sm text-center text-gray-500">
-                  Customize greetings, after-hours messages, and emergency handling to match your business needs.
-                </p>
               </div>
-            </div>
-          </CardContent>
+            </CardContent>
+          )}
         </Card>
 
-        <Tabs defaultValue="calls" value={activeTab} onValueChange={setActiveTab}>
+        <Tabs defaultValue="calls" value={activeTab || "calls"} onValueChange={setActiveTab}>
           <TabsList className="flex w-full overflow-x-auto sm:grid sm:w-full sm:grid-cols-4 mb-6">
             <TabsTrigger value="calls">Call History</TabsTrigger>
             <TabsTrigger value="knowledge" className="relative">

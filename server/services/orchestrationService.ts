@@ -22,6 +22,7 @@
  */
 
 import { storage } from '../storage';
+import { logAndSwallow } from '../utils/safeAsync';
 
 // Event types the orchestrator handles
 export type OrchestratorEvent =
@@ -56,20 +57,7 @@ export async function dispatchEvent(
   try {
     console.log(`[Orchestrator] Event: ${event} for business ${payload.businessId}, customer ${payload.customerId || 'unknown'}`);
 
-    // Try LangGraph-based routing first
-    try {
-      const { isGraphReady, invokeAgentGraph } = await import('./agentGraph');
-      if (isGraphReady()) {
-        const result = await invokeAgentGraph(event, payload);
-        console.log(`[Orchestrator] LangGraph handled ${event}: ${result.action || 'done'}`);
-        return; // LangGraph handled it — no need for fallback
-      }
-    } catch (err) {
-      console.warn(`[Orchestrator] LangGraph failed for ${event}, falling back to switch/case:`, (err as Error).message);
-    }
-
-    // Fallback: existing switch/case handlers (always available)
-
+    // Route events to appropriate handlers via switch/case dispatcher
     switch (event) {
       case 'intelligence.ready':
         await handleIntelligenceReady(payload);
@@ -186,7 +174,7 @@ async function handleAppointmentCompleted(payload: OrchestratorPayload): Promise
     console.error(`[Orchestrator] Error triggering follow-up for appointment ${referenceId}:`, err);
     // Release lock on failure
     if (customerId) {
-      await storage.releaseEngagementLock(customerId, businessId).catch(() => {});
+      await storage.releaseEngagementLock(customerId, businessId).catch(logAndSwallow('Orchestrator'));
     }
   }
 }
@@ -245,7 +233,7 @@ async function handleNoShow(payload: OrchestratorPayload): Promise<void> {
   } catch (err) {
     console.error(`[Orchestrator] Error triggering no-show for appointment ${referenceId}:`, err);
     if (customerId) {
-      await storage.releaseEngagementLock(customerId, businessId).catch(() => {});
+      await storage.releaseEngagementLock(customerId, businessId).catch(logAndSwallow('Orchestrator'));
     }
   }
 }
@@ -296,7 +284,7 @@ async function handleJobCompleted(payload: OrchestratorPayload): Promise<void> {
   } catch (err) {
     console.error(`[Orchestrator] Error triggering follow-up for job ${referenceId}:`, err);
     if (customerId) {
-      await storage.releaseEngagementLock(customerId, businessId).catch(() => {});
+      await storage.releaseEngagementLock(customerId, businessId).catch(logAndSwallow('Orchestrator'));
     }
   }
 }

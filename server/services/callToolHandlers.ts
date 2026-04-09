@@ -22,6 +22,7 @@ import { getTimezoneAbbreviation } from '../utils/timezone';
 // Pre-import intelligence services to avoid dynamic import latency during calls
 import { getLatestCustomerIntelligence } from './callIntelligenceService';
 import { searchMemory } from './mem0Service';
+import { logAndSwallow } from '../utils/safeAsync';
 
 
 /**
@@ -1650,8 +1651,8 @@ async function bookAppointment(
         });
         // Send one-time TCPA opt-in welcome message (fire-and-forget)
         import('./notificationService').then(ns => {
-          ns.sendSmsOptInWelcome(customer!.id, businessId).catch(() => {});
-        }).catch(() => {});
+          ns.sendSmsOptInWelcome(customer!.id, businessId).catch(logAndSwallow('CallTools'));
+        }).catch(logAndSwallow('CallTools'));
       } catch (customerError: any) {
         console.error('Failed to create customer:', {
           error: customerError.message,
@@ -1707,8 +1708,8 @@ async function bookAppointment(
         customer = { ...customer, smsOptIn: true };
         // Send one-time TCPA opt-in welcome message (fire-and-forget)
         import('./notificationService').then(ns => {
-          ns.sendSmsOptInWelcome(customer!.id, businessId).catch(() => {});
-        }).catch(() => {});
+          ns.sendSmsOptInWelcome(customer!.id, businessId).catch(logAndSwallow('CallTools'));
+        }).catch(logAndSwallow('CallTools'));
       } catch (err) {
         console.error('[bookAppointment] Error setting smsOptIn:', err);
       }
@@ -4164,7 +4165,7 @@ async function checkWaitTime(businessId: number): Promise<FunctionResult> {
   const waitTimezone = business?.timezone || 'America/New_York';
   const now = getNowInTimezone(waitTimezone);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const appointments = await storage.getAppointmentsByBusinessId(businessId);
+  const appointments = await storage.getUpcomingAppointmentsByBusinessId(businessId);
 
   const todayAppointments = appointments
     .filter(apt => {
@@ -5292,7 +5293,7 @@ async function handleMakeReservation(
     });
 
     // Fire webhook
-    fireEvent(businessId, 'reservation.created', { reservation }).catch(() => {});
+    fireEvent(businessId, 'reservation.created', { reservation }).catch(logAndSwallow('CallTools'));
 
     // Send SMS confirmation (fire-and-forget)
     if (phone) {
@@ -5445,7 +5446,7 @@ async function handleCancelReservation(
     const toCancel = upcomingReservations[0];
     await storage.updateRestaurantReservation(toCancel.id, { status: 'cancelled' });
 
-    fireEvent(businessId, 'reservation.cancelled', { reservation: toCancel }).catch(() => {});
+    fireEvent(businessId, 'reservation.cancelled', { reservation: toCancel }).catch(logAndSwallow('CallTools'));
 
     const friendlyDate = new Date(toCancel.startDate).toLocaleDateString('en-US', {
       weekday: 'long', month: 'long', day: 'numeric', timeZone: businessTimezone

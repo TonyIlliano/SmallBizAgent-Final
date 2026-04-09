@@ -4,6 +4,7 @@ import { isAgentEnabled, getAgentConfig, fillTemplate } from './agentSettingsSer
 import { logAgentAction } from './agentActivityService';
 import { classifyReply } from './smsReplyParser';
 import type { SmsConversation, Customer } from '@shared/schema';
+import { logAndSwallow } from '../utils/safeAsync';
 
 export async function runRebookingCheck(): Promise<void> {
   console.log('[RebookingAgent] Running rebooking check...');
@@ -208,9 +209,9 @@ export async function handleRebookingReply(
     // Release engagement lock via orchestrator
     if (customer?.id) {
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
-      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('RebookingAgent'));
+      }).catch(logAndSwallow('RebookingAgent'));
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch (err) { console.error('[RebookingAgent] Error:', err instanceof Error ? err.message : err); }
     }
     return { replyMessage: `You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
   }
@@ -230,8 +231,8 @@ export async function handleRebookingReply(
     // Release engagement lock via orchestrator
     if (customer?.id) {
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('RebookingAgent'));
+      }).catch(logAndSwallow('RebookingAgent'));
     }
     const reply = fillTemplate(config.bookingReplyTemplate, templateVars);
     return { replyMessage: reply };
@@ -242,8 +243,8 @@ export async function handleRebookingReply(
     // Release engagement lock via orchestrator
     if (customer?.id) {
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('RebookingAgent'));
+      }).catch(logAndSwallow('RebookingAgent'));
     }
     const reply = fillTemplate(config.declineReplyTemplate, templateVars);
     return { replyMessage: reply };

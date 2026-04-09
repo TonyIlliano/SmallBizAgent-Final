@@ -96,7 +96,7 @@ async function processSingleTrigger(trigger: MarketingTrigger, stats: { sent: nu
       stats.skipped++;
       return;
     }
-  } catch {}
+  } catch (err) { console.error('[MarketingTrigger] Error:', err instanceof Error ? err.message : err); }
 
   // Send via messageIntelligenceService
   const context: Record<string, any> = {
@@ -166,7 +166,7 @@ async function processSingleTrigger(trigger: MarketingTrigger, stats: { sent: nu
         await storage.upsertCampaignAnalytics(trigger.campaignId, trigger.businessId, {
           sentCount: (existing?.sentCount || 0) + 1,
         });
-      } catch {}
+      } catch (err) { console.error('[MarketingTrigger] Error:', err instanceof Error ? err.message : err); }
     }
   } else if (result.skipped) {
     await storage.updateMarketingTrigger(trigger.id, { status: 'skipped', skipReason: result.skipReason || 'send_skipped' });

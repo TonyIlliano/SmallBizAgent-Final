@@ -251,7 +251,7 @@ export async function runChurnPrediction(): Promise<{ predictions: ChurnPredicti
       try {
         const { sendAdminAlert } = await import('../adminAlertService');
         await sendAdminAlert({ type: 'churn_risk_high', severity: 'medium', title: `High Churn Risk: ${biz.name}`, details: { businessId: biz.id, businessName: biz.name, riskScore: score, ownerEmail: owner?.email || biz.email || 'N/A', topFactors: factors.slice(0, 3).map(f => f.detail).join('; ') } });
-      } catch (_) {}
+      } catch (err) { console.error('[ChurnPrediction] Error:', err instanceof Error ? err.message : err); }
     }
   }
 

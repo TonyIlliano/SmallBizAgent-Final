@@ -29,6 +29,8 @@ import {
 import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
 import { sanitizeBusiness } from './utils/sanitize';
 import { createHmac } from "crypto";
+import { logAndSwallow } from './utils/safeAsync';
+import { sendEmail } from "./emailService";
 
 // Setup authentication
 import {
@@ -270,6 +272,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Public contact form endpoint (no auth required)
+  const contactLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: { message: "Too many contact requests. Please try again later." } });
+  app.post("/api/contact", contactLimiter, async (req: Request, res: Response) => {
+    try {
+      const { name, email, subject, message } = req.body;
+      if (!name || !email || !subject || !message) {
+        return res.status(400).json({ message: "All fields are required: name, email, subject, message." });
+      }
+      // Basic email format check
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ message: "Invalid email address." });
+      }
+
+      const adminEmail = process.env.ADMIN_EMAIL || "Bark@smallbizagent.ai";
+
+      await sendEmail({
+        to: adminEmail,
+        subject: `[Contact Form] ${subject}`,
+        replyTo: email,
+        text: `New contact form submission:\n\nName: ${name}\nEmail: ${email}\nSubject: ${subject}\n\nMessage:\n${message}`,
+        html: `
+          <h2>New Contact Form Submission</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Subject:</strong> ${subject}</p>
+          <hr />
+          <p><strong>Message:</strong></p>
+          <p>${message.replace(/\n/g, '<br />')}</p>
+        `,
+      });
+
+      res.json({ success: true, message: "Your message has been sent. We'll get back to you soon!" });
+    } catch (error: any) {
+      console.error("Contact form error:", error);
+      res.status(500).json({ message: "Failed to send message. Please try again later." });
+    }
+  });
+
   // Register data import routes (with business ownership verification)
   const importAuthCheck = (req: Request, res: Response, next: Function) => {
     const { businessId } = req.body;
@@ -485,8 +525,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (validatedData.name || validatedData.phone || validatedData.address || validatedData.description || validatedData.website) {
         const gbpSvc = new GoogleBusinessProfileService();
         gbpSvc.isConnected(id).then(connected => {
-          if (connected) gbpSvc.syncBusinessData(id).catch(() => {});
-        }).catch(() => {});
+          if (connected) gbpSvc.syncBusinessData(id).catch(logAndSwallow('Routes'));
+        }).catch(logAndSwallow('Routes'));
       }
 
       res.json(sanitizeBusiness(business));
@@ -839,8 +879,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (hours.businessId) {
         const gbpSvc = new GoogleBusinessProfileService();
         gbpSvc.isConnected(hours.businessId).then(connected => {
-          if (connected) gbpSvc.syncBusinessData(hours.businessId).catch(() => {});
-        }).catch(() => {});
+          if (connected) gbpSvc.syncBusinessData(hours.businessId).catch(logAndSwallow('Routes'));
+        }).catch(logAndSwallow('Routes'));
       }
 
       res.json(hours);
@@ -1101,8 +1141,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send TCPA welcome SMS if customer was created with smsOptIn
       if (customer.smsOptIn && customer.phone) {
         import('./services/notificationService').then(ns => {
-          ns.sendSmsOptInWelcome(customer.id, businessId).catch(() => {});
-        }).catch(() => {});
+          ns.sendSmsOptInWelcome(customer.id, businessId).catch(logAndSwallow('Routes'));
+        }).catch(logAndSwallow('Routes'));
       }
 
       // Fire webhook event (fire-and-forget)
@@ -4898,8 +4938,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[SMS] Customer ${customer.id} opted out of marketing via STOP keyword (transactional SMS still active)`);
           // Cancel all pending marketing triggers for this customer
           import('./services/marketingTriggerEngine').then(({ cancelTriggersOnEvent }) => {
-            cancelTriggersOnEvent(businessId, customer!.id, 'opted_out').catch(() => {});
-          }).catch(() => {});
+            cancelTriggersOnEvent(businessId, customer!.id, 'opted_out').catch(logAndSwallow('Routes'));
+          }).catch(logAndSwallow('Routes'));
         }
         const twiml = new twilio.twiml.MessagingResponse();
         twiml.message(`You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe to all messages.`);
@@ -5241,33 +5281,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('[SMS] Error checking agent conversations:', convErr);
       }
 
-      // ── Try Reply Intelligence Graph for unhandled messages ──
-      // If no active conversation matched, use the LangGraph reply agent for AI-powered responses
-      try {
-        const { isReplyGraphReady, invokeReplyGraph } = await import('./services/replyIntelligenceGraph');
-        if (isReplyGraphReady()) {
-          const graphResult = await invokeReplyGraph({
-            businessId,
-            customerId: customer?.id,
-            customerPhone: From,
-            incomingMessage: Body,
-            twilioMessageSid: req.body.MessageSid,
-          });
-          if (graphResult?.responseMessage) {
-            let sanitizedReply = graphResult.responseMessage;
-            sanitizedReply = sanitizedReply.replace(/\s*\((?:Note|Internal|System|Debug|Reminder|Context|Warning|TODO|IMPORTANT)[:\s][^)]*\)/gi, '');
-            sanitizedReply = sanitizedReply.replace(/  +/g, ' ').trim();
-            const graphTwiml = new twilio.twiml.MessagingResponse();
-            graphTwiml.message(sanitizedReply);
-            res.type('text/xml');
-            return res.send(graphTwiml.toString());
-          }
-        }
-      } catch (graphErr) {
-        console.warn('[SMS] Reply intelligence graph failed, falling back to generic reply:', graphErr);
-      }
+      // TODO: Phase 9 — Claude Managed Agent SMS Intelligence will handle freeform text here
+      // For now, fall through to generic auto-reply
 
-      // Generate TwiML response for SMS (generic auto-reply fallback)
+      // Generate TwiML response for SMS (generic auto-reply)
       const twiml = new twilio.twiml.MessagingResponse();
 
       // Auto-reply with business hours or acknowledgment
@@ -5693,42 +5710,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // =================== VAPI.AI WEBHOOK ENDPOINTS ===================
-
-  /**
-   * Vapi Webhook Validation Middleware
-   * Vapi sends a secret in the x-vapi-secret header that should match VAPI_WEBHOOK_SECRET
-   * This prevents attackers from spoofing webhook calls
-   */
-  const validateVapiWebhook = (req: Request, res: Response, next: Function) => {
-    const vapiSecret = process.env.VAPI_WEBHOOK_SECRET;
-
-    // If no secret is configured, allow all requests (validate via Vapi metadata instead)
-    if (!vapiSecret) {
-      return next();
-    }
-
-    // Check for Vapi secret header
-    const receivedSecret = req.headers['x-vapi-secret'] as string;
-
-    // Also check Authorization header (Vapi may use Bearer token)
-    const authHeader = req.headers['authorization'] as string;
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-
-    if (receivedSecret === vapiSecret || bearerToken === vapiSecret) {
-      return next();
-    }
-
-    // If Vapi isn't configured to send a secret, allow the request through
-    // (business ID validation in the handler provides secondary security)
-    if (!receivedSecret && !bearerToken) {
-      console.warn('[Vapi Webhook] No secret header sent by Vapi — allowing (configure server secret in Vapi dashboard for security)');
-      return next();
-    }
-
-    console.error('Vapi webhook rejected: invalid secret');
-    return res.status(401).json({ error: 'Unauthorized' });
-  };
+  // =================== RETELL AI ENDPOINTS ===================
 
   // ==================== Order History API ====================
 
@@ -5830,169 +5812,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Vapi webhook for function calls and events
-  app.post("/api/vapi/webhook", validateVapiWebhook, async (req: Request, res: Response) => {
-    try {
-      console.log('Vapi webhook received:', JSON.stringify(req.body, null, 2).substring(0, 1000));
-
-      const messageType = req.body?.message?.type;
-
-      // Handle tool-calls message type (Vapi's format)
-      if (messageType === 'tool-calls') {
-        // Vapi sends tool calls in both toolCallList and toolCalls (often duplicated)
-        // Both can have nested function: { name, arguments } structure
-        const toolCallList = req.body?.message?.toolCallList || [];
-        const toolCalls = req.body?.message?.toolCalls || [];
-
-        // Use toolCalls as primary (it's always present), only use toolCallList if toolCalls is empty
-        const rawCalls = toolCalls.length > 0 ? toolCalls : toolCallList;
-
-        // Normalize the format - handle both flat and nested function structure
-        const normalizedCalls = rawCalls.map((tc: any) => ({
-          id: tc.id,
-          // Name can be at tc.name, tc.function.name
-          name: tc.function?.name || tc.name,
-          // Parameters can be at tc.parameters, tc.function.arguments (as object or JSON string)
-          parameters: tc.function?.arguments || tc.parameters || {}
-        }));
-
-        const results: any[] = [];
-
-        console.log(`Processing ${normalizedCalls.length} tool calls (from toolCallList: ${toolCallList.length}, toolCalls: ${toolCalls.length})`);
-
-        for (const toolCall of normalizedCalls) {
-          const toolCallId = toolCall.id;
-          const functionName = toolCall.name;
-          // Handle parameters that might be a string (JSON) or object
-          let parameters = toolCall.parameters;
-          if (typeof parameters === 'string') {
-            try {
-              parameters = JSON.parse(parameters);
-            } catch (e) {
-              parameters = {};
-            }
-          }
-          parameters = parameters || {};
-
-          console.log(`Processing tool call: ${functionName}, id: ${toolCallId}`);
-
-          // For tool-calls, the assistant with metadata can be at:
-          // - message.call.assistant.metadata
-          // - message.assistant.metadata (more common in tool-calls)
-          // We need to ensure the synthetic request has access to this
-          const callObj = req.body?.message?.call || {};
-          const assistantFromMessage = req.body?.message?.assistant;
-
-          // If assistant is at message level, inject it into the call object
-          if (assistantFromMessage && !callObj.assistant) {
-            callObj.assistant = assistantFromMessage;
-          }
-
-          // Ensure customer info is available on callObj for callerPhone extraction
-          // Vapi tool-calls may place customer at message.customer instead of message.call.customer
-          const customerFromMessage = req.body?.message?.customer;
-          if (customerFromMessage && !callObj.customer) {
-            callObj.customer = customerFromMessage;
-          }
-
-          // Extract businessId and callerPhone for dispatchToolCall
-          const businessId = Number(assistantFromMessage?.metadata?.businessId || callObj.assistant?.metadata?.businessId || 0);
-          const callerPhone = callObj.customer?.number || customerFromMessage?.number || undefined;
-
-          console.log(`Assistant metadata location check - message.assistant: ${!!assistantFromMessage}, call.assistant: ${!!callObj.assistant}`);
-          console.log(`BusinessId from message.assistant.metadata: ${businessId}`);
-          console.log(`Customer phone: call.customer=${callObj.customer?.number}, message.customer=${customerFromMessage?.number}`);
-
-          // Create a synthetic request in the old format for the handler
-          const syntheticRequest = {
-            message: {
-              type: 'function-call',
-              functionCall: {
-                name: functionName,
-                parameters: parameters
-              },
-              call: callObj,
-              // Also pass assistant directly at message level for the handler to find
-              assistant: assistantFromMessage
-            },
-            metadata: req.body?.metadata
-          };
-
-          try {
-            // Route legacy Vapi tool-calls through the provider-agnostic callToolHandlers
-            const { dispatchToolCall } = await import('./services/callToolHandlers');
-            const result = await dispatchToolCall(functionName, businessId, parameters || {}, callerPhone);
-
-            if (result && 'result' in result) {
-              results.push({
-                name: functionName,
-                toolCallId: toolCallId,
-                result: typeof result.result === 'string' ? result.result : JSON.stringify(result.result)
-              });
-            } else if (result && 'error' in result) {
-              results.push({
-                name: functionName,
-                toolCallId: toolCallId,
-                result: JSON.stringify({ error: result.error })
-              });
-            }
-          } catch (err) {
-            console.error(`Error processing tool call ${functionName}:`, err);
-            results.push({
-              name: functionName,
-              toolCallId: toolCallId,
-              result: JSON.stringify({ error: 'Internal error processing tool call' })
-            });
-          }
-        }
-
-        console.log('Sending Vapi response:', JSON.stringify({ results }, null, 2));
-        return res.status(200).json({ results });
-      }
-
-      // Handle legacy function-call format (for backwards compatibility)
-      // Route through provider-agnostic callToolHandlers
-      if (messageType === 'function-call' && req.body?.message?.functionCall) {
-        const { dispatchToolCall } = await import('./services/callToolHandlers');
-        const fcName = req.body.message.functionCall.name;
-        const fcParams = req.body.message.functionCall.parameters || {};
-        const fcCallerPhone = req.body.message?.call?.customer?.number;
-        const fcBusinessId = Number(req.body.message?.assistant?.metadata?.businessId || req.body.message?.call?.assistant?.metadata?.businessId || 0);
-        const result = await dispatchToolCall(fcName, fcBusinessId, fcParams, fcCallerPhone);
-        res.status(200).json(result);
-      } else if (messageType === 'end-of-call-report') {
-        const { processEndOfCall } = await import('./services/callToolHandlers');
-        const msg = req.body.message;
-        const eocBusinessId = Number(msg?.assistant?.metadata?.businessId || msg?.call?.assistant?.metadata?.businessId || 0);
-        await processEndOfCall({
-          businessId: eocBusinessId,
-          callerPhone: msg?.call?.customer?.number || null,
-          transcript: msg?.transcript || null,
-          callDurationSeconds: msg?.durationSeconds ? Math.round(msg.durationSeconds) : 0,
-          endedReason: msg?.endedReason || '',
-          recordingUrl: msg?.call?.recordingUrl || null,
-          callStartedAt: msg?.call?.startedAt || null,
-          callEndedAt: msg?.call?.endedAt || null,
-          calledNumber: msg?.call?.phoneNumber?.number || null,
-        });
-        res.status(200).json({ success: true });
-      } else {
-        // Non-function-call messages (transcript, status-update) — acknowledge
-        res.status(200).json({ success: true });
-      }
-    } catch (error) {
-      console.error('Error handling Vapi webhook:', error);
-      res.status(200).json({ error: 'Internal server error' });
-    }
-  });
-
-  // Retell AI webhook endpoints
+  // Retell AI webhook endpoints (all voice AI calls handled here)
   app.post('/api/retell/webhook', validateRetellWebhook, handleRetellWebhook);
   app.post('/api/retell/function', validateRetellWebhook, handleRetellFunction);
   app.post('/api/retell/inbound', handleInboundWebhook);  // Pre-fetch caller data before call starts
 
   // Check what's missing for AI receptionist to work properly
-  app.get("/api/vapi/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/retell/setup-status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
       if (isNaN(businessId)) {
@@ -6064,7 +5890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Diagnostic endpoint to check business data for AI receptionist
-  app.get("/api/vapi/diagnostic/:businessId", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/retell/diagnostic/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
       if (isNaN(businessId)) {
@@ -6130,7 +5956,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Force refresh Retell agent (for debugging - updates webhook URL and system prompt)
-  app.post("/api/vapi/refresh/:businessId", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/retell/refresh/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
       if (isNaN(businessId)) {
@@ -6210,7 +6036,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create or update Retell agent for a business
-  app.post("/api/vapi/assistant", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/retell/assistant", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { businessId } = req.body;
 
@@ -6267,7 +6093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Connect Twilio phone number to Retell
-  app.post("/api/vapi/connect-phone", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/retell/connect-phone", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { businessId } = req.body;
 
@@ -6312,7 +6138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get Retell agent status for a business
-  app.get("/api/vapi/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/retell/status/:businessId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.businessId);
       if (isNaN(businessId)) {
@@ -6428,7 +6254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Clear Retell fields via raw SQL
       await db.execute(
         sql`UPDATE businesses SET retell_agent_id = NULL, retell_llm_id = NULL, retell_phone_number_id = NULL WHERE id = ${businessId}`
-      ).catch(() => {});
+      ).catch(logAndSwallow('Routes'));
 
       res.json({
         success: result.success,

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 // Robot Logo SVG matching the SmallBizAgent brand
 const RobotLogo = ({ className }: { className?: string }) => (
@@ -28,6 +29,7 @@ const RobotLogo = ({ className }: { className?: string }) => (
 );
 
 export default function ContactPage() {
+  const { toast } = useToast();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -41,18 +43,38 @@ export default function ContactPage() {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // Construct mailto link and open it — simple, no backend needed
-    const subject = encodeURIComponent(formData.subject || "Contact from SmallBizAgent Website");
-    const body = encodeURIComponent(
-      `Name: ${formData.name}\nEmail: ${formData.email}\n\n${formData.message}`
-    );
-    window.location.href = `mailto:Bark@smallbizagent.ai?subject=${subject}&body=${body}`;
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          subject: formData.subject,
+          message: formData.message,
+        }),
+      });
 
-    // Show success state after brief delay
-    setTimeout(() => {
-      setIsSubmitting(false);
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to send message");
+      }
+
+      toast({
+        title: "Message sent!",
+        description: data.message || "We'll get back to you soon.",
+      });
       setIsSubmitted(true);
-    }, 500);
+    } catch (error: any) {
+      toast({
+        title: "Failed to send message",
+        description: error.message || "Please try again later.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -98,10 +120,10 @@ export default function ContactPage() {
                     <div className="h-16 w-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-6">
                       <CheckCircle2 className="h-8 w-8 text-green-400" />
                     </div>
-                    <h2 className="text-2xl font-bold text-white mb-3">Message Ready to Send!</h2>
+                    <h2 className="text-2xl font-bold text-white mb-3">Message Sent!</h2>
                     <p className="text-neutral-400 mb-6">
-                      Your email client should have opened with your message pre-filled.
-                      If it didn't open, you can email us directly at{" "}
+                      Thank you for reaching out. We've received your message and will
+                      get back to you within 24 hours. You can also reach us directly at{" "}
                       <a href="mailto:Bark@smallbizagent.ai" className="text-blue-400 hover:text-blue-300">
                         Bark@smallbizagent.ai
                       </a>
@@ -177,7 +199,7 @@ export default function ContactPage() {
                         disabled={isSubmitting}
                       >
                         {isSubmitting ? (
-                          "Opening email..."
+                          "Sending..."
                         ) : (
                           <>
                             <Send className="mr-2 h-4 w-4" />

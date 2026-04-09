@@ -4,6 +4,7 @@ import { isAgentEnabled, getAgentConfig, fillTemplate } from './agentSettingsSer
 import { logAgentAction } from './agentActivityService';
 import { classifyReply } from './smsReplyParser';
 import type { SmsConversation, Customer } from '@shared/schema';
+import { logAndSwallow } from '../utils/safeAsync';
 
 /**
  * Triggered when a staff member manually marks an appointment as "no_show".
@@ -56,7 +57,7 @@ export async function triggerNoShowSms(
     }
 
     // Format appointment time in business timezone
-    const tz = (business as any).timezone || undefined;
+    const tz = business.timezone || undefined;
     const apptTime = appointment.startDate
       ? new Date(appointment.startDate).toLocaleTimeString('en-US', {
           hour: 'numeric',
@@ -171,9 +172,9 @@ export async function handleNoShowReply(
     // Release engagement lock via orchestrator
     if (customer?.id) {
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
-      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch {}
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('NoShowAgent'));
+      }).catch(logAndSwallow('NoShowAgent'));
+      try { await storage.updateCustomer(customer.id, { marketingOptIn: false }); } catch (err) { console.error('[NoShowAgent] Error:', err instanceof Error ? err.message : err); }
     }
     return { replyMessage: `You've been unsubscribed from ${business.name} promotional messages. You'll still receive appointment reminders & confirmations. Reply START to re-subscribe.` };
   }
@@ -195,8 +196,8 @@ export async function handleNoShowReply(
     // Release engagement lock via orchestrator
     if (customer?.id) {
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('NoShowAgent'));
+      }).catch(logAndSwallow('NoShowAgent'));
     }
     const reply = fillTemplate(config.rescheduleReplyTemplate, templateVars);
     return { replyMessage: reply };
@@ -207,8 +208,8 @@ export async function handleNoShowReply(
     // Release engagement lock via orchestrator
     if (customer?.id) {
       import('./orchestrationService').then(mod => {
-        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(() => {});
-      }).catch(() => {});
+        mod.dispatchEvent('conversation.resolved', { businessId, customerId: customer!.id }).catch(logAndSwallow('NoShowAgent'));
+      }).catch(logAndSwallow('NoShowAgent'));
     }
     const reply = fillTemplate(config.declineReplyTemplate, templateVars);
     return { replyMessage: reply };
@@ -226,8 +227,8 @@ export async function processExpiredConversations(): Promise<void> {
       // Release engagement lock via orchestrator
       if (conv.customerId) {
         import('./orchestrationService').then(mod => {
-          mod.dispatchEvent('conversation.resolved', { businessId: conv.businessId, customerId: conv.customerId! }).catch(() => {});
-        }).catch(() => {});
+          mod.dispatchEvent('conversation.resolved', { businessId: conv.businessId, customerId: conv.customerId! }).catch(logAndSwallow('NoShowAgent'));
+        }).catch(logAndSwallow('NoShowAgent'));
       }
       await logAgentAction({
         businessId: conv.businessId,

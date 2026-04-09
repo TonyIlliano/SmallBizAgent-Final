@@ -112,7 +112,7 @@ function pickContentType(): typeof CONTENT_TYPES[number] {
 }
 
 /**
- * Generate a social media post using OpenAI.
+ * Generate a social media post using Claude (with OpenAI fallback).
  */
 async function generateWithOpenAI(
   platform: SocialPlatform,
@@ -120,8 +120,7 @@ async function generateWithOpenAI(
   contentType: typeof CONTENT_TYPES[number],
   platformFacts: string[] = []
 ): Promise<string> {
-  const OpenAI = (await import('openai')).default;
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const { claudeText } = await import('../claudeClient');
 
   const constraints = PLATFORM_CONSTRAINTS[platform];
 
@@ -151,12 +150,7 @@ async function generateWithOpenAI(
     // Ignore errors — winner training is a bonus, not required
   }
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-5.4-mini',
-    messages: [
-      {
-        role: 'system',
-        content: `You are a social media marketer for SmallBizAgent — an AI-powered receptionist and business management platform for small businesses. Write a ${platform} post.
+  const systemPrompt = `You are a social media marketer for SmallBizAgent — an AI-powered receptionist and business management platform for small businesses. Write a ${platform} post.
 
 Content approach: ${contentType.instruction}
 
@@ -168,18 +162,15 @@ Constraints:
 - Be genuine and helpful, not salesy
 - If platform stats are provided, weave them in naturally (don't list them robotically)${factsSection}${winnerSection}
 
-Respond with ONLY the post text. No quotes, no labels, no explanation.`,
-      },
-      {
-        role: 'user',
-        content: `Write a ${platform} post for ${industry} business owners about SmallBizAgent. Content type: ${contentType.type}.`,
-      },
-    ],
-    temperature: 0.85,
+Respond with ONLY the post text. No quotes, no labels, no explanation.`;
+
+  const content = await claudeText({
+    system: systemPrompt,
+    prompt: `Write a ${platform} post for ${industry} business owners about SmallBizAgent. Content type: ${contentType.type}.`,
+    maxTokens: 1024,
   });
 
-  const content = response.choices[0]?.message?.content?.trim() || '';
-  return content.substring(0, constraints.maxLength);
+  return (content || '').trim().substring(0, constraints.maxLength);
 }
 
 /**
@@ -310,7 +301,7 @@ export async function runSocialMediaAgent(): Promise<SocialMediaResult> {
     return { draftsGenerated: 0, platforms: connectedPlatforms, skipped: false };
   }
 
-  const useOpenAI = !!process.env.OPENAI_API_KEY;
+  const useOpenAI = !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
   const contentType = pickContentType();
   let draftsGenerated = 0;
 

@@ -63,19 +63,19 @@ async function withAdvisoryLock(lockName: string, fn: () => Promise<void>): Prom
 }
 
 /**
- * Start the reminder scheduler for a business
- * Runs every hour to check for appointments needing reminders
+ * Start the global reminder scheduler.
+ * Uses a SINGLE timer that iterates all businesses, instead of one timer per business.
+ * Runs every hour to check for appointments needing reminders across all businesses.
  */
-export function startReminderScheduler(businessId: number): void {
-  const jobKey = `reminder-${businessId}`;
+export function startGlobalReminderScheduler(): void {
+  const jobKey = 'reminders-global';
 
-  // Don't start if already running
   if (scheduledJobs.has(jobKey)) {
-    console.log(`Reminder scheduler already running for business ${businessId}`);
+    console.log('Global reminder scheduler already running');
     return;
   }
 
-  console.log(`Starting reminder scheduler for business ${businessId}`);
+  console.log('Starting global reminder scheduler');
 
   // Do NOT run immediately on start — prevents duplicate reminders on every deploy/restart.
   // The dedup check in reminderService is a safety net, but skipping the immediate run
@@ -83,45 +83,55 @@ export function startReminderScheduler(businessId: number): void {
 
   // Run every hour (first run happens ~1 hour after deploy, not immediately)
   const intervalId = setInterval(() => {
-    withReentryGuard(`reminder-${businessId}`, () => runReminderCheck(businessId));
+    withReentryGuard('reminders-global', () => runAllBusinessReminderChecks());
   }, 60 * 60 * 1000); // Every hour
 
   scheduledJobs.set(jobKey, intervalId);
 }
 
 /**
- * Stop the reminder scheduler for a business
+ * @deprecated Use startGlobalReminderScheduler() instead.
+ * Kept for backward compatibility — called when a new business is created.
+ * Now a no-op since the global scheduler handles all businesses.
  */
-export function stopReminderScheduler(businessId: number): void {
-  const jobKey = `reminder-${businessId}`;
-  const intervalId = scheduledJobs.get(jobKey);
-
-  if (intervalId) {
-    clearInterval(intervalId);
-    scheduledJobs.delete(jobKey);
-    console.log(`Stopped reminder scheduler for business ${businessId}`);
-  }
+export function startReminderScheduler(_businessId: number): void {
+  // No-op — the global scheduler handles all businesses
 }
 
 /**
- * Run the reminder check for a business
+ * @deprecated No longer needed with global scheduler.
  */
-async function runReminderCheck(businessId: number): Promise<void> {
+export function stopReminderScheduler(_businessId: number): void {
+  // No-op — the global scheduler handles all businesses
+}
+
+/**
+ * Run reminder checks for ALL businesses in a single pass.
+ */
+async function runAllBusinessReminderChecks(): Promise<void> {
   try {
-    console.log(`Running reminder check for business ${businessId} at ${new Date().toISOString()}`);
+    console.log(`[Reminders] Running reminder check for all businesses at ${new Date().toISOString()}`);
+    const allBusinesses = await storage.getAllBusinesses();
+    let totalSent = 0;
+    let totalSkipped = 0;
+    let totalFailed = 0;
 
-    // Send 24-hour reminders
-    const results = await reminderService.sendUpcomingAppointmentReminders(businessId, 24);
+    for (const business of allBusinesses) {
+      try {
+        const results = await reminderService.sendUpcomingAppointmentReminders(business.id, 24);
+        totalSent += results.filter(r => r.status === 'sent').length;
+        totalSkipped += results.filter(r => r.status === 'skipped').length;
+        totalFailed += results.filter(r => r.status === 'failed').length;
+      } catch (error) {
+        console.error(`[Reminders] Error for business ${business.id}:`, error);
+      }
+    }
 
-    const sent = results.filter(r => r.status === 'sent').length;
-    const skipped = results.filter(r => r.status === 'skipped').length;
-    const failed = results.filter(r => r.status === 'failed').length;
-
-    if (results.length > 0) {
-      console.log(`Reminder results for business ${businessId}: ${sent} sent, ${skipped} skipped, ${failed} failed`);
+    if (totalSent > 0 || totalFailed > 0) {
+      console.log(`[Reminders] Done — ${totalSent} sent, ${totalSkipped} skipped, ${totalFailed} failed across ${allBusinesses.length} businesses`);
     }
   } catch (error) {
-    console.error(`Error running reminder check for business ${businessId}:`, error);
+    console.error('[Reminders] Error:', error);
   }
 }
 
@@ -176,8 +186,8 @@ async function runRecurringJobsCheck(): Promise<void> {
  * The AI's system prompt includes a static date that gets stale — this refreshes it
  * immediately on startup and then every 24 hours automatically.
  */
-export function startVapiDailyRefreshScheduler(): void {
-  const jobKey = 'vapi-daily-refresh';
+export function startRetellDailyRefreshScheduler(): void {
+  const jobKey = 'retell-daily-refresh';
 
   if (scheduledJobs.has(jobKey)) {
     console.log('Vapi daily refresh scheduler already running');
@@ -187,11 +197,11 @@ export function startVapiDailyRefreshScheduler(): void {
   console.log('Starting Vapi daily refresh scheduler');
 
   // Run immediately on startup so the date is always fresh after a deploy
-  withReentryGuard('vapi-daily-refresh', () => runVapiRefresh());
+  withReentryGuard('retell-daily-refresh', () => runVapiRefresh());
 
   // Then run every 24 hours
   const intervalId = setInterval(() => {
-    withReentryGuard('vapi-daily-refresh', () => runVapiRefresh());
+    withReentryGuard('retell-daily-refresh', () => runVapiRefresh());
   }, 24 * 60 * 60 * 1000); // Every 24 hours
 
   scheduledJobs.set(jobKey, intervalId);
@@ -272,7 +282,7 @@ async function runOverdueInvoiceCheck(): Promise<void> {
     for (const business of allBusinesses) {
       try {
         // Use business timezone for "today" comparison (default UTC)
-        const tz = (business as any).timezone || 'UTC';
+        const tz = business.timezone || 'UTC';
         const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
         nowInTz.setHours(0, 0, 0, 0);
 
@@ -344,11 +354,8 @@ async function sendInvoiceReminderIfDue(
 ): Promise<boolean> {
   const idempotencyKey = `invoice_reminder:${daysTier}d:${invoiceId}`;
 
-  // Check if we already sent this tier's reminder
-  const logs = await storage.getNotificationLogs(businessId, 500);
-  const alreadySent = logs.some(
-    (l) => l.type === idempotencyKey && l.status === 'sent'
-  );
+  // Check if we already sent this tier's reminder (efficient single-row lookup)
+  const alreadySent = await storage.hasNotificationLogByType(businessId, idempotencyKey, 'sent');
   if (alreadySent) return false;
 
   // Send the actual reminder (email + SMS based on business preferences)
@@ -411,8 +418,9 @@ async function runQuoteFollowUpCheck(): Promise<void> {
       try {
         const pendingQuotes = await storage.getAllQuotes(business.id, { status: 'pending' });
 
-        // Get existing follow-up notification logs for this business
-        const logs = await storage.getNotificationLogs(business.id, 500);
+        // Get recent notification logs to check for existing follow-ups
+        // Limit to 100 — quote follow-ups are recent entries
+        const logs = await storage.getNotificationLogs(business.id, 100);
         const followUpQuoteIds = new Set(
           logs
             .filter(l => l.type === 'quote_follow_up' && l.referenceType === 'quote')
@@ -535,14 +543,14 @@ async function runBirthdayCampaignCheck(): Promise<void> {
 
     for (const business of allBusinesses) {
       // Only send for businesses that have birthday campaigns enabled
-      if (!(business as any).birthdayCampaignEnabled) continue;
+      if (!business.birthdayCampaignEnabled) continue;
 
       try {
         const result = await sendBirthdayCampaigns(business.id, {
-          discountPercent: (business as any).birthdayDiscountPercent || 15,
-          validDays: (business as any).birthdayCouponValidDays || 7,
-          channel: (business as any).birthdayCampaignChannel || 'both',
-          customMessage: (business as any).birthdayCampaignMessage || undefined,
+          discountPercent: business.birthdayDiscountPercent || 15,
+          validDays: business.birthdayCouponValidDays || 7,
+          channel: (business.birthdayCampaignChannel as 'sms' | 'email' | 'both') || 'both',
+          customMessage: business.birthdayCampaignMessage || undefined,
         });
         if (result.sentCount > 0) {
           console.log(`[BirthdayCampaign] Business ${business.id}: sent ${result.sentCount} birthday messages`);
@@ -635,7 +643,7 @@ async function runTrialExpirationCheck(): Promise<void> {
 
     for (const business of allBusinesses) {
       // Skip businesses with active paid subscriptions
-      const status = (business as any).subscriptionStatus;
+      const status = business.subscriptionStatus;
       if (status === 'active') {
         continue;
       }
@@ -658,7 +666,7 @@ async function runTrialExpirationCheck(): Promise<void> {
 
       // SAFETY: Never deprovision a business that was recently provisioned (within 24h)
       // This prevents race conditions where admin provisions and scheduler immediately un-does it
-      const provisionedAt = (business as any).provisioningCompletedAt || (business as any).twilioDateProvisioned;
+      const provisionedAt = business.provisioningCompletedAt || business.twilioDateProvisioned;
       if (provisionedAt) {
         const hoursSinceProvisioned = (now.getTime() - new Date(provisionedAt).getTime()) / (1000 * 60 * 60);
         if (hoursSinceProvisioned < 24) {
@@ -684,14 +692,14 @@ async function runTrialExpirationCheck(): Promise<void> {
               await storage.updateBusiness(business.id, {
                 subscriptionStatus: 'grace_period',
                 receptionistEnabled: false,  // Disable AI calls
-              } as any);
+              });
               graceStarted++;
               console.log(`[TrialExpiration] Business ${business.id} → grace_period (AI disabled, number kept). ${GRACE_PERIOD_DAYS - daysPastExpiry} days until deprovision.`);
               // Notify admin
               try {
                 const { sendAdminAlert } = await import('./adminAlertService');
                 await sendAdminAlert({ type: 'trial_expired', severity: 'medium', title: `Trial Expired: ${business.name}`, details: { businessId: business.id, businessName: business.name, daysUntilDeprovision: GRACE_PERIOD_DAYS - daysPastExpiry, email: business.email || 'N/A' } });
-              } catch (_) {}
+              } catch (err) { console.error('[Scheduler] Error:', err instanceof Error ? err.message : err); }
             } catch (err) {
               console.error(`[TrialExpiration] Failed to update status for business ${business.id}:`, err);
             }
@@ -709,7 +717,7 @@ async function runTrialExpirationCheck(): Promise<void> {
 
               if (!alreadySent) {
                 const daysLeft = GRACE_PERIOD_DAYS - daysPastExpiry;
-                await sendGracePeriodNudge(business as any, daysPastExpiry, daysLeft);
+                await sendGracePeriodNudge(business, daysPastExpiry, daysLeft);
                 warned++;
               }
             } catch (err) {
@@ -724,7 +732,7 @@ async function runTrialExpirationCheck(): Promise<void> {
         // Update status to 'expired' if in grace_period
         if (status === 'grace_period' || status === 'trialing' || status === 'expired') {
           try {
-            await storage.updateBusiness(business.id, { subscriptionStatus: 'expired' } as any);
+            await storage.updateBusiness(business.id, { subscriptionStatus: 'expired' });
             console.log(`[TrialExpiration] Updated business ${business.id} status to 'expired' (grace period ended)`);
           } catch (err) {
             console.error(`[TrialExpiration] Failed to update status for business ${business.id}:`, err);
@@ -732,14 +740,14 @@ async function runTrialExpirationCheck(): Promise<void> {
         }
 
         // Deprovision resources (release Twilio number, delete Vapi assistant)
-        if ((business as any).twilioPhoneNumberSid) {
+        if (business.twilioPhoneNumberSid) {
           try {
             console.log(`[TrialExpiration] Deprovisioning business ${business.id} (${daysPastExpiry} days past trial, grace period ended)`);
             await deprovisionBusiness(business.id);
             deprovisioned++;
 
             // Send final deprovision notification
-            await sendDeprovisionNotification(business as any);
+            await sendDeprovisionNotification(business);
           } catch (err) {
             console.error(`[TrialExpiration] Failed to deprovision business ${business.id}:`, err);
           }
@@ -761,7 +769,7 @@ async function runTrialExpirationCheck(): Promise<void> {
           );
 
           if (!alreadySent) {
-            await sendTrialExpirationWarnings(business as any, daysUntilExpiry);
+            await sendTrialExpirationWarnings(business, daysUntilExpiry);
             warned++;
           }
         } catch (err) {
@@ -782,7 +790,7 @@ async function runTrialExpirationCheck(): Promise<void> {
  * Send grace period nudge email — business trial expired but they still have their phone number.
  * Encourage them to subscribe to reactivate AI features.
  */
-async function sendGracePeriodNudge(business: any, daysPastExpiry: number, daysLeft: number): Promise<void> {
+async function sendGracePeriodNudge(business: Business, daysPastExpiry: number, daysLeft: number): Promise<void> {
   if (!business.email) return;
 
   try {
@@ -833,7 +841,7 @@ async function sendGracePeriodNudge(business: any, daysPastExpiry: number, daysL
 /**
  * Send final deprovision notification — phone number is being released.
  */
-async function sendDeprovisionNotification(business: any): Promise<void> {
+async function sendDeprovisionNotification(business: Business): Promise<void> {
   if (!business.email) return;
 
   try {
@@ -876,7 +884,7 @@ async function sendDeprovisionNotification(business: any): Promise<void> {
  * Send trial expiration warning email and SMS to a business owner.
  * SMS is only sent if call forwarding is enabled (most urgent case).
  */
-async function sendTrialExpirationWarnings(business: any, daysRemaining: number): Promise<void> {
+async function sendTrialExpirationWarnings(business: Business, daysRemaining: number): Promise<void> {
   const hasCallForwarding = business.callForwardingEnabled === true;
 
   // Send email warning
@@ -977,7 +985,7 @@ async function runDunningDeprovisionCheck(): Promise<void> {
     } catch { /* non-critical */ }
 
     for (const business of allBusinesses) {
-      const status = (business as any).subscriptionStatus;
+      const status = business.subscriptionStatus;
       if (status !== 'past_due' && status !== 'payment_failed') continue;
 
       // Never deprovision admin businesses
@@ -989,13 +997,13 @@ async function runDunningDeprovisionCheck(): Promise<void> {
 
       const daysSinceFailure = Math.floor((now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24));
 
-      if (daysSinceFailure >= DUNNING_GRACE_PERIOD_DAYS && (business as any).twilioPhoneNumberSid) {
+      if (daysSinceFailure >= DUNNING_GRACE_PERIOD_DAYS && business.twilioPhoneNumberSid) {
         try {
           console.log(`[Dunning] Deprovisioning business ${business.id} (${status} for ${daysSinceFailure} days, past ${DUNNING_GRACE_PERIOD_DAYS}-day grace period)`);
           await deprovisionBusiness(business.id);
 
           // Update status to reflect deprovisioning
-          await storage.updateBusiness(business.id, { subscriptionStatus: 'suspended' } as any);
+          await storage.updateBusiness(business.id, { subscriptionStatus: 'suspended' });
           deprovisioned++;
 
           // Send final notification
@@ -1552,22 +1560,14 @@ export function startMarketingTriggerEvaluator(): void {
  */
 export async function startAllSchedulers(): Promise<void> {
   try {
-    // Get all businesses and start a reminder scheduler for each
-    const allBusinesses = await storage.getAllBusinesses();
-
-    for (const business of allBusinesses) {
-      startReminderScheduler(business.id);
-    }
-
-    if (allBusinesses.length === 0) {
-      console.log('No businesses found — reminder schedulers skipped');
-    }
+    // Start global reminder scheduler (single timer for all businesses)
+    startGlobalReminderScheduler();
 
     // Start recurring jobs scheduler (runs globally, not per-business)
     startRecurringJobsScheduler();
 
     // Start Vapi daily refresh (keeps TODAY'S DATE current in AI prompts)
-    startVapiDailyRefreshScheduler();
+    startRetellDailyRefreshScheduler();
 
     // Start overdue invoice detection (marks pending invoices past due date as overdue)
     startOverdueInvoiceScheduler();
@@ -1668,7 +1668,7 @@ export function startDailyDigestScheduler(): void {
         const eligibleIds: number[] = [];
 
         for (const business of allBusinesses) {
-          const tz = (business as any).timezone || 'America/New_York';
+          const tz = business.timezone || 'America/New_York';
           const localHour = getLocalHour(tz);
           if (localHour === 7) {
             eligibleIds.push(business.id);
@@ -1837,8 +1837,9 @@ export function stopAllSchedulers(): void {
 export default {
   startReminderScheduler,
   stopReminderScheduler,
+  startGlobalReminderScheduler,
   startRecurringJobsScheduler,
-  startVapiDailyRefreshScheduler,
+  startRetellDailyRefreshScheduler,
   startOverdueInvoiceScheduler,
   startQuoteFollowUpScheduler,
   startOverageBillingScheduler,
