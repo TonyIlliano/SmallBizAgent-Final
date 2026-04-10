@@ -67,9 +67,6 @@ export function SupportChat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Only show for authenticated users
-  if (!user) return null;
-
   // Fetch suggestions when page changes
   useEffect(() => {
     fetchSuggestions(location).then(setSuggestions);
@@ -118,6 +115,9 @@ export function SupportChat() {
       handleSend();
     }
   };
+
+  // Only show for authenticated users (must be AFTER all hooks)
+  if (!user) return null;
 
   return (
     <>
