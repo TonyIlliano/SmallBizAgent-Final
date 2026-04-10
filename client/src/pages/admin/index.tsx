@@ -272,6 +272,7 @@ interface BusinessDetail {
 
 const AdminDashboardPage = () => {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState("overview");
 
   // Redirect if not admin
   if (user && user.role !== "admin") {
@@ -297,7 +298,7 @@ const AdminDashboardPage = () => {
         </div>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="flex w-full overflow-x-auto md:grid md:w-full md:grid-cols-10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <TabsTrigger value="overview" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
             <BarChart3 className="h-4 w-4" />
@@ -341,16 +342,16 @@ const AdminDashboardPage = () => {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview"><ErrorBoundary><OverviewTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="businesses"><ErrorBoundary><BusinessesTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="users"><ErrorBoundary><UsersTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="revenue"><ErrorBoundary><RevenueTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="agents"><ErrorBoundary><PlatformAgentsTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="messages"><ErrorBoundary><PlatformMessagesTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="content"><ErrorBoundary><ContentTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="costs"><ErrorBoundary><CostsTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="system"><ErrorBoundary><SystemTab /></ErrorBoundary></TabsContent>
-        <TabsContent value="audit"><ErrorBoundary><AuditLogTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="overview">{activeTab === "overview" && <ErrorBoundary><OverviewTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="businesses">{activeTab === "businesses" && <ErrorBoundary><BusinessesTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="users">{activeTab === "users" && <ErrorBoundary><UsersTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="revenue">{activeTab === "revenue" && <ErrorBoundary><RevenueTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="agents">{activeTab === "agents" && <ErrorBoundary><PlatformAgentsTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="messages">{activeTab === "messages" && <ErrorBoundary><PlatformMessagesTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="content">{activeTab === "content" && <ErrorBoundary><ContentTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="costs">{activeTab === "costs" && <ErrorBoundary><CostsTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="system">{activeTab === "system" && <ErrorBoundary><SystemTab /></ErrorBoundary>}</TabsContent>
+        <TabsContent value="audit">{activeTab === "audit" && <ErrorBoundary><AuditLogTab /></ErrorBoundary>}</TabsContent>
       </Tabs>
     </PageLayout>
   );
@@ -2073,7 +2074,7 @@ function AgentDetailView({ details, action, businessId }: { details: any; action
         <div key={key} className="flex gap-2">
           <span className="text-sm font-medium min-w-[120px]">{key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}:</span>
           <span className="text-sm text-muted-foreground">
-            {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+            {typeof value === 'object' ? (() => { try { return JSON.stringify(value, null, 2); } catch { return '[complex object]'; } })() : String(value)}
           </span>
         </div>
       ))}
@@ -3449,7 +3450,7 @@ function AuditLogTab() {
                         {log.resource ? `${log.resource} #${log.resourceId}` : '—'}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
-                        {log.details ? (typeof log.details === 'string' ? log.details : JSON.stringify(log.details)) : '—'}
+                        {log.details ? (typeof log.details === 'string' ? log.details : (() => { try { return JSON.stringify(log.details); } catch { return '[complex object]'; } })()) : '—'}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{log.ipAddress || '—'}</TableCell>
                     </TableRow>
