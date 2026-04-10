@@ -5,6 +5,7 @@ import { Link, Redirect } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PageLayout } from "@/components/layout/PageLayout";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -340,16 +341,16 @@ const AdminDashboardPage = () => {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview"><OverviewTab /></TabsContent>
-        <TabsContent value="businesses"><BusinessesTab /></TabsContent>
-        <TabsContent value="users"><UsersTab /></TabsContent>
-        <TabsContent value="revenue"><RevenueTab /></TabsContent>
-        <TabsContent value="agents"><PlatformAgentsTab /></TabsContent>
-        <TabsContent value="messages"><PlatformMessagesTab /></TabsContent>
-        <TabsContent value="content"><ContentTab /></TabsContent>
-        <TabsContent value="costs"><CostsTab /></TabsContent>
-        <TabsContent value="system"><SystemTab /></TabsContent>
-        <TabsContent value="audit"><AuditLogTab /></TabsContent>
+        <TabsContent value="overview"><ErrorBoundary><OverviewTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="businesses"><ErrorBoundary><BusinessesTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="users"><ErrorBoundary><UsersTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="revenue"><ErrorBoundary><RevenueTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="agents"><ErrorBoundary><PlatformAgentsTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="messages"><ErrorBoundary><PlatformMessagesTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="content"><ErrorBoundary><ContentTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="costs"><ErrorBoundary><CostsTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="system"><ErrorBoundary><SystemTab /></ErrorBoundary></TabsContent>
+        <TabsContent value="audit"><ErrorBoundary><AuditLogTab /></ErrorBoundary></TabsContent>
       </Tabs>
     </PageLayout>
   );
@@ -2338,8 +2339,8 @@ function CostsTab() {
               />
               <CostRow
                 service="Retell AI (Voice)"
-                details={`${costsData.costs.vapi.callCount} calls — transport, STT, LLM, TTS`}
-                cost={costsData.costs.vapi.total}
+                details={`${costsData.costs.vapi?.callCount ?? 0} calls — transport, STT, LLM, TTS`}
+                cost={costsData.costs.vapi?.total ?? 0}
                 total={costsData.totalCosts}
               />
               <CostRow
@@ -3030,7 +3031,7 @@ function ContentTab() {
   const [editMetaTitle, setEditMetaTitle] = useState("");
   const [editMetaDescription, setEditMetaDescription] = useState("");
 
-  const { data: posts, isLoading } = useQuery<BlogPost[]>({
+  const { data: posts = [], isLoading } = useQuery<BlogPost[]>({
     queryKey: ["/api/admin/blog-posts", statusFilter],
     queryFn: async () => {
       const url = statusFilter !== "all"
@@ -3226,7 +3227,7 @@ function ContentTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {posts.map((post) => (
+                {(posts || []).map((post) => (
                   <TableRow key={post.id} className="hover:bg-muted/30">
                     <TableCell>
                       <div>
@@ -3245,7 +3246,7 @@ function ContentTab() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {new Date(post.createdAt).toLocaleDateString()}
+                      {post.createdAt ? new Date(post.createdAt).toLocaleDateString() : "—"}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
