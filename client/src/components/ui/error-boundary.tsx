@@ -44,6 +44,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[ErrorBoundary] Caught:', error, errorInfo);
+    // Store error details for debugging
+    try {
+      localStorage.setItem('sba-last-error', JSON.stringify({
+        message: error.message,
+        stack: error.stack?.slice(0, 1000),
+        componentStack: errorInfo.componentStack?.slice(0, 500),
+        url: window.location.href,
+        time: new Date().toISOString(),
+      }));
+    } catch {
+      // localStorage not available — ignore
+    }
     // Report to Sentry if available
     try {
       if (typeof window !== 'undefined' && (window as any).Sentry) {
@@ -93,6 +105,15 @@ function DefaultErrorFallback({ error, onReset }: { error: Error | null; onReset
       <p className="text-muted-foreground max-w-md mb-6">
         We encountered an unexpected error. Please try again or contact support if the problem persists.
       </p>
+      {error && (
+        <details className="text-left max-w-lg mb-4 text-xs text-muted-foreground">
+          <summary className="cursor-pointer text-sm">Error details</summary>
+          <pre className="mt-2 p-3 bg-muted rounded-md overflow-auto max-h-40 whitespace-pre-wrap">
+            {error.message}
+            {error.stack && `\n\n${error.stack.slice(0, 500)}`}
+          </pre>
+        </details>
+      )}
       <div className="flex gap-3">
         <Button variant="default" onClick={onReset}>
           Try Again
