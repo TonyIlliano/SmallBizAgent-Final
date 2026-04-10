@@ -81,6 +81,7 @@ function formatType(type: string): string {
       agent_no_show: "No-Show Recovery",
       agent_rebooking: "Rebooking",
       agent_estimate_follow_up: "Estimate Follow-Up",
+      agent_invoice_collection: "Invoice Collection",
     };
     return agentLabels[type] || type.replace("agent_", "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   }

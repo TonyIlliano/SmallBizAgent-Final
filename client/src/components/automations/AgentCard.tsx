@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Loader2,
   FlaskConical,
+  DollarSign,
 } from "lucide-react";
 
 const AGENT_META: Record<string, { label: string; description: string; icon: any; color: string }> = {
@@ -30,6 +31,12 @@ const AGENT_META: Record<string, { label: string; description: string; icon: any
     description: "Automated SMS follow-ups on pending quotes",
     icon: FileText,
     color: "text-blue-600 dark:text-blue-400",
+  },
+  invoice_collection: {
+    label: "Invoice Collection",
+    description: "Escalating SMS reminders for overdue invoices with payment links",
+    icon: DollarSign,
+    color: "text-emerald-600 dark:text-emerald-400",
   },
   rebooking: {
     label: "Rebooking",

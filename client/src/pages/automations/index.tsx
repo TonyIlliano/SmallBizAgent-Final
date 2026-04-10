@@ -68,12 +68,13 @@ interface SmsConversation {
   createdAt: string;
 }
 
-const AGENT_ORDER = ["follow_up", "no_show", "estimate_follow_up", "rebooking", "review_response"];
+const AGENT_ORDER = ["follow_up", "no_show", "estimate_follow_up", "invoice_collection", "rebooking", "review_response"];
 
 const TEST_DESCRIPTIONS: Record<string, string> = {
   follow_up: "You'll receive a thank-you SMS. This is a one-way message — no reply tracking.",
   no_show: "You'll receive a no-show check-in SMS. Reply YES to test the full conversational booking flow.",
   estimate_follow_up: "You'll receive an estimate follow-up SMS. This is a one-way message — no reply tracking.",
+  invoice_collection: "You'll receive an invoice payment reminder SMS. This is a one-way message — no reply tracking.",
   rebooking: "You'll receive a rebooking prompt. Reply YES to test the full conversational booking flow.",
   review_response: "We'll generate a sample AI response to a mock 4-star review. No SMS will be sent.",
 };

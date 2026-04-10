@@ -1147,6 +1147,27 @@ export function startEstimateFollowUpAgentScheduler(): void {
   console.log(`Estimate follow-up agent scheduler started (every 6 hours)`);
 }
 
+export function startInvoiceCollectionAgentScheduler(): void {
+  const jobKey = 'invoice-collection-agent';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 12 * 60 * 60 * 1000; // 12 hours
+  const intervalId = setInterval(() => {
+    withReentryGuard('invoice-collection-agent', async () => {
+      try {
+        console.log(`[InvoiceCollectionAgent] Running scheduled check at ${new Date().toISOString()}`);
+        const { runInvoiceCollectionCheck } = await import('./invoiceCollectionAgentService');
+        await runInvoiceCollectionCheck();
+      } catch (error) {
+        console.error('[InvoiceCollectionAgent] Scheduler error:', error);
+      }
+    });
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`Invoice collection agent scheduler started (every 12 hours)`);
+}
+
 // ── No-Show Conversation Cleanup (every 30 minutes) ──
 // Note: No-show SMS is now triggered manually when staff marks an appointment
 // as "no_show" (see routes.ts PUT /api/appointments/:id). This scheduler only
@@ -1596,6 +1617,7 @@ export async function startAllSchedulers(): Promise<void> {
     // Start SMS automation agent schedulers
     startFollowUpAgentScheduler();
     startEstimateFollowUpAgentScheduler();
+    startInvoiceCollectionAgentScheduler();
     startNoShowAgentScheduler();
     startRebookingAgentScheduler();
     startReviewResponseAgentScheduler();
@@ -1850,6 +1872,7 @@ export default {
   startAutoRefineScheduler,
   startFollowUpAgentScheduler,
   startEstimateFollowUpAgentScheduler,
+  startInvoiceCollectionAgentScheduler,
   startNoShowAgentScheduler,
   startRebookingAgentScheduler,
   startReviewResponseAgentScheduler,

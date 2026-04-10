@@ -52,7 +52,9 @@ export type MessageType =
   | 'MARKETING_OPT_IN'
   | 'BIRTHDAY_COLLECTION'
   | 'JOB_WAITING_PARTS'
-  | 'JOB_RESUMED';
+  | 'JOB_RESUMED'
+  | 'INVOICE_COLLECTION_REMINDER'
+  | 'INVOICE_COLLECTION_FINAL';
 
 export interface MessageContext {
   messageType: MessageType;

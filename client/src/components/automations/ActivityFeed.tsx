@@ -69,6 +69,7 @@ export function ActivityFeed() {
             <SelectItem value="follow_up">Follow-Up</SelectItem>
             <SelectItem value="no_show">No-Show</SelectItem>
             <SelectItem value="estimate_follow_up">Estimate Follow-Up</SelectItem>
+            <SelectItem value="invoice_collection">Invoice Collection</SelectItem>
             <SelectItem value="rebooking">Rebooking</SelectItem>
             <SelectItem value="review_response">Review Response</SelectItem>
           </SelectContent>
