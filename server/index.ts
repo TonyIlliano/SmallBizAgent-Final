@@ -127,11 +127,11 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com", "https://maps.googleapis.com", "https://browser.sentry-cdn.com", "https://challenges.cloudflare.com", "https://www.googletagmanager.com", "https://www.google-analytics.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com", "https://maps.googleapis.com", "https://browser.sentry-cdn.com", "https://challenges.cloudflare.com", "https://static.cloudflareinsights.com", "https://www.googletagmanager.com", "https://www.google-analytics.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://api.stripe.com", "https://api.retellai.com", "https://maps.googleapis.com", "wss:", "https://*.sentry.io", "https://*.ingest.sentry.io", "https://www.google-analytics.com", "https://analytics.google.com", "https://*.google-analytics.com", "https://*.analytics.google.com"],
+      connectSrc: ["'self'", "https://api.stripe.com", "https://api.retellai.com", "https://maps.googleapis.com", "https://fonts.googleapis.com", "https://fonts.gstatic.com", "wss:", "https://*.sentry.io", "https://*.ingest.sentry.io", "https://www.google-analytics.com", "https://analytics.google.com", "https://*.google-analytics.com", "https://*.analytics.google.com", "https://challenges.cloudflare.com"],
       frameSrc: ["'self'", "https://js.stripe.com", "https://challenges.cloudflare.com"],
     },
   },
