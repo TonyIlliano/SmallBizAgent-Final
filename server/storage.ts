@@ -447,6 +447,11 @@ export interface IStorage {
   removeUserBusinessAccess(userId: number, businessId: number): Promise<void>;
   hasBusinessAccess(userId: number, businessId: number): Promise<boolean>;
 
+  // Team Management
+  getTeamMembers(businessId: number): Promise<any[]>;
+  updateTeamMemberRole(userId: number, businessId: number, role: string): Promise<void>;
+  removeTeamMember(userId: number, businessId: number): Promise<void>;
+
   // GBP Reviews
   getGbpReviews(businessId: number, filters?: { flagged?: boolean; minRating?: number; maxRating?: number; hasReply?: boolean; limit?: number; offset?: number }): Promise<GbpReview[]>;
   getGbpReviewByGbpId(gbpReviewId: string): Promise<GbpReview | undefined>;
@@ -2654,6 +2659,80 @@ export class DatabaseStorage implements IStorage {
         eq(userBusinessAccess.businessId, businessId)
       ));
     return !!record;
+  }
+
+  // =================== Team Management ===================
+
+  async getTeamMembers(businessId: number): Promise<any[]> {
+    // Get team members from user_business_access (managers, staff with access)
+    const accessMembers = await db.select({
+      userId: users.id,
+      username: users.username,
+      email: users.email,
+      role: users.role,
+      accessRole: userBusinessAccess.role,
+      lastLoginAt: users.lastLogin,
+      createdAt: users.createdAt,
+    })
+      .from(userBusinessAccess)
+      .innerJoin(users, eq(userBusinessAccess.userId, users.id))
+      .where(eq(userBusinessAccess.businessId, businessId));
+
+    // Also include the business owner (user where businessId matches and role is 'user')
+    const ownerMembers = await db.select({
+      userId: users.id,
+      username: users.username,
+      email: users.email,
+      role: users.role,
+      lastLoginAt: users.lastLogin,
+      createdAt: users.createdAt,
+    })
+      .from(users)
+      .where(and(
+        eq(users.businessId, businessId),
+        eq(users.role, 'user')
+      ));
+
+    // Combine: owner gets accessRole 'owner', access members keep their accessRole
+    const ownerResults = ownerMembers.map(o => ({
+      ...o,
+      accessRole: 'owner',
+    }));
+
+    // Deduplicate by userId (owner might also be in user_business_access)
+    const seen = new Set<number>();
+    const combined: any[] = [];
+    for (const member of ownerResults) {
+      if (!seen.has(member.userId)) {
+        seen.add(member.userId);
+        combined.push(member);
+      }
+    }
+    for (const member of accessMembers) {
+      if (!seen.has(member.userId)) {
+        seen.add(member.userId);
+        combined.push(member);
+      }
+    }
+
+    return combined;
+  }
+
+  async updateTeamMemberRole(userId: number, businessId: number, role: string): Promise<void> {
+    await db.update(userBusinessAccess)
+      .set({ role })
+      .where(and(
+        eq(userBusinessAccess.userId, userId),
+        eq(userBusinessAccess.businessId, businessId)
+      ));
+  }
+
+  async removeTeamMember(userId: number, businessId: number): Promise<void> {
+    await db.delete(userBusinessAccess)
+      .where(and(
+        eq(userBusinessAccess.userId, userId),
+        eq(userBusinessAccess.businessId, businessId)
+      ));
   }
 
   // =================== Websites (one-page sites) ===================

@@ -31,19 +31,20 @@ import { isJobCategory } from "@shared/industry-categories";
 
 const allNavItems = [
   { path: "/", label: "Dashboard", icon: Home },
-  { path: "/customers", label: "Customers", icon: Users },
-  { path: "/appointments", label: "Appointments", icon: Calendar, labelForIndustry: { restaurant: "Reservations" } as Record<string, string>, hideForJobCategory: true },
-  { path: "/jobs", label: "Jobs", icon: Briefcase, hideForIndustries: ['restaurant'], jobCategoryIcon: Calendar, jobCategoryLabel: "Schedule" },
-  { path: "/recurring", label: "Recurring", icon: RefreshCw, hideForIndustries: ['restaurant'] },
-  { path: "/quotes", label: "Quotes", icon: Receipt },
-  { path: "/invoices", label: "Invoices", icon: FileText },
-  { path: "/receptionist", label: "AI Receptionist", icon: Bot },
+  { path: "/customers", label: "Customers", icon: Users, hideForRoles: ['staff'] as string[] },
+  { path: "/appointments", label: "Appointments", icon: Calendar, labelForIndustry: { restaurant: "Reservations" } as Record<string, string>, hideForJobCategory: true, hideForRoles: ['staff'] as string[] },
+  { path: "/jobs", label: "Jobs", icon: Briefcase, hideForIndustries: ['restaurant'], jobCategoryIcon: Calendar, jobCategoryLabel: "Schedule", hideForRoles: ['staff'] as string[] },
+  { path: "/recurring", label: "Recurring", icon: RefreshCw, hideForIndustries: ['restaurant'], hideForRoles: ['staff', 'manager'] as string[] },
+  { path: "/quotes", label: "Quotes", icon: Receipt, hideForRoles: ['staff'] as string[] },
+  { path: "/invoices", label: "Invoices", icon: FileText, hideForRoles: ['staff'] as string[] },
+  { path: "/receptionist", label: "AI Receptionist", icon: Bot, hideForRoles: ['staff'] as string[] },
   { path: "/analytics", label: "Analytics", icon: BarChart3, hideForRoles: ['staff'] as string[] },
-  { path: "/marketing", label: "Marketing", icon: Megaphone, hideForRoles: ['staff'] as string[] },
-  { path: "/ai-agents", label: "AI Agents", icon: Zap },
-  { path: "/website", label: "Website", icon: Globe, hideForRoles: ['staff'] as string[] },
-  { path: "/google-business-profile", label: "Google", icon: MapPin, hideForRoles: ['staff'] as string[] },
-  { path: "/settings", label: "Settings", icon: Settings },
+  { path: "/marketing", label: "Marketing", icon: Megaphone, hideForRoles: ['staff', 'manager'] as string[] },
+  { path: "/ai-agents", label: "AI Agents", icon: Zap, hideForRoles: ['staff', 'manager'] as string[] },
+  { path: "/website", label: "Website", icon: Globe, hideForRoles: ['staff', 'manager'] as string[] },
+  { path: "/google-business-profile", label: "Google", icon: MapPin, hideForRoles: ['staff', 'manager'] as string[] },
+  { path: "/settings", label: "Settings", icon: Settings, hideForRoles: ['staff', 'manager'] as string[] },
+  { path: "/staff/dashboard", label: "My Schedule", icon: Calendar, showForRoles: ['staff'] as string[] },
 ];
 
 const adminNavItems = [
@@ -97,6 +98,7 @@ export function Sidebar() {
   // Filter nav items based on business industry and user role
   const businessIndustry = business?.industry?.toLowerCase() || '';
   const isJobBiz = isJobCategory(business?.industry);
+  const effectiveRole = user?.effectiveRole || (user?.role === 'user' ? 'owner' : user?.role) || 'staff';
   const navItems = allNavItems.filter(item => {
     // Hide Appointments tab for job-category businesses (HVAC, plumbing, electrical, etc.)
     if ((item as any).hideForJobCategory && isJobBiz) {
@@ -105,7 +107,12 @@ export function Sidebar() {
     if (item.hideForIndustries && item.hideForIndustries.some(ind => businessIndustry.includes(ind))) {
       return false;
     }
-    if (item.hideForRoles && user?.role && item.hideForRoles.includes(user.role)) {
+    // Role-based filtering using effectiveRole
+    if (item.hideForRoles && item.hideForRoles.includes(effectiveRole)) {
+      return false;
+    }
+    // showForRoles: only show this item if user has one of the specified roles
+    if ((item as any).showForRoles && !(item as any).showForRoles.includes(effectiveRole)) {
       return false;
     }
     return true;

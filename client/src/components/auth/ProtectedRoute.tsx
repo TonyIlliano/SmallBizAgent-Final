@@ -34,10 +34,14 @@ export function ProtectedRoute({
           return <Redirect to="/verify-email" />;
         }
 
-        // Staff users can only access /staff/* routes
-        if (user.role === "staff" && !path.startsWith("/staff/")) {
+        // Staff users (effectiveRole === 'staff') can only access /staff/* routes and dashboard
+        const effectiveRole = user.effectiveRole || (user.role === 'user' ? 'owner' : user.role);
+        if (effectiveRole === "staff" && !path.startsWith("/staff/") && path !== "/") {
           return <Redirect to="/staff/dashboard" />;
         }
+
+        // Managers use the regular dashboard with limited sidebar
+        // No redirect needed for managers -- they access /dashboard normally
 
         // Redirect users who haven't completed onboarding (skip for admin and onboarding routes)
         const isOnboardingRoute = path.startsWith("/onboarding");

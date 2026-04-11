@@ -8,13 +8,24 @@ import { User } from "@shared/schema";
 import { queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
+// Extended user type that includes role/permission fields from GET /api/user
+export type AuthUser = User & {
+  effectiveRole?: 'admin' | 'owner' | 'manager' | 'staff';
+  permissions?: string[];
+  impersonating?: {
+    businessId: number;
+    businessName: string;
+    originalBusinessId: number;
+  };
+};
+
 type AuthContextType = {
-  user: User | null;
+  user: AuthUser | null;
   isLoading: boolean;
   error: Error | null;
-  loginMutation: UseMutationResult<User, Error, LoginData>;
+  loginMutation: UseMutationResult<AuthUser, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
-  registerMutation: UseMutationResult<User, Error, RegisterData>;
+  registerMutation: UseMutationResult<AuthUser, Error, RegisterData>;
 };
 
 type LoginData = {
@@ -41,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     data: user,
     error,
     isLoading,
-  } = useQuery<User | null, Error>({
+  } = useQuery<AuthUser | null, Error>({
     queryKey: ["/api/user"],
     queryFn: async () => {
       try {
@@ -90,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return await res.json();
     },
-    onSuccess: (user: User) => {
+    onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Login successful",
@@ -138,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return await res.json();
     },
-    onSuccess: (user: User) => {
+    onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Registration successful",

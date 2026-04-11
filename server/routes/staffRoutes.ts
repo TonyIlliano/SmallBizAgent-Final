@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { insertStaffSchema } from "@shared/schema";
 import { z } from "zod";
 import { isAuthenticated, hashPassword, validatePassword } from "../auth";
+import { requireRole } from "../middleware/permissions";
 import { dataCache } from "../services/callToolHandlers";
 
 const router = Router();
@@ -755,6 +756,186 @@ router.delete("/staff/time-off/:timeOffId", isAuthenticated, async (req: Request
   } catch (error) {
     console.error("Error deleting staff time off:", error);
     res.status(500).json({ message: "Error deleting time off entry" });
+  }
+});
+
+// =================== TEAM MANAGEMENT API ===================
+
+// GET /team — List all team members for the business
+router.get("/team", isAuthenticated, requireRole('owner'), async (req: Request, res: Response) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ message: "No business associated with this account" });
+    }
+
+    const members = await storage.getTeamMembers(businessId);
+    res.json(members);
+  } catch (error) {
+    console.error("Error fetching team members:", error);
+    res.status(500).json({ message: "Error fetching team members" });
+  }
+});
+
+// POST /team/invite — Invite a team member
+router.post("/team/invite", isAuthenticated, requireRole('owner'), async (req: Request, res: Response) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ message: "No business associated with this account" });
+    }
+
+    const { email, role, staffId } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    if (!role || !['manager', 'staff'].includes(role)) {
+      return res.status(400).json({ message: "Role must be 'manager' or 'staff'" });
+    }
+
+    // If staffId provided, verify staff belongs to this business
+    if (staffId) {
+      const staffIdNum = parseInt(staffId);
+      if (isNaN(staffIdNum)) {
+        return res.status(400).json({ message: "Invalid staff ID" });
+      }
+      const staffMember = await storage.getStaffMember(staffIdNum);
+      if (!staffMember || staffMember.businessId !== businessId) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+    }
+
+    // Generate unique invite code
+    const { randomBytes } = await import("crypto");
+    const inviteCode = randomBytes(24).toString("hex");
+
+    // Create invite with 7-day expiry
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const invite = await storage.createStaffInvite({
+      businessId,
+      staffId: staffId ? parseInt(staffId) : 0,
+      email,
+      inviteCode,
+      status: "pending",
+      expiresAt,
+    });
+
+    // Send invite email
+    const business = await storage.getBusiness(businessId);
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    const fullInviteUrl = `${baseUrl}/staff/join/${inviteCode}`;
+
+    try {
+      const { sendEmail } = await import("../emailService");
+      await sendEmail({
+        to: email,
+        subject: `You're invited to join ${business?.name || 'a business'} on SmallBizAgent`,
+        text: `You've been invited to join ${business?.name || 'a business'} on SmallBizAgent as a ${role}.\n\nClick the link below to create your account:\n${fullInviteUrl}\n\nThis invite link expires in 7 days.`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #333;">You're Invited!</h2>
+            <p>You've been invited to join <strong>${business?.name || 'a business'}</strong> on SmallBizAgent as a <strong>${role}</strong>.</p>
+            <p style="margin: 30px 0; text-align: center;">
+              <a href="${fullInviteUrl}" style="display: inline-block; background-color: #000; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+                Accept Invite
+              </a>
+            </p>
+            <p style="color: #888; font-size: 13px;">This invite link expires in 7 days.</p>
+          </div>
+        `,
+      });
+      console.log(`Team invite email sent to ${email} for business ${businessId} (role: ${role})`);
+    } catch (emailError) {
+      console.error("Failed to send team invite email (invite still created):", emailError);
+    }
+
+    res.status(201).json({
+      inviteCode,
+      expiresAt,
+    });
+  } catch (error) {
+    console.error("Error inviting team member:", error);
+    res.status(500).json({ message: "Error inviting team member" });
+  }
+});
+
+// PUT /team/:userId/role — Change a team member's role
+router.put("/team/:userId/role", isAuthenticated, requireRole('owner'), async (req: Request, res: Response) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ message: "No business associated with this account" });
+    }
+
+    const userId = parseInt(req.params.userId);
+    if (isNaN(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    const { role } = req.body;
+    if (!role || !['manager', 'staff'].includes(role)) {
+      return res.status(400).json({ message: "Role must be 'manager' or 'staff'" });
+    }
+
+    // Owner can't change their own role
+    if (userId === req.user!.id) {
+      return res.status(400).json({ message: "You cannot change your own role" });
+    }
+
+    // Verify the user has access to this business
+    const hasAccess = await storage.hasBusinessAccess(userId, businessId);
+    if (!hasAccess) {
+      return res.status(404).json({ message: "Team member not found" });
+    }
+
+    await storage.updateTeamMemberRole(userId, businessId, role);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error updating team member role:", error);
+    res.status(500).json({ message: "Error updating team member role" });
+  }
+});
+
+// DELETE /team/:userId — Remove a team member
+router.delete("/team/:userId", isAuthenticated, requireRole('owner'), async (req: Request, res: Response) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ message: "No business associated with this account" });
+    }
+
+    const userId = parseInt(req.params.userId);
+    if (isNaN(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    // Owner can't remove themselves
+    if (userId === req.user!.id) {
+      return res.status(400).json({ message: "You cannot remove yourself from the team" });
+    }
+
+    // Verify the user has access to this business
+    const hasAccess = await storage.hasBusinessAccess(userId, businessId);
+    if (!hasAccess) {
+      return res.status(404).json({ message: "Team member not found" });
+    }
+
+    // Remove from user_business_access
+    await storage.removeTeamMember(userId, businessId);
+
+    // If user's primary businessId is this business, clear it
+    const user = await storage.getUser(userId);
+    if (user && user.businessId === businessId) {
+      await storage.updateUser(userId, { businessId: null });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error removing team member:", error);
+    res.status(500).json({ message: "Error removing team member" });
   }
 });
 

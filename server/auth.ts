@@ -8,6 +8,7 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User, InsertUser } from "@shared/schema";
 import { sendPasswordResetEmail, sendVerificationCodeEmail } from "./emailService";
+import { getUserPermissions } from './middleware/permissions';
 import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
 import { pool } from './db';
@@ -807,11 +808,16 @@ export function setupAuth(app: Express) {
       // Don't send the password back to the client
       const { password, ...userWithoutPassword } = freshUser;
 
+      // Compute effective role and permissions for the frontend
+      const { role: effectiveRole, permissions } = getUserPermissions(freshUser);
+
       // If admin is impersonating a business, override businessId in response
       const impersonating = (req.session as any).impersonating;
       if (impersonating && freshUser.role === 'admin') {
         res.json({
           ...userWithoutPassword,
+          effectiveRole,
+          permissions,
           businessId: impersonating.businessId,
           impersonating: {
             businessId: impersonating.businessId,
@@ -820,7 +826,11 @@ export function setupAuth(app: Express) {
           },
         });
       } else {
-        res.json(userWithoutPassword);
+        res.json({
+          ...userWithoutPassword,
+          effectiveRole,
+          permissions,
+        });
       }
     } catch (error) {
       console.error("Error fetching user:", error);
