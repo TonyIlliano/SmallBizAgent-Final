@@ -1143,6 +1143,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const smsCampaignRoutes = (await import('./routes/smsCampaignRoutes')).default;
   app.use('/api/sms-campaigns', isAuthenticated, smsCampaignRoutes);
 
+  // ── Workflow Builder routes ──
+  const workflowRoutes = (await import('./routes/workflowRoutes')).default;
+  app.use('/api/workflows', isAuthenticated, workflowRoutes);
+
   // SMS Activity Feed for business owners
   app.get('/api/sms-activity-feed', isAuthenticated, async (req: Request, res: Response) => {
     try {

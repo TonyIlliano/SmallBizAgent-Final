@@ -177,6 +177,9 @@ async function handleAppointmentCompleted(payload: OrchestratorPayload): Promise
       await storage.releaseEngagementLock(customerId, businessId).catch(logAndSwallow('Orchestrator'));
     }
   }
+
+  // Trigger matching workflows
+  await triggerWorkflows('appointment.completed', payload);
 }
 
 /**
@@ -236,6 +239,9 @@ async function handleNoShow(payload: OrchestratorPayload): Promise<void> {
       await storage.releaseEngagementLock(customerId, businessId).catch(logAndSwallow('Orchestrator'));
     }
   }
+
+  // Trigger matching workflows
+  await triggerWorkflows('appointment.no_show', payload);
 }
 
 /**
@@ -287,6 +293,9 @@ async function handleJobCompleted(payload: OrchestratorPayload): Promise<void> {
       await storage.releaseEngagementLock(customerId, businessId).catch(logAndSwallow('Orchestrator'));
     }
   }
+
+  // Trigger matching workflows
+  await triggerWorkflows('job.completed', payload);
 }
 
 /**
@@ -303,6 +312,9 @@ async function handleInvoicePaid(payload: OrchestratorPayload): Promise<void> {
   } catch (err) {
     console.error(`[Orchestrator] Error recalculating insights after payment:`, err);
   }
+
+  // Trigger matching workflows
+  await triggerWorkflows('invoice.paid', payload);
 }
 
 /**
@@ -321,5 +333,29 @@ async function handleConversationResolved(payload: OrchestratorPayload): Promise
     console.log(`[Orchestrator] Released engagement lock for customer ${customerId}`);
   } catch (err) {
     console.error(`[Orchestrator] Error releasing engagement lock for customer ${customerId}:`, err);
+  }
+}
+
+/**
+ * Trigger any active workflows matching the given event.
+ * Fire-and-forget — errors are logged, never block the caller.
+ */
+async function triggerWorkflows(eventName: string, payload: OrchestratorPayload): Promise<void> {
+  if (!payload.customerId) return;
+
+  try {
+    const { startWorkflowRun } = await import('./workflowEngine');
+    const activeWorkflows = await storage.getActiveWorkflowsByTrigger(eventName);
+    for (const wf of activeWorkflows.filter(w => w.businessId === payload.businessId)) {
+      await startWorkflowRun(
+        wf.id,
+        payload.businessId,
+        payload.customerId!,
+        payload.referenceType,
+        payload.referenceId,
+      );
+    }
+  } catch (err) {
+    console.error(`[Orchestrator] Workflow trigger error for ${eventName}:`, err);
   }
 }

@@ -54,6 +54,8 @@ import {
   SmsCampaign, InsertSmsCampaign, smsCampaigns,
   CampaignAnalyticsRow, InsertCampaignAnalytics, campaignAnalytics,
   SmsActivityFeedEntry, InsertSmsActivityFeed, smsActivityFeed,
+  Workflow, InsertWorkflow, workflows,
+  WorkflowRun, InsertWorkflowRun, workflowRuns,
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -489,6 +491,21 @@ export interface IStorage {
   createSmsActivityFeedEntry(data: InsertSmsActivityFeed): Promise<SmsActivityFeedEntry>;
   getSmsActivityFeed(businessId: number, params?: { limit?: number; offset?: number; unreadOnly?: boolean }): Promise<SmsActivityFeedEntry[]>;
   markSmsActivityFeedRead(businessId: number): Promise<void>;
+  // Workflows
+  createWorkflow(data: InsertWorkflow): Promise<Workflow>;
+  getWorkflows(businessId: number, params?: { status?: string; limit?: number }): Promise<Workflow[]>;
+  getWorkflow(id: number, businessId: number): Promise<Workflow | null>;
+  updateWorkflow(id: number, data: Partial<Workflow>): Promise<Workflow>;
+  deleteWorkflow(id: number, businessId: number): Promise<boolean>;
+  getActiveWorkflowsByTrigger(triggerEvent: string): Promise<Workflow[]>;
+  // Workflow Runs
+  createWorkflowRun(data: InsertWorkflowRun): Promise<WorkflowRun>;
+  getWorkflowRun(id: number): Promise<WorkflowRun | null>;
+  getWorkflowRuns(businessId: number, params?: { workflowId?: number; status?: string; limit?: number }): Promise<WorkflowRun[]>;
+  updateWorkflowRun(id: number, data: Partial<WorkflowRun>): Promise<WorkflowRun>;
+  getActiveRunsForCustomer(customerId: number, businessId: number, workflowId?: number): Promise<WorkflowRun[]>;
+  getDueWorkflowRuns(limit?: number): Promise<WorkflowRun[]>;
+  cancelWorkflowRunsForCustomer(businessId: number, customerId: number, reason: string): Promise<number>;
 }
 
 // Database storage implementation
@@ -3052,6 +3069,93 @@ export class DatabaseStorage implements IStorage {
 
   async markSmsActivityFeedRead(businessId: number): Promise<void> {
     await db.update(smsActivityFeed).set({ readByOwner: true }).where(and(eq(smsActivityFeed.businessId, businessId), eq(smsActivityFeed.readByOwner, false)));
+  }
+
+  // --- Workflows ---
+
+  async createWorkflow(data: InsertWorkflow): Promise<Workflow> {
+    const [workflow] = await db.insert(workflows).values(data).returning();
+    return workflow;
+  }
+
+  async getWorkflows(businessId: number, params?: { status?: string; limit?: number }): Promise<Workflow[]> {
+    const conditions = [eq(workflows.businessId, businessId)];
+    if (params?.status) conditions.push(eq(workflows.status, params.status));
+    return db.select().from(workflows).where(and(...conditions)).orderBy(desc(workflows.createdAt)).limit(params?.limit || 50);
+  }
+
+  async getWorkflow(id: number, businessId: number): Promise<Workflow | null> {
+    const [workflow] = await db.select().from(workflows).where(and(eq(workflows.id, id), eq(workflows.businessId, businessId)));
+    return workflow || null;
+  }
+
+  async updateWorkflow(id: number, data: Partial<Workflow>): Promise<Workflow> {
+    const [updated] = await db.update(workflows).set({ ...data, updatedAt: new Date() }).where(eq(workflows.id, id)).returning();
+    return updated;
+  }
+
+  async deleteWorkflow(id: number, businessId: number): Promise<boolean> {
+    const result = await db.delete(workflows).where(and(eq(workflows.id, id), eq(workflows.businessId, businessId))).returning();
+    return result.length > 0;
+  }
+
+  async getActiveWorkflowsByTrigger(triggerEvent: string): Promise<Workflow[]> {
+    return db.select().from(workflows).where(and(eq(workflows.triggerEvent, triggerEvent), eq(workflows.status, 'active')));
+  }
+
+  // --- Workflow Runs ---
+
+  async createWorkflowRun(data: InsertWorkflowRun): Promise<WorkflowRun> {
+    const [run] = await db.insert(workflowRuns).values(data).returning();
+    return run;
+  }
+
+  async getWorkflowRun(id: number): Promise<WorkflowRun | null> {
+    const [run] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, id));
+    return run || null;
+  }
+
+  async getWorkflowRuns(businessId: number, params?: { workflowId?: number; status?: string; limit?: number }): Promise<WorkflowRun[]> {
+    const conditions = [eq(workflowRuns.businessId, businessId)];
+    if (params?.workflowId) conditions.push(eq(workflowRuns.workflowId, params.workflowId));
+    if (params?.status) conditions.push(eq(workflowRuns.status, params.status));
+    return db.select().from(workflowRuns).where(and(...conditions)).orderBy(desc(workflowRuns.createdAt)).limit(params?.limit || 100);
+  }
+
+  async updateWorkflowRun(id: number, data: Partial<WorkflowRun>): Promise<WorkflowRun> {
+    const [updated] = await db.update(workflowRuns).set({ ...data, updatedAt: new Date() }).where(eq(workflowRuns.id, id)).returning();
+    return updated;
+  }
+
+  async getActiveRunsForCustomer(customerId: number, businessId: number, workflowId?: number): Promise<WorkflowRun[]> {
+    const conditions = [
+      eq(workflowRuns.customerId, customerId),
+      eq(workflowRuns.businessId, businessId),
+      eq(workflowRuns.status, 'active'),
+    ];
+    if (workflowId) conditions.push(eq(workflowRuns.workflowId, workflowId));
+    return db.select().from(workflowRuns).where(and(...conditions));
+  }
+
+  async getDueWorkflowRuns(limit?: number): Promise<WorkflowRun[]> {
+    return db.select().from(workflowRuns).where(
+      and(
+        eq(workflowRuns.status, 'active'),
+        lte(workflowRuns.nextStepAt, new Date()),
+      )
+    ).orderBy(workflowRuns.nextStepAt).limit(limit || 50);
+  }
+
+  async cancelWorkflowRunsForCustomer(businessId: number, customerId: number, reason: string): Promise<number> {
+    const result = await db.update(workflowRuns)
+      .set({ status: 'cancelled', cancelReason: reason, updatedAt: new Date() })
+      .where(and(
+        eq(workflowRuns.businessId, businessId),
+        eq(workflowRuns.customerId, customerId),
+        eq(workflowRuns.status, 'active'),
+      ))
+      .returning();
+    return result.length;
   }
 }
 

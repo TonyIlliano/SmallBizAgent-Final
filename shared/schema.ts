@@ -1698,6 +1698,7 @@ export const marketingTriggers = pgTable("marketing_triggers", {
   status: text("status").default("pending"), // pending, sent, cancelled, skipped, failed
   skipReason: text("skip_reason"), // opted_out, locked, condition_changed, etc.
   context: jsonb("context"), // Trigger-specific data: { quoteId, quoteTotal, campaignName, etc. }
+  workflowRunId: integer("workflow_run_id"), // Links trigger sends to workflow runs
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1705,6 +1706,7 @@ export const marketingTriggers = pgTable("marketing_triggers", {
   statusScheduledIdx: index("marketing_triggers_status_scheduled_idx").on(table.status, table.scheduledFor),
   businessCustomerIdx: index("marketing_triggers_biz_cust_idx").on(table.businessId, table.customerId),
   campaignIdx: index("marketing_triggers_campaign_idx").on(table.campaignId),
+  workflowRunIdx: index("marketing_triggers_workflow_run_idx").on(table.workflowRunId),
 }));
 
 export const insertMarketingTriggerSchema = createInsertSchema(marketingTriggers).omit({ id: true, createdAt: true, updatedAt: true });
@@ -1777,3 +1779,53 @@ export const smsActivityFeed = pgTable("sms_activity_feed", {
 export const insertSmsActivityFeedSchema = createInsertSchema(smsActivityFeed).omit({ id: true, createdAt: true });
 export type SmsActivityFeedEntry = typeof smsActivityFeed.$inferSelect;
 export type InsertSmsActivityFeed = z.infer<typeof insertSmsActivityFeedSchema>;
+
+// Workflows — user-configured automation sequences
+export const workflows = pgTable("workflows", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  triggerEvent: text("trigger_event").notNull(), // appointment.completed, appointment.no_show, job.completed, invoice.overdue, invoice.paid, manual
+  status: text("status").default("draft"), // draft, active, paused
+  steps: jsonb("steps").default([]), // Array<{ type: 'wait'|'send_sms', config: { delayMinutes?, messageType?, messagePrompt? } }>
+  templateId: text("template_id"), // ID of the template this was created from
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  businessIdIdx: index("workflows_business_id_idx").on(table.businessId),
+  triggerEventIdx: index("workflows_trigger_event_idx").on(table.triggerEvent),
+  statusIdx: index("workflows_status_idx").on(table.status),
+}));
+
+export const insertWorkflowSchema = createInsertSchema(workflows).omit({ id: true, createdAt: true, updatedAt: true });
+export type Workflow = typeof workflows.$inferSelect;
+export type InsertWorkflow = z.infer<typeof insertWorkflowSchema>;
+
+// Workflow Runs — per-customer execution tracking
+export const workflowRuns = pgTable("workflow_runs", {
+  id: serial("id").primaryKey(),
+  workflowId: integer("workflow_id").notNull(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  triggerReferenceType: text("trigger_reference_type"), // appointment, job, invoice
+  triggerReferenceId: integer("trigger_reference_id"),
+  currentStep: integer("current_step").default(0),
+  status: text("status").default("active"), // active, completed, cancelled, failed
+  cancelReason: text("cancel_reason"),
+  context: jsonb("context").default({}), // Runtime data: { appointmentId, jobId, invoiceId, etc. }
+  startedAt: timestamp("started_at").defaultNow(),
+  nextStepAt: timestamp("next_step_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  workflowIdIdx: index("workflow_runs_workflow_id_idx").on(table.workflowId),
+  businessIdIdx: index("workflow_runs_business_id_idx").on(table.businessId),
+  customerIdIdx: index("workflow_runs_customer_id_idx").on(table.customerId),
+  statusNextStepIdx: index("workflow_runs_status_next_step_idx").on(table.status, table.nextStepAt),
+}));
+
+export const insertWorkflowRunSchema = createInsertSchema(workflowRuns).omit({ id: true, createdAt: true, updatedAt: true });
+export type WorkflowRun = typeof workflowRuns.$inferSelect;
+export type InsertWorkflowRun = z.infer<typeof insertWorkflowRunSchema>;

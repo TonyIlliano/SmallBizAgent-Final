@@ -1579,6 +1579,30 @@ export function startMarketingTriggerEvaluator(): void {
 /**
  * Start schedulers for all active businesses
  */
+/**
+ * Process due workflow steps every 60 seconds.
+ * Picks up workflow runs whose nextStepAt has passed and advances them.
+ */
+export function startWorkflowStepProcessor(): void {
+  const jobKey = 'workflow-step-processor';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalMs = 60 * 1000; // Every 60 seconds
+  const intervalId = setInterval(async () => {
+    await withReentryGuard(jobKey, async () => {
+      try {
+        const { processWorkflowSteps } = await import('./workflowEngine');
+        await processWorkflowSteps();
+      } catch (error) {
+        console.error('[Scheduler] Workflow step processor error:', error);
+      }
+    });
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log(`[Scheduler] Workflow step processor started (${intervalMs / 1000}s interval)`);
+}
+
 export async function startAllSchedulers(): Promise<void> {
   try {
     // Start global reminder scheduler (single timer for all businesses)
@@ -1649,6 +1673,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start SMS Intelligence Layer schedulers
     startMarketingTriggerProcessor();
     startMarketingTriggerEvaluator();
+
+    // Start workflow step processor (advances due workflow runs every 60s)
+    startWorkflowStepProcessor();
 
     // Start weekly business report scheduler (Monday 8 AM per business timezone)
     startWeeklyReportScheduler();
@@ -1885,6 +1912,7 @@ export default {
   startAdminDigestScheduler,
   startGbpSyncScheduler,
   startWeeklyReportScheduler,
+  startWorkflowStepProcessor,
   startAllSchedulers,
   stopAllSchedulers
 };

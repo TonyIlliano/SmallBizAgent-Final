@@ -2298,6 +2298,9 @@ async function runMigrations() {
     // SMS Intelligence Layer tables
     await addSmsIntelligenceTables();
 
+    // Workflow builder tables
+    await addWorkflowTables();
+
     // Run pricing v2 migration (Starter $149, Growth $299, Pro $449)
     try {
       const { migrate: migratePricingV2 } = await import('./update_pricing_v2.js');
@@ -2692,6 +2695,73 @@ async function addSmsIntelligenceTables() {
   await pool.query(`CREATE INDEX IF NOT EXISTS sms_activity_feed_created_at_idx ON sms_activity_feed (created_at)`);
 
   console.log('SMS Intelligence Layer tables created successfully');
+}
+
+/**
+ * Workflow builder: workflows + workflow_runs tables + marketing_triggers.workflow_run_id
+ */
+async function addWorkflowTables() {
+  console.log('Adding workflow builder tables...');
+
+  const addColumnIfNotExists = async (table: string, column: string, type: string) => {
+    try {
+      await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+    } catch (e: any) {
+      if (!e.message.includes('already exists')) {
+        console.log(`Note: Could not add ${column} to ${table}: ${e.message}`);
+      }
+    }
+  };
+
+  // Workflows — user-configured automation sequences
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workflows (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      trigger_event TEXT NOT NULL,
+      status TEXT DEFAULT 'draft',
+      steps JSONB DEFAULT '[]'::jsonb,
+      template_id TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS workflows_business_id_idx ON workflows (business_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS workflows_trigger_event_idx ON workflows (trigger_event)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS workflows_status_idx ON workflows (status)`);
+
+  // Workflow Runs — per-customer execution tracking
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id SERIAL PRIMARY KEY,
+      workflow_id INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      trigger_reference_type TEXT,
+      trigger_reference_id INTEGER,
+      current_step INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'active',
+      cancel_reason TEXT,
+      context JSONB DEFAULT '{}'::jsonb,
+      started_at TIMESTAMP DEFAULT NOW(),
+      next_step_at TIMESTAMP,
+      completed_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS workflow_runs_workflow_id_idx ON workflow_runs (workflow_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS workflow_runs_business_id_idx ON workflow_runs (business_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS workflow_runs_customer_id_idx ON workflow_runs (customer_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS workflow_runs_status_next_step_idx ON workflow_runs (status, next_step_at)`);
+
+  // Add workflow_run_id to marketing_triggers
+  await addColumnIfNotExists('marketing_triggers', 'workflow_run_id', 'INTEGER');
+  await pool.query(`CREATE INDEX IF NOT EXISTS marketing_triggers_workflow_run_idx ON marketing_triggers (workflow_run_id)`);
+
+  console.log('Workflow builder tables created successfully');
 }
 
 // ES modules don't have a direct equivalent to require.main === module

@@ -21,6 +21,7 @@ import { ActivityFeed } from "@/components/automations/ActivityFeed";
 import { ConversationList } from "@/components/automations/ConversationList";
 import { ReviewQueue } from "@/components/automations/ReviewQueue";
 import { AgentReport } from "@/components/automations/AgentReport";
+import { WorkflowsTab } from "@/components/automations/WorkflowsTab";
 import NotificationHistory from "@/components/settings/NotificationHistory";
 import {
   LayoutDashboard,
@@ -34,6 +35,7 @@ import {
   FlaskConical,
   TrendingUp,
   Zap,
+  Workflow,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -429,7 +431,7 @@ export default function AutomationsPage() {
         </div>
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className={`grid w-full ${isOwner ? "grid-cols-6" : "grid-cols-5"}`}>
+          <TabsList className={`grid w-full ${isOwner ? "grid-cols-7" : "grid-cols-5"}`}>
             <TabsTrigger value="overview" className="flex items-center gap-1.5">
               <LayoutDashboard className="h-4 w-4" />
               <span className="hidden sm:inline">Overview</span>
@@ -446,6 +448,12 @@ export default function AutomationsPage() {
               <Star className="h-4 w-4" />
               <span className="hidden sm:inline">Reviews</span>
             </TabsTrigger>
+            {isOwner && (
+              <TabsTrigger value="workflows" className="flex items-center gap-1.5">
+                <Workflow className="h-4 w-4" />
+                <span className="hidden sm:inline">Workflows</span>
+              </TabsTrigger>
+            )}
             {isOwner && (
               <TabsTrigger value="report" className="flex items-center gap-1.5">
                 <BarChart3 className="h-4 w-4" />
@@ -473,6 +481,12 @@ export default function AutomationsPage() {
           <TabsContent value="reviews">
             <ReviewQueue />
           </TabsContent>
+
+          {isOwner && (
+            <TabsContent value="workflows">
+              <WorkflowsTab />
+            </TabsContent>
+          )}
 
           {isOwner && (
             <TabsContent value="report">
