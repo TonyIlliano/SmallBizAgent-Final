@@ -183,69 +183,29 @@ router.put("/:id", isAuthenticated, async (req: Request, res: Response) => {
       const validatedData = insertJobSchema.partial().parse(req.body);
       const job = await storage.updateJob(id, validatedData);
 
-      // Job status change SMS notifications (fire-and-forget)
+      // Queue job status SMS notifications (reliable retry via pg-boss)
+      const { enqueue } = await import('../services/jobQueue');
       if (validatedData.status === 'in_progress' && existing.status !== 'in_progress') {
-        import('../services/notificationService').then(mod => {
-          mod.sendJobInProgressNotification(job.id, existing.businessId).catch(err =>
-            console.error('Background job in_progress notification error:', err)
-          );
-        }).catch(err => console.error('Import error:', err));
+        await enqueue('send-job-status-notification', { jobId: job.id, businessId: existing.businessId, statusType: 'in_progress' });
       }
       if (validatedData.status === 'waiting_parts' && existing.status !== 'waiting_parts') {
-        import('../services/notificationService').then(mod => {
-          mod.sendJobWaitingPartsNotification(job.id, existing.businessId).catch(err =>
-            console.error('Background job waiting_parts notification error:', err)
-          );
-        }).catch(err => console.error('Import error:', err));
+        await enqueue('send-job-status-notification', { jobId: job.id, businessId: existing.businessId, statusType: 'waiting_parts' });
       }
       if (validatedData.status === 'in_progress' && existing.status === 'waiting_parts') {
-        import('../services/notificationService').then(mod => {
-          mod.sendJobResumedNotification(job.id, existing.businessId).catch(err =>
-            console.error('Background job resumed notification error:', err)
-          );
-        }).catch(err => console.error('Import error:', err));
+        await enqueue('send-job-status-notification', { jobId: job.id, businessId: existing.businessId, statusType: 'resumed' });
       }
 
-      // Send job completed notification if status changed to completed
+      // Queue job completed jobs (notification, webhook, orchestration)
       if (validatedData.status === 'completed' && existing.status !== 'completed') {
-        notificationService.sendJobCompletedNotification(job.id, existing.businessId).catch(err =>
-          console.error('Background notification error:', err)
-        );
-
-        // Fire webhook event for job completed (fire-and-forget)
-        fireEvent(existing.businessId, 'job.completed', { job })
-          .catch(err => console.error('Webhook fire error:', err));
-
-        // Auto-send review request after job completion (fire-and-forget, respects opt-in + cooldown)
-        import('../services/reviewService').then(reviewService => {
-          // Use configured delay (default 2 hours) before sending
-          reviewService.getReviewSettings(existing.businessId).then(settings => {
-            if (settings?.autoSendAfterJobCompletion && settings?.reviewRequestEnabled) {
-              const delayMs = (settings.delayHoursAfterCompletion || 2) * 60 * 60 * 1000;
-              setTimeout(() => {
-                reviewService.sendReviewRequestForCompletedJob(job.id, existing.businessId)
-                  .then(result => {
-                    if (result.success) {
-                      console.log(`[Review] Auto-sent review request for job ${job.id}`);
-                    } else {
-                      console.log(`[Review] Skipped auto-review for job ${job.id}: ${result.error}`);
-                    }
-                  })
-                  .catch(err => console.error('[Review] Auto-review error:', err));
-              }, delayMs);
-            }
-          }).catch(err => console.error('[Review] Error checking review settings:', err));
-        }).catch(err => console.error('[Review] Error importing review service:', err));
-
-        // Orchestrator: route job.completed to appropriate agents (follow-up, review, etc.)
-        import('../services/orchestrationService').then(mod => {
-          mod.dispatchEvent('job.completed', {
-            businessId: existing.businessId,
-            customerId: job.customerId || undefined,
-            referenceType: 'job',
-            referenceId: job.id,
-          }).catch(err => console.error('[Orchestrator] Error dispatching job.completed:', err));
-        }).catch(err => console.error('[Orchestrator] Import error:', err));
+        await enqueue('send-job-completed-notification', { jobId: job.id, businessId: existing.businessId });
+        await enqueue('fire-webhook-event', { businessId: existing.businessId, event: 'job.completed', payload: { job } });
+        await enqueue('dispatch-orchestration-event', {
+          eventType: 'job.completed',
+          businessId: existing.businessId,
+          customerId: job.customerId || undefined,
+          referenceType: 'job',
+          referenceId: job.id,
+        });
 
         // Auto-generate invoice on job completion if enabled
         try {

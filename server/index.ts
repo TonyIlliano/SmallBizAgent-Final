@@ -493,6 +493,17 @@ app.use((req, res, next) => {
     }, () => {
       log(`serving on port ${port}`);
 
+      // Start job queue (pg-boss) for reliable background processing
+      (async () => {
+        try {
+          const { startJobQueue } = await import('./services/jobQueue');
+          await startJobQueue();
+          log('Job queue (pg-boss) started');
+        } catch (err) {
+          console.error('Failed to start job queue (non-fatal, falling back to direct execution):', err);
+        }
+      })();
+
       // Start the reminder scheduler after server is running
       (async () => {
         try {
@@ -519,6 +530,14 @@ app.use((req, res, next) => {
 
       schedulerService.stopAllSchedulers();
       console.log('Schedulers stopped');
+
+      try {
+        const { stopJobQueue } = await import('./services/jobQueue');
+        await stopJobQueue();
+        console.log('Job queue stopped');
+      } catch (err) {
+        console.error('Error stopping job queue:', err);
+      }
 
       // Wait for HTTP server to finish in-flight requests
       await new Promise<void>((resolve) => {

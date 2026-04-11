@@ -131,27 +131,12 @@ router.post("/appointments", isAuthenticated, async (req: Request, res: Response
     // Invalidate appointments cache
     dataCache.invalidate(businessId, 'appointments');
 
-    // Send appointment confirmation notification (fire-and-forget)
-    notificationService.sendAppointmentConfirmation(appointment.id, businessId).catch(err =>
-      console.error('Background notification error:', err)
-    );
-
-    // Sync to Google Calendar if connected (fire-and-forget)
-    const { CalendarService } = await import("../services/calendarService");
-    const calendarService = new CalendarService();
-    calendarService.syncAppointment(appointment.id).catch(err =>
-      console.error('Background calendar sync error:', err)
-    );
-
-    // Fire webhook event (fire-and-forget)
-    fireEvent(businessId, 'appointment.created', { appointment })
-      .catch(err => console.error('Webhook fire error:', err));
-
-    // Notify business owner of new booking (fire-and-forget)
-    import('../services/ownerNotificationService').then(mod => {
-      mod.notifyOwnerNewBooking(appointment.id, businessId)
-        .catch(err => console.error('[OwnerNotify] Booking alert error:', err));
-    }).catch(err => console.error('[OwnerNotify] Import error:', err));
+    // Queue reliable background jobs (retried on failure via pg-boss)
+    const { enqueue } = await import('../services/jobQueue');
+    await enqueue('send-appointment-confirmation', { appointmentId: appointment.id, businessId });
+    await enqueue('sync-calendar', { action: 'sync', appointmentId: appointment.id });
+    await enqueue('fire-webhook-event', { businessId, event: 'appointment.created', payload: { appointment } });
+    await enqueue('notify-owner', { type: 'new-booking', appointmentId: appointment.id, businessId });
 
     res.status(201).json(appointment);
   } catch (error) {
@@ -217,73 +202,40 @@ router.put("/appointments/:id", isAuthenticated, async (req: Request, res: Respo
       .catch(err => console.error('Webhook fire error:', err));
 
     if (validatedData.status === 'completed' && existing.status !== 'completed') {
-      fireEvent(existing.businessId, 'appointment.completed', { appointment })
-        .catch(err => console.error('Webhook fire error:', err));
-
-      // Auto-send review request after appointment completion (fire-and-forget, respects opt-in + cooldown)
-      import('../services/reviewService').then(reviewService => {
-        reviewService.getReviewSettings(existing.businessId).then(settings => {
-          if (settings?.autoSendAfterJobCompletion && settings?.reviewRequestEnabled) {
-            const delayMs = (settings.delayHoursAfterCompletion || 2) * 60 * 60 * 1000;
-            setTimeout(() => {
-              // Try SMS first (if opted in), then email
-              const tryReview = async () => {
-                const customerRecord = await storage.getCustomer(appointment.customerId);
-                if (!customerRecord) return;
-
-                let result;
-                if (customerRecord.phone && customerRecord.smsOptIn) {
-                  result = await reviewService.sendReviewRequestSms(existing.businessId, appointment.customerId);
-                } else if (customerRecord.email) {
-                  result = await reviewService.sendReviewRequestEmail(existing.businessId, appointment.customerId);
-                } else {
-                  return;
-                }
-                if (result.success) {
-                  console.log(`[Review] Auto-sent review request for appointment ${appointment.id}`);
-                } else {
-                  console.log(`[Review] Skipped auto-review for appointment ${appointment.id}: ${result.error}`);
-                }
-              };
-              tryReview().catch(err => console.error('[Review] Auto-review error:', err));
-            }, delayMs);
-          }
-        }).catch(err => console.error('[Review] Error checking review settings:', err));
-      }).catch(err => console.error('[Review] Error importing review service:', err));
-
-      // Orchestrator: route appointment.completed to appropriate agents (follow-up, review, etc.)
-      import('../services/orchestrationService').then(mod => {
-        mod.dispatchEvent('appointment.completed', {
-          businessId: existing.businessId,
-          customerId: appointment.customerId || undefined,
-          referenceType: 'appointment',
-          referenceId: appointment.id,
-        }).catch(err => console.error('[Orchestrator] Error dispatching appointment.completed:', err));
-      }).catch(err => console.error('[Orchestrator] Import error:', err));
+      // Queue reliable background jobs
+      const { enqueue } = await import('../services/jobQueue');
+      await enqueue('fire-webhook-event', { businessId: existing.businessId, event: 'appointment.completed', payload: { appointment } });
+      await enqueue('dispatch-orchestration-event', {
+        eventType: 'appointment.completed',
+        businessId: existing.businessId,
+        customerId: appointment.customerId || undefined,
+        referenceType: 'appointment',
+        referenceId: appointment.id,
+      });
     }
 
-    // Orchestrator: route appointment.no_show to no-show recovery agent (fire-and-forget)
+    // Queue no-show recovery (reliable retry)
     if (validatedData.status === 'no_show' && existing.status !== 'no_show') {
-      import('../services/orchestrationService').then(mod => {
-        mod.dispatchEvent('appointment.no_show', {
-          businessId: existing.businessId,
-          customerId: appointment.customerId || undefined,
-          referenceType: 'appointment',
-          referenceId: appointment.id,
-        }).catch(err => console.error('[Orchestrator] Error dispatching appointment.no_show:', err));
-      }).catch(err => console.error('[Orchestrator] Import error:', err));
+      const { enqueue } = await import('../services/jobQueue');
+      await enqueue('dispatch-orchestration-event', {
+        eventType: 'appointment.no_show',
+        businessId: existing.businessId,
+        customerId: appointment.customerId || undefined,
+        referenceType: 'appointment',
+        referenceId: appointment.id,
+      });
     }
 
-    // Orchestrator: route appointment.cancelled to recalculate insights (fire-and-forget)
+    // Queue cancelled insights recalculation
     if (validatedData.status === 'cancelled' && existing.status !== 'cancelled') {
-      import('../services/orchestrationService').then(mod => {
-        mod.dispatchEvent('appointment.cancelled', {
-          businessId: existing.businessId,
-          customerId: appointment.customerId || undefined,
-          referenceType: 'appointment',
-          referenceId: appointment.id,
-        }).catch(err => console.error('[Orchestrator] Error dispatching appointment.cancelled:', err));
-      }).catch(err => console.error('[Orchestrator] Import error:', err));
+      const { enqueue } = await import('../services/jobQueue');
+      await enqueue('dispatch-orchestration-event', {
+        eventType: 'appointment.cancelled',
+        businessId: existing.businessId,
+        customerId: appointment.customerId || undefined,
+        referenceType: 'appointment',
+        referenceId: appointment.id,
+      });
     }
 
     res.json(appointment);

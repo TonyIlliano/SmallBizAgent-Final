@@ -157,23 +157,16 @@ router.put("/invoices/:id", isAuthenticated, async (req: Request, res: Response)
     const validatedData = insertInvoiceSchema.partial().parse(req.body);
     const invoice = await storage.updateInvoice(id, validatedData);
 
-    // Send payment confirmation if status changed to paid
+    // Queue payment confirmation + orchestration (reliable retry via pg-boss)
     if (validatedData.status === 'paid' && existing.status !== 'paid') {
-      notificationService.sendPaymentConfirmation(invoice.id, existing.businessId).catch(err =>
-        console.error('Background notification error:', err)
-      );
-
-      // Fire webhook event for invoice paid (fire-and-forget)
-      fireEvent(existing.businessId, 'invoice.paid', { invoice })
-        .catch(err => console.error('Webhook fire error:', err));
-
-      // Orchestrator: route invoice.paid to recalculate customer insights (fire-and-forget)
-      import('../services/orchestrationService').then(mod => {
-        mod.dispatchEvent('invoice.paid', {
-          businessId: existing.businessId,
-          customerId: existing.customerId || undefined,
-        }).catch(err => console.error('[Orchestrator] Error dispatching invoice.paid:', err));
-      }).catch(err => console.error('[Orchestrator] Import error:', err));
+      const { enqueue } = await import('../services/jobQueue');
+      await enqueue('send-payment-confirmation', { invoiceId: invoice.id, businessId: existing.businessId });
+      await enqueue('fire-webhook-event', { businessId: existing.businessId, event: 'invoice.paid', payload: { invoice } });
+      await enqueue('dispatch-orchestration-event', {
+        eventType: 'invoice.paid',
+        businessId: existing.businessId,
+        customerId: existing.customerId || undefined,
+      });
     }
 
     res.json(invoice);
