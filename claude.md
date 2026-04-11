@@ -53,6 +53,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | **Accounting** | QuickBooks Online |
 | **Video** | Shotstack Edit API |
 | **Storage** | AWS S3 |
+| **Job Queue** | pg-boss (PostgreSQL-backed, automatic retries, exponential backoff) |
 | **Error Tracking** | Sentry |
 
 ---
@@ -77,7 +78,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 │       └── pages/             # All page components (see Routes below)
 ├── server/
 │   ├── index.ts               # Express server entry point
-│   ├── routes.ts              # Main route registration (huge file, ~6000 lines)
+│   ├── routes.ts              # Main route registration (~1200 lines, auth + route mounts)
 │   ├── routes/                # Feature-specific route files
 │   ├── services/              # Business logic services (50+ files)
 │   │   ├── platformAgents/    # AI platform agents (10 files)
@@ -301,6 +302,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `rebookingAgentService` | Win-back SMS for inactive customers (30+ days) | Twilio, Claude |
 | `reviewResponseAgentService` | AI-drafted Google review responses | Claude, Google Business Profile |
 | `conversationalBookingService` | Multi-turn SMS booking via AI | Claude |
+| `invoiceCollectionAgentService` | Escalating SMS reminders for overdue invoices (Day 1, 3, 7, 14, 30) | Twilio, Claude |
 
 ### Platform Agents (server/services/platformAgents/)
 | Agent | Purpose | Runs |
@@ -355,6 +357,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `claudeClient` | Shared AI inference layer. Provides `claudeJson()`, `claudeText()`, `claudeWithTools()` helpers with automatic OpenAI fallback when Claude is unavailable | Claude (primary), OpenAI (fallback) |
 | `websiteGenerationService` | Generates complete one-page websites via Claude (OpenAI fallback). Pulls all business data from DB (hours, services, staff, branding, booking), builds dynamic prompt, returns self-contained HTML with embedded CSS. 15+ vertical design presets. Customization overrides (accent color, font style, hero headline/subheadline, CTA texts, about text, footer message, section toggles) |
 | `googleBusinessProfileService` | Full bi-directional GBP sync. OAuth via `calendarIntegrations` (provider='google-business-profile'). Business info pull/push with conflict detection. Review sync + auto-flag low ratings. Local post creation/publishing. SEO score calculation (100-point, 12 criteria). `runGbpSync()` for scheduler. GBP API v1 (business info) + v4 (reviews/posts) |
+| `jobQueue` | pg-boss PostgreSQL job queue. 11 job types (send-sms, send-email, sync-calendar, etc.). Automatic retry with exponential backoff (30s/60s/120s). Graceful fallback to direct execution if unavailable |
+| `agentUtils` | Shared utilities for SMS agents: forEachEnabledBusiness(), generateAgentMessage(), logAgentSend(), canSendToCustomer(), fillTemplate() |
 
 ---
 
@@ -390,8 +394,20 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `embedRoutes` | `/api/embed/*` | Embedded booking widget |
 | `expressSetupRoutes` | `/api/onboarding/*` | Express onboarding (2-minute setup with auto-provisioning) |
 | `websiteBuilderRoutes` | `/api/website-builder/*`, `/sites/*` | Business scanner, OpenAI website generation, domain management, website serving, feature gates |
+| `twilioWebhookRoutes` | `/api/twilio/*` | 6 Twilio webhook endpoints (inbound SMS, voice, status callbacks) |
+| `jobRoutes` | `/api/jobs/*` | 10 job + line item endpoints |
+| `invoiceRoutes` | `/api/invoices/*` | 15 invoice + portal + item endpoints |
+| `staffRoutes` | `/api/staff/*` | 20 staff CRUD/hours/invites/time-off endpoints |
+| `servicesRoutes` | `/api/services/*` | 6 service CRUD + template endpoints |
+| `businessRoutes` | `/api/business/*` | 9 business profile/hours/provisioning endpoints |
+| `retellRoutes` | `/api/retell/*` | 17 Retell AI + receptionist + admin phone endpoints |
+| `knowledgeRoutes` | `/api/knowledge/*` | 10 knowledge base + unanswered questions endpoints |
+| `notificationRoutes` | `/api/notifications/*` | 11 notification settings/log/send endpoints |
+| `receptionistConfigRoutes` | `/api/receptionist/*` | 11 config + AI suggestions endpoints |
+| `callLogRoutes` | `/api/call-logs/*` | 8 call log + intelligence + insights endpoints |
+| `reviewRoutes` | `/api/reviews/*` | 6 review settings/requests endpoints |
 
-**Note:** Many routes are also defined inline in `server/routes.ts` (~6000 lines), especially auth, call logs, invoices, jobs, Twilio/Retell webhooks.
+**Note:** `server/routes.ts` (~1200 lines) now contains only auth, imports, route mounts, and misc endpoints. All major route groups have been extracted to dedicated files.
 
 **Intelligence & Insights API endpoints (inline in routes.ts):**
 - `GET /api/call-intelligence/:callLogId` — Intelligence for a specific call
@@ -609,6 +625,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
   - **Morning brief** (hourly check, sends at 7am per business timezone)
   - **Admin digest** (hourly check, sends at 8am in ADMIN_TIMEZONE)
   - **GBP sync** (24h interval, syncs business info + reviews for all connected businesses)
+  - **Invoice collection agent** (12h interval, escalating SMS reminders for overdue invoices)
 
 ---
 
@@ -683,48 +700,19 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `ae9117c` | Add error boundaries, AI ROI card, help tooltips, and context help |
 | `cc061cb` | Add express onboarding: 2-minute setup with auto-provisioning |
 | `cf664cf` | Enhance admin dashboard: business controls, user management, live monitoring |
+| `4542cc6` | Master overhaul: Claude migration, dead code removal, UX fixes, Managed Agents |
+| `c401b05` | Add error details to error boundary for debugging |
+| `d9e2ab1` | Fix admin dashboard crash: lazy-render tabs + safe JSON.stringify |
+| `eb6c032` | Fix React hooks order violation causing crash on every page load |
+| `0bed136` | Fix CSP blocking Cloudflare Turnstile, fonts, and analytics |
+| `1c8cf54` | Add Invoice Collection Agent for overdue invoice SMS reminders |
+| `c3517d3` | Split routes.ts: extract 4 major route groups (-2,236 lines) |
+| `c34ca9d` | Complete routes.ts split: 6,905 to 1,184 lines (83% reduction) |
+| `73fadd8` | Add pg-boss job queue for reliable background processing |
+| `9e9aac1` | Add 49 voice receptionist tests — core product now has test coverage |
+| `329da2e` | Add shared SMS agent utilities (extracted from 5 agent services) |
 
 ### Recent changes (uncommitted):
-
-#### Master Overhaul — Claude Migration, Dead Code Removal, UX Fixes (Phases 1-7)
-- **Phase 1 — Vapi Dead Code Removal**: Deleted 6 Vapi service files (~305KB): vapiService.ts, vapiWebhookHandler.ts, vapiProvisioningService.ts, and 3 .deprecated variants. Renamed all /api/vapi/ routes to /api/retell/. Updated 12 frontend+backend files referencing old Vapi paths.
-- **Phase 2 — LangGraph Removal**: Deleted agentGraph.ts + replyIntelligenceGraph.ts. Removed 4 LangGraph npm packages (@langchain/langgraph, @langchain/core, @langchain/community, @langchain/openai). Orchestration now uses direct switch/case dispatcher in orchestrationService.ts. SMS reply routing falls back to smsConversationRouter.ts directly.
-- **Phase 3 — Silent Error Fix**: Fixed 86 silent `.catch(() => {})` patterns across 21 files. Created `logAndSwallow()` utility (`server/utils/safeAsync.ts`) for fire-and-forget operations that logs errors instead of swallowing them silently.
-- **Phase 4 — Appointment Query Safety**: Added `getUpcomingAppointmentsByBusinessId()` with date filter to storage layer. Added safety caps (LIMIT 100-500) on all appointment queries to prevent unbounded result sets.
-- **Phase 5 — Claude AI Migration**: Swapped 14 services from OpenAI to Claude Messages API via shared `claudeClient.ts` (`server/services/claudeClient.ts`). Provides `claudeJson()`, `claudeText()`, `claudeWithTools()` helpers with automatic OpenAI fallback when ANTHROPIC_API_KEY is missing. Support chat refactored from OpenAI function_call format to Claude tool_use format. Services migrated: callIntelligenceService, messageIntelligenceService, autoRefineService, businessScannerService, websiteGenerationService, systemPromptBuilder (intelligence hints), socialMediaAgent, contentSeoAgent, reviewResponseAgentService, conversationalBookingService, noShowAgentService, rebookingAgentService, supportChatRoutes, morningBriefService.
-- **Phase 6 — UX Overhaul**: Landing page (removed fake audio player, added mobile hamburger nav, fixed trial messaging). Settings page (19 tabs collapsed to 5 collapsible sections). Dashboard (Get Started card for new users with no data). Receptionist page (smart default tab selection, collapsible info card). Wired 6 SMS onboarding steps into wizard flow. Replaced mobile Logout button with "More" bottom sheet. Replaced contact page mailto link with real `/api/contact` POST endpoint.
-- **Phase 7 — Type Safety & Scheduler Optimization**: Removed 25+ `as any` type casts across codebase. Created `apiError` utility (`server/utils/apiError.ts`) for consistent HTTP error responses. Optimized scheduler from N independent `setInterval` timers to 1 global tick loop. Added `hasNotificationLogByType()` for efficient deduplication queries.
-
-##### Files Added
-- `server/services/claudeClient.ts` — Shared AI inference layer (Claude primary, OpenAI fallback)
-- `server/utils/safeAsync.ts` — `logAndSwallow()` utility for fire-and-forget error logging
-- `server/utils/apiError.ts` — Consistent HTTP error response helper
-- `server/services/managedAgents/` — Claude Managed Agent wrappers directory
-
-##### Files Deleted
-- `server/services/vapiService.ts` — Replaced by retellService.ts
-- `server/services/vapiWebhookHandler.ts` — Replaced by retellWebhookHandler.ts
-- `server/services/vapiProvisioningService.ts` — Replaced by retellProvisioningService.ts
-- `server/services/vapiService.deprecated.ts` — Dead code
-- `server/services/vapiWebhookHandler.deprecated.ts` — Dead code
-- `server/services/vapiProvisioningService.deprecated.ts` — Dead code
-- `server/services/agentGraph.ts` — LangGraph orchestration (replaced by direct switch/case)
-- `server/services/replyIntelligenceGraph.ts` — LangGraph SMS reply graph (replaced by smsConversationRouter)
-
-##### NPM Packages Removed
-- `@langchain/langgraph`, `@langchain/core`, `@langchain/community`, `@langchain/openai`
-
-##### NPM Packages Added
-- `@anthropic-ai/sdk` — Claude API client
-
-##### Environment Variable Changes
-- **Added**: `ANTHROPIC_API_KEY` (required — primary AI provider)
-- **Updated**: `OPENAI_API_KEY` (now fallback only + Retell voice + TTS)
-- **Removed**: `VAPI_API_KEY`, `VAPI_WEBHOOK_SECRET` (no longer used)
-
-##### Route Changes
-- All `/api/vapi/*` routes renamed to `/api/retell/*`
-- Scheduler: `startVapiDailyRefreshScheduler` renamed to `startRetellDailyRefreshScheduler`
 
 #### Blue-Collar Mode Phase 1 — Tab Swap, Jobs Calendar, Status SMS, Auto-Invoice
 - **Goal**: Transform the experience for job-category businesses (HVAC, plumbing, electrical, landscaping, construction, pest control, roofing, painting) so the platform feels built for field service.
@@ -1200,6 +1188,174 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (committed):
 
+#### Master Overhaul Session — Architecture, Claude Migration, Managed Agents, Route Split, Job Queue, Tests (Phases 1-14)
+
+##### Phase 1 — Vapi Dead Code Removal
+- Deleted 6 Vapi service files (~305KB): vapiService.ts, vapiWebhookHandler.ts, vapiProvisioningService.ts + 3 .deprecated copies
+- Renamed all /api/vapi/ routes to /api/retell/ (7 routes)
+- Updated 12 frontend+backend files referencing old paths
+- Removed Vapi CSRF exemption from server/index.ts
+
+##### Phase 2 — LangGraph Removal
+- Deleted agentGraph.ts + replyIntelligenceGraph.ts
+- Removed 4 npm packages: @langchain/core, @langchain/langgraph, @langchain/langgraph-checkpoint-postgres, @langchain/openai
+- Orchestration now uses direct switch/case dispatcher only
+- SMS reply routing falls back to smsConversationRouter.ts
+
+##### Phase 3 — Silent Error Fix
+- Fixed 86 silent .catch(() => {}) patterns across 21 files
+- All now use console.error or logAndSwallow() utility
+
+##### Phase 4 — Query Safety
+- Added getUpcomingAppointmentsByBusinessId() with date filter to storage
+- Added safety caps (LIMIT 100-1000) on appointment/customer queries
+
+##### Phase 5 — OpenAI to Claude Migration
+- Created server/services/claudeClient.ts — shared helpers (claudeJson, claudeText, claudeWithTools) with automatic OpenAI fallback
+- Migrated 14 services from OpenAI to Claude Messages API
+- Services: callIntelligenceService, unansweredQuestionService, reviewResponseAgentService, autoRefineService, conversationalBookingService, messageIntelligenceService, websiteGenerationService, websiteScraperService, contentSeoAgent, socialMediaAgent, socialMediaRoutes (video briefs), gbpRoutes (review replies), supportChatService (full tool_use refactor), smsConversationRouter
+- Installed @anthropic-ai/sdk
+
+##### Phase 6 — Frontend UX Overhaul
+- Landing page: removed fake audio players, added mobile hamburger menu, fixed trial messaging
+- Settings page: 19 tabs collapsed to 5 collapsible sections (Business, Communication, Integrations, Billing, Account)
+- Dashboard: "Get Started" card for new users
+- Receptionist: smart default tab, collapsible info card (businessId-scoped localStorage)
+- SMS onboarding: wired 6 orphaned steps into wizard
+- Mobile nav: replaced Logout button with "More" sheet
+- Contact form: real POST /api/contact endpoint
+
+##### Phase 7 — Type Safety & Scheduler
+- Removed 25+ `as any` type casts
+- Created server/utils/apiError.ts
+- Optimized scheduler from N timers to 1 global tick loop
+- Added graceful shutdown (SIGTERM/SIGINT handlers)
+
+##### Phase 8 — Bug Fixes
+- Fixed React hooks order violation in SupportChat (early return before hooks causing Error #310 crash on every page)
+- Fixed admin dashboard crash (Radix TabsContent rendering all tabs eagerly; now lazy-renders only active tab)
+- Fixed CSP blocking Cloudflare Turnstile, fonts, analytics (added missing domains)
+- Added error details to ErrorBoundary (expandable stack trace + localStorage persistence)
+
+##### Phase 9 — Claude Managed Agents Infrastructure
+- Created 6 files in server/services/managedAgents/:
+  - client.ts — singleton Anthropic client + cached agent/environment IDs
+  - sessionRunner.ts — generic "run agent session" function
+  - setupAgents.ts — one-time script to register agents with Anthropic
+  - socialMediaAgent.ts — social media tool handlers (getPlatformStats, getWinnerPosts, createSocialPost, etc.)
+  - supportAgent.ts — support chat tool handlers (lookupBusiness, checkSetupStatus, addService, etc.)
+  - smsIntelligenceAgent.ts — SMS intelligence tool handlers (classifyIntent, checkAvailability, sendSms, etc.)
+- 3 agents registered on Anthropic: SmallBizAgent Social Media Brain, Support Assistant, SMS Intelligence
+- Environment variables: MANAGED_AGENT_ENV_ID, SOCIAL_MEDIA_AGENT_ID, SUPPORT_AGENT_ID, SMS_INTELLIGENCE_AGENT_ID
+
+##### Phase 10 — Invoice Collection Agent
+- New: server/services/invoiceCollectionAgentService.ts
+- Escalating SMS reminders for overdue invoices: Day 1, 3, 7, 14, 30
+- AI-generated messages via Claude (Message Intelligence Service)
+- One-tap payment links (Stripe Connect)
+- TCPA compliant: checks smsOptIn (transactional, not marketing)
+- Respects engagement locks
+- Idempotent via notification_log
+- Runs every 12 hours via scheduler
+- Added to AI Agents dashboard with green dollar sign icon
+- 2 new MessageTypes: INVOICE_COLLECTION_REMINDER, INVOICE_COLLECTION_FINAL
+
+##### Phase 11 — Routes.ts Split
+- Split monolithic routes.ts from 6,905 to 1,184 lines (83% reduction)
+- 13 new route files extracted:
+  - twilioWebhookRoutes.ts (958 lines) — 6 Twilio webhook endpoints
+  - jobRoutes.ts (543 lines) — 10 job + line item endpoints
+  - appointmentRoutes.ts (336 lines) — 5 appointment CRUD endpoints
+  - invoiceRoutes.ts (563 lines) — 15 invoice + portal + item endpoints
+  - staffRoutes.ts (761 lines) — 20 staff CRUD/hours/invites/time-off endpoints
+  - servicesRoutes.ts (239 lines) — 6 service CRUD + template endpoints
+  - businessRoutes.ts (579 lines) — 9 business profile/hours/provisioning endpoints
+  - retellRoutes.ts (807 lines) — 17 Retell AI + receptionist + admin phone endpoints
+  - knowledgeRoutes.ts (264 lines) — 10 knowledge base + unanswered questions endpoints
+  - notificationRoutes.ts (432 lines) — 11 notification settings/log/send endpoints
+  - receptionistConfigRoutes.ts (319 lines) — 11 config + AI suggestions endpoints
+  - callLogRoutes.ts (200 lines) — 8 call log + intelligence + insights endpoints
+  - reviewRoutes.ts (162 lines) — 6 review settings/requests endpoints
+- routes.ts now contains only: auth, imports, route mounts, and misc endpoints
+
+##### Phase 12 — pg-boss Job Queue
+- Installed pg-boss (PostgreSQL-backed job queue)
+- New: server/services/jobQueue.ts
+- 11 job types: send-sms, send-email, send-appointment-confirmation, send-payment-confirmation, send-job-completed-notification, send-job-status-notification, dispatch-orchestration-event, fire-webhook-event, sync-calendar, analyze-call-intelligence, notify-owner
+- Automatic retry: 3 attempts with exponential backoff (30s, 60s, 120s)
+- Graceful fallback: if pg-boss unavailable, falls back to direct execution
+- Starts on server boot, stops on SIGTERM/SIGINT
+- Migrated 9 critical fire-and-forget patterns in appointmentRoutes.ts, jobRoutes.ts, invoiceRoutes.ts
+
+##### Phase 13 — Voice Receptionist Tests
+- New: server/test/voice-receptionist.test.ts (865 lines, 49 tests)
+- First test coverage for the AI voice receptionist (previously zero)
+- systemPromptBuilder: 30 tests (hours formatting, open/closed detection, greeting generation, prompt generation, intelligence hints)
+- getAvailableSlotsForDay: 8 tests (slot generation, closed days, staff time-off, overlap filtering)
+- dispatchToolCall: 11 tests (function routing, error handling, caller recognition)
+- Total test count: 386 to 435
+
+##### Phase 14 — SMS Agent Shared Utilities
+- New: server/services/agentUtils.ts
+- Extracted common patterns from 5 SMS agent services (instead of consolidating into 1 generic factory)
+- Utilities: forEachEnabledBusiness(), generateAgentMessage(), logAgentSend(), canSendToCustomer(), fillTemplate()
+- Decision: agents stay as separate files because they have fundamentally different entity types, opt-in checks, reply handlers, dedup strategies
+
+##### Files Added
+- `server/services/claudeClient.ts` — Shared AI inference layer (Claude primary, OpenAI fallback)
+- `server/utils/safeAsync.ts` — `logAndSwallow()` utility for fire-and-forget error logging
+- `server/utils/apiError.ts` — Consistent HTTP error response helper
+- `server/services/managedAgents/client.ts` — Singleton Anthropic client + cached agent/environment IDs
+- `server/services/managedAgents/sessionRunner.ts` — Generic "run agent session" function
+- `server/services/managedAgents/setupAgents.ts` — One-time script to register agents with Anthropic
+- `server/services/managedAgents/socialMediaAgent.ts` — Social media tool handlers
+- `server/services/managedAgents/supportAgent.ts` — Support chat tool handlers
+- `server/services/managedAgents/smsIntelligenceAgent.ts` — SMS intelligence tool handlers
+- `server/services/invoiceCollectionAgentService.ts` — Invoice collection agent
+- `server/services/jobQueue.ts` — pg-boss job queue
+- `server/services/agentUtils.ts` — SMS agent shared utilities
+- `server/routes/twilioWebhookRoutes.ts` — Twilio webhooks (extracted from routes.ts)
+- `server/routes/jobRoutes.ts` — Job endpoints (extracted from routes.ts)
+- `server/routes/appointmentRoutes.ts` — Appointment endpoints (extracted from routes.ts)
+- `server/routes/invoiceRoutes.ts` — Invoice endpoints (extracted from routes.ts)
+- `server/routes/staffRoutes.ts` — Staff endpoints (extracted from routes.ts)
+- `server/routes/servicesRoutes.ts` — Service endpoints (extracted from routes.ts)
+- `server/routes/businessRoutes.ts` — Business endpoints (extracted from routes.ts)
+- `server/routes/retellRoutes.ts` — Retell AI endpoints (extracted from routes.ts)
+- `server/routes/knowledgeRoutes.ts` — Knowledge base endpoints (extracted from routes.ts)
+- `server/routes/notificationRoutes.ts` — Notification endpoints (extracted from routes.ts)
+- `server/routes/receptionistConfigRoutes.ts` — Receptionist config endpoints (extracted from routes.ts)
+- `server/routes/callLogRoutes.ts` — Call log endpoints (extracted from routes.ts)
+- `server/routes/reviewRoutes.ts` — Review endpoints (extracted from routes.ts)
+- `server/test/voice-receptionist.test.ts` — Voice receptionist test suite (49 tests)
+
+##### Files Deleted
+- `server/services/vapiService.ts` — Replaced by retellService.ts
+- `server/services/vapiWebhookHandler.ts` — Replaced by retellWebhookHandler.ts
+- `server/services/vapiProvisioningService.ts` — Replaced by retellProvisioningService.ts
+- `server/services/vapiService.deprecated.ts` — Dead code
+- `server/services/vapiWebhookHandler.deprecated.ts` — Dead code
+- `server/services/vapiProvisioningService.deprecated.ts` — Dead code
+- `server/services/agentGraph.ts` — LangGraph orchestration (replaced by direct switch/case)
+- `server/services/replyIntelligenceGraph.ts` — LangGraph SMS reply graph (replaced by smsConversationRouter)
+
+##### NPM Packages Removed
+- `@langchain/core`, `@langchain/langgraph`, `@langchain/langgraph-checkpoint-postgres`, `@langchain/openai`
+
+##### NPM Packages Added
+- `@anthropic-ai/sdk` — Claude API client
+- `pg-boss` — PostgreSQL job queue
+
+##### Environment Variable Changes
+- **Added**: `ANTHROPIC_API_KEY` (required — primary AI provider)
+- **Added**: `MANAGED_AGENT_ENV_ID`, `SOCIAL_MEDIA_AGENT_ID`, `SUPPORT_AGENT_ID`, `SMS_INTELLIGENCE_AGENT_ID` (optional — managed agents)
+- **Updated**: `OPENAI_API_KEY` (now fallback only + Retell voice + TTS)
+- **Removed**: `VAPI_API_KEY`, `VAPI_WEBHOOK_SECRET` (no longer used)
+
+##### Route Changes
+- All `/api/vapi/*` routes renamed to `/api/retell/*`
+- routes.ts: 6,905 to 1,184 lines (13 route files extracted)
+
 #### Premium Scheduling UI Upgrade — Dynamic Hours, Stats, Filters, Drag-and-Drop
 - **Goal**: Upgrade the appointments/reservations page from hardcoded 8AM-6PM calendar to a premium scheduling interface with dynamic business hours, quick stats, staff filter pills, rich appointment cards, and drag-and-drop rescheduling.
 - `client/src/lib/scheduling-utils.ts` — **NEW**: Centralized scheduling utilities. `computeCalendarRange()`, `STAFF_COLORS`, `getStaffColor()`, `formatHour()`, `STATUS_COLORS`/`RESERVATION_STATUS_COLORS` with getter functions, `getVerticalLabels()` (20+ industry mappings).
@@ -1554,6 +1710,16 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Business hours hook | `client/src/hooks/use-business-hours.ts` |
 | Quick stats bar | `client/src/components/appointments/QuickStatsBar.tsx` |
 | Staff filter pills | `client/src/components/appointments/StaffFilterPills.tsx` |
+| Job queue | `server/services/jobQueue.ts` |
+| Agent utilities | `server/services/agentUtils.ts` |
+| Invoice collection agent | `server/services/invoiceCollectionAgentService.ts` |
+| Voice receptionist tests | `server/test/voice-receptionist.test.ts` |
+| Twilio webhook routes | `server/routes/twilioWebhookRoutes.ts` |
+| Job routes | `server/routes/jobRoutes.ts` |
+| Invoice routes | `server/routes/invoiceRoutes.ts` |
+| Staff routes | `server/routes/staffRoutes.ts` |
+| Business routes | `server/routes/businessRoutes.ts` |
+| Retell routes | `server/routes/retellRoutes.ts` |
 | Env vars reference | `.env.example` |
 | Package scripts | `package.json` |
 
@@ -1605,4 +1771,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: April 7, 2026. Blue-Collar Mode Phase 1 (uncommitted): Tab swap (Appointments hidden, Jobs becomes "Schedule" for HVAC/plumbing/electrical/landscaping/construction/etc.), Jobs calendar view (week/day with time grid, job cards, QuickJobStatsBar, StaffFilterPills), Job status SMS (in_progress/waiting_parts/resumed notifications), Auto-invoice on job completion (optional toggle). 3 new files, 13 modified files. New shared utility: `shared/industry-categories.ts`. Schema: 6 notification columns + autoInvoiceOnJobCompletion on businesses. Vapi→Retell AI Migration (uncommitted): Complete voice AI provider swap. 6 new files (callToolHandlers.ts 5392 lines, systemPromptBuilder.ts 932 lines, retellService.ts 1014 lines, retellWebhookHandler.ts 408 lines, retellProvisioningService.ts 926 lines, migrate_vapi_to_retell.ts). 28+ modified files. Schema: added retellAgentId, retellLlmId, retellPhoneNumberId to businesses + business_phone_numbers. Architecture: callToolHandlers.ts is provider-agnostic (all tool handlers work with any voice AI). retellWebhookHandler dispatches custom function calls + call events. SIP trunk provisioning via Twilio Elastic SIP Trunking. Retell KB with hybrid approach (vector DB + prompt injection). Voice options expanded: ElevenLabs + Cartesia + OpenAI. Old Vapi files renamed to .deprecated. Env: RETELL_API_KEY replaces VAPI_API_KEY. Pricing V2 Overhaul (uncommitted): Renamed tiers Professional→Growth, Business→Pro. New prices: Starter $149/mo (150 min), Growth $299/mo (300 min), Pro $449/mo (500 min). Unified overage rate $0.05/min across all tiers. New migration `update_pricing_v2.ts`. Updated: landing.tsx, SubscriptionPlans.tsx, onboarding/subscription.tsx (Coming Soon badges for QuickBooks on Growth, Social media on Pro), websiteBuilderRoutes.ts (feature gates: growth/pro + legacy fallback), revenueOptimizationAgent.ts (tier name references), runMigrations.ts seed data, schema.ts comment, test files. Manual Stripe dashboard action required: create new products/prices for $149/$299/$449. Test mock fix: noShowAgentService.test.ts and followUpAgentService.test.ts updated to mock `messageIntelligenceService.generateMessage` instead of `twilioService.sendSms` (agents now route through MIS, not direct Twilio). Added missing `createNotificationLog` mock to followUpAgentService.test.ts. Premium Scheduling UI Upgrade: Dynamic business hours (replaces hardcoded 8AM-6PM), QuickStatsBar (booked/earned/active/no-shows), StaffFilterPills (toggle staff visibility), rich appointment cards (name+service+time range+status dot), staff header fractions (completed/total), drag-and-drop rescheduling (@dnd-kit, 15-min precision, optimistic updates, SMS notification), vertical-aware labels (20+ industries). 4 new files, 3 modified files. SMS Intelligence Layer (committed). SMS Reliability Fixes (uncommitted). Social Media Performance Engine (uncommitted). Video Production Pipeline (uncommitted). Google Business Profile (uncommitted). Website Builder (uncommitted). Vapi AI Intelligence Upgrade (uncommitted): 17 improvements — gpt-5-mini model, maxTokens 350, likelyReason caller prediction, service price/duration in availability, reschedule safety checks, emotional caller handling, upselling, smart summary truncation, booking tips, multi-appointment cancel/reschedule, 3 missing tools registered, getDirections voice-aware, 13 industry missed call texts, name extraction, getEstimate capped at 5, system prompt condensed ~35%, automatic intelligence feedback loop. Bug fixes: appointment status filter expanded (scheduled+confirmed+pending), staff name matching fix (active !== false + partial match), date rule strengthened (AI was converting dates instead of passing raw words).*
+*Last updated: April 10, 2026. Master Overhaul Session (14 phases, committed): Vapi dead code removal (6 files deleted), LangGraph removal (4 packages), 86 silent error fixes, query safety caps, OpenAI-to-Claude migration (14 services via claudeClient.ts), frontend UX overhaul (settings 19 tabs to 5 sections, landing page, dashboard Get Started card), type safety (25+ `as any` removed), scheduler optimization (N timers to 1 tick loop), React hooks crash fix, admin dashboard crash fix, CSP fix, Claude Managed Agents infrastructure (6 files, 3 agents), Invoice Collection Agent (escalating SMS for overdue invoices, Day 1/3/7/14/30), routes.ts split (6,905 to 1,184 lines, 13 new route files extracted), pg-boss job queue (11 job types, 3 retries, exponential backoff), voice receptionist tests (49 tests, first coverage), SMS agent shared utilities (agentUtils.ts). 26 files added, 8 files deleted. NPM: +@anthropic-ai/sdk +pg-boss, -4 LangGraph packages. Env: +ANTHROPIC_API_KEY (required), +4 managed agent IDs (optional). Total tests: 435.*
