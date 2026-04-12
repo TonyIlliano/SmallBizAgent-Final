@@ -167,7 +167,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ---
 
-## Database Schema (66 Tables)
+## Database Schema (68 Tables)
 
 ### Core
 | Table | Purpose | Key Columns |
@@ -1550,6 +1550,47 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/services/vapiService.ts` — **Silence timeout**: 20s → 30s in both paths. More buffer if STT briefly drops — prevents premature hang-ups.
 - `server/services/vapiService.ts` — **ElevenLabs latency optimization**: `optimizeStreamingLatency` 4 → 3 in both paths. Level 4 was clipping the first word of responses ("I help you today?" instead of "How can I help you today?").
 
+#### Multi-User Team Access
+- **Goal**: Let business owners invite team members with role-based permissions.
+- `server/middleware/permissions.ts` — **NEW**: Role-based permission system. Roles: Owner (full access), Manager (operational — appointments, customers, jobs, analytics, NO billing/settings), Staff (own schedule only). Exports: requireRole(), requirePermission(), getUserPermissions(), ROLE_PERMISSIONS matrix.
+- `server/routes/staffRoutes.ts` — 4 new endpoints: GET /api/staff/team (list members), POST /api/staff/team/invite (invite by email with role), PUT /api/staff/team/:userId/role (change manager<>staff), DELETE /api/staff/team/:userId (remove member).
+- `server/storage.ts` — 3 new methods: getTeamMembers(), updateTeamMemberRole(), removeTeamMember().
+- `server/auth.ts` — GET /api/user now returns effectiveRole + permissions array.
+- `client/src/pages/settings.tsx` — Team Management section: member table, invite dialog (email + role picker), role change dropdown, remove with confirmation. Owner-only visibility.
+- `client/src/components/layout/Sidebar.tsx` — Nav items filtered by role (staff sees 2 items, manager sees ~8, owner sees everything). Added hideForRoles/showForRoles properties.
+- `client/src/components/auth/ProtectedRoute.tsx` — Manager role handled (regular dashboard with limited sidebar, not staff redirect).
+- `client/src/hooks/use-auth.tsx` — AuthUser type extended with effectiveRole and permissions.
+
+#### Workflow Builder — Visual Automation Sequences
+- **Goal**: Let business owners create custom multi-step SMS automations. GoHighLevel killer.
+- `shared/schema.ts` — 2 new tables: `workflows` (id, businessId, name, triggerEvent, status, steps JSONB), `workflow_runs` (id, workflowId, customerId, currentStep, status, nextStepAt, context JSONB). Added workflowRunId column to marketingTriggers.
+- `server/migrations/runMigrations.ts` — CREATE TABLE for workflows + workflow_runs + indexes.
+- `server/storage.ts` — 13 new methods: createWorkflow, getWorkflows, getWorkflow, updateWorkflow, deleteWorkflow, getActiveWorkflowsByTrigger, createWorkflowRun, getWorkflowRun, getWorkflowRuns, updateWorkflowRun, getActiveRunsForCustomer, getDueWorkflowRuns, cancelWorkflowRunsForCustomer.
+- `server/services/workflowEngine.ts` — **NEW**: Core engine. startWorkflowRun (dedup, build context, advance), advanceWorkflowRun (wait sets nextStepAt, send_sms creates marketing_trigger), processWorkflowSteps (scheduler entry, 50 per tick), cancelWorkflowRun. 5 pre-built WORKFLOW_TEMPLATES: post_appointment_followup, no_show_recovery, job_completion_flow, invoice_collection, rebooking_drip.
+- `server/routes/workflowRoutes.ts` — **NEW**: 11 endpoints: CRUD (create, list, get, update, delete), lifecycle (activate, pause, cancel-run), templates (list, install).
+- `server/services/orchestrationService.ts` — Added triggerWorkflows() helper called from appointment.completed, appointment.no_show, job.completed, invoice.paid handlers.
+- `server/services/schedulerService.ts` — Added startWorkflowStepProcessor() (every 60 seconds with reentryGuard).
+- `client/src/components/automations/WorkflowsTab.tsx` — **NEW**: Workflow list with status badges + step previews, template install dialog (5 templates, one-click), workflow editor dialog with visual step list (Wait/Send SMS steps, duration inputs, message type selector, add/remove).
+- `client/src/pages/automations/index.tsx` — Added 7th "Workflows" tab (owner-only).
+
+#### Table Stakes — Bulk Import, Soft Deletes, Communication Timeline
+- **Goal**: Add features paying customers expect.
+
+##### Bulk CSV Import
+- `server/routes/customerRoutes.ts` — POST /customers/import: accepts up to 500 customers, validates email/phone, deduplicates, returns {imported, skipped, errors[]}.
+- `client/src/pages/customers/index.tsx` — "Import" button with 3-step dialog: upload CSV -> map columns (auto-detects common headers) -> preview -> import with results summary.
+
+##### Soft Deletes
+- `shared/schema.ts` — Added deletedAt (timestamp) + isArchived (boolean) to customers table.
+- `server/migrations/runMigrations.ts` — ALTER TABLE customers ADD COLUMN for both.
+- `server/storage.ts` — getCustomers() now filters WHERE deleted_at IS NULL. deleteCustomer() now soft-deletes. Added archiveCustomer(), restoreCustomer(), getArchivedCustomers().
+- `server/routes/customerRoutes.ts` — POST /customers/:id/archive, POST /customers/:id/restore.
+- `client/src/components/customers/CustomerTable.tsx` — "Archived" toggle, archive/restore actions in dropdown.
+
+##### Communication Timeline
+- `server/routes/customerRoutes.ts` — GET /customers/:id/timeline: aggregates from 5 tables (notification_log, agent_activity_log, sms_conversations, call_logs, appointments) into chronological feed. Limit 50, max 200.
+- `client/src/pages/customers/[id].tsx` — "Communications" tab with vertical timeline. Color-coded icons: blue (calls), teal (SMS), purple (email), indigo (appointments), amber (agent actions).
+
 ### Prior changes (Security Audit & Bug Fixes):
 
 #### Email Verification Flow (Production Bug Fix)
@@ -1720,6 +1761,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Staff routes | `server/routes/staffRoutes.ts` |
 | Business routes | `server/routes/businessRoutes.ts` |
 | Retell routes | `server/routes/retellRoutes.ts` |
+| Permission middleware | `server/middleware/permissions.ts` |
+| Workflow engine | `server/services/workflowEngine.ts` |
+| Workflow routes | `server/routes/workflowRoutes.ts` |
+| Workflows tab UI | `client/src/components/automations/WorkflowsTab.tsx` |
 | Env vars reference | `.env.example` |
 | Package scripts | `package.json` |
 
@@ -1771,4 +1816,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: April 10, 2026. Master Overhaul Session (14 phases, committed): Vapi dead code removal (6 files deleted), LangGraph removal (4 packages), 86 silent error fixes, query safety caps, OpenAI-to-Claude migration (14 services via claudeClient.ts), frontend UX overhaul (settings 19 tabs to 5 sections, landing page, dashboard Get Started card), type safety (25+ `as any` removed), scheduler optimization (N timers to 1 tick loop), React hooks crash fix, admin dashboard crash fix, CSP fix, Claude Managed Agents infrastructure (6 files, 3 agents), Invoice Collection Agent (escalating SMS for overdue invoices, Day 1/3/7/14/30), routes.ts split (6,905 to 1,184 lines, 13 new route files extracted), pg-boss job queue (11 job types, 3 retries, exponential backoff), voice receptionist tests (49 tests, first coverage), SMS agent shared utilities (agentUtils.ts). 26 files added, 8 files deleted. NPM: +@anthropic-ai/sdk +pg-boss, -4 LangGraph packages. Env: +ANTHROPIC_API_KEY (required), +4 managed agent IDs (optional). Total tests: 435.*
+*Last updated: April 11, 2026. Multi-user team access (role-based permissions: Owner/Manager/Staff, invite by email, sidebar filtering by role), Workflow Builder (visual automation sequences with 5 pre-built templates, orchestration integration, scheduler processing), Table Stakes (bulk CSV import up to 500 customers, soft deletes with archive/restore, communication timeline aggregating 5 data sources). 2 new DB tables (workflows, workflow_runs — 68 total). New files: server/middleware/permissions.ts, server/services/workflowEngine.ts, server/routes/workflowRoutes.ts, client/src/components/automations/WorkflowsTab.tsx.*
