@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import React, { lazy, Suspense } from "react";
 import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -13,6 +13,7 @@ import { ServiceWorkerNotification } from "@/components/ui/ServiceWorkerNotifica
 import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
 import { SupportChat } from "@/components/ui/support-chat";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { OfflineBanner } from "@/components/ui/offline-banner";
 
 // Eagerly loaded (critical path)
 import NotFound from "@/pages/not-found";
@@ -94,6 +95,7 @@ const TermsOfService = lazyWithRetry(() => import("@/pages/terms"));
 const SmsTerms = lazyWithRetry(() => import("@/pages/sms-terms"));
 const SupportPage = lazyWithRetry(() => import("@/pages/support"));
 const ContactPage = lazyWithRetry(() => import("@/pages/contact"));
+const HelpPage = lazyWithRetry(() => import("@/pages/help"));
 
 // Loading fallback for lazy-loaded routes
 function PageLoader() {
@@ -201,10 +203,22 @@ function Router() {
         <Route path="/sms-terms" component={SmsTerms} />
         <Route path="/support" component={SupportPage} />
         <Route path="/contact" component={ContactPage} />
+        <Route path="/help" component={HelpPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
   );
+}
+
+function CapacitorInit() {
+  const { user } = useAuth();
+  React.useEffect(() => {
+    import('./lib/capacitor-deeplinks').then(m => m.initDeepLinks()).catch(() => {});
+    if (user?.businessId) {
+      import('./lib/capacitor-push').then(m => m.initPushNotifications(user.businessId!)).catch(() => {});
+    }
+  }, [user?.businessId]);
+  return null;
 }
 
 function ImpersonationBanner() {
@@ -246,6 +260,8 @@ function App() {
               <ServiceWorkerNotification />
               <PWAInstallPrompt />
               <SupportChat />
+              <OfflineBanner />
+              <CapacitorInit />
               <ImpersonationBanner />
               <Router />
             </SidebarProvider>

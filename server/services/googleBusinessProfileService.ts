@@ -102,6 +102,84 @@ export interface GBPStoredData {
   syncMetadata?: { lastReviewSyncedAt?: string; fieldsLastPushed?: string };
 }
 
+// ─── Error Helpers ──────────────────────────────────────────────────────────
+
+/** Extract error message safely from unknown error */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+/** Extract error code from Google API errors */
+function errorCode(err: unknown): number | undefined {
+  if (err && typeof err === 'object' && 'code' in err) return (err as { code?: number }).code;
+  return undefined;
+}
+
+/** Extract response status from Google API errors */
+function errorResponseStatus(err: unknown): number | undefined {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const resp = (err as { response?: { status?: number } }).response;
+    return resp?.status;
+  }
+  return undefined;
+}
+
+/** Extract response data from Google API errors */
+function errorResponseData(err: unknown): unknown {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const resp = (err as { response?: { data?: unknown } }).response;
+    return resp?.data;
+  }
+  return undefined;
+}
+
+// ─── Google API Response Types ──────────────────────────────────────────────
+
+/** Response from GBP accounts.list (v1 and v4 share the same shape) */
+interface GBPAccountsListResponse {
+  accounts?: Array<{
+    name?: string;
+    accountName?: string;
+    type?: string;
+    role?: string;
+  }>;
+}
+
+/** Response from GBP locations.list (wildcard or account-scoped) */
+interface GBPLocationsListResponse {
+  locations?: Array<{
+    name?: string;
+    title?: string;
+    storefrontAddress?: Record<string, unknown>;
+    websiteUri?: string;
+  }>;
+}
+
+/** Response from GBP reviews.list (v4 API) */
+interface GBPReviewsListResponse {
+  reviews?: Array<{
+    reviewId?: string;
+    name?: string;
+    reviewer?: { displayName?: string };
+    starRating?: string;
+    comment?: string;
+    createTime?: string;
+    updateTime?: string;
+    reviewReply?: unknown;
+  }>;
+}
+
+/** Response from GBP localPosts.create (v4 API) */
+interface GBPLocalPostResponse {
+  name?: string;
+}
+
+/** Response from GBP localPosts.list (v4 API) */
+interface GBPLocalPostsListResponse {
+  localPosts?: Array<Record<string, unknown>>;
+}
+
 // ── In-memory cache for GBP API responses ──
 interface CacheEntry<T> {
   data: T;
@@ -267,7 +345,7 @@ export class GoogleBusinessProfileService {
     // Auto-refresh tokens when they expire
     oauth2Client.on('tokens', async (tokens) => {
       try {
-        const updates: any = { updatedAt: new Date() };
+        const updates: { updatedAt: Date; accessToken?: string | null; refreshToken?: string | null; expiresAt?: Date } = { updatedAt: new Date() };
         if (tokens.access_token) updates.accessToken = encryptField(tokens.access_token);
         if (tokens.refresh_token) updates.refreshToken = encryptField(tokens.refresh_token);
         if (tokens.expiry_date) updates.expiresAt = new Date(tokens.expiry_date);
@@ -289,10 +367,12 @@ export class GoogleBusinessProfileService {
         const { credentials } = await oauth2Client.refreshAccessToken();
         oauth2Client.setCredentials(credentials);
         console.log(`[GBP] Token refresh successful for business ${businessId}, new expiry: ${credentials.expiry_date ? new Date(credentials.expiry_date).toISOString() : 'unknown'}`);
-      } catch (refreshErr: any) {
-        console.error(`[GBP] Token refresh FAILED for business ${businessId}: ${refreshErr?.message || refreshErr}`);
+      } catch (refreshErr) {
+        console.error(`[GBP] Token refresh FAILED for business ${businessId}: ${errorMessage(refreshErr)}`);
         // If refresh fails, the token is likely revoked — return null to indicate not connected
-        if (refreshErr?.message?.includes('invalid_grant') || refreshErr?.response?.data?.error === 'invalid_grant') {
+        const refreshErrMsg = errorMessage(refreshErr);
+        const refreshErrData = errorResponseData(refreshErr) as Record<string, unknown> | undefined;
+        if (refreshErrMsg.includes('invalid_grant') || refreshErrData?.error === 'invalid_grant') {
           console.error(`[GBP] Refresh token revoked for business ${businessId}. User needs to reconnect.`);
           return null;
         }
@@ -383,17 +463,17 @@ export class GoogleBusinessProfileService {
           method: 'GET',
         });
 
-        const data = response.data as any;
+        const data = response.data as GBPAccountsListResponse;
         console.log(`[GBP] listAccounts v1 response for business ${businessId}: status=${response.status}, data=${JSON.stringify(data).substring(0, 500)}`);
 
-        accounts = (data.accounts || []).map((account: any) => ({
+        accounts = (data.accounts || []).map((account) => ({
           name: account.name || '',
           accountName: account.accountName || account.name || '',
           type: account.type || '',
           role: account.role || '',
         }));
-      } catch (accountsErr: any) {
-        console.error(`[GBP] v1 accounts.list failed for business ${businessId}: ${accountsErr?.message || accountsErr}, code=${accountsErr?.code}, status=${accountsErr?.response?.status}, responseData=${JSON.stringify(accountsErr?.response?.data || {}).substring(0, 500)}`);
+      } catch (accountsErr) {
+        console.error(`[GBP] v1 accounts.list failed for business ${businessId}: ${errorMessage(accountsErr)}, code=${errorCode(accountsErr)}, status=${errorResponseStatus(accountsErr)}, responseData=${JSON.stringify(errorResponseData(accountsErr) || {}).substring(0, 500)}`);
       }
 
       // ── Attempt 2: v4 legacy API (deprecated but still works) ──
@@ -407,10 +487,10 @@ export class GoogleBusinessProfileService {
             method: 'GET',
           });
 
-          const v4Data = v4Response.data as any;
+          const v4Data = v4Response.data as GBPAccountsListResponse;
           console.log(`[GBP] listAccounts v4 response for business ${businessId}: status=${v4Response.status}, data=${JSON.stringify(v4Data).substring(0, 500)}`);
 
-          accounts = (v4Data.accounts || []).map((account: any) => ({
+          accounts = (v4Data.accounts || []).map((account) => ({
             name: account.name || '',
             accountName: account.accountName || account.name || '',
             type: account.type || '',
@@ -435,7 +515,7 @@ export class GoogleBusinessProfileService {
             method: 'GET',
           });
 
-          const locData = locResponse.data as any;
+          const locData = locResponse.data as GBPLocationsListResponse;
           console.log(`[GBP] Wildcard locations raw response: ${JSON.stringify(locData).substring(0, 500)}`);
           const wildcardLocations = locData.locations || [];
           console.log(`[GBP] Wildcard locations response: ${wildcardLocations.length} locations found`);
@@ -468,7 +548,7 @@ export class GoogleBusinessProfileService {
               console.log(`[GBP] Wildcard locations found but no account prefix in names. Storing locations directly.`);
               // We'll auto-select by storing locations directly via a different code path
               // For now, cache the locations so listLocationsWildcard can return them
-              setCache(`gbp:${businessId}:wildcardLocations`, wildcardLocations.map((l: any) => ({
+              setCache(`gbp:${businessId}:wildcardLocations`, wildcardLocations.map((l) => ({
                 name: l.name || '',
                 title: l.title || '',
                 address: l.storefrontAddress,
@@ -496,9 +576,9 @@ export class GoogleBusinessProfileService {
         console.log(`[GBP] listAccounts: No accounts found via any method for business ${businessId}`);
       }
       return accounts;
-    } catch (error: any) {
-      console.error(`[GBP] listAccounts error for business ${businessId}:`, error?.message || error, `code=${error?.code}, status=${error?.response?.status}`);
-      if (error.code === 403 || error.code === 401) {
+    } catch (error) {
+      console.error(`[GBP] listAccounts error for business ${businessId}:`, errorMessage(error), `code=${errorCode(error)}, status=${errorResponseStatus(error)}`);
+      if (errorCode(error) === 403 || errorCode(error) === 401) {
         throw new Error('Google Business Profile API access not enabled or insufficient permissions. Please verify API access in Google Cloud Console.');
       }
       throw error;
@@ -886,15 +966,15 @@ export class GoogleBusinessProfileService {
       const url = `https://mybusiness.googleapis.com/v4/${accountName}/${locationName}/reviews`;
       const res = await oauth2Client.request({ url });
 
-      const data = res.data as any;
-      return (data.reviews || []).map((r: any) => ({
-        reviewId: r.reviewId || r.name,
-        name: r.name,
+      const data = res.data as GBPReviewsListResponse;
+      return (data.reviews || []).map((r) => ({
+        reviewId: r.reviewId || r.name || '',
+        name: r.name || '',
         reviewerName: r.reviewer?.displayName || 'Anonymous',
         rating: r.starRating ? starRatingToNumber(r.starRating) : null,
         comment: r.comment || '',
-        createTime: r.createTime,
-        updateTime: r.updateTime,
+        createTime: r.createTime || '',
+        updateTime: r.updateTime || '',
         hasReply: !!r.reviewReply,
       }));
     } catch (error: any) {
@@ -1017,7 +1097,7 @@ export class GoogleBusinessProfileService {
         auth: oauth2Client,
       });
 
-      const requestBody: any = {};
+      const requestBody: Record<string, unknown> = {};
       const updateMaskParts: string[] = [];
 
       for (const field of fields) {
@@ -1357,7 +1437,7 @@ export class GoogleBusinessProfileService {
       const accountName = storedData.selectedAccount.name;
       const locationName = storedData.selectedLocation.name;
 
-      const postBody: any = {
+      const postBody: { languageCode: string; summary: string; topicType: string; callToAction?: { actionType: string; url: string } } = {
         languageCode: 'en',
         summary: content,
         topicType: 'STANDARD',
@@ -1377,7 +1457,7 @@ export class GoogleBusinessProfileService {
         data: postBody,
       });
 
-      const postData = res.data as any;
+      const postData = res.data as GBPLocalPostResponse;
       console.log(`[GBP] Published local post for business ${businessId}`);
       return { success: true, gbpPostId: postData.name };
     } catch (error: any) {
@@ -1402,7 +1482,7 @@ export class GoogleBusinessProfileService {
 
       const url = `https://mybusiness.googleapis.com/v4/${accountName}/${locationName}/localPosts`;
       const res = await oauth2Client.request({ url });
-      const data = res.data as any;
+      const data = res.data as GBPLocalPostsListResponse;
       return data.localPosts || [];
     } catch (error: any) {
       console.error('[GBP] Error listing local posts:', error?.message || error);

@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { storage } from "../storage";
 import { insertStaffSchema } from "@shared/schema";
 import { z } from "zod";
-import { isAuthenticated, hashPassword, validatePassword } from "../auth";
+import { isAuthenticated, hashPassword, validatePassword, ApiKeyRequest } from "../auth";
 import { requireRole } from "../middleware/permissions";
 import { dataCache } from "../services/callToolHandlers";
 
@@ -15,8 +15,8 @@ const getBusinessId = (req: Request): number => {
     return req.user.businessId;
   }
   // If authenticated via API key, use the attached businessId
-  if ((req as any).apiKeyBusinessId) {
-    return (req as any).apiKeyBusinessId;
+  if ((req as ApiKeyRequest).apiKeyBusinessId) {
+    return (req as ApiKeyRequest).apiKeyBusinessId!;
   }
   // No business associated - return 0 to indicate this
   // Callers should check for 0 and return appropriate error
@@ -24,7 +24,7 @@ const getBusinessId = (req: Request): number => {
 };
 
 // Helper to verify resource belongs to user's business
-const verifyBusinessOwnership = (resource: any, req: Request): boolean => {
+const verifyBusinessOwnership = (resource: { businessId: number } | null | undefined, req: Request): boolean => {
   if (!resource) return false;
   const userBusinessId = getBusinessId(req);
   return resource.businessId === userBusinessId;

@@ -159,7 +159,88 @@ import reviewRoutes from './routes/reviewRoutes';
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication first
   setupAuth(app);
-  
+
+  // ── Public Health Check (no auth required) ──
+  /**
+   * @openapi
+   * /api/health:
+   *   get:
+   *     summary: Public health check
+   *     tags: [Health]
+   *     responses:
+   *       200:
+   *         description: All services healthy
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 status:
+   *                   type: string
+   *                   enum: [healthy, degraded, unhealthy]
+   *                 services:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       name:
+   *                         type: string
+   *                       status:
+   *                         type: string
+   *                       responseTimeMs:
+   *                         type: integer
+   *       503:
+   *         description: One or more services down
+   */
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    try {
+      const { runAllHealthChecks } = await import("./services/healthCheckService.js");
+      const results = await runAllHealthChecks();
+      const allHealthy = results.every((r) => r.status === "healthy");
+      const anyDown = results.some((r) => r.status === "down");
+      res.status(anyDown ? 503 : 200).json({
+        status: anyDown ? "unhealthy" : allHealthy ? "healthy" : "degraded",
+        services: results.map((r) => ({
+          name: r.serviceName,
+          status: r.status,
+          responseTimeMs: r.responseTimeMs,
+        })),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(503).json({ status: "unhealthy", error: message });
+    }
+  });
+
+  // ── Push Notification Token Registration ──
+  app.post("/api/push/register", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = (req.user as any)?.businessId;
+      if (!businessId) return res.status(400).json({ error: "No business associated" });
+      const { token, platform } = req.body;
+      if (!token || !platform) return res.status(400).json({ error: "Missing token or platform" });
+
+      // Store token in business record (append to existing tokens array)
+      const [business] = await db.select({ pushNotificationTokens: sql`push_notification_tokens` })
+        .from(sql`businesses`)
+        .where(sql`id = ${businessId}`);
+      const existing: Array<{ token: string; platform: string; registeredAt: string }> =
+        (business?.pushNotificationTokens as any) || [];
+      // Deduplicate by token
+      const filtered = existing.filter((t: any) => t.token !== token);
+      filtered.push({ token, platform, registeredAt: new Date().toISOString() });
+      // Keep last 10 tokens
+      const trimmed = filtered.slice(-10);
+      await db.execute(sql`UPDATE businesses SET push_notification_tokens = ${JSON.stringify(trimmed)}::jsonb WHERE id = ${businessId}`);
+      res.json({ success: true });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[Push] Token registration error:", message);
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ── SEO: Dynamic sitemap.xml ──
   app.get('/sitemap.xml', async (_req: Request, res: Response) => {
     try {
@@ -1107,6 +1188,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register QuickBooks integration routes
   app.use('/api/quickbooks', quickbooksRoutes);
   
+  // ── Usage Projection ──
+  app.get("/api/usage/projection", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = (req.user as any)?.businessId;
+      if (!businessId) return res.status(400).json({ error: "No business associated" });
+      const { getUsageProjection } = await import("./services/usageService.js");
+      const projection = await getUsageProjection(businessId);
+      res.json(projection);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
   // Register subscription routes
   app.use('/api/subscription', subscriptionRoutes);
 

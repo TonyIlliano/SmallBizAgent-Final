@@ -14,7 +14,44 @@
 import { storage } from '../storage';
 import { db } from '../db';
 import { sql } from 'drizzle-orm';
-import { Business, Service, ReceptionistConfig } from '@shared/schema';
+import { Business, Service, ReceptionistConfig, Staff, BusinessKnowledge } from '@shared/schema';
+
+/**
+ * Business object augmented with runtime properties injected before
+ * passing to the system prompt builder. These properties are NOT
+ * persisted in the database — they are attached in-memory during
+ * provisioning / update flows.
+ */
+interface BusinessWithExtras extends Business {
+  _staff?: Staff[];
+  _intelligenceHints?: string;
+}
+
+/**
+ * Shape returned by Drizzle's `db.execute(sql`...`)` for raw SQL queries.
+ * Drizzle may return `{ rows: [...] }` or a bare array depending on the driver.
+ */
+interface RawQueryResult {
+  rows?: Array<Record<string, unknown>>;
+  [index: number]: Record<string, unknown> | undefined;
+}
+
+/**
+ * Retell transfer_call tool definition shape.
+ */
+interface RetellTransferCallTool {
+  type: 'transfer_call';
+  name: string;
+  description: string;
+  transfer_destination: {
+    type: string;
+    number: string;
+  };
+  transfer_option: {
+    type: string;
+    show_transferee_as_caller: boolean;
+  };
+}
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY;
 const RETELL_BASE_URL = 'https://api.retellai.com';
@@ -604,7 +641,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
 
   // transfer_call: Retell native cold transfer to business owner/staff
   if (options.transferNumber) {
-    tools.push({
+    const transferTool: RetellTransferCallTool = {
       type: 'transfer_call',
       name: 'transfer_to_human',
       description: 'Transfer the call to a real person when the caller asks to speak to someone. Only use when the caller explicitly requests a human.',
@@ -616,7 +653,8 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
         type: 'cold_transfer',
         show_transferee_as_caller: true,
       },
-    } as any);
+    };
+    tools.push(transferTool);
 
     // Also keep a custom logging tool so we track transfer requests in the DB
     tools.push(customTool(
@@ -644,7 +682,7 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
  * The LLM holds the system prompt, tool definitions, and model configuration.
  */
 export async function createLlmForBusiness(
-  business: Business,
+  business: BusinessWithExtras,
   services: Service[],
   hours: any[],
   receptionistConfig: ReceptionistConfig | null | undefined,
@@ -657,16 +695,17 @@ export async function createLlmForBusiness(
     systemPrompt = generateSystemPrompt(
       business, services, hours,
       null,             // menuData (loaded dynamically during calls for restaurants)
-      { receptionistConfig, staff: (business as any)._staff },  // options
+      { receptionistConfig: receptionistConfig ?? undefined, staff: business._staff },  // options
       knowledgeSection, // knowledgeSection
       Array.isArray(receptionistConfig?.transferPhoneNumbers) ? receptionistConfig!.transferPhoneNumbers as string[] : [],
-      (business as any)._intelligenceHints,  // intelligenceHints
+      business._intelligenceHints,  // intelligenceHints
       RETELL_PROVIDER_HINTS,                 // providerHints for Retell
     );
   } catch (promptErr) {
     // systemPromptBuilder failed — use fallback (log so we can debug)
-    console.error('[Retell] generateSystemPrompt failed, using fallback:', (promptErr as Error)?.message || promptErr);
-    systemPrompt = buildFallbackSystemPrompt(business, services, hours, receptionistConfig, knowledgeSection, (business as any)._staff);
+    const errMsg = promptErr instanceof Error ? promptErr.message : String(promptErr);
+    console.error('[Retell] generateSystemPrompt failed, using fallback:', errMsg);
+    systemPrompt = buildFallbackSystemPrompt(business, services, hours, receptionistConfig, knowledgeSection, business._staff);
   }
 
   const isRestaurant = business.industry?.toLowerCase()?.includes('restaurant');
@@ -681,7 +720,7 @@ export async function createLlmForBusiness(
   const tools = buildRetellTools(business.id, {
     isRestaurant,
     hasMenu: isRestaurant && !!(business.cloverMerchantId || business.squareAccessToken || business.heartlandApiKey),
-    hasReservations: isRestaurant && !!(business as any).reservationEnabled,
+    hasReservations: isRestaurant && !!business.reservationEnabled,
     voicemailEnabled,
     transferNumber,
   });
@@ -727,7 +766,7 @@ export async function createLlmForBusiness(
  */
 export async function updateLlm(
   llmId: string,
-  business: Business,
+  business: BusinessWithExtras,
   services: Service[],
   hours: any[],
   receptionistConfig: ReceptionistConfig | null | undefined,
@@ -740,10 +779,10 @@ export async function updateLlm(
     systemPrompt = generateSystemPrompt(
       business, services, hours,
       null,             // menuData (loaded dynamically during calls for restaurants)
-      { receptionistConfig, staff: (business as any)._staff },  // options
+      { receptionistConfig: receptionistConfig ?? undefined, staff: business._staff },  // options
       knowledgeSection, // knowledgeSection
       Array.isArray(receptionistConfig?.transferPhoneNumbers) ? receptionistConfig!.transferPhoneNumbers as string[] : [],
-      (business as any)._intelligenceHints,  // intelligenceHints
+      business._intelligenceHints,  // intelligenceHints
       RETELL_PROVIDER_HINTS,                 // providerHints for Retell
     );
   } catch {
@@ -761,7 +800,7 @@ export async function updateLlm(
   const tools = buildRetellTools(business.id, {
     isRestaurant,
     hasMenu: isRestaurant && !!(business.cloverMerchantId || business.squareAccessToken || business.heartlandApiKey),
-    hasReservations: isRestaurant && !!(business as any).reservationEnabled,
+    hasReservations: isRestaurant && !!business.reservationEnabled,
     voicemailEnabled,
     transferNumber,
   });
@@ -1052,7 +1091,7 @@ function buildFallbackSystemPrompt(
   hours: any[],
   receptionistConfig: ReceptionistConfig | null | undefined,
   knowledgeSection: string,
-  staff?: any[]
+  staff?: Staff[]
 ): string {
   const assistantName = receptionistConfig?.assistantName || 'Alex';
   const businessTimezone = business.timezone || 'America/New_York';
@@ -1124,7 +1163,7 @@ THIS CALLER (pre-loaded from database):
 SERVICES:
 ${serviceList}
 
-${staff && staff.length > 0 ? `TEAM:\n${staff.filter((s: any) => s.active !== false).map((s: any) => `- ${s.firstName} ${s.lastName || ''} (${s.specialty || 'Staff'})${s.id ? ' [ID:' + s.id + ']' : ''}`).join('\n')}\n` : 'TEAM: Call getStaffMembers to get the current team list.\n'}
+${staff && staff.length > 0 ? `TEAM:\n${staff.filter((s) => s.active !== false).map((s) => `- ${s.firstName} ${s.lastName || ''} (${s.specialty || 'Staff'})${s.id ? ' [ID:' + s.id + ']' : ''}`).join('\n')}\n` : 'TEAM: Call getStaffMembers to get the current team list.\n'}
 == CALL FLOW ==
 1. GREET: The greeting already played. MANDATORY: call recognizeCaller FIRST before responding. If recognized, greet by name. If new caller, respond to them then ask "Can I get your name?" and call updateCustomerInfo.
 2. HELP: Listen and act. Booking → ask service + date, call checkAvailability. Reschedule/cancel → only when asked.
@@ -1185,12 +1224,13 @@ async function syncKnowledgeBase(businessId: number): Promise<{ knowledgeBaseId:
     const bizResult = await db.execute(
       sql`SELECT retell_llm_id FROM businesses WHERE id = ${businessId}`
     );
-    const bizRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
-    const llmId = bizRow?.retell_llm_id as string | null;
+    const rawResult = bizResult as unknown as RawQueryResult;
+    const bizRow = rawResult.rows?.[0] || rawResult[0];
+    const llmId = (bizRow?.retell_llm_id as string) ?? null;
 
     // Fetch approved knowledge entries
     const knowledgeEntries = await storage.getBusinessKnowledge(businessId);
-    const approvedEntries = knowledgeEntries.filter((k: any) => k.isApproved !== false);
+    const approvedEntries = knowledgeEntries.filter((k) => k.isApproved !== false);
 
     // Build text snippets from Q&A pairs
     const textSnippets: Array<{ title: string; text: string }> = [];

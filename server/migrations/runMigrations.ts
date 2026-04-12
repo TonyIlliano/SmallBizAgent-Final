@@ -2304,6 +2304,9 @@ async function runMigrations() {
     // Workflow builder tables
     await addWorkflowTables();
 
+    // Monitoring health checks + white-label branding columns
+    await addMonitoringAndBrandingTables();
+
     // Run pricing v2 migration (Starter $149, Growth $299, Pro $449)
     try {
       const { migrate: migratePricingV2 } = await import('./update_pricing_v2.js');
@@ -2765,6 +2768,50 @@ async function addWorkflowTables() {
   await pool.query(`CREATE INDEX IF NOT EXISTS marketing_triggers_workflow_run_idx ON marketing_triggers (workflow_run_id)`);
 
   console.log('Workflow builder tables created successfully');
+}
+
+/**
+ * Add health checks table + white-label branding columns
+ */
+async function addMonitoringAndBrandingTables() {
+  console.log('Adding monitoring and branding tables...');
+
+  // Health checks table for service monitoring
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS health_checks (
+      id SERIAL PRIMARY KEY,
+      service_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      response_time_ms INTEGER,
+      error_message TEXT,
+      checked_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS health_checks_service_name_idx ON health_checks (service_name)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS health_checks_checked_at_idx ON health_checks (checked_at)`);
+
+  // White-label branding column
+  try {
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS brand_name TEXT`);
+  } catch (e: any) {
+    if (!e.message.includes('already exists')) console.log('Note: Could not add brand_name:', e.message);
+  }
+
+  // Push notification tokens for mobile app
+  try {
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS push_notification_tokens JSONB`);
+  } catch (e: any) {
+    if (!e.message.includes('already exists')) console.log('Note: Could not add push_notification_tokens:', e.message);
+  }
+
+  // Job photos column for mobile camera uploads
+  try {
+    await pool.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS photos JSONB`);
+  } catch (e: any) {
+    if (!e.message.includes('already exists')) console.log('Note: Could not add photos:', e.message);
+  }
+
+  console.log('Monitoring and branding tables created successfully');
 }
 
 // ES modules don't have a direct equivalent to require.main === module

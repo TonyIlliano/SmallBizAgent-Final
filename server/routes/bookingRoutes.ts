@@ -9,6 +9,22 @@ import { logAndSwallow } from "../utils/safeAsync";
 
 const router = Router();
 
+/**
+ * @openapi
+ * /api/book/{slug}:
+ *   get:
+ *     summary: List available services for booking
+ *     tags: [Booking]
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of bookable services
+ */
 // Get business info for booking page (public route, no auth required)
 router.get("/book/:slug", async (req, res) => {
   try {
@@ -104,6 +120,51 @@ router.get("/book/:slug", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/book/{slug}/slots:
+ *   get:
+ *     summary: Check appointment availability
+ *     tags: [Booking]
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Business booking slug
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Date to check (YYYY-MM-DD)
+ *       - in: query
+ *         name: serviceId
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: staffId
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Available time slots
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 slots:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       time:
+ *                         type: string
+ *                       available:
+ *                         type: boolean
+ */
 // Get available time slots for a specific date and service (public route)
 router.get("/book/:slug/slots", async (req, res) => {
   try {
@@ -294,6 +355,55 @@ router.get("/book/:slug/slots", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/book/{slug}:
+ *   post:
+ *     summary: Create a new appointment booking
+ *     tags: [Booking]
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - serviceId
+ *               - date
+ *               - time
+ *               - firstName
+ *               - lastName
+ *               - phone
+ *             properties:
+ *               serviceId:
+ *                 type: integer
+ *               staffId:
+ *                 type: integer
+ *               date:
+ *                 type: string
+ *                 format: date
+ *               time:
+ *                 type: string
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Appointment created
+ *       400:
+ *         description: Slot unavailable or validation error
+ */
 // Create a booking (public route)
 router.post("/book/:slug", async (req, res) => {
   try {

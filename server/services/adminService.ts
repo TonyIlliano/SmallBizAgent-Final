@@ -104,6 +104,7 @@ export interface ServiceStatus {
   name: string;
   status: "connected" | "not_configured" | "error";
   details?: string;
+  responseTimeMs?: number;
 }
 
 export interface SystemHealth {
@@ -526,43 +527,18 @@ function computeMrrForecast(mrrTrend: RevenueData['mrrTrend']): MrrForecast | nu
 }
 
 /**
- * Check system health — service connectivity and server info
+ * Check system health — real API pings to all external services
  */
 export async function getSystemHealth(): Promise<SystemHealth> {
-  const services: ServiceStatus[] = [];
+  const { runAllHealthChecks } = await import("./healthCheckService.js");
+  const results = await runAllHealthChecks();
 
-  // Database
-  try {
-    await db.execute(sql`SELECT 1`);
-    services.push({ name: "Database", status: "connected" });
-  } catch (e: any) {
-    services.push({ name: "Database", status: "error", details: e.message });
-  }
-
-  // OpenAI
-  services.push({
-    name: "OpenAI",
-    status: process.env.OPENAI_API_KEY ? "connected" : "not_configured",
-  });
-
-  // Twilio
-  const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
-  services.push({
-    name: "Twilio",
-    status: twilioConfigured ? "connected" : "not_configured",
-  });
-
-  // Retell AI
-  services.push({
-    name: "Retell AI",
-    status: process.env.RETELL_API_KEY ? "connected" : "not_configured",
-  });
-
-  // Stripe
-  services.push({
-    name: "Stripe",
-    status: process.env.STRIPE_SECRET_KEY ? "connected" : "not_configured",
-  });
+  const services: ServiceStatus[] = results.map((r) => ({
+    name: r.serviceName,
+    status: r.status === "healthy" ? "connected" as const : r.status === "degraded" ? "connected" as const : "error" as const,
+    details: r.errorMessage || `${r.responseTimeMs}ms`,
+    responseTimeMs: r.responseTimeMs,
+  }));
 
   const mem = process.memoryUsage();
 

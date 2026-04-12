@@ -345,30 +345,70 @@ const BRAND_COLOR_PRESETS = [
 function BookingPageBranding({
   businessId,
   brandColor,
+  brandName,
+  logoUrl,
   onSaved,
 }: {
   businessId: number;
   brandColor: string | null;
+  brandName: string | null;
+  logoUrl: string | null;
   onSaved: () => void;
 }) {
   const { toast } = useToast();
   const [selectedColor, setSelectedColor] = useState<string>(brandColor || "");
+  const [selectedBrandName, setSelectedBrandName] = useState<string>(brandName || "");
+  const [selectedLogoUrl, setSelectedLogoUrl] = useState<string>(logoUrl || "");
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync with prop when it changes (e.g. after save)
   useEffect(() => {
     setSelectedColor(brandColor || "");
-  }, [brandColor]);
+    setSelectedBrandName(brandName || "");
+    setSelectedLogoUrl(logoUrl || "");
+  }, [brandColor, brandName, logoUrl]);
 
-  const hasChanges = (selectedColor || null) !== (brandColor || null);
+  const hasChanges = (selectedColor || null) !== (brandColor || null) ||
+    (selectedBrandName || null) !== (brandName || null) ||
+    (selectedLogoUrl || null) !== (logoUrl || null);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Logo must be under 2MB", variant: "destructive" });
+      return;
+    }
+    setIsUploadingLogo(true);
+    try {
+      const formData = new FormData();
+      formData.append("logo", file);
+      const res = await fetch(`/api/business/${businessId}/logo`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      setSelectedLogoUrl(data.logoUrl);
+      toast({ title: "Logo uploaded" });
+    } catch {
+      toast({ title: "Upload failed", variant: "destructive" });
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
       await apiRequest("PUT", `/api/business/${businessId}`, {
         brandColor: selectedColor || null,
+        brandName: selectedBrandName || null,
+        logoUrl: selectedLogoUrl || null,
       });
-      toast({ title: "Saved", description: "Booking page branding updated." });
+      toast({ title: "Saved", description: "Branding updated." });
       onSaved();
     } catch (err: any) {
       toast({
@@ -402,14 +442,69 @@ function BookingPageBranding({
         <div className="flex items-center gap-2">
           <Palette className="h-5 w-5 text-muted-foreground" />
           <div>
-            <CardTitle className="text-lg">Booking Page Branding</CardTitle>
+            <CardTitle className="text-lg">Branding</CardTitle>
             <CardDescription>
-              Customize the color of your public booking page. This changes the header gradient, buttons, and accent colors.
+              Customize your brand identity across booking pages, invoices, and generated websites.
             </CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Brand Name */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Brand Name</label>
+          <p className="text-xs text-muted-foreground">
+            Displayed on your booking page, invoices, and customer-facing emails. Leave blank to use your business name.
+          </p>
+          <Input
+            type="text"
+            placeholder="Your Business Name"
+            value={selectedBrandName}
+            onChange={(e) => setSelectedBrandName(e.target.value)}
+            className="max-w-xs"
+          />
+        </div>
+
+        {/* Logo Upload */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Logo</label>
+          <p className="text-xs text-muted-foreground">
+            Shown on your booking page header and invoices. Max 2MB, PNG or JPG recommended.
+          </p>
+          <div className="flex items-center gap-4">
+            {selectedLogoUrl && (
+              <img
+                src={selectedLogoUrl}
+                alt="Business logo"
+                className="h-12 w-12 rounded-lg object-contain border"
+              />
+            )}
+            <div className="flex items-center gap-2">
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleLogoUpload}
+                  className="hidden"
+                />
+                <span className="inline-flex items-center px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-muted transition-colors">
+                  {isUploadingLogo ? "Uploading..." : selectedLogoUrl ? "Change Logo" : "Upload Logo"}
+                </span>
+              </label>
+              {selectedLogoUrl && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedLogoUrl("")}
+                  className="text-muted-foreground"
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Color picker row */}
         <div className="space-y-3">
           <label className="text-sm font-medium">Brand Color</label>
@@ -517,7 +612,7 @@ function BookingPageBranding({
       </CardContent>
       <CardFooter className="flex justify-between border-t pt-6">
         <p className="text-xs text-muted-foreground">
-          Changes apply to your public booking page only.
+          Changes apply to booking pages, invoices, and generated websites.
         </p>
         <Button
           onClick={handleSave}
@@ -824,6 +919,180 @@ function TeamManagementCard({ businessId }: { businessId: number }) {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+// --- Usage Dashboard for Billing section ---
+function UsageDashboard({ businessId }: { businessId: number }) {
+  const { data: usageData, isLoading: isLoadingUsage } = useQuery<{
+    minutesUsed: number;
+    minutesIncluded: number;
+    minutesRemaining: number;
+    overageMinutes: number;
+    overageRate: number;
+    overageCost: number;
+    percentUsed: number;
+    planName: string;
+    planTier: string | null;
+    isTrialActive: boolean;
+    trialEndsAt: string | null;
+    subscriptionStatus: string;
+    canAcceptCalls: boolean;
+  }>({
+    queryKey: [`/api/subscription/usage/${businessId}`],
+    enabled: !!businessId,
+    staleTime: 60000,
+    queryFn: async () => {
+      const res = await fetch(`/api/subscription/usage/${businessId}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch usage");
+      return res.json();
+    },
+  });
+
+  const { data: projectionData, isLoading: isLoadingProjection } = useQuery<{
+    projectedMinutesAtPeriodEnd: number;
+    projectedOverageMinutes: number;
+    projectedOverageCost: number;
+    daysRemainingInPeriod: number;
+    averageDailyMinutes: number;
+    billingPeriodStart: string;
+    billingPeriodEnd: string;
+  }>({
+    queryKey: ["/api/usage/projection"],
+    enabled: !!businessId,
+    staleTime: 60000,
+  });
+
+  if (isLoadingUsage || isLoadingProjection) {
+    return (
+      <Card>
+        <CardContent className="flex justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!usageData) return null;
+
+  const percent = usageData.percentUsed;
+  const progressColor =
+    percent > 80 ? "bg-red-500" : percent > 50 ? "bg-yellow-500" : "bg-green-500";
+
+  // Format billing period dates
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const billingPeriodLabel = projectionData
+    ? `${formatDate(projectionData.billingPeriodStart)} - ${formatDate(projectionData.billingPeriodEnd)}`
+    : null;
+
+  // Determine next tier for upgrade CTA
+  const getUpgradeTier = (currentTier: string | null) => {
+    if (!currentTier || currentTier === "trial" || currentTier === "starter") return "Growth";
+    if (currentTier === "growth" || currentTier === "professional") return "Pro";
+    return null;
+  };
+  const upgradeTier = getUpgradeTier(usageData.planTier);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <PhoneCall className="h-5 w-5" />
+            Call Minutes
+          </CardTitle>
+          {billingPeriodLabel && (
+            <CardDescription>Billing period: {billingPeriodLabel}</CardDescription>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Main usage display */}
+          <div className="flex items-baseline gap-1">
+            <span className="text-3xl font-bold">{usageData.minutesUsed}</span>
+            <span className="text-lg text-muted-foreground">
+              of {usageData.minutesIncluded} minutes used
+            </span>
+          </div>
+
+          {/* Progress bar with color thresholds */}
+          <div className="relative h-4 w-full overflow-hidden rounded-full bg-secondary">
+            <div
+              className={`h-full transition-all rounded-full ${progressColor}`}
+              style={{ width: `${Math.min(percent, 100)}%` }}
+            />
+          </div>
+
+          {/* Stats row */}
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>{usageData.minutesRemaining} minutes remaining</span>
+            {projectionData && (
+              <span>~{projectionData.averageDailyMinutes} min/day</span>
+            )}
+          </div>
+
+          {projectionData && projectionData.daysRemainingInPeriod > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {projectionData.daysRemainingInPeriod} day{projectionData.daysRemainingInPeriod !== 1 ? "s" : ""} remaining in billing period
+            </p>
+          )}
+
+          {/* Current overage display */}
+          {usageData.overageMinutes > 0 && (
+            <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900 px-3 py-2 text-sm">
+              <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
+              <span>
+                Current overage: {usageData.overageMinutes} minutes (${usageData.overageCost.toFixed(2)} at ${usageData.overageRate.toFixed(2)}/min)
+              </span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Projected overage warning */}
+      {projectionData && projectionData.projectedOverageMinutes > 0 && usageData.overageMinutes === 0 && (
+        <Card className="border-yellow-200 dark:border-yellow-900">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-sm">
+                  Projected overage: {projectionData.projectedOverageMinutes} minutes (~${projectionData.projectedOverageCost.toFixed(2)})
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  At current pace, you'll use ~{projectionData.projectedMinutesAtPeriodEnd} minutes by end of billing period.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Upgrade CTA when usage > 80% */}
+      {percent > 80 && upgradeTier && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="font-medium text-sm">Running low on minutes</p>
+                <p className="text-sm text-muted-foreground">
+                  Upgrade to {upgradeTier} for more included minutes and lower overage rates.
+                </p>
+              </div>
+              <Button variant="default" size="sm" className="flex-shrink-0 ml-4">
+                <ArrowRight className="h-4 w-4 mr-1" />
+                Upgrade
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -2778,6 +3047,8 @@ export default function Settings() {
               <BookingPageBranding
                 businessId={businessId}
                 brandColor={business.brandColor || null}
+                brandName={(business as any).brandName || null}
+                logoUrl={business.logoUrl || null}
                 onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/business"] })}
               />
             )}
@@ -2909,6 +3180,9 @@ export default function Settings() {
           </TabsContent>
 
           <TabsContent value="subscription" className="space-y-4">
+            {/* Usage Dashboard */}
+            {business && <UsageDashboard businessId={business.id} />}
+
             <Card>
               <CardHeader>
                 <CardTitle>Subscription Management</CardTitle>

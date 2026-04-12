@@ -18,6 +18,107 @@ const PLATFORM_BUSINESS_ID = 0;
 
 export type SocialPlatform = "twitter" | "facebook" | "instagram" | "linkedin";
 
+// ─── OAuth Response Types ────────────────────────────────────────────────────
+
+/** Twitter OAuth 2.0 token exchange response */
+interface TwitterTokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  token_type?: string;
+  scope?: string;
+}
+
+/** Twitter v2 tweet creation response */
+interface TwitterTweetResponse {
+  data?: { id: string; text: string };
+}
+
+/** Twitter chunked media upload INIT response */
+interface TwitterMediaInitResponse {
+  media_id_string: string;
+  expires_after_secs?: number;
+}
+
+/** Facebook/Instagram OAuth token exchange response */
+interface FacebookTokenResponse {
+  access_token: string;
+  token_type?: string;
+  expires_in?: number;
+}
+
+/** Facebook Pages API response */
+interface FacebookPagesResponse {
+  data?: Array<{ id: string; name: string; access_token: string }>;
+}
+
+/** Facebook post creation response */
+interface FacebookPostResponse {
+  id: string;
+}
+
+/** Instagram short-lived token exchange response */
+interface InstagramShortLivedTokenResponse {
+  access_token: string;
+  user_id: number;
+}
+
+/** Instagram long-lived token exchange response */
+interface InstagramLongLivedTokenResponse {
+  access_token: string;
+  token_type?: string;
+  expires_in?: number;
+}
+
+/** Instagram user profile response */
+interface InstagramProfileResponse {
+  user_id?: string;
+  username?: string;
+  name?: string;
+  account_type?: string;
+}
+
+/** Instagram media container creation response */
+interface InstagramMediaResponse {
+  id: string;
+}
+
+/** Instagram media status check response */
+interface InstagramMediaStatusResponse {
+  status_code: string;
+}
+
+/** LinkedIn OAuth token exchange response */
+interface LinkedInTokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+}
+
+/** LinkedIn profile response */
+interface LinkedInProfileResponse {
+  id: string;
+  localizedFirstName?: string;
+  localizedLastName?: string;
+}
+
+/** LinkedIn UGC post creation response */
+interface LinkedInPostResponse {
+  id: string;
+}
+
+/** LinkedIn register upload response */
+interface LinkedInRegisterUploadResponse {
+  value?: {
+    uploadMechanism?: {
+      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"?: {
+        uploadUrl?: string;
+      };
+    };
+    asset?: string;
+  };
+}
+
 const PLATFORM_CONFIG: Record<SocialPlatform, { name: string; scopes: string[] }> = {
   twitter: {
     name: "X / Twitter",
@@ -155,7 +256,7 @@ class SocialMediaService {
    */
   async getTokens(
     platform: SocialPlatform
-  ): Promise<{ accessToken: string; refreshToken?: string; data?: any } | null> {
+  ): Promise<{ accessToken: string; refreshToken?: string; data?: Record<string, string | undefined> } | null> {
     try {
       const integration = await db
         .select()
@@ -195,7 +296,7 @@ class SocialMediaService {
       accessToken: string;
       refreshToken?: string;
       expiresAt?: Date;
-      data?: Record<string, any>;
+      data?: Record<string, string | undefined>;
     }
   ): Promise<void> {
     try {
@@ -434,7 +535,7 @@ class SocialMediaService {
       throw new Error(`[SocialMedia] Twitter token exchange failed (${response.status}): ${errorBody}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as TwitterTokenResponse;
 
     await this.storeTokens("twitter", {
       accessToken: data.access_token,
@@ -469,16 +570,16 @@ class SocialMediaService {
       throw new Error(`[SocialMedia] Facebook token exchange failed (${response.status}): ${errorBody}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as FacebookTokenResponse;
 
     // Fetch the user's page access token and page ID
-    let pageData: Record<string, any> = {};
+    let pageData: Record<string, string> = {};
     try {
       const pagesResponse = await fetch(
         `https://graph.facebook.com/v19.0/me/accounts?access_token=${data.access_token}`
       );
       if (pagesResponse.ok) {
-        const pagesResult = await pagesResponse.json() as any;
+        const pagesResult = await pagesResponse.json() as FacebookPagesResponse;
         if (pagesResult.data && pagesResult.data.length > 0) {
           const page = pagesResult.data[0];
           pageData = {
@@ -531,7 +632,7 @@ class SocialMediaService {
       throw new Error(`[SocialMedia] Instagram token exchange failed (${response.status}): ${errorBody}`);
     }
 
-    const shortLivedData = await response.json() as any;
+    const shortLivedData = await response.json() as InstagramShortLivedTokenResponse;
     const shortLivedToken = shortLivedData.access_token;
     const igUserId = String(shortLivedData.user_id);
 
@@ -548,7 +649,7 @@ class SocialMediaService {
         `https://graph.instagram.com/access_token?${longLivedParams.toString()}`
       );
       if (longLivedResponse.ok) {
-        const longLivedData = await longLivedResponse.json() as any;
+        const longLivedData = await longLivedResponse.json() as InstagramLongLivedTokenResponse;
         longLivedToken = longLivedData.access_token;
         if (longLivedData.expires_in) {
           expiresAt = new Date(Date.now() + longLivedData.expires_in * 1000);
@@ -559,13 +660,13 @@ class SocialMediaService {
     }
 
     // Step 3: Fetch user profile
-    let igData: Record<string, any> = { igUserId };
+    let igData: Record<string, string | undefined> = { igUserId };
     try {
       const profileResponse = await fetch(
         `https://graph.instagram.com/v21.0/me?fields=user_id,username,name,account_type&access_token=${longLivedToken}`
       );
       if (profileResponse.ok) {
-        const profile = await profileResponse.json() as any;
+        const profile = await profileResponse.json() as InstagramProfileResponse;
         igData = {
           igUserId: profile.user_id || igUserId,
           username: profile.username,
@@ -613,10 +714,10 @@ class SocialMediaService {
       throw new Error(`[SocialMedia] LinkedIn token exchange failed (${response.status}): ${errorBody}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as LinkedInTokenResponse;
 
     // Fetch the user's profile URN for posting
-    let profileData: Record<string, any> = {};
+    let profileData: Record<string, string> = {};
     try {
       const profileResponse = await fetch("https://api.linkedin.com/v2/me", {
         headers: {
@@ -624,11 +725,11 @@ class SocialMediaService {
         },
       });
       if (profileResponse.ok) {
-        const profile = await profileResponse.json() as any;
+        const profile = await profileResponse.json() as LinkedInProfileResponse;
         profileData = {
           personUrn: `urn:li:person:${profile.id}`,
-          firstName: profile.localizedFirstName,
-          lastName: profile.localizedLastName,
+          firstName: profile.localizedFirstName || '',
+          lastName: profile.localizedLastName || '',
         };
       }
     } catch (profileError) {
@@ -720,8 +821,8 @@ class SocialMediaService {
 
       console.log(`[SocialMedia] Post ${postId} published to ${platform} (externalId: ${result.externalPostId})`);
       return { success: true, externalPostId: result.externalPostId };
-    } catch (error: any) {
-      const errorMsg = error.message || String(error);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`[SocialMedia] Error publishing post ${postId}:`, error);
       await this.markPostFailed(postId, errorMsg);
       return { success: false, error: errorMsg };
@@ -734,7 +835,7 @@ class SocialMediaService {
    */
   private async publishToTwitter(
     content: string,
-    tokens: { accessToken: string; refreshToken?: string; data?: any },
+    tokens: { accessToken: string; refreshToken?: string; data?: Record<string, string | undefined> },
     videoUrl?: string
   ): Promise<{ externalPostId?: string; error?: string }> {
     try {
@@ -754,7 +855,7 @@ class SocialMediaService {
               body: new URLSearchParams({ command: "INIT", total_bytes: String(videoBuffer.length), media_type: "video/mp4", media_category: "tweet_video" }),
             });
             if (initRes.ok) {
-              const initData = await initRes.json() as any;
+              const initData = await initRes.json() as TwitterMediaInitResponse;
               mediaId = initData.media_id_string;
               // Step 2: APPEND (send entire file as one chunk for small videos)
               const formData = new FormData();
@@ -765,7 +866,7 @@ class SocialMediaService {
               await fetch("https://upload.twitter.com/1.1/media/upload.json", {
                 method: "POST",
                 headers: { Authorization: `Bearer ${tokens.accessToken}` },
-                body: formData as any,
+                body: formData,
               });
               // Step 3: FINALIZE
               await fetch("https://upload.twitter.com/1.1/media/upload.json", {
@@ -780,7 +881,7 @@ class SocialMediaService {
         }
       }
 
-      const tweetBody: any = { text: content };
+      const tweetBody: { text: string; media?: { media_ids: string[] } } = { text: content };
       if (mediaId) {
         tweetBody.media = { media_ids: [mediaId] };
       }
@@ -799,10 +900,10 @@ class SocialMediaService {
         return { error: `Twitter API error (${response.status}): ${errorBody}` };
       }
 
-      const data = await response.json() as any;
+      const data = await response.json() as TwitterTweetResponse;
       return { externalPostId: data.data?.id };
-    } catch (error: any) {
-      return { error: `Twitter publish error: ${error.message}` };
+    } catch (error) {
+      return { error: `Twitter publish error: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 
@@ -812,7 +913,7 @@ class SocialMediaService {
    */
   private async publishToFacebook(
     content: string,
-    tokens: { accessToken: string; refreshToken?: string; data?: any },
+    tokens: { accessToken: string; refreshToken?: string; data?: Record<string, string | undefined> },
     videoUrl?: string
   ): Promise<{ externalPostId?: string; error?: string }> {
     try {
@@ -838,7 +939,7 @@ class SocialMediaService {
           console.warn(`[SocialMedia] Facebook video upload failed, falling back to text: ${errorBody}`);
           // Fall through to text post
         } else {
-          const data = await response.json() as any;
+          const data = await response.json() as FacebookPostResponse;
           return { externalPostId: data.id };
         }
       }
@@ -858,10 +959,10 @@ class SocialMediaService {
         return { error: `Facebook API error (${response.status}): ${errorBody}` };
       }
 
-      const data = await response.json() as any;
+      const data = await response.json() as FacebookPostResponse;
       return { externalPostId: data.id };
-    } catch (error: any) {
-      return { error: `Facebook publish error: ${error.message}` };
+    } catch (error) {
+      return { error: `Facebook publish error: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 
@@ -872,7 +973,7 @@ class SocialMediaService {
    */
   private async publishToInstagram(
     content: string,
-    tokens: { accessToken: string; refreshToken?: string; data?: any },
+    tokens: { accessToken: string; refreshToken?: string; data?: Record<string, string | undefined> },
     videoUrl?: string
   ): Promise<{ externalPostId?: string; error?: string }> {
     try {
@@ -882,7 +983,7 @@ class SocialMediaService {
       }
 
       // Step 1: Create the media container (video = REELS, text = basic)
-      const containerBody: any = {
+      const containerBody: { caption: string; access_token: string; media_type?: string; video_url?: string } = {
         caption: content,
         access_token: tokens.accessToken,
       };
@@ -906,7 +1007,7 @@ class SocialMediaService {
         return { error: `Instagram media create error (${createResponse.status}): ${errorBody}` };
       }
 
-      const createData = await createResponse.json() as any;
+      const createData = await createResponse.json() as InstagramMediaResponse;
       const containerId = createData.id;
 
       if (!containerId) {
@@ -922,7 +1023,7 @@ class SocialMediaService {
             `https://graph.instagram.com/v21.0/${containerId}?fields=status_code&access_token=${tokens.accessToken}`
           );
           if (statusRes.ok) {
-            const statusData = await statusRes.json() as any;
+            const statusData = await statusRes.json() as InstagramMediaStatusResponse;
             if (statusData.status_code === "FINISHED") { ready = true; break; }
             if (statusData.status_code === "ERROR") {
               return { error: "Instagram video processing failed" };
@@ -952,10 +1053,10 @@ class SocialMediaService {
         return { error: `Instagram publish error (${publishResponse.status}): ${errorBody}` };
       }
 
-      const publishData = await publishResponse.json() as any;
+      const publishData = await publishResponse.json() as InstagramMediaResponse;
       return { externalPostId: publishData.id };
-    } catch (error: any) {
-      return { error: `Instagram publish error: ${error.message}` };
+    } catch (error) {
+      return { error: `Instagram publish error: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 
@@ -965,7 +1066,7 @@ class SocialMediaService {
    */
   private async publishToLinkedIn(
     content: string,
-    tokens: { accessToken: string; refreshToken?: string; data?: any },
+    tokens: { accessToken: string; refreshToken?: string; data?: Record<string, string | undefined> },
     videoUrl?: string
   ): Promise<{ externalPostId?: string; error?: string }> {
     try {
@@ -975,7 +1076,7 @@ class SocialMediaService {
       }
 
       let shareMediaCategory = "NONE";
-      let mediaElements: any[] = [];
+      let mediaElements: Array<{ status: string; media: string }> = [];
 
       // Upload video if present
       if (videoUrl) {
@@ -997,7 +1098,7 @@ class SocialMediaService {
           });
 
           if (registerRes.ok) {
-            const registerData = await registerRes.json() as any;
+            const registerData = await registerRes.json() as LinkedInRegisterUploadResponse;
             const uploadUrl = registerData.value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]?.uploadUrl;
             const asset = registerData.value?.asset;
 
@@ -1028,7 +1129,7 @@ class SocialMediaService {
         }
       }
 
-      const ugcBody: any = {
+      const ugcBody = {
         author: personUrn,
         lifecycleState: "PUBLISHED",
         specificContent: {
@@ -1058,10 +1159,10 @@ class SocialMediaService {
         return { error: `LinkedIn API error (${response.status}): ${errorBody}` };
       }
 
-      const data = await response.json() as any;
+      const data = await response.json() as LinkedInPostResponse;
       return { externalPostId: data.id };
-    } catch (error: any) {
-      return { error: `LinkedIn publish error: ${error.message}` };
+    } catch (error) {
+      return { error: `LinkedIn publish error: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 

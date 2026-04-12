@@ -358,6 +358,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `websiteGenerationService` | Generates complete one-page websites via Claude (OpenAI fallback). Pulls all business data from DB (hours, services, staff, branding, booking), builds dynamic prompt, returns self-contained HTML with embedded CSS. 15+ vertical design presets. Customization overrides (accent color, font style, hero headline/subheadline, CTA texts, about text, footer message, section toggles) |
 | `googleBusinessProfileService` | Full bi-directional GBP sync. OAuth via `calendarIntegrations` (provider='google-business-profile'). Business info pull/push with conflict detection. Review sync + auto-flag low ratings. Local post creation/publishing. SEO score calculation (100-point, 12 criteria). `runGbpSync()` for scheduler. GBP API v1 (business info) + v4 (reviews/posts) |
 | `jobQueue` | pg-boss PostgreSQL job queue. 11 job types (send-sms, send-email, sync-calendar, etc.). Automatic retry with exponential backoff (30s/60s/120s). Graceful fallback to direct execution if unavailable |
+| `jobBriefingService` | AI-powered pre-job briefings. Pulls customer insights, call intelligence, Mem0 memory, previous jobs. Claude primary with fallback. ~$0.005/briefing |
 | `agentUtils` | Shared utilities for SMS agents: forEachEnabledBusiness(), generateAgentMessage(), logAgentSend(), canSendToCustomer(), fillTemplate() |
 
 ---
@@ -395,7 +396,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `expressSetupRoutes` | `/api/onboarding/*` | Express onboarding (2-minute setup with auto-provisioning) |
 | `websiteBuilderRoutes` | `/api/website-builder/*`, `/sites/*` | Business scanner, OpenAI website generation, domain management, website serving, feature gates |
 | `twilioWebhookRoutes` | `/api/twilio/*` | 6 Twilio webhook endpoints (inbound SMS, voice, status callbacks) |
-| `jobRoutes` | `/api/jobs/*` | 10 job + line item endpoints |
+| `jobRoutes` | `/api/jobs/*` | 11 job + line item + briefing endpoints |
 | `invoiceRoutes` | `/api/invoices/*` | 15 invoice + portal + item endpoints |
 | `staffRoutes` | `/api/staff/*` | 20 staff CRUD/hours/invites/time-off endpoints |
 | `servicesRoutes` | `/api/services/*` | 6 service CRUD + template endpoints |
@@ -713,6 +714,48 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `329da2e` | Add shared SMS agent utilities (extracted from 5 agent services) |
 
 ### Recent changes (uncommitted):
+
+#### Voice-to-Job-Notes — AI-Parsed Technician Dictation
+- **Goal**: After completing a job, the tech talks to their phone and AI parses the transcript into structured job notes, parts used, equipment info, and follow-up opportunities.
+
+##### Backend Endpoint
+- `server/routes/jobRoutes.ts` — **NEW ENDPOINT**: `POST /api/jobs/:id/voice-notes`. Accepts `{ transcript }` body. Uses `claudeJson()` to parse raw voice dictation into structured data: clean notes (grammar-fixed, filler words removed), parts used (name + quantity), equipment info (make/model/serial), follow-up detection (boolean + description + estimated cost), completion summary. Auto-creates job line items for detected parts (type: 'part', price $0 for tech to fill in). Falls back to saving raw transcript as notes if AI fails. 10,000 char transcript cap.
+
+##### Mobile API Layer
+- `mobile/src/api/jobs.ts` — Added `ParsedVoiceNotes` and `VoiceNotesResponse` interfaces. Added `processVoiceNotes(jobId, transcript)` function.
+
+##### Mobile VoiceNotes Component
+- `mobile/src/components/VoiceNotes.tsx` — **NEW**: Collapsible voice notes component for job detail screen. Three states: (1) Collapsed — "Add Voice Notes" button with mic icon, shows existing notes preview. (2) Input — Large multiline TextInput (6+ lines) with dictation hint (use iOS/Android keyboard mic), character counter, "Process with AI" button with brain icon and loading state. (3) Results — Structured card showing: completion summary banner, clean notes, parts used as chips, equipment info in monospace card, follow-up alert card (red) with description and estimated cost, "Re-dictate" and "Collapse" actions. Uses device keyboard dictation (free, offline, zero dependencies).
+
+##### Integration
+- `mobile/src/screens/JobDetailScreen.tsx` — Replaced static notes card with `<VoiceNotes>` component. Placed after Photos section (natural post-job workflow: take photos, then dictate notes). Invalidates job query on save so notes appear immediately.
+
+##### Files Changed
+- `server/routes/jobRoutes.ts` — New voice-notes endpoint (~95 lines)
+- `mobile/src/api/jobs.ts` — New interfaces + API function (~20 lines)
+- `mobile/src/components/VoiceNotes.tsx` — **NEW** (~350 lines)
+- `mobile/src/screens/JobDetailScreen.tsx` — Import + integration (~5 lines changed)
+
+#### AI Job Briefing — Pre-Job Intelligence for Field Techs
+- **Goal**: Give field technicians an AI-powered briefing before each job, pulling from call transcripts, customer history, insights, and Mem0 memory. Helps techs walk in knowing who the customer is, what's been done before, and how to approach the visit.
+
+##### Backend Service
+- `server/services/jobBriefingService.ts` — **NEW**: `generateJobBriefing(jobId, businessId)` fetches job, customer, customer insights, call intelligence (last 5), previous jobs (last 10), line items, Mem0 memories, and linked appointment data in a single `Promise.all`. Builds concise context prompt (<2000 tokens). Uses `claudeJson()` to generate structured briefing. Falls back to `buildFallbackBriefing()` from raw data if AI fails. Returns `JobBriefing` interface: summary, customerContext, jobHistory, currentJob, sentiment, suggestedApproach, followUpOpportunities[], generatedAt. Cost: ~$0.005/briefing.
+
+##### Backend Endpoint
+- `server/routes/jobRoutes.ts` — **NEW ENDPOINT**: `GET /api/jobs/:id/briefing`. Authenticated, business-ownership verified. Dynamic import of jobBriefingService for code splitting.
+
+##### Mobile API Layer
+- `mobile/src/api/jobs.ts` — Added `JobBriefing` interface and `getJobBriefing(jobId)` function.
+
+##### Mobile UI
+- `mobile/src/screens/JobDetailScreen.tsx` — Added collapsible "AI Briefing" card between job header and timer. Purple accent (left border #7c3aed). Sparkle icon. "Generate Briefing" button triggers on-demand API call (not auto-fetched). Loading state with descriptive text. Error state with retry. Summary always visible when generated. Expand/collapse for detail sections: Customer Context, Job History, Sentiment, Suggested Approach, Follow-Up Opportunities (bulleted). "Generated at [time]" footer. "Regenerate" button. Cached via React Query with 10-min staleTime.
+
+##### Files Changed
+- `server/services/jobBriefingService.ts` — **NEW** (~190 lines)
+- `server/routes/jobRoutes.ts` — New briefing endpoint (~20 lines)
+- `mobile/src/api/jobs.ts` — New interface + API function (~15 lines)
+- `mobile/src/screens/JobDetailScreen.tsx` — AI Briefing card + styles (~150 lines added)
 
 #### Blue-Collar Mode Phase 1 — Tab Swap, Jobs Calendar, Status SMS, Auto-Invoice
 - **Goal**: Transform the experience for job-category businesses (HVAC, plumbing, electrical, landscaping, construction, pest control, roofing, painting) so the platform feels built for field service.
@@ -1756,6 +1799,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Invoice collection agent | `server/services/invoiceCollectionAgentService.ts` |
 | Voice receptionist tests | `server/test/voice-receptionist.test.ts` |
 | Twilio webhook routes | `server/routes/twilioWebhookRoutes.ts` |
+| Job briefing service | `server/services/jobBriefingService.ts` |
 | Job routes | `server/routes/jobRoutes.ts` |
 | Invoice routes | `server/routes/invoiceRoutes.ts` |
 | Staff routes | `server/routes/staffRoutes.ts` |
@@ -1765,6 +1809,9 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Workflow engine | `server/services/workflowEngine.ts` |
 | Workflow routes | `server/routes/workflowRoutes.ts` |
 | Workflows tab UI | `client/src/components/automations/WorkflowsTab.tsx` |
+| Voice notes component (mobile) | `mobile/src/components/VoiceNotes.tsx` |
+| Job detail screen (mobile) | `mobile/src/screens/JobDetailScreen.tsx` |
+| Jobs API (mobile) | `mobile/src/api/jobs.ts` |
 | Env vars reference | `.env.example` |
 | Package scripts | `package.json` |
 
@@ -1816,4 +1863,4 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: April 11, 2026. Multi-user team access (role-based permissions: Owner/Manager/Staff, invite by email, sidebar filtering by role), Workflow Builder (visual automation sequences with 5 pre-built templates, orchestration integration, scheduler processing), Table Stakes (bulk CSV import up to 500 customers, soft deletes with archive/restore, communication timeline aggregating 5 data sources). 2 new DB tables (workflows, workflow_runs — 68 total). New files: server/middleware/permissions.ts, server/services/workflowEngine.ts, server/routes/workflowRoutes.ts, client/src/components/automations/WorkflowsTab.tsx.*
+*Last updated: April 12, 2026. AI Job Briefing feature: GET /api/jobs/:id/briefing endpoint generates AI-powered pre-job briefings by pulling from customer insights, call intelligence (last 5 calls), Mem0 memory, previous jobs, and line items. Uses claudeJson() with graceful fallback to raw-data briefing on AI failure. Returns structured JobBriefing (summary, customerContext, jobHistory, currentJob, sentiment, suggestedApproach, followUpOpportunities). Mobile JobDetailScreen gets collapsible purple-accented AI Briefing card with Generate button, loading state, expand/collapse, and Regenerate. Cached via React Query (10 min staleTime). Cost: ~$0.005/briefing. New files: server/services/jobBriefingService.ts. Modified: server/routes/jobRoutes.ts (new endpoint), mobile/src/api/jobs.ts (JobBriefing interface + getJobBriefing), mobile/src/screens/JobDetailScreen.tsx (AI Briefing card UI).*

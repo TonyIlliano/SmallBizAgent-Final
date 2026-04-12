@@ -2,10 +2,24 @@ import { Router, Request, Response } from "express";
 import { storage } from "../storage";
 import { insertJobSchema } from "@shared/schema";
 import { z } from "zod";
-import { isAuthenticated } from "../auth";
+import { isAuthenticated, ApiKeyRequest } from "../auth";
 import { dataCache } from "../services/callToolHandlers";
 import { fireEvent } from "../services/webhookService";
 import notificationService from "../services/notificationService";
+import multer from "multer";
+import { uploadBufferToS3, isS3Configured } from "../utils/s3Upload";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
+
+// Multer for job photo uploads (5MB max, images only)
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files allowed"));
+  },
+});
 
 const router = Router();
 
@@ -14,14 +28,14 @@ const getBusinessId = (req: Request): number => {
   if (req.isAuthenticated() && req.user?.businessId) {
     return req.user.businessId;
   }
-  if ((req as any).apiKeyBusinessId) {
-    return (req as any).apiKeyBusinessId;
+  if ((req as ApiKeyRequest).apiKeyBusinessId) {
+    return (req as ApiKeyRequest).apiKeyBusinessId!;
   }
   return 0;
 };
 
 // Helper to verify resource belongs to user's business
-const verifyBusinessOwnership = (resource: any, req: Request): boolean => {
+const verifyBusinessOwnership = (resource: { businessId: number } | null | undefined, req: Request): boolean => {
   if (!resource) return false;
   const userBusinessId = getBusinessId(req);
   return resource.businessId === userBusinessId;
@@ -320,6 +334,31 @@ router.delete("/:id", isAuthenticated, async (req: Request, res: Response) => {
     }
   });
 
+  // =================== JOB BRIEFING API ===================
+
+  // GET /api/jobs/:id/briefing — AI-generated job briefing
+router.get("/:id/briefing", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const jobId = parseInt(req.params.id);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
+
+      const businessId = getBusinessId(req);
+      const job = await storage.getJob(jobId);
+      if (!verifyBusinessOwnership(job, req)) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      const { generateJobBriefing } = await import("../services/jobBriefingService");
+      const briefing = await generateJobBriefing(jobId, businessId);
+      res.json(briefing);
+    } catch (err: any) {
+      console.error("[Jobs] Briefing generation error:", err);
+      res.status(500).json({ error: "Failed to generate briefing" });
+    }
+  });
+
   // =================== JOB LINE ITEMS API ===================
 router.get("/:jobId/line-items", isAuthenticated, async (req: Request, res: Response) => {
     try {
@@ -499,5 +538,153 @@ router.post("/:jobId/generate-invoice", isAuthenticated, async (req: Request, re
       res.status(500).json({ message: "Error generating invoice from job" });
     }
   });
+
+/**
+ * POST /api/jobs/:id/voice-notes — Process transcribed voice notes with AI
+ *
+ * The tech dictates notes into their phone (using keyboard dictation),
+ * and this endpoint parses the raw transcript into structured data:
+ * clean notes, parts used, equipment info, follow-up opportunities.
+ */
+router.post("/:id/voice-notes", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    if (isNaN(jobId)) return res.status(400).json({ error: "Invalid job ID" });
+
+    const job = await storage.getJob(jobId);
+    if (!job || !verifyBusinessOwnership(job, req)) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    const { transcript } = req.body;
+    if (!transcript || typeof transcript !== 'string' || transcript.trim().length === 0) {
+      return res.status(400).json({ error: "Missing or empty transcript" });
+    }
+
+    // Cap transcript length to prevent abuse (10,000 chars ~ 5 minutes of speech)
+    const trimmedTranscript = transcript.trim().substring(0, 10000);
+
+    try {
+      const { claudeJson } = await import("../services/claudeClient.js");
+
+      const parsed = await claudeJson<{
+        notes: string;
+        partsUsed: Array<{ name: string; quantity?: number }>;
+        equipmentInfo: string | null;
+        followUpNeeded: boolean;
+        followUpDescription: string | null;
+        estimatedFollowUpCost: number | null;
+        completionSummary: string;
+      }>({
+        system: `You are a field service job notes parser. Parse this technician's voice notes into structured data.
+
+Extract:
+- notes: A clean, professional version of what the tech said (fix grammar, remove filler words like "um", "uh", "you know", keep all technical details intact)
+- partsUsed: Array of parts mentioned with name and quantity (default quantity 1 if not specified). Only include actual parts/materials, not tools.
+- equipmentInfo: Any equipment make/model/serial number mentioned. null if none.
+- followUpNeeded: true if the tech mentioned anything that needs a follow-up visit, return trip, or additional work
+- followUpDescription: If followUpNeeded is true, describe what needs to happen on the return visit. null otherwise.
+- estimatedFollowUpCost: If they mentioned a price, quote, or estimate for follow-up work (as a number in dollars). null otherwise.
+- completionSummary: One concise sentence summarizing what was done on this job.
+
+Return valid JSON only. No markdown, no code fences.`,
+        prompt: `Technician voice notes for job "${job.title}":\n\n"${trimmedTranscript}"`,
+        maxTokens: 1024,
+      });
+
+      // Save the cleaned notes to the job
+      if (parsed.notes) {
+        await storage.updateJob(jobId, { notes: parsed.notes });
+      }
+
+      // If parts were identified, auto-add them as line items (best-effort)
+      if (parsed.partsUsed && parsed.partsUsed.length > 0) {
+        for (const part of parsed.partsUsed) {
+          try {
+            await storage.createJobLineItem({
+              jobId,
+              type: 'part',
+              description: part.name,
+              quantity: part.quantity || 1,
+              unitPrice: 0, // Price unknown from voice — tech can update later
+              amount: 0,
+              taxable: true,
+            });
+          } catch (lineItemErr: any) {
+            console.error(`[VoiceNotes] Failed to create line item for part "${part.name}":`, lineItemErr.message);
+          }
+        }
+      }
+
+      res.json({
+        parsed,
+        saved: true,
+      });
+    } catch (aiErr: any) {
+      console.error('[VoiceNotes] AI parsing failed:', aiErr.message);
+      // Fallback: save raw transcript as notes if AI fails
+      await storage.updateJob(jobId, { notes: trimmedTranscript });
+      res.json({
+        parsed: {
+          notes: trimmedTranscript,
+          partsUsed: [],
+          equipmentInfo: null,
+          followUpNeeded: false,
+          followUpDescription: null,
+          estimatedFollowUpCost: null,
+          completionSummary: 'Voice notes saved (AI parsing unavailable).',
+        },
+        saved: true,
+        fallback: true,
+      });
+    }
+  } catch (error: any) {
+    console.error("[VoiceNotes] Error processing voice notes:", error);
+    res.status(500).json({ error: "Error processing voice notes" });
+  }
+});
+
+/**
+ * POST /api/jobs/:id/photos — Upload a photo to a job (mobile app camera)
+ */
+router.post("/api/jobs/:id/photos", isAuthenticated, photoUpload.single("photo"), async (req: Request, res: Response) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    if (isNaN(jobId)) return res.status(400).json({ error: "Invalid job ID" });
+
+    const businessId = getBusinessId(req);
+    const job = await storage.getJob(jobId);
+    if (!verifyBusinessOwnership(job, req)) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    if (!isS3Configured()) {
+      return res.status(503).json({ error: "File storage not configured" });
+    }
+
+    const ext = req.file.originalname.split(".").pop() || "jpg";
+    const key = `job-photos/job-${jobId}-${Date.now()}.${ext}`;
+    const photoUrl = await uploadBufferToS3(req.file.buffer, key, req.file.mimetype);
+
+    // Append to existing photos array
+    const existingPhotos: Array<{ url: string; caption?: string; takenAt: string }> =
+      (job as any)?.photos || [];
+    existingPhotos.push({
+      url: photoUrl,
+      takenAt: new Date().toISOString(),
+    });
+
+    await db.execute(
+      sql`UPDATE jobs SET photos = ${JSON.stringify(existingPhotos)}::jsonb, updated_at = NOW() WHERE id = ${jobId}`
+    );
+
+    res.json({ photoUrl, totalPhotos: existingPhotos.length });
+  } catch (error: any) {
+    console.error("[Jobs] Photo upload error:", error);
+    res.status(500).json({ error: error.message || "Upload failed" });
+  }
+});
 
 export default router;

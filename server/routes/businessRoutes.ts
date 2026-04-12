@@ -13,6 +13,7 @@ import {
   belongsToBusiness,
   checkIsAdmin,
   checkBelongsToBusiness,
+  ApiKeyRequest,
 } from "../auth";
 import { sanitizeBusiness } from '../utils/sanitize';
 import { logAndSwallow } from '../utils/safeAsync';
@@ -22,15 +23,28 @@ import businessProvisioningService from "../services/businessProvisioningService
 import schedulerService from "../services/schedulerService";
 import { GoogleBusinessProfileService } from "../services/googleBusinessProfileService";
 
+import multer from "multer";
+import { uploadBufferToS3, isS3Configured } from "../utils/s3Upload";
+
 const router = Router();
+
+// Multer for logo upload (2MB max, images only)
+const logoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files allowed"));
+  },
+});
 
 // Helper to get businessId from authenticated request
 const getBusinessId = (req: Request): number => {
   if (req.isAuthenticated() && req.user?.businessId) {
     return req.user.businessId;
   }
-  if ((req as any).apiKeyBusinessId) {
-    return (req as any).apiKeyBusinessId;
+  if ((req as ApiKeyRequest).apiKeyBusinessId) {
+    return (req as ApiKeyRequest).apiKeyBusinessId!;
   }
   return 0;
 };
@@ -396,7 +410,7 @@ router.get("/business/setup-status", isAuthenticated, async (req: Request, res: 
 // Dismiss or show the setup checklist (replaces localStorage)
 router.post("/user/setup-checklist-dismiss", isAuthenticated, async (req: Request, res: Response) => {
   try {
-    const userId = (req.user as any)?.id;
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: "Not authenticated" });
     const { dismissed } = req.body;
     await storage.updateUser(userId, { setupChecklistDismissed: !!dismissed });
@@ -410,7 +424,7 @@ router.post("/user/setup-checklist-dismiss", isAuthenticated, async (req: Reques
 // Dismiss a feature discovery tip
 router.post("/user/dismiss-tip", isAuthenticated, async (req: Request, res: Response) => {
   try {
-    const userId = (req.user as any)?.id;
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: "Not authenticated" });
     const { tipId } = req.body;
     if (!tipId || typeof tipId !== 'string') return res.status(400).json({ message: "Invalid tip ID" });
@@ -573,6 +587,37 @@ router.put("/business-hours/:id", isAuthenticated, async (req: Request, res: Res
       return res.status(400).json({ errors: error.format() });
     }
     res.status(500).json({ message: "Error updating business hours" });
+  }
+});
+
+/**
+ * POST /api/business/:id/logo — Upload business logo to S3
+ */
+router.post("/api/business/:id/logo", isAuthenticated, logoUpload.single("logo"), async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.id);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const userBusinessId = (req.user as any)?.businessId;
+    if (businessId !== userBusinessId) return res.status(403).json({ error: "Not your business" });
+
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    if (!isS3Configured()) {
+      return res.status(503).json({ error: "File storage not configured" });
+    }
+
+    const ext = req.file.originalname.split(".").pop() || "png";
+    const key = `logos/business-${businessId}-${Date.now()}.${ext}`;
+    const logoUrl = await uploadBufferToS3(req.file.buffer, key, req.file.mimetype);
+
+    // Save URL to business record
+    await db.execute(sql`UPDATE businesses SET logo_url = ${logoUrl} WHERE id = ${businessId}`);
+
+    res.json({ logoUrl });
+  } catch (error: any) {
+    console.error("[Business] Logo upload error:", error);
+    res.status(500).json({ error: error.message || "Upload failed" });
   }
 });
 

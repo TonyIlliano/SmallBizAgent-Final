@@ -21,10 +21,30 @@
 
 import { storage } from '../storage';
 import retellService from './retellService';
-import { Business, businessPhoneNumbers } from '@shared/schema';
+import { Business, businessPhoneNumbers, Staff } from '@shared/schema';
 import { db } from '../db';
 import { eq, and, sql } from 'drizzle-orm';
 import twilio from 'twilio';
+
+/**
+ * Business object augmented with runtime properties injected before
+ * passing to the system prompt builder. These properties are NOT
+ * persisted in the database — they are attached in-memory during
+ * provisioning / update flows.
+ */
+interface BusinessWithExtras extends Business {
+  _staff?: Staff[];
+  _intelligenceHints?: string;
+}
+
+/**
+ * Shape returned by Drizzle's `db.execute(sql`...`)` for raw SQL queries.
+ * Drizzle may return `{ rows: [...] }` or a bare array depending on the driver.
+ */
+interface RawQueryResult {
+  rows?: Array<Record<string, unknown>>;
+  [index: number]: Record<string, unknown> | undefined;
+}
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -416,16 +436,18 @@ export async function provisionRetellForBusiness(businessId: number): Promise<{
     }
 
     // Inject staff into business object for system prompt builder (it reads business.staff or staff param)
-    (business as any)._staff = staff;
-    // Inject intelligence hints for the prompt builder
-    (business as any)._intelligenceHints = intelligenceHints;
+    const augmentedBusiness: BusinessWithExtras = Object.assign(business, {
+      _staff: staff,
+      _intelligenceHints: intelligenceHints,
+    });
 
     // Check if Retell agent already exists — read retellAgentId via raw SQL
     // since the column may not be in the Drizzle schema yet
     const bizResult = await db.execute(
       sql`SELECT retell_agent_id, retell_llm_id FROM businesses WHERE id = ${businessId}`
     );
-    const bizRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const rawResult = bizResult as unknown as RawQueryResult;
+    const bizRow = rawResult.rows?.[0] || rawResult[0];
     const existingAgentId = bizRow?.retell_agent_id as string | null;
     const existingLlmId = bizRow?.retell_llm_id as string | null;
 
@@ -438,7 +460,7 @@ export async function provisionRetellForBusiness(businessId: number): Promise<{
 
       const updateResult = await retellService.updateLlm(
         existingLlmId,
-        business,
+        augmentedBusiness,
         services,
         businessHours,
         receptionistConfig,
@@ -452,7 +474,7 @@ export async function provisionRetellForBusiness(businessId: number): Promise<{
       const agentUpdateResult = await retellService.updateAgent(
         existingAgentId,
         existingLlmId,
-        business,
+        augmentedBusiness,
         receptionistConfig
       );
 
@@ -467,7 +489,7 @@ export async function provisionRetellForBusiness(businessId: number): Promise<{
       console.log(`[Retell] Creating new LLM + agent for business ${businessId}...`);
 
       const llmResult = await retellService.createLlmForBusiness(
-        business,
+        augmentedBusiness,
         services,
         businessHours,
         receptionistConfig,
@@ -481,7 +503,7 @@ export async function provisionRetellForBusiness(businessId: number): Promise<{
 
       const agentResult = await retellService.createAgentForBusiness(
         llmId,
-        business,
+        augmentedBusiness,
         receptionistConfig
       );
 
@@ -652,8 +674,9 @@ export async function connectPhoneToRetell(
       const bizResult = await db.execute(
         sql`SELECT retell_agent_id FROM businesses WHERE id = ${businessId}`
       );
-      const cpRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
-      targetAgentId = cpRow?.retell_agent_id as string | null || undefined;
+      const cpRawResult = bizResult as unknown as RawQueryResult;
+      const cpRow = cpRawResult.rows?.[0] || cpRawResult[0];
+      targetAgentId = (cpRow?.retell_agent_id as string) ?? undefined;
     }
 
     if (!targetAgentId) {
@@ -727,7 +750,8 @@ export async function updateRetellAgent(businessId: number): Promise<{
     const bizResult = await db.execute(
       sql`SELECT retell_agent_id, retell_llm_id FROM businesses WHERE id = ${businessId}`
     );
-    const bizRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const rawResult = bizResult as unknown as RawQueryResult;
+    const bizRow = rawResult.rows?.[0] || rawResult[0];
     const existingAgentId = bizRow?.retell_agent_id as string | null;
     const existingLlmId = bizRow?.retell_llm_id as string | null;
 
@@ -764,13 +788,15 @@ export async function updateRetellAgent(businessId: number): Promise<{
     }
 
     // Inject staff + intelligence hints for the prompt builder
-    (business as any)._staff = staff;
-    (business as any)._intelligenceHints = intelligenceHints;
+    const augmentedBusiness: BusinessWithExtras = Object.assign(business, {
+      _staff: staff,
+      _intelligenceHints: intelligenceHints,
+    });
 
     // Update the LLM (contains the system prompt, tools, etc.)
     const llmResult = await retellService.updateLlm(
       existingLlmId,
-      business,
+      augmentedBusiness,
       services,
       businessHours,
       receptionistConfig,
@@ -785,7 +811,7 @@ export async function updateRetellAgent(businessId: number): Promise<{
     const agentResult = await retellService.updateAgent(
       existingAgentId,
       existingLlmId,
-      business,
+      augmentedBusiness,
       receptionistConfig
     );
 
@@ -832,7 +858,8 @@ export async function removeRetellAgent(businessId: number): Promise<{
     const bizResult = await db.execute(
       sql`SELECT retell_agent_id, retell_llm_id FROM businesses WHERE id = ${businessId}`
     );
-    const bizRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const removeRawResult = bizResult as unknown as RawQueryResult;
+    const bizRow = removeRawResult.rows?.[0] || removeRawResult[0];
     const existingAgentId = bizRow?.retell_agent_id as string | null;
     const existingLlmId = bizRow?.retell_llm_id as string | null;
 
@@ -903,7 +930,8 @@ export async function getRetellStatus(businessId: number): Promise<{
   const statusResult = await db.execute(
     sql`SELECT retell_agent_id, retell_phone_number_id FROM businesses WHERE id = ${businessId}`
   );
-  const statusRow = (statusResult as any)?.rows?.[0] || (statusResult as any)?.[0];
+  const statusRawResult = statusResult as unknown as RawQueryResult;
+  const statusRow = statusRawResult.rows?.[0] || statusRawResult[0];
   const retellAgentId = statusRow?.retell_agent_id as string | null;
   const retellPhoneNumberId = statusRow?.retell_phone_number_id as string | null;
 
@@ -953,7 +981,8 @@ export async function connectSpecificPhoneToRetell(
     const bizResult = await db.execute(
       sql`SELECT retell_agent_id FROM businesses WHERE id = ${businessId}`
     );
-    const csRow = (bizResult as any)?.rows?.[0] || (bizResult as any)?.[0];
+    const csRawResult = bizResult as unknown as RawQueryResult;
+    const csRow = csRawResult.rows?.[0] || csRawResult[0];
     const retellAgentId = csRow?.retell_agent_id as string | null;
 
     if (!retellAgentId) {

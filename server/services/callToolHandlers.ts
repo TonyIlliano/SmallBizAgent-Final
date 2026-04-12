@@ -693,6 +693,132 @@ export interface FunctionResult {
   result: any;
 }
 
+/**
+ * ===========================================
+ * TOOL CALL PARAMETER INTERFACES
+ * ===========================================
+ * Typed interfaces for each tool function's parameters,
+ * replacing `as any` casts in the dispatch function.
+ */
+
+interface BookAppointmentParams {
+  customerId?: number;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  date: string;
+  time: string;
+  serviceId?: number;
+  serviceName?: string;
+  staffId?: number;
+  staffName?: string;
+  notes?: string;
+  estimatedDuration?: number;
+}
+
+interface BookRecurringAppointmentParams {
+  customerId?: number;
+  customerName?: string;
+  customerPhone?: string;
+  serviceId?: number;
+  serviceName?: string;
+  staffId?: number;
+  staffName?: string;
+  startDate: string;
+  time: string;
+  frequency: string;
+  occurrences?: number;
+  notes?: string;
+}
+
+interface CreateCustomerParams {
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  phone: string;
+  email?: string;
+}
+
+interface RescheduleAppointmentParams {
+  appointmentId?: number;
+  newDate: string;
+  newTime: string;
+  reason?: string;
+  staffName?: string;
+}
+
+interface CancelAppointmentParams {
+  appointmentId?: number;
+  reason?: string;
+}
+
+interface GetEstimateParams {
+  serviceNames?: string[];
+  description?: string;
+}
+
+interface TransferToHumanParams {
+  reason?: string;
+  urgent?: boolean;
+}
+
+interface LeaveMessageParams {
+  message: string;
+  urgent?: boolean;
+  callbackRequested?: boolean;
+}
+
+interface ScheduleCallbackParams {
+  preferredTime?: string;
+  preferredDate?: string;
+  reason?: string;
+  urgent?: boolean;
+}
+
+interface UpdateCustomerInfoParams {
+  customerId?: number;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+}
+
+interface ConfirmAppointmentParams {
+  appointmentId?: number;
+  confirmed: boolean;
+}
+
+interface CreateOrderParams {
+  items: Array<{
+    itemId?: string;
+    cloverItemId?: string;
+    quantity: number;
+    modifiers?: Array<{ modifierId?: string; cloverId?: string }>;
+    notes?: string;
+  }>;
+  callerPhone?: string;
+  callerName?: string;
+  orderType?: string;
+  orderNotes?: string;
+}
+
+interface CheckReservationAvailabilityParams {
+  date: string;
+  partySize: number;
+}
+
+interface MakeReservationParams {
+  date: string;
+  time: string;
+  partySize: number;
+  customerName: string;
+  specialRequests?: string;
+}
+
+interface CancelReservationParams {
+  customerName: string;
+  date?: string;
+}
+
 // Legacy interface kept for backward compatibility during migration
 interface _LegacyVapiWebhookRequest {
   message: {
@@ -776,10 +902,10 @@ export async function dispatchToolCall(
         }
 
       case 'bookAppointment':
-        return await bookAppointment(businessId, parameters as any, callerPhone);
+        return await bookAppointment(businessId, parameters as BookAppointmentParams, callerPhone);
 
       case 'bookRecurringAppointment':
-        return await bookRecurringAppointment(businessId, parameters as any, callerPhone);
+        return await bookRecurringAppointment(businessId, parameters as BookRecurringAppointmentParams, callerPhone);
 
       case 'getCustomerInfo':
         return await getCustomerInfo(businessId, parameters.phoneNumber || callerPhone);
@@ -829,37 +955,37 @@ export async function dispatchToolCall(
         }
 
       case 'createCustomer':
-        return await createCustomer(businessId, parameters as any);
+        return await createCustomer(businessId, parameters as CreateCustomerParams);
 
       case 'rescheduleAppointment':
-        return await rescheduleAppointment(businessId, parameters as any, callerPhone);
+        return await rescheduleAppointment(businessId, parameters as RescheduleAppointmentParams, callerPhone);
 
       case 'cancelAppointment':
-        return await cancelAppointment(businessId, parameters as any, callerPhone);
+        return await cancelAppointment(businessId, parameters as CancelAppointmentParams, callerPhone);
 
       case 'getBusinessHours':
         return await getBusinessHours(businessId);
 
       case 'getEstimate':
-        return await getEstimate(businessId, parameters as any);
+        return await getEstimate(businessId, parameters as GetEstimateParams);
 
       case 'transferToHuman':
-        return await transferToHuman(businessId, parameters as any, callerPhone);
+        return await transferToHuman(businessId, parameters as TransferToHumanParams, callerPhone);
 
       case 'leaveMessage':
-        return await leaveMessage(businessId, parameters as any, callerPhone);
+        return await leaveMessage(businessId, parameters as LeaveMessageParams, callerPhone);
 
       case 'getUpcomingAppointments':
         return await getUpcomingAppointments(businessId, callerPhone);
 
       case 'scheduleCallback':
-        return await scheduleCallback(businessId, parameters as any, callerPhone);
+        return await scheduleCallback(businessId, parameters as ScheduleCallbackParams, callerPhone);
 
       case 'recognizeCaller':
         return await recognizeCaller(businessId, callerPhone);
 
       case 'updateCustomerInfo':
-        return await updateCustomerInfo(businessId, parameters as any, callerPhone);
+        return await updateCustomerInfo(businessId, parameters as UpdateCustomerInfoParams, callerPhone);
 
       case 'getDirections':
         return await getDirections(businessId, callerPhone, parameters?.sendSms);
@@ -868,7 +994,7 @@ export async function dispatchToolCall(
         return await checkWaitTime(businessId);
 
       case 'confirmAppointment':
-        return await confirmAppointment(businessId, parameters as any, callerPhone);
+        return await confirmAppointment(businessId, parameters as ConfirmAppointmentParams, callerPhone);
 
       case 'getServiceDetails':
         return await getServiceDetails(businessId, parameters.serviceName);
@@ -881,17 +1007,17 @@ export async function dispatchToolCall(
         return await handleGetMenuCategory(businessId, parameters.categoryName);
 
       case 'createOrder':
-        return await handleCreateOrder(businessId, parameters as any, callerPhone);
+        return await handleCreateOrder(businessId, parameters as CreateOrderParams, callerPhone);
 
       // ========== Restaurant Reservation Functions ==========
       case 'checkReservationAvailability':
-        return await handleCheckReservationAvailability(businessId, parameters as any);
+        return await handleCheckReservationAvailability(businessId, parameters as CheckReservationAvailabilityParams);
 
       case 'makeReservation':
-        return await handleMakeReservation(businessId, parameters as any, callerPhone || '');
+        return await handleMakeReservation(businessId, parameters as MakeReservationParams, callerPhone || '');
 
       case 'cancelReservation':
-        return await handleCancelReservation(businessId, parameters as any, callerPhone || '');
+        return await handleCancelReservation(businessId, parameters as CancelReservationParams, callerPhone || '');
 
       default:
         return { error: `Unknown function: ${name}` };
@@ -2678,7 +2804,7 @@ async function bookRecurringAppointment(
           notes: `${params.notes || ''} [Recurring: ${frequency}, ${i + 1}/${occurrences}]`.trim(),
         }, i === 0 ? (callerPhone || customerPhone) : undefined); // SMS only for first appointment
 
-        const aptResult = (result as any)?.result;
+        const aptResult = result.result;
         if (aptResult?.success) {
           bookedDates.push(aptDisplayDate);
         } else {
@@ -2687,7 +2813,7 @@ async function bookRecurringAppointment(
         }
       } catch (err) {
         failedCount++;
-        console.error(`[bookRecurringAppointment] Error booking occurrence ${i + 1}:`, (err as any).message);
+        console.error(`[bookRecurringAppointment] Error booking occurrence ${i + 1}:`, err instanceof Error ? err.message : String(err));
       }
     }
 
@@ -2933,7 +3059,7 @@ async function rescheduleAppointment(
     } catch (jobUpdateErr) {
       console.error('Failed to update linked job for rescheduled appointment:', {
         appointmentId: appointment.id,
-        error: (jobUpdateErr as any).message
+        error: jobUpdateErr instanceof Error ? jobUpdateErr.message : String(jobUpdateErr)
       });
     }
 
@@ -3090,7 +3216,7 @@ async function cancelAppointment(
     } catch (jobCancelErr) {
       console.error('Failed to cancel linked job for appointment:', {
         appointmentId: appointment.id,
-        error: (jobCancelErr as any).message
+        error: jobCancelErr instanceof Error ? jobCancelErr.message : String(jobCancelErr)
       });
     }
 
@@ -4130,7 +4256,7 @@ async function getDirections(businessId: number, callerPhone?: string, sendSms?:
         }
       };
     } catch (err) {
-      console.error('[getDirections] Failed to send SMS:', (err as any).message);
+      console.error('[getDirections] Failed to send SMS:', err instanceof Error ? err.message : String(err));
       return {
         result: {
           hasAddress: true,
@@ -4909,7 +5035,7 @@ async function handleCreateOrder(
         })),
         callerPhone: phone,
         callerName: parameters.callerName,
-        orderType: orderType as any,
+        orderType: orderType as 'pickup' | 'delivery' | 'dine_in',
         orderNotes: parameters.orderNotes,
       });
     } else {

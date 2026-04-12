@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
-import { X, Send, MessageCircle } from "lucide-react";
+import { X, Send, MessageCircle, Mail, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -235,6 +235,14 @@ export function SupportChat() {
                 <Send className="h-4 w-4" />
               </button>
             </div>
+          </div>
+          <div className="flex items-center justify-between px-3 pb-2">
+            <a href="mailto:bark@smallbizagent.ai?subject=Support%20Request" className="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-1">
+              <Mail className="h-3 w-3" /> Email Support
+            </a>
+            <a href="/help" className="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-1">
+              <HelpCircle className="h-3 w-3" /> Help Center
+            </a>
           </div>
         </div>
       )}

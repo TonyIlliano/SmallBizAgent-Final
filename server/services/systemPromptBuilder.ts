@@ -13,7 +13,8 @@
  * - generateSystemPrompt(...) — THE MAIN FUNCTION (~550 lines of prompt engineering)
  */
 
-import { Business, Service } from '@shared/schema';
+import { Business, Service, ReceptionistConfig, UnansweredQuestion, CallIntelligence } from '@shared/schema';
+import type { Staff } from '@shared/schema';
 import { storage } from '../storage';
 import { formatMenuForPrompt, type CachedMenu } from './cloverService';
 
@@ -32,6 +33,15 @@ export interface ProviderPromptHints {
   toolCallFormat?: string;
 }
 
+/** Shape of the keyFacts JSONB field on CallIntelligence rows */
+interface CallIntelligenceKeyFacts {
+  servicesMentioned?: string[];
+  objections?: string[];
+  preferredTimes?: string[];
+  staffPreference?: string;
+  priceDiscussed?: boolean;
+}
+
 /** Default hints for Vapi (backward-compatible) */
 const VAPI_DEFAULT_HINTS: ProviderPromptHints = {
   endCallInstruction: '',
@@ -48,8 +58,8 @@ export interface PromptOptions {
   afterHoursMessage?: string;
   voicemailEnabled?: boolean;
   staffSection?: string;
-  receptionistConfig?: any;
-  staff?: any[];
+  receptionistConfig?: ReceptionistConfig;
+  staff?: Staff[];
 }
 
 /**
@@ -71,8 +81,8 @@ export async function buildIntelligenceHints(businessId: number): Promise<string
     const hints: string[] = [];
 
     // 1. Surface top unanswered questions (things callers ask that the AI couldn't answer)
-    const pendingQuestions = (unansweredQuestions as any[])
-      .filter((q: any) => q.status === 'pending')
+    const pendingQuestions = unansweredQuestions
+      .filter(q => q.status === 'pending')
       .slice(0, 5);
 
     if (pendingQuestions.length > 0) {
@@ -83,13 +93,11 @@ export async function buildIntelligenceHints(businessId: number): Promise<string
     }
 
     // 2. Extract frequently mentioned services from call intelligence (last 30 days)
-    const recentIntel = callIntelligenceData as any[];
-
-    if (recentIntel.length > 0) {
+    if (callIntelligenceData.length > 0) {
       // Count service mentions across all recent calls
       const serviceMentions: Record<string, number> = {};
-      for (const ci of recentIntel) {
-        const keyFacts = ci.keyFacts;
+      for (const ci of callIntelligenceData) {
+        const keyFacts = ci.keyFacts as CallIntelligenceKeyFacts | null;
         if (keyFacts?.servicesMentioned) {
           for (const svc of keyFacts.servicesMentioned) {
             const normalized = svc.toLowerCase().trim();
@@ -112,8 +120,8 @@ export async function buildIntelligenceHints(businessId: number): Promise<string
 
       // 3. Common objections/concerns
       const objections: Record<string, number> = {};
-      for (const ci of recentIntel) {
-        const keyFacts = ci.keyFacts;
+      for (const ci of callIntelligenceData) {
+        const keyFacts = ci.keyFacts as CallIntelligenceKeyFacts | null;
         if (keyFacts?.objections) {
           for (const obj of keyFacts.objections) {
             const normalized = obj.toLowerCase().trim();
@@ -134,9 +142,9 @@ export async function buildIntelligenceHints(businessId: number): Promise<string
       }
 
       // 4. Overall sentiment trend
-      const sentiments = recentIntel
-        .filter((ci: any) => ci.sentiment && ci.sentiment > 0)
-        .map((ci: any) => ci.sentiment);
+      const sentiments = callIntelligenceData
+        .filter(ci => ci.sentiment && ci.sentiment > 0)
+        .map(ci => ci.sentiment as number);
       if (sentiments.length >= 5) {
         const avgSentiment = sentiments.reduce((a: number, b: number) => a + b, 0) / sentiments.length;
         if (avgSentiment < 3) {
@@ -151,7 +159,7 @@ export async function buildIntelligenceHints(businessId: number): Promise<string
     const hintsText = hints.join('\n');
     return hintsText.length > 500 ? hintsText.substring(0, 497) + '...' : hintsText;
   } catch (err) {
-    console.warn('[buildIntelligenceHints] Failed, skipping:', (err as any)?.message);
+    console.warn('[buildIntelligenceHints] Failed, skipping:', err instanceof Error ? err.message : String(err));
     return undefined;
   }
 }
@@ -159,7 +167,7 @@ export async function buildIntelligenceHints(businessId: number): Promise<string
 /**
  * Format business hours from database into readable string
  */
-export function formatBusinessHoursFromDB(hours: any[]): string {
+export function formatBusinessHoursFromDB(hours: Array<{ day: string; open: string; close: string; isClosed?: boolean | null }>): string {
   if (!hours || hours.length === 0) {
     return 'Monday through Friday 9 AM to 5 PM';
   }
@@ -214,7 +222,7 @@ export function formatBusinessHoursFromDB(hours: any[]): string {
  * Determine if business is currently open based on hours AND current time.
  * Compares the business's local time against today's open/close window.
  */
-export function isBusinessOpenNow(hours: any[], timezone: string = 'America/New_York'): { isOpen: boolean; todayHours: string } {
+export function isBusinessOpenNow(hours: Array<{ day: string; open: string; close: string; isClosed?: boolean | null }>, timezone: string = 'America/New_York'): { isOpen: boolean; todayHours: string } {
   // Use business timezone to determine what day it is (not server UTC)
   const now = new Date();
   const today = now.toLocaleDateString('en-US', {
@@ -351,7 +359,7 @@ export function buildFirstMessage(businessName: string, customGreeting?: string 
 export function generateSystemPrompt(
   business: Business,
   services: Service[],
-  businessHoursFromDB?: any[],
+  businessHoursFromDB?: Array<{ day: string; open: string; close: string; isClosed?: boolean | null }>,
   menuData?: CachedMenu | null,
   options?: PromptOptions,
   knowledgeSection?: string,
@@ -417,18 +425,20 @@ export function generateSystemPrompt(
   // Extract config from receptionistConfig if passed via options (retellService pattern)
   const rc = options?.receptionistConfig;
   const assistantName = options?.assistantName || rc?.assistantName || 'Alex';
+  // Build a mutable copy of options to merge in receptionistConfig values
+  const mergedOptions: PromptOptions = { ...options };
   // Merge custom instructions and voicemail from receptionistConfig
-  if (rc && !options?.customInstructions && rc.customInstructions) {
-    (options as any).customInstructions = rc.customInstructions;
+  if (rc && !mergedOptions.customInstructions && rc.customInstructions) {
+    mergedOptions.customInstructions = rc.customInstructions;
   }
-  if (rc && options?.voicemailEnabled === undefined && rc.voicemailEnabled !== undefined) {
-    (options as any).voicemailEnabled = rc.voicemailEnabled;
+  if (rc && mergedOptions.voicemailEnabled === undefined && rc.voicemailEnabled !== undefined) {
+    mergedOptions.voicemailEnabled = rc.voicemailEnabled ?? undefined;
   }
   // Build staff section from options.staff if staffSection not already set
-  if (rc && !options?.staffSection && options?.staff && options.staff.length > 0) {
-    const activeStaff = options.staff.filter((s: any) => s.active !== false);
+  if (rc && !mergedOptions.staffSection && mergedOptions.staff && mergedOptions.staff.length > 0) {
+    const activeStaff = mergedOptions.staff.filter(s => s.active !== false);
     if (activeStaff.length > 0) {
-      (options as any).staffSection = `TEAM:\n${activeStaff.map((s: any) => `- ${s.firstName} ${s.lastName || ''} (${s.specialty || 'Staff'})${s.id ? ' [ID:' + s.id + ']' : ''}`).join('\n')}\n`;
+      mergedOptions.staffSection = `TEAM:\n${activeStaff.map(s => `- ${s.firstName} ${s.lastName || ''} (${s.specialty || 'Staff'})${s.id ? ' [ID:' + s.id + ']' : ''}`).join('\n')}\n`;
     }
   }
   const basePrompt = `You are ${assistantName}, the AI receptionist for ${business.name}.
@@ -452,7 +462,7 @@ THIS CALLER (may be empty if caller is new or data is loading — if empty, just
 
 SERVICES (ONLY these — if not listed, we don't offer it):
 ${serviceList}
-${options?.staffSection || ''}
+${mergedOptions.staffSection || ''}
 
 == CALL FLOW ==
 
@@ -476,7 +486,7 @@ STAFF: Ask preference if staff listed. Say "isn't working that day" if staffNotW
 AFTER HOURS: Still book. Tell them you're closed but happy to schedule.
 "NO" → "Got it. Anything else?" GARBLED → "Sorry, could you say that again?"
 UNCLEAR SERVICES: Check slang mapping. Close match → "Did you mean [match]?" No match → list what you offer.
-${options?.voicemailEnabled !== false ? 'VOICEMAIL: Only use leaveMessage if caller explicitly asks.' : ''}
+${mergedOptions.voicemailEnabled !== false ? 'VOICEMAIL: Only use leaveMessage if caller explicitly asks.' : ''}
 DIFFICULT CALLERS: Frustrated → empathize. Confused → slow down. Emergency → act fast.
 UPSELLING: After booking, mention ONE complementary service. One sentence, drop if declined.
 `;
@@ -904,11 +914,11 @@ ${knowledgeSection}
 ` : ''}${intelligenceHints ? `
 CALLER PATTERNS (from recent calls — use to anticipate needs):
 ${intelligenceHints}
-` : ''}${options?.customInstructions ? `
+` : ''}${mergedOptions.customInstructions ? `
 CUSTOM INSTRUCTIONS (from the business owner — follow closely):
-${options.customInstructions}
-` : ''}${options?.afterHoursMessage ? `
-AFTER HOURS MESSAGE: "${options.afterHoursMessage}"
+${mergedOptions.customInstructions}
+` : ''}${mergedOptions.afterHoursMessage ? `
+AFTER HOURS MESSAGE: "${mergedOptions.afterHoursMessage}"
 ` : ''}
 Make every caller feel valued. Use their name. Be helpful, not robotic.`;
 }

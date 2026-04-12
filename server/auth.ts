@@ -12,6 +12,51 @@ import { getUserPermissions } from './middleware/permissions';
 import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
 import { pool } from './db';
+import jwt from 'jsonwebtoken';
+
+// JWT secret — reuse SESSION_SECRET for simplicity
+const JWT_SECRET = process.env.SESSION_SECRET || 'dev-only-jwt-secret';
+const JWT_EXPIRES_IN = '30d'; // Mobile tokens last 30 days
+
+/** Sign a JWT for mobile auth */
+export function signMobileToken(payload: { userId: number; businessId: number | null; role: string }): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN, issuer: 'smallbizagent' });
+}
+
+/** Verify and decode a JWT mobile token */
+export function verifyMobileToken(token: string): { userId: number; businessId: number | null; role: string } | null {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET, { issuer: 'smallbizagent' }) as any;
+    return { userId: decoded.userId, businessId: decoded.businessId, role: decoded.role };
+  } catch {
+    return null;
+  }
+}
+
+/** Middleware: authenticate via JWT Bearer token (for mobile app) */
+export async function authenticateJwt(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer jwt_')) {
+    return res.status(401).json({ error: 'Invalid or missing JWT token' });
+  }
+
+  const token = authHeader.substring(7); // Remove "Bearer " prefix
+  const decoded = verifyMobileToken(token);
+  if (!decoded) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  // Fetch the full user from DB
+  const user = await storage.getUser(decoded.userId);
+  if (!user || user.active === false) {
+    return res.status(401).json({ error: 'User not found or disabled' });
+  }
+
+  // Attach user to request (same shape as session auth)
+  (req as any).user = user;
+  (req as any).isAuthenticated = () => true;
+  next();
+}
 
 declare module 'express-session' {
   interface SessionData {
@@ -20,6 +65,14 @@ declare module 'express-session' {
       selectedPlanId?: number;
       promoCode?: string;
     };
+    impersonating?: {
+      businessId: number;
+      businessName: string;
+      originalBusinessId: number;
+    };
+    userAgent?: string;
+    ip?: string;
+    lastActive?: string;
   }
 }
 
@@ -43,8 +96,20 @@ declare global {
       lastLogin: Date | null;
       createdAt: Date | null;
       updatedAt: Date | null;
+      impersonating?: {
+        businessId: number;
+        businessName: string;
+        originalBusinessId: number;
+      };
     }
   }
+}
+
+// Extended request type for API key authentication
+export interface ApiKeyRequest extends Request {
+  apiKeyAuth?: boolean;
+  apiKeyBusinessId?: number;
+  apiKeyBusinessName?: string;
 }
 
 // Convert callback-based scrypt to Promise-based
@@ -165,11 +230,11 @@ export function setupAuth(app: Express) {
   app.use(passport.session());
 
   // Impersonation middleware: override businessId for impersonating admins
-  app.use((req: Request, _res: Response, next: any) => {
-    const impersonating = (req.session as any)?.impersonating;
-    if (impersonating && req.user && (req.user as any).role === 'admin') {
-      (req.user as any).businessId = impersonating.businessId;
-      (req.user as any).impersonating = impersonating;
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const impersonating = req.session?.impersonating;
+    if (impersonating && req.user && req.user.role === 'admin') {
+      req.user.businessId = impersonating.businessId;
+      req.user.impersonating = impersonating;
     }
     next();
   });
@@ -306,9 +371,9 @@ export function setupAuth(app: Express) {
         if (err) return next(err);
 
         // Store session metadata for device/IP tracking
-        (req.session as any).userAgent = req.headers['user-agent'] || '';
-        (req.session as any).ip = req.ip || req.headers['x-forwarded-for'] || '';
-        (req.session as any).lastActive = new Date().toISOString();
+        req.session.userAgent = req.headers['user-agent'] || '';
+        req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
+        req.session.lastActive = new Date().toISOString();
 
         // Don't send the password back to the client
         const { password, ...userWithoutPassword } = user;
@@ -467,15 +532,118 @@ export function setupAuth(app: Express) {
         if (err) return next(err);
 
         // Store session metadata for device/IP tracking
-        (req.session as any).userAgent = req.headers['user-agent'] || '';
-        (req.session as any).ip = req.ip || req.headers['x-forwarded-for'] || '';
-        (req.session as any).lastActive = new Date().toISOString();
+        req.session.userAgent = req.headers['user-agent'] || '';
+        req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
+        req.session.lastActive = new Date().toISOString();
 
         // Don't send the password back to the client
         const { password, ...userWithoutPassword } = user;
         return res.json(userWithoutPassword);
       });
     })(req, res, next);
+  });
+
+  // ── Mobile Login (JWT-based, no session) ──
+  app.post("/api/auth/mobile-login", async (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password required" });
+      }
+
+      // Find user by email (the login field is stored as "username" but could be email)
+      const user = await storage.getUserByUsername(email);
+      if (!user) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Check if account is active
+      if (user.active === false) {
+        return res.status(403).json({ error: "Account is disabled" });
+      }
+
+      // Verify password
+      const valid = await comparePasswords(password, user.password);
+      if (!valid) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Check if 2FA is enabled — mobile app needs to handle this
+      if (user.twoFactorEnabled) {
+        return res.status(200).json({ requiresTwoFactor: true, userId: user.id });
+      }
+
+      // Fetch business info
+      let business = null;
+      if (user.businessId) {
+        business = await storage.getBusiness(user.businessId);
+      }
+
+      // Sign JWT token (prefix with jwt_ so middleware can identify it)
+      const token = 'jwt_' + signMobileToken({
+        userId: user.id,
+        businessId: user.businessId || null,
+        role: user.role || 'user',
+      });
+
+      // Update last login
+      await storage.updateUser(user.id, { lastLogin: new Date() });
+
+      const { password: _, twoFactorSecret: __, twoFactorBackupCodes: ___, ...safeUser } = user;
+
+      res.json({
+        token,
+        user: safeUser,
+        business: business ? {
+          id: business.id,
+          name: business.name,
+          industry: business.industry,
+          timezone: business.timezone,
+          phone: business.phone,
+          logoUrl: business.logoUrl,
+          brandColor: business.brandColor,
+        } : null,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[Auth] Mobile login error:', message);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // ── Mobile Token Refresh ──
+  app.post("/api/auth/mobile-refresh", async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer jwt_')) {
+        return res.status(401).json({ error: "No token provided" });
+      }
+
+      const token = authHeader.substring(7); // Remove "Bearer "
+      const decoded = verifyMobileToken(token);
+      if (!decoded) {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+
+      // Verify user still exists and is active
+      const user = await storage.getUser(decoded.userId);
+      if (!user || user.active === false) {
+        return res.status(401).json({ error: "User not found or disabled" });
+      }
+
+      // Issue fresh token
+      const newToken = 'jwt_' + signMobileToken({
+        userId: user.id,
+        businessId: user.businessId || null,
+        role: user.role || 'user',
+      });
+
+      res.json({ token: newToken });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[Auth] Token refresh error:', message);
+      res.status(500).json({ error: "Refresh failed" });
+    }
   });
 
   app.post("/api/logout", (req, res) => {
@@ -707,9 +875,9 @@ export function setupAuth(app: Express) {
         delete req.session.pending2FA;
 
         // Store session metadata for device/IP tracking
-        (req.session as any).userAgent = req.headers['user-agent'] || '';
-        (req.session as any).ip = req.ip || req.headers['x-forwarded-for'] || '';
-        (req.session as any).lastActive = new Date().toISOString();
+        req.session.userAgent = req.headers['user-agent'] || '';
+        req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
+        req.session.lastActive = new Date().toISOString();
 
         // Don't send the password back to the client
         const { password, ...userWithoutPassword } = user;
@@ -812,7 +980,7 @@ export function setupAuth(app: Express) {
       const { role: effectiveRole, permissions } = getUserPermissions(freshUser);
 
       // If admin is impersonating a business, override businessId in response
-      const impersonating = (req.session as any).impersonating;
+      const impersonating = req.session?.impersonating;
       if (impersonating && freshUser.role === 'admin') {
         res.json({
           ...userWithoutPassword,
@@ -1075,19 +1243,22 @@ export function setupAuth(app: Express) {
 
       // Compile all user data
       const userData = await storage.getUser(userId);
-      const { password: _, twoFactorSecret: __, twoFactorBackupCodes: ___, ...safeUserData } = userData as any;
+      if (!userData) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const { password: _, twoFactorSecret: __, twoFactorBackupCodes: ___, ...safeUserData } = userData;
 
-      let businessData: any = null;
-      let customers: any = null;
-      let appointments: any = null;
-      let callLogData: any = null;
-      let invoiceData: any = null;
+      let businessData: Record<string, unknown> | null = null;
+      let customers: Awaited<ReturnType<typeof storage.getCustomers>> | null = null;
+      let appointments: Awaited<ReturnType<typeof storage.getAppointmentsByBusinessId>> | null = null;
+      let callLogData: Awaited<ReturnType<typeof storage.getCallLogs>> | null = null;
+      let invoiceData: Awaited<ReturnType<typeof storage.getInvoices>> | null = null;
 
       if (businessId) {
-        businessData = await storage.getBusiness(businessId);
+        const rawBusiness = await storage.getBusiness(businessId);
         // Remove sensitive credentials from export
-        if (businessData) {
-          const { quickbooksAccessToken, quickbooksRefreshToken, cloverAccessToken, cloverRefreshToken, squareAccessToken, squareRefreshToken, heartlandApiKey, ...safeBiz } = businessData as any;
+        if (rawBusiness) {
+          const { quickbooksAccessToken, quickbooksRefreshToken, cloverAccessToken, cloverRefreshToken, squareAccessToken, squareRefreshToken, heartlandApiKey, ...safeBiz } = rawBusiness;
           businessData = safeBiz;
         }
         customers = await storage.getCustomers(businessId);
@@ -1210,7 +1381,13 @@ export function setupAuth(app: Express) {
 
         for (const table of tablesToClean) {
           try {
-            await database.delete(table).where(eqOp((table as any).businessId, businessId));
+            // All tables in tablesToClean have a businessId column; use index access
+            // to avoid union type issues with drizzle table types
+            const tableRecord = table as unknown as Record<string, unknown>;
+            const bizIdCol = tableRecord['businessId'];
+            if (bizIdCol) {
+              await database.delete(table).where(eqOp(bizIdCol as typeof schema.callLogs.businessId, businessId));
+            }
           } catch (e) {
             // Some tables might not have businessId column, skip those
           }
@@ -1258,9 +1435,22 @@ export function setupAuth(app: Express) {
 
 // Middleware to check for authentication
 export function isAuthenticated(req: Request, res: Response, next: NextFunction) {
+  // Session auth (web app)
   if (req.isAuthenticated()) {
     return next();
   }
+
+  // JWT auth (mobile app)
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer jwt_')) {
+    return authenticateJwt(req, res, next);
+  }
+
+  // API key auth (integrations)
+  if (authHeader && authHeader.startsWith('Bearer sbz_')) {
+    return authenticateApiKey(req, res, next);
+  }
+
   res.status(401).json({ error: "Not authenticated" });
 }
 
@@ -1344,9 +1534,9 @@ export async function authenticateApiKey(req: Request, res: Response, next: Next
     const keyRecord = result.rows[0];
 
     // Attach business info to request
-    (req as any).apiKeyAuth = true;
-    (req as any).apiKeyBusinessId = keyRecord.business_id;
-    (req as any).apiKeyBusinessName = keyRecord.business_name;
+    (req as ApiKeyRequest).apiKeyAuth = true;
+    (req as ApiKeyRequest).apiKeyBusinessId = keyRecord.business_id;
+    (req as ApiKeyRequest).apiKeyBusinessName = keyRecord.business_name;
 
     // Update last_used_at (fire-and-forget)
     pool.query('UPDATE api_keys SET last_used_at = NOW() WHERE id = $1', [keyRecord.id])

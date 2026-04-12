@@ -20,6 +20,7 @@ import {
   Zap,
   Globe,
   MapPin,
+  HelpCircle,
 } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -257,6 +258,33 @@ export function Sidebar() {
             </>
           )}
         </nav>
+
+        {/* Help Link */}
+        <div className="px-3 pb-1">
+          <Link
+            href="/help"
+            onClick={handleNavClick}
+            className={cn(
+              "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
+              location === "/help"
+                ? "bg-white text-black"
+                : "text-neutral-400 hover:text-white hover:bg-neutral-800/80"
+            )}
+          >
+            <div className={cn(
+              "flex items-center justify-center h-8 w-8 rounded-lg mr-3 md:mr-0 lg:mr-3 transition-all",
+              location === "/help"
+                ? "bg-black text-white"
+                : "bg-neutral-800 text-neutral-400 group-hover:bg-neutral-700 group-hover:text-white"
+            )}>
+              <HelpCircle className="h-4 w-4" />
+            </div>
+            <span className="md:hidden lg:inline flex-1">Help</span>
+            {location === "/help" && (
+              <ChevronRight className="h-4 w-4 md:hidden lg:block text-black" />
+            )}
+          </Link>
+        </div>
 
         {/* Profile Section */}
         <div className="border-t border-neutral-800 p-4">

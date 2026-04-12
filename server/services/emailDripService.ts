@@ -106,7 +106,7 @@ async function sendDripEmail(
   if (!business.email) return false;
 
   // Respect email opt-out
-  if ((business as any).emailOptOut === true) {
+  if (business.emailOptOut === true) {
     return false;
   }
 
@@ -132,9 +132,10 @@ async function sendDripEmail(
     await recordDripSend(business.id, idempotencyKey, business.email, subject, "sent");
     console.log(`[EmailDrip] Sent "${idempotencyKey}" to business ${business.id} (${business.email})`);
     return true;
-  } catch (err: any) {
-    console.error(`[EmailDrip] Failed "${idempotencyKey}" for business ${business.id}:`, err.message);
-    await recordDripSend(business.id, idempotencyKey, business.email, subject, "failed", err.message);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[EmailDrip] Failed "${idempotencyKey}" for business ${business.id}:`, errMsg);
+    await recordDripSend(business.id, idempotencyKey, business.email, subject, "failed", errMsg);
     return false;
   }
 }
@@ -154,9 +155,9 @@ async function processOnboardingDrip(business: Business): Promise<number> {
   let sent = 0;
 
   // Check if the business has already completed core setup
-  const hasPhone = !!(business as any).twilioPhoneNumber;
-  const hasReceptionist = !!(business as any).vapiAssistantId;
-  const hasHours = !!(business as any).businessHours;
+  const hasPhone = !!business.twilioPhoneNumber;
+  const hasReceptionist = !!business.retellAgentId;
+  const hasHours = !!business.businessHours;
   const isFullySetup = hasPhone && hasReceptionist && hasHours;
 
   // Day 1: Remind them to complete onboarding (skip if already set up)
@@ -304,7 +305,7 @@ async function processTrialExpirationDrip(business: Business): Promise<number> {
   const greetingHtml = `Hi <strong>${business.name}</strong> team,`;
 
   // Skip businesses with active paid subscriptions
-  const status = (business as any).subscriptionStatus;
+  const status = business.subscriptionStatus;
   if (status === "active" || status === "trialing") return 0;
 
   const trialEnd = new Date(business.trialEndsAt);
@@ -405,11 +406,11 @@ async function processWinbackDrip(business: Business): Promise<number> {
   const greetingHtml = `Hi <strong>${business.name}</strong> team,`;
 
   // Only target businesses that had a subscription that ended (canceled/churned)
-  const status = (business as any).subscriptionStatus;
+  const status = business.subscriptionStatus;
   if (status !== "canceled" && status !== "past_due" && status !== "unpaid") return 0;
 
   // Use subscriptionEndDate as the cancellation anchor
-  const endDate = (business as any).subscriptionEndDate;
+  const endDate = business.subscriptionEndDate;
   if (!endDate) return 0;
 
   const cancelDate = new Date(endDate);

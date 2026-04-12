@@ -442,21 +442,21 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
     // (no point sending a "pay online" link if they can't actually accept payments)
     const APP_URL = process.env.APP_URL || 'https://www.smallbizagent.ai';
     let payUrl: string | null = null;
-    const hasStripe = !!(business as any).stripeConnectAccountId;
+    const hasStripe = !!business.stripeConnectAccountId;
 
     if (hasStripe) {
       // Auto-generate access token if one doesn't exist yet
-      if (!(invoice as any).accessToken) {
+      if (!invoice.accessToken) {
         try {
           const crypto = await import('crypto');
           const token = crypto.randomBytes(32).toString('hex');
-          await storage.updateInvoice(invoiceId, { accessToken: token } as any);
+          await storage.updateInvoice(invoiceId, { accessToken: token });
           payUrl = `${APP_URL}/portal/invoice/${token}`;
         } catch (tokenErr) {
           console.warn(`[Notification] Failed to generate access token for invoice ${invoiceId}:`, tokenErr);
         }
       } else {
-        payUrl = `${APP_URL}/portal/invoice/${(invoice as any).accessToken}`;
+        payUrl = `${APP_URL}/portal/invoice/${invoice.accessToken}`;
       }
     }
 

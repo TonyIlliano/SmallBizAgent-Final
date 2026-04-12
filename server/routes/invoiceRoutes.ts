@@ -6,7 +6,7 @@ import {
   insertInvoiceSchema,
   insertInvoiceItemSchema,
 } from "@shared/schema";
-import { isAuthenticated } from "../auth";
+import { isAuthenticated, ApiKeyRequest } from "../auth";
 import notificationService from "../services/notificationService";
 import { fireEvent } from "../services/webhookService";
 import { stripeConnectService } from "../services/stripeConnectService";
@@ -21,8 +21,8 @@ const getBusinessId = (req: Request): number => {
     return req.user.businessId;
   }
   // If authenticated via API key, use the attached businessId
-  if ((req as any).apiKeyBusinessId) {
-    return (req as any).apiKeyBusinessId;
+  if ((req as ApiKeyRequest).apiKeyBusinessId) {
+    return (req as ApiKeyRequest).apiKeyBusinessId!;
   }
   // No business associated - return 0 to indicate this
   // Callers should check for 0 and return appropriate error
@@ -30,7 +30,7 @@ const getBusinessId = (req: Request): number => {
 };
 
 // Helper to verify resource belongs to user's business
-const verifyBusinessOwnership = (resource: any, req: Request): boolean => {
+const verifyBusinessOwnership = (resource: { businessId: number } | null | undefined, req: Request): boolean => {
   if (!resource) return false;
   const userBusinessId = getBusinessId(req);
   return resource.businessId === userBusinessId;

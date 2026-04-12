@@ -1457,4 +1457,23 @@ router.post("/test-triggers/:businessId", isAdmin, async (req: Request, res: Res
   }
 });
 
+/**
+ * GET /api/admin/health-history — Health check history for monitoring dashboard
+ */
+router.get("/api/admin/health-history", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const hours = parseInt(req.query.hours as string) || 24;
+    const service = req.query.service as string | undefined;
+    if (req.query.hours && isNaN(parseInt(req.query.hours as string))) {
+      return res.status(400).json({ error: "Invalid hours parameter" });
+    }
+    const { getHealthHistory } = await import("../services/healthCheckService.js");
+    const history = await getHealthHistory(service, hours);
+    res.json({ history });
+  } catch (error: any) {
+    console.error("[Admin] Error fetching health history:", error);
+    res.status(500).json({ error: "Failed to fetch health history", details: error.message });
+  }
+});
+
 export default router;

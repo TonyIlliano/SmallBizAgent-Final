@@ -16,6 +16,7 @@
 
 import { storage } from '../storage';
 import { sendEmail } from '../emailService';
+import type { CallLog, AgentActivityLog, CallIntelligence, Appointment, RestaurantReservation, Invoice, Job } from '@shared/schema';
 
 // ============================================================
 // Industry Classification
@@ -275,132 +276,109 @@ async function gatherBriefData(
   const dateStr = start.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
   // === Fetch data in parallel — only query what the industry needs ===
-  const fetchPromises: Promise<any>[] = [
-    // All industries need calls
-    storage.getCallLogs(businessId, { startDate: start, endDate: end }).catch(() => []),
-    // All industries need agent logs
-    storage.getAgentActivityLogs(businessId, { limit: 500 }).catch(() => []),
-    // All industries need call intelligence for sentiment + follow-up flags
-    storage.getCallIntelligenceByBusiness(businessId, { startDate: start, endDate: end, limit: 200 }).catch(() => []),
-  ];
-
-  // Appointment-based industries
   const needsAppointments = profile !== 'restaurant';
-  if (needsAppointments) {
-    fetchPromises.push(
-      storage.getAppointmentsByBusinessId(businessId).catch(() => [])
-    );
-  }
-
-  // Restaurant needs reservations
   const needsReservations = profile === 'restaurant';
-  if (needsReservations) {
-    fetchPromises.push(
-      storage.getRestaurantReservations(businessId, { date: yesterdayDateStr }).catch(() => [])
-    );
-  }
-
-  // Service trades need invoices (salons/restaurants typically don't use our invoicing)
   const needsInvoices = profile === 'service_trade' || profile === 'general';
-  if (needsInvoices) {
-    fetchPromises.push(
-      storage.getInvoices(businessId).catch(() => [])
-    );
-  }
-
-  // Service trades need jobs
   const needsJobs = profile === 'service_trade';
-  if (needsJobs) {
-    fetchPromises.push(
-      storage.getJobs(businessId).catch(() => [])
-    );
-  }
 
-  const results = await Promise.all(fetchPromises);
-
-  // Unpack results in order
-  let idx = 0;
-  const callLogs = results[idx++] as any[];
-  const agentLogs = results[idx++] as any[];
-  const callIntelligence = results[idx++] as any[];
-  const appointments = needsAppointments ? (results[idx++] as any[]) : [];
-  const reservations = needsReservations ? (results[idx++] as any[]) : [];
-  const invoices = needsInvoices ? (results[idx++] as any[]) : [];
-  const jobs = needsJobs ? (results[idx++] as any[]) : [];
+  const [callLogs, agentLogs, callIntelligenceData, appointments, reservations, invoices, jobs] = await Promise.all([
+    // All industries need calls
+    storage.getCallLogs(businessId, { startDate: start, endDate: end }).catch((): CallLog[] => []),
+    // All industries need agent logs
+    storage.getAgentActivityLogs(businessId, { limit: 500 }).catch((): AgentActivityLog[] => []),
+    // All industries need call intelligence for sentiment + follow-up flags
+    storage.getCallIntelligenceByBusiness(businessId, { startDate: start, endDate: end, limit: 200 }).catch((): CallIntelligence[] => []),
+    // Appointment-based industries
+    needsAppointments
+      ? storage.getAppointmentsByBusinessId(businessId).catch((): Appointment[] => [])
+      : Promise.resolve([] as Appointment[]),
+    // Restaurant needs reservations
+    needsReservations
+      ? storage.getRestaurantReservations(businessId, { date: yesterdayDateStr }).catch((): RestaurantReservation[] => [])
+      : Promise.resolve([] as RestaurantReservation[]),
+    // Service trades need invoices (salons/restaurants typically don't use our invoicing)
+    needsInvoices
+      ? storage.getInvoices(businessId).catch((): Invoice[] => [])
+      : Promise.resolve([] as Invoice[]),
+    // Service trades need jobs
+    needsJobs
+      ? storage.getJobs(businessId).catch((): Job[] => [])
+      : Promise.resolve([] as Job[]),
+  ]);
 
   // === Filter to yesterday's date range (for queries that don't support date params) ===
   const yesterdayCallLogs = callLogs; // already filtered by storage query
-  const yesterdayIntelligence = callIntelligence; // already filtered by storage query with startDate/endDate
+  const yesterdayIntelligence = callIntelligenceData; // already filtered by storage query with startDate/endDate
 
-  const yesterdayAppointments = appointments.filter((a: any) =>
+  const yesterdayAppointments = appointments.filter(a =>
     a.createdAt && new Date(a.createdAt) >= start && new Date(a.createdAt) < end
   );
-  const updatedAppointments = appointments.filter((a: any) =>
+  const updatedAppointments = appointments.filter(a =>
     a.updatedAt && new Date(a.updatedAt) >= start && new Date(a.updatedAt) < end
   );
-  const yesterdayInvoices = invoices.filter((inv: any) => {
+  const yesterdayInvoices = invoices.filter(inv => {
     if (inv.status !== 'paid') return false;
     const ts = inv.updatedAt || inv.createdAt;
     return ts && new Date(ts) >= start && new Date(ts) < end;
   });
-  const yesterdayAgentLogs = agentLogs.filter((l: any) =>
+  const yesterdayAgentLogs = agentLogs.filter(l =>
     l.createdAt && new Date(l.createdAt) >= start && new Date(l.createdAt) < end
   );
-  const yesterdayJobs = jobs.filter((j: any) =>
+  const yesterdayJobs = jobs.filter(j =>
     j.updatedAt && new Date(j.updatedAt) >= start && new Date(j.updatedAt) < end
   );
-  const newJobs = jobs.filter((j: any) =>
+  const newJobs = jobs.filter(j =>
     j.createdAt && new Date(j.createdAt) >= start && new Date(j.createdAt) < end
   );
 
   // === Call stats ===
   const totalCalls = yesterdayCallLogs.length;
-  const answeredCalls = yesterdayCallLogs.filter((c: any) => c.status === 'completed' || c.callDuration > 0).length;
-  const missedCalls = yesterdayCallLogs.filter((c: any) => c.status === 'missed' || c.status === 'no-answer').length;
+  const answeredCalls = yesterdayCallLogs.filter(c => c.status === 'completed' || (c.callDuration && c.callDuration > 0)).length;
+  const missedCalls = yesterdayCallLogs.filter(c => c.status === 'missed' || c.status === 'no-answer').length;
 
   const sentiments = yesterdayIntelligence
-    .map((ci: any) => ci.sentiment)
-    .filter((s: any): s is number => s != null);
+    .map(ci => ci.sentiment)
+    .filter((s): s is number => s != null);
   const averageSentiment = sentiments.length > 0
-    ? sentiments.reduce((a: number, b: number) => a + b, 0) / sentiments.length
+    ? sentiments.reduce((a, b) => a + b, 0) / sentiments.length
     : null;
 
   const durations = yesterdayCallLogs
-    .map((c: any) => c.callDuration)
-    .filter((d: any): d is number => d != null && d > 0);
+    .map(c => c.callDuration)
+    .filter((d): d is number => d != null && d > 0);
   const averageCallDuration = durations.length > 0
-    ? durations.reduce((a: number, b: number) => a + b, 0) / durations.length
+    ? durations.reduce((a, b) => a + b, 0) / durations.length
     : null;
 
   // === Booking stats ===
   const newAppointments = yesterdayAppointments.length;
-  const completedAppointments = updatedAppointments.filter((a: any) => a.status === 'completed').length;
-  const noShows = updatedAppointments.filter((a: any) => a.status === 'no_show').length;
-  const cancellations = updatedAppointments.filter((a: any) => a.status === 'cancelled').length;
+  const completedAppointments = updatedAppointments.filter(a => a.status === 'completed').length;
+  const noShows = updatedAppointments.filter(a => a.status === 'no_show').length;
+  const cancellations = updatedAppointments.filter(a => a.status === 'cancelled').length;
 
   // === Restaurant reservations ===
-  const confirmedReservations = reservations.filter((r: any) => r.status === 'confirmed' || r.status === 'seated' || r.status === 'completed');
+  const confirmedReservations = reservations.filter(r => r.status === 'confirmed' || r.status === 'seated' || r.status === 'completed');
   const newReservations = confirmedReservations.length;
-  const totalCovers = confirmedReservations.reduce((sum: number, r: any) => sum + (Number(r.partySize) || 0), 0);
-  const reservationNoShows = reservations.filter((r: any) => r.status === 'no_show').length;
-  const reservationCancellations = reservations.filter((r: any) => r.status === 'cancelled').length;
+  const totalCovers = confirmedReservations.reduce((sum, r) => sum + (Number(r.partySize) || 0), 0);
+  const reservationNoShows = reservations.filter(r => r.status === 'no_show').length;
+  const reservationCancellations = reservations.filter(r => r.status === 'cancelled').length;
 
   // === Jobs ===
-  const jobsCompleted = yesterdayJobs.filter((j: any) => j.status === 'completed').length;
+  const jobsCompleted = yesterdayJobs.filter(j => j.status === 'completed').length;
   const jobsCreated = newJobs.length;
 
   // === Revenue ===
   const invoicesPaid = yesterdayInvoices.length;
-  const totalCollected = yesterdayInvoices.reduce((sum: number, inv: any) => sum + (Number(inv.total) || 0), 0);
+  const totalCollected = yesterdayInvoices.reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
 
   // === Agent activity ===
-  const followUpsSent = yesterdayAgentLogs.filter((l: any) => l.agentType === 'follow_up' && l.action === 'sms_sent').length;
-  const noShowRecoverySent = yesterdayAgentLogs.filter((l: any) => l.agentType === 'no_show' && l.action === 'sms_sent').length;
-  const rebookingMessagesSent = yesterdayAgentLogs.filter((l: any) => l.agentType === 'rebooking' && l.action === 'sms_sent').length;
-  const reviewRequestsSent = yesterdayAgentLogs.filter((l: any) => l.agentType === 'review' && l.action === 'sms_sent').length;
+  const followUpsSent = yesterdayAgentLogs.filter(l => l.agentType === 'follow_up' && l.action === 'sms_sent').length;
+  const noShowRecoverySent = yesterdayAgentLogs.filter(l => l.agentType === 'no_show' && l.action === 'sms_sent').length;
+  const rebookingMessagesSent = yesterdayAgentLogs.filter(l => l.agentType === 'rebooking' && l.action === 'sms_sent').length;
+  const reviewRequestsSent = yesterdayAgentLogs.filter(l => l.agentType === 'review' && l.action === 'sms_sent').length;
 
   // === Attention items ===
-  const callsNeedingFollowUp = yesterdayIntelligence.filter((ci: any) => ci.followUpNeeded).length;
+  const callsNeedingFollowUp = yesterdayIntelligence.filter(ci => ci.followUpNeeded).length;
 
   let atRiskCustomers = 0;
   try {
@@ -409,20 +387,20 @@ async function gatherBriefData(
   } catch { /* best effort */ }
 
   const missedCallDetails = yesterdayCallLogs
-    .filter((c: any) => c.status === 'missed' || c.status === 'no-answer')
+    .filter(c => c.status === 'missed' || c.status === 'no-answer')
     .slice(0, 5)
-    .map((c: any) => ({
+    .map(c => ({
       callerPhone: c.callerId || 'Unknown',
-      time: new Date(c.callTime || c.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+      time: new Date(c.callTime || new Date()).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
     }));
 
   // Resolve customer/service names for no-show details
-  const noShowSource = profile === 'restaurant'
-    ? reservations.filter((r: any) => r.status === 'no_show').slice(0, 5)
-    : updatedAppointments.filter((a: any) => a.status === 'no_show').slice(0, 5);
+  const noShowSource: Array<{ customerId?: number | null; partySize?: number | null; reservationTime?: string | null; serviceId?: number | null }> = profile === 'restaurant'
+    ? reservations.filter(r => r.status === 'no_show').slice(0, 5)
+    : updatedAppointments.filter(a => a.status === 'no_show').slice(0, 5);
 
   const noShowDetails = await Promise.all(
-    noShowSource.map(async (item: any) => {
+    noShowSource.map(async (item) => {
       let customerName = 'Unknown';
       let service = profile === 'restaurant' ? 'Reservation' : 'Service';
       try {

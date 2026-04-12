@@ -149,6 +149,10 @@ export const businesses = pgTable("businesses", {
   subscriptionEndDate: timestamp("subscription_end_date"),
   trialEndsAt: timestamp("trial_ends_at"),
   gbpLastSyncedAt: timestamp("gbp_last_synced_at"), // Last time GBP data was synced
+  // White-label branding
+  brandName: text("brand_name"), // Custom brand name to replace "SmallBizAgent" in customer-facing content
+  // Push notification tokens (mobile app)
+  pushNotificationTokens: jsonb("push_notification_tokens"), // Array of { token, platform, registeredAt }
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -305,6 +309,7 @@ export const jobs = pgTable("jobs", {
   status: text("status").default("pending"), // pending, in_progress, waiting_parts, completed, cancelled
   estimatedCompletion: timestamp("estimated_completion"),
   notes: text("notes"),
+  photos: jsonb("photos"), // Array of { url, caption?, takenAt } for job site photos
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1832,3 +1837,20 @@ export const workflowRuns = pgTable("workflow_runs", {
 export const insertWorkflowRunSchema = createInsertSchema(workflowRuns).omit({ id: true, createdAt: true, updatedAt: true });
 export type WorkflowRun = typeof workflowRuns.$inferSelect;
 export type InsertWorkflowRun = z.infer<typeof insertWorkflowRunSchema>;
+
+// Health Checks (monitoring service status over time)
+export const healthChecks = pgTable("health_checks", {
+  id: serial("id").primaryKey(),
+  serviceName: text("service_name").notNull(), // "database", "twilio", "retell", "stripe", "openai"
+  status: text("status").notNull(), // "healthy", "degraded", "down"
+  responseTimeMs: integer("response_time_ms"),
+  errorMessage: text("error_message"),
+  checkedAt: timestamp("checked_at").defaultNow(),
+}, (table) => ({
+  serviceNameIdx: index("health_checks_service_name_idx").on(table.serviceName),
+  checkedAtIdx: index("health_checks_checked_at_idx").on(table.checkedAt),
+}));
+
+export const insertHealthCheckSchema = createInsertSchema(healthChecks).omit({ id: true });
+export type HealthCheck = typeof healthChecks.$inferSelect;
+export type InsertHealthCheck = z.infer<typeof insertHealthCheckSchema>;

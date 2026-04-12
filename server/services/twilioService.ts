@@ -49,10 +49,9 @@ async function getSmsFromNumber(): Promise<string | null> {
   // 3. Look up from Twilio account
   if (!client) return null;
   try {
-    const numbers = await client.incomingPhoneNumbers.list({
-      smsEnabled: true,
-      limit: 5,
-    } as any);
+    // smsEnabled is a valid Twilio API filter but not in the SDK's typed interface
+    const listParams: { smsEnabled?: boolean; limit?: number } = { smsEnabled: true, limit: 5 };
+    const numbers = await client.incomingPhoneNumbers.list(listParams as Parameters<typeof client.incomingPhoneNumbers.list>[0]);
     if (numbers.length > 0) {
       discoveredSmsNumber = numbers[0].phoneNumber;
       console.log(`Auto-discovered SMS-capable number: ${discoveredSmsNumber}`);
@@ -134,7 +133,7 @@ export async function sendSms(to: string, body: string, from?: string, businessI
 
     // Use Messaging Service (A2P 10DLC compliant) with business-specific from number
     if (messagingServiceSid) {
-      const msgParams: any = { body, messagingServiceSid, to };
+      const msgParams: { body: string; messagingServiceSid: string; to: string; from?: string } = { body, messagingServiceSid, to };
       // Setting "from" within a Messaging Service forces it to use that specific sender
       if (businessFromNumber) {
         msgParams.from = businessFromNumber;
@@ -266,16 +265,16 @@ export function createVoicemailTwiml(
   twiml.say({ voice: 'alice' }, message);
   
   // Record voicemail
-  const recordOptions: any = {
+  const recordOptions: { action: string; maxLength: number; transcribe: boolean; transcribeCallback?: string } = {
     action: recordingCallback,
     maxLength,
     transcribe
   };
-  
+
   if (transcribe && transcribeCallback) {
     recordOptions.transcribeCallback = transcribeCallback;
   }
-  
+
   twiml.record(recordOptions);
   
   return twiml.toString();

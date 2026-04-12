@@ -4,6 +4,47 @@ import { eq } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { sendPaymentFailedEmail } from '../emailService';
 
+/**
+ * Stripe API version 2025-03-31.basil removed some top-level fields from
+ * Subscription and Invoice types. These interfaces provide type-safe access
+ * to the legacy fields that Stripe still returns in API responses.
+ */
+interface SubscriptionWithLegacyFields {
+  current_period_end: number;
+  discount?: { coupon: { percent_off: number | null; name: string | null } } | null;
+  discounts?: Array<string | { coupon: { percent_off: number | null; name: string | null } }>;
+}
+
+interface InvoiceWithLegacyFields {
+  subscription?: string | null;
+  attempt_count?: number;
+}
+
+/**
+ * Helper to access legacy Stripe fields that exist on the API response
+ * but are not in the SDK type definitions for this API version.
+ */
+function asLegacySubscription(sub: Stripe.Subscription): SubscriptionWithLegacyFields {
+  return sub as unknown as SubscriptionWithLegacyFields;
+}
+
+function asLegacyInvoice(inv: Stripe.Invoice): InvoiceWithLegacyFields {
+  return inv as unknown as InvoiceWithLegacyFields;
+}
+
+/**
+ * When latest_invoice is expanded with payment_intent, this interface
+ * provides type-safe access to the nested client_secret.
+ */
+interface ExpandedInvoice {
+  payment_intent?: { client_secret: string | null } | null;
+}
+
+function asExpandedInvoice(inv: string | Stripe.Invoice | null): ExpandedInvoice | null {
+  if (!inv || typeof inv === 'string') return null;
+  return inv as unknown as ExpandedInvoice;
+}
+
 // Initialize Stripe lazily — don't crash at module load if env var is missing
 let stripe: Stripe | null = null;
 
@@ -64,7 +105,7 @@ export class SubscriptionService {
 
         // Check if subscription is active
         const isActive = subscription.status === 'active' || subscription.status === 'trialing';
-        const periodEnd = new Date((subscription as any).current_period_end * 1000);
+        const periodEnd = new Date(asLegacySubscription(subscription).current_period_end * 1000);
         
         // Get plan details
         const plan = await db.select()
@@ -137,7 +178,7 @@ export class SubscriptionService {
           try {
             stripeCustomer = await getStripe().customers.retrieve(businessRecord.stripeCustomerId);
             // If customer was deleted in Stripe, create a new one
-            if ((stripeCustomer as any).deleted) {
+            if ('deleted' in stripeCustomer && stripeCustomer.deleted) {
               stripeCustomer = null;
             }
           } catch (retrieveError: any) {
@@ -180,7 +221,7 @@ export class SubscriptionService {
       // Create a subscription (with trial if applicable)
       let subscription;
       try {
-        const subscriptionParams: any = {
+        const subscriptionParams: Stripe.SubscriptionCreateParams = {
           customer: stripeCustomer.id,
           items: [
             { price: stripePriceId }
@@ -216,7 +257,7 @@ export class SubscriptionService {
             stripePlanId: planId,
             subscriptionStatus: subscription.status, // 'trialing' or 'incomplete'
             subscriptionStartDate: new Date(),
-            subscriptionPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+            subscriptionPeriodEnd: new Date(asLegacySubscription(subscription).current_period_end * 1000),
             ...(trialEnd ? { trialEndsAt: trialEnd } : {}),
             updatedAt: new Date()
           })
@@ -227,7 +268,7 @@ export class SubscriptionService {
         return {
           subscriptionId: subscription.id,
           status: subscription.status,
-          clientSecret: (subscription.latest_invoice as any)?.payment_intent?.client_secret,
+          clientSecret: asExpandedInvoice(subscription.latest_invoice)?.payment_intent?.client_secret,
           trialEndsAt: trialEnd?.toISOString() || null,
           planName: planRecord.name,
         };
@@ -277,7 +318,7 @@ export class SubscriptionService {
       return {
         status: 'canceling',
         message: 'Subscription will be canceled at the end of the current billing period',
-        periodEnd: new Date((subscription as any).current_period_end * 1000)
+        periodEnd: new Date(asLegacySubscription(subscription).current_period_end * 1000)
       };
     } catch (error) {
       console.error('Error canceling subscription:', error);
@@ -339,7 +380,7 @@ export class SubscriptionService {
       switch (event.type) {
         case 'invoice.payment_succeeded': {
           const invoice = event.data.object as Stripe.Invoice;
-          if ((invoice as any).subscription) {
+          if (asLegacyInvoice(invoice).subscription) {
             await this.handleInvoicePaymentSucceeded(invoice);
           }
           // Handle overage invoice payment
@@ -351,7 +392,7 @@ export class SubscriptionService {
 
         case 'invoice.payment_failed': {
           const invoice = event.data.object as Stripe.Invoice;
-          if ((invoice as any).subscription) {
+          if (asLegacyInvoice(invoice).subscription) {
             // Use enhanced dunning with notifications
             await this.handleInvoicePaymentFailedWithDunning(invoice);
           }
@@ -403,7 +444,7 @@ export class SubscriptionService {
       await db.update(businesses)
         .set({
           subscriptionStatus: subscription.status,
-          subscriptionPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+          subscriptionPeriodEnd: new Date(asLegacySubscription(subscription).current_period_end * 1000),
           updatedAt: new Date()
         })
         .where(eq(businesses.id, business[0].id));
@@ -467,7 +508,7 @@ export class SubscriptionService {
   private async handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
     try {
       // Update the subscription status in our database
-      const subscriptionId = (invoice as any).subscription;
+      const subscriptionId = asLegacyInvoice(invoice).subscription;
       if (subscriptionId) {
         const subscription = await getStripe().subscriptions.retrieve(subscriptionId as string);
         await this.updateSubscriptionStatus(subscription);
@@ -708,7 +749,7 @@ export class SubscriptionService {
       return {
         subscriptionId: subscription.id,
         status: subscription.status,
-        clientSecret: (subscription.latest_invoice as any)?.payment_intent?.client_secret,
+        clientSecret: asExpandedInvoice(subscription.latest_invoice)?.payment_intent?.client_secret,
         locationCount,
         discountApplied: locationCount >= 2,
       };
@@ -747,7 +788,7 @@ export class SubscriptionService {
 
       // Apply or remove discount based on location count
       const discountPercent = group.multiLocationDiscountPercent || 20;
-      const hasDiscount = (subscription as any).discounts?.length > 0 || (subscription as any).discount;
+      const hasDiscount = subscription.discounts?.length > 0 || asLegacySubscription(subscription).discount;
       if (activeCount >= 2 && !hasDiscount) {
         let coupon;
         try {
@@ -793,11 +834,13 @@ export class SubscriptionService {
           subscriptionDetails = {
             id: subscription.id,
             status: subscription.status,
-            currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+            currentPeriodEnd: new Date(asLegacySubscription(subscription).current_period_end * 1000),
             cancelAtPeriodEnd: subscription.cancel_at_period_end,
             quantity: subscription.items.data[0]?.quantity || 0,
             discount: (() => {
-              const disc = (subscription as any).discount || (subscription as any).discounts?.[0];
+              const legacyDisc = asLegacySubscription(subscription).discount;
+              const firstDiscount = subscription.discounts?.[0];
+              const disc = legacyDisc || (typeof firstDiscount !== 'string' ? firstDiscount : null);
               if (!disc?.coupon) return null;
               return { percentOff: disc.coupon.percent_off, name: disc.coupon.name };
             })(),
@@ -1009,7 +1052,7 @@ export class SubscriptionService {
         .set({
           stripePlanId: newPlanId,
           subscriptionStatus: updatedSubscription.status,
-          subscriptionPeriodEnd: new Date((updatedSubscription as any).current_period_end * 1000),
+          subscriptionPeriodEnd: new Date(asLegacySubscription(updatedSubscription).current_period_end * 1000),
           updatedAt: new Date(),
         })
         .where(eq(businesses.id, businessId));
@@ -1038,7 +1081,7 @@ export class SubscriptionService {
    */
   private async handleInvoicePaymentFailedWithDunning(invoice: Stripe.Invoice) {
     try {
-      const subscriptionId = (invoice as any).subscription;
+      const subscriptionId = asLegacyInvoice(invoice).subscription;
       if (!subscriptionId) return;
 
       // Update subscription status in DB
@@ -1056,7 +1099,7 @@ export class SubscriptionService {
       }
 
       // Determine attempt number from Stripe invoice attempt_count
-      const attemptNumber = (invoice as any).attempt_count || 1;
+      const attemptNumber = asLegacyInvoice(invoice).attempt_count || 1;
 
       // Calculate next retry date (Stripe retries at 3, 5, 7 days by default)
       const retryDays = [3, 5, 7];

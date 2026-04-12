@@ -1603,6 +1603,38 @@ export function startWorkflowStepProcessor(): void {
   console.log(`[Scheduler] Workflow step processor started (${intervalMs / 1000}s interval)`);
 }
 
+// ── Health Check Scheduler (every 5 min) ──
+export function startHealthCheckScheduler(): void {
+  const jobKey = 'health-checks';
+  if (scheduledJobs.has(jobKey)) return;
+  console.log('[Scheduler] Starting health check scheduler (every 5 min)');
+
+  const intervalId = setInterval(() => {
+    withReentryGuard('health-checks', async () => {
+      await withAdvisoryLock('health-checks', async () => {
+        const { runAllHealthChecks } = await import('./healthCheckService.js');
+        const results = await runAllHealthChecks();
+        const downServices = results.filter(r => r.status === 'down');
+        if (downServices.length > 0) {
+          try {
+            const { sendAdminAlert } = await import('./adminAlertService.js');
+            await sendAdminAlert({
+              type: 'provisioning_failed',
+              severity: 'high',
+              title: `Service(s) Down: ${downServices.map(s => s.serviceName).join(', ')}`,
+              details: Object.fromEntries(downServices.map(s => [s.serviceName, s.errorMessage || 'Unreachable'])),
+            });
+          } catch (alertErr) {
+            console.error('[HealthCheck] Failed to send admin alert:', alertErr);
+          }
+        }
+      });
+    });
+  }, 5 * 60 * 1000); // Every 5 minutes
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
 export async function startAllSchedulers(): Promise<void> {
   try {
     // Start global reminder scheduler (single timer for all businesses)
@@ -1679,6 +1711,9 @@ export async function startAllSchedulers(): Promise<void> {
 
     // Start weekly business report scheduler (Monday 8 AM per business timezone)
     startWeeklyReportScheduler();
+
+    // Start health check monitor (pings Twilio, Retell, Stripe, OpenAI, DB every 5 min)
+    startHealthCheckScheduler();
 
     console.log('All schedulers started');
   } catch (error) {

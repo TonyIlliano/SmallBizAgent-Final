@@ -18,6 +18,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import { seed } from "./seed";
 import runMigrations from "./migrations/runMigrations";
 import schedulerService from "./services/schedulerService";
+import { setupSwagger } from "./swagger";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
@@ -278,6 +279,10 @@ app.use((req, res, next) => {
     '/api/square-webhook',
     '/api/config/public',
     '/api/contact',
+    '/api/health',
+    '/api/docs',
+    '/api/auth/mobile-login',
+    '/api/auth/mobile-refresh',
     '/health',
   ];
 
@@ -285,6 +290,12 @@ app.use((req, res, next) => {
     safeMethods.includes(req.method) ||
     exemptPaths.some((p) => req.path.startsWith(p))
   ) {
+    return next();
+  }
+
+  // Skip CSRF for JWT-authenticated requests (mobile app uses tokens, not cookies)
+  const authHeader = req.headers.authorization;
+  if (authHeader && (authHeader.startsWith('Bearer jwt_') || authHeader.startsWith('Bearer sbz_'))) {
     return next();
   }
 
@@ -413,6 +424,9 @@ app.use((req, res, next) => {
     app.get('/health/live', (_req, res) => {
       res.status(200).json({ status: 'ok' });
     });
+
+    // Swagger/OpenAPI documentation — mount before routes so /api/docs is available
+    setupSwagger(app);
 
     const server = await registerRoutes(app);
 

@@ -244,8 +244,73 @@ export async function canBusinessAcceptCalls(businessId: number): Promise<{ allo
   }
 }
 
+export interface UsageProjection {
+  projectedMinutesAtPeriodEnd: number;
+  projectedOverageMinutes: number;
+  projectedOverageCost: number;
+  daysRemainingInPeriod: number;
+  averageDailyMinutes: number;
+  billingPeriodStart: string; // ISO date string
+  billingPeriodEnd: string;   // ISO date string
+}
+
+/**
+ * Project end-of-period call minute usage and estimated overage costs.
+ * Uses average daily usage to extrapolate to the end of the billing period.
+ */
+export async function getUsageProjection(businessId: number): Promise<UsageProjection> {
+  const usage = await getUsageInfo(businessId);
+
+  // Determine billing period boundaries
+  // Fetch business to get subscriptionStartDate
+  const [business] = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.id, businessId));
+
+  const subscriptionStartDate = business?.subscriptionStartDate
+    ? new Date(business.subscriptionStartDate)
+    : null;
+
+  const periodStart = getBillingPeriodStart(subscriptionStartDate);
+
+  // Calculate billing period end (1 month from start)
+  const periodEnd = new Date(periodStart);
+  periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+  const now = new Date();
+  const msPerDay = 24 * 60 * 60 * 1000;
+
+  // Days elapsed (at least 1 to avoid division by zero)
+  const daysElapsed = Math.max(1, Math.ceil((now.getTime() - periodStart.getTime()) / msPerDay));
+  // Days remaining (never negative)
+  const daysRemainingInPeriod = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / msPerDay));
+
+  // Average daily usage
+  const averageDailyMinutes = Math.round((usage.minutesUsed / daysElapsed) * 10) / 10;
+
+  // Project total usage at end of period
+  const totalDaysInPeriod = daysElapsed + daysRemainingInPeriod;
+  const projectedMinutesAtPeriodEnd = Math.round(averageDailyMinutes * totalDaysInPeriod);
+
+  // Calculate projected overage
+  const projectedOverageMinutes = Math.max(0, projectedMinutesAtPeriodEnd - usage.minutesIncluded);
+  const projectedOverageCost = Math.round(projectedOverageMinutes * usage.overageRate * 100) / 100;
+
+  return {
+    projectedMinutesAtPeriodEnd,
+    projectedOverageMinutes,
+    projectedOverageCost,
+    daysRemainingInPeriod,
+    averageDailyMinutes,
+    billingPeriodStart: periodStart.toISOString(),
+    billingPeriodEnd: periodEnd.toISOString(),
+  };
+}
+
 export default {
   getMinutesUsedThisMonth,
   getUsageInfo,
+  getUsageProjection,
   canBusinessAcceptCalls,
 };
