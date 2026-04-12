@@ -201,6 +201,9 @@ export const customers = pgTable("customers", {
   marketingOptIn: boolean("marketing_opt_in").default(false),
   marketingOptInDate: timestamp("marketing_opt_in_date"),
   tags: text("tags"), // JSON array of string tags, e.g. '["VIP","Residential","Repeat"]'
+  // Soft delete & archive
+  deletedAt: timestamp("deleted_at"), // Set on soft-delete, null = active
+  isArchived: boolean("is_archived").default(false), // Manually archived by business owner
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

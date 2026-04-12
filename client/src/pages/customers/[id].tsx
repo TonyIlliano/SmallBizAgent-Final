@@ -539,6 +539,14 @@ export default function CustomerDetail() {
     enabled: !isNew && !!customerId,
   });
 
+  // Fetch communication timeline
+  const { data: timeline = [], isLoading: timelineLoading } = useQuery<any[]>({
+    queryKey: [`/api/customers/${customerId}/timeline`],
+    enabled: !isNew && !!customerId,
+  });
+
+  const [activeTab, setActiveTab] = useState<"activity" | "communications">("activity");
+
   // New customer — just show the form
   if (isNew) {
     return (
@@ -810,46 +818,171 @@ export default function CustomerDetail() {
           <InsightsCard insights={insights} isError={insightsError} />
         </div>
 
-        {/* Right: Activity Timeline */}
-        <div className="md:col-span-2">
+        {/* Right: Activity & Communications Timeline */}
+        <div className="md:col-span-2 space-y-0">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Activity Timeline</CardTitle>
+              <div className="flex items-center gap-1 border-b">
+                <button
+                  onClick={() => setActiveTab("activity")}
+                  className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === "activity"
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Activity
+                </button>
+                <button
+                  onClick={() => setActiveTab("communications")}
+                  className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === "communications"
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Communications
+                </button>
+              </div>
             </CardHeader>
             <CardContent>
-              {activityLoading ? (
-                <div className="space-y-3">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="animate-pulse flex items-center gap-3 p-3"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-muted" />
-                      <div className="flex-1 space-y-2">
-                        <div className="h-4 bg-muted rounded w-1/3" />
-                        <div className="h-3 bg-muted rounded w-1/4" />
+              {/* Activity Tab (existing) */}
+              {activeTab === "activity" && (
+                <>
+                  {activityLoading ? (
+                    <div className="space-y-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="animate-pulse flex items-center gap-3 p-3"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-muted" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-4 bg-muted rounded w-1/3" />
+                            <div className="h-3 bg-muted rounded w-1/4" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : activity?.timeline?.length > 0 ? (
+                    <div className="space-y-1">
+                      {activity.timeline.map((entry: any, i: number) => (
+                        <TimelineEntry
+                          key={`${entry.type}-${entry.id}-${i}`}
+                          entry={entry}
+                          navigate={navigate}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No activity yet</p>
+                      <p className="text-xs mt-1">
+                        Jobs, invoices, appointments, calls, and messages will appear here
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Communications Tab (new) */}
+              {activeTab === "communications" && (
+                <>
+                  {timelineLoading ? (
+                    <div className="space-y-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="animate-pulse flex items-center gap-3 p-3"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-muted" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-4 bg-muted rounded w-1/3" />
+                            <div className="h-3 bg-muted rounded w-1/4" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : timeline.length > 0 ? (
+                    <div className="relative pl-6">
+                      {/* Vertical timeline line */}
+                      <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-border" />
+                      <div className="space-y-0">
+                        {timeline.map((item: any, i: number) => {
+                          const iconMap: Record<string, any> = {
+                            call: PhoneIncoming,
+                            sms: MessageSquare,
+                            email: Mail,
+                            appointment: Calendar,
+                            agent: Bot,
+                          };
+                          const colorMap: Record<string, string> = {
+                            call: "text-blue-500 bg-blue-50 dark:bg-blue-900/20",
+                            sms: "text-teal-500 bg-teal-50 dark:bg-teal-900/20",
+                            email: "text-purple-500 bg-purple-50 dark:bg-purple-900/20",
+                            appointment: "text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20",
+                            agent: "text-amber-500 bg-amber-50 dark:bg-amber-900/20",
+                          };
+                          const Icon = iconMap[item.type] || MessageSquare;
+                          const color = colorMap[item.type] || "text-gray-500 bg-gray-50";
+
+                          return (
+                            <div key={`${item.type}-${item.id}-${i}`} className="relative flex items-start gap-3 pb-4">
+                              {/* Timeline dot */}
+                              <div className={`relative z-10 -ml-6 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${color}`}>
+                                <Icon className="h-3 w-3" />
+                              </div>
+                              <div className="flex-1 min-w-0 pt-0.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-sm font-medium truncate">{item.title}</span>
+                                  {item.status && (
+                                    <Badge className={`text-[10px] ${
+                                      item.status === 'sent' || item.status === 'delivered' || item.status === 'completed' || item.status === 'confirmed'
+                                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                        : item.status === 'failed'
+                                        ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                        : 'bg-gray-100 text-gray-600 dark:bg-gray-800/30 dark:text-gray-400'
+                                    }`}>
+                                      {item.status.replace(/_/g, ' ')}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {item.details && (
+                                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                                    {item.details}
+                                  </p>
+                                )}
+                                <div className="text-[11px] text-muted-foreground mt-1">
+                                  {item.timestamp
+                                    ? new Date(item.timestamp).toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                        hour: "numeric",
+                                        minute: "2-digit",
+                                      })
+                                    : ""}
+                                  {item.channel && (
+                                    <span className="ml-2 capitalize">{item.channel}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  ))}
-                </div>
-              ) : activity?.timeline?.length > 0 ? (
-                <div className="space-y-1">
-                  {activity.timeline.map((entry: any, i: number) => (
-                    <TimelineEntry
-                      key={`${entry.type}-${entry.id}-${i}`}
-                      entry={entry}
-                      navigate={navigate}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No activity yet</p>
-                  <p className="text-xs mt-1">
-                    Jobs, invoices, appointments, calls, and messages will appear here
-                  </p>
-                </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No communications yet</p>
+                      <p className="text-xs mt-1">
+                        SMS, emails, calls, and AI agent interactions will appear here
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

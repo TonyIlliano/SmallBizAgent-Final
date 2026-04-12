@@ -124,6 +124,9 @@ async function fixExistingTables() {
   await addColumnIfNotExists('customers', 'marketing_opt_in', 'BOOLEAN DEFAULT false');
   await addColumnIfNotExists('customers', 'marketing_opt_in_date', 'TIMESTAMP');
   await addColumnIfNotExists('customers', 'tags', 'TEXT'); // JSON array of string tags
+  // Soft delete & archive columns
+  await addColumnIfNotExists('customers', 'deleted_at', 'TIMESTAMP');
+  await addColumnIfNotExists('customers', 'is_archived', 'BOOLEAN DEFAULT false');
 
   // Fix appointments - ensure all columns exist
   await addColumnIfNotExists('appointments', 'business_id', 'INTEGER NOT NULL');

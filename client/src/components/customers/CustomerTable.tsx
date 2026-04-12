@@ -20,6 +20,8 @@ import {
   ArrowUpDown,
   MessageSquare,
   FileText,
+  Archive,
+  RotateCcw,
 } from "lucide-react";
 import { SkeletonTable } from "@/components/ui/skeleton-loader";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -113,6 +115,7 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortField, setSortField] = useState<SortField>("created_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [showArchived, setShowArchived] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Debounce search input
@@ -127,10 +130,11 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
   }, [search]);
 
   const { data: customers = [], isLoading } = useQuery<any[]>({
-    queryKey: ['/api/customers/enriched', { businessId, search: debouncedSearch }],
+    queryKey: ['/api/customers/enriched', { businessId, search: debouncedSearch, archived: showArchived }],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set('search', debouncedSearch);
+      if (showArchived) params.set('archived', 'true');
       const res = await fetch(`/api/customers/enriched?${params.toString()}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch customers');
       return res.json();
@@ -159,6 +163,34 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
         variant: "destructive",
       });
       console.error("Error deleting customer:", error);
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: number) => {
+      return apiRequest("POST", `/api/customers/${id}/archive`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/customers/enriched'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/customers'] });
+      toast({ title: "Customer archived", description: "Customer has been moved to the archive." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to archive customer.", variant: "destructive" });
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: number) => {
+      return apiRequest("POST", `/api/customers/${id}/restore`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/customers/enriched'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/customers'] });
+      toast({ title: "Customer restored", description: "Customer has been restored from the archive." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to restore customer.", variant: "destructive" });
     },
   });
 
@@ -342,7 +374,7 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
               <Eye className="h-4 w-4 mr-2" />
               View Details
             </DropdownMenuItem>
-            {customer.phone && (
+            {!showArchived && customer.phone && (
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
@@ -353,25 +385,51 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
                 Send SMS
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/invoices/create?customerId=${customer.id}`);
-              }}
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              Create Invoice
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/appointments?action=book&customerId=${customer.id}`);
-              }}
-            >
-              <Calendar className="h-4 w-4 mr-2" />
-              Book Appointment
-            </DropdownMenuItem>
+            {!showArchived && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/invoices/create?customerId=${customer.id}`);
+                }}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Create Invoice
+              </DropdownMenuItem>
+            )}
+            {!showArchived && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/appointments?action=book&customerId=${customer.id}`);
+                }}
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                Book Appointment
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
+            {showArchived ? (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  restoreMutation.mutate(customer.id);
+                }}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Restore
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                className="text-yellow-600 focus:text-yellow-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  archiveMutation.mutate(customer.id);
+                }}
+              >
+                <Archive className="h-4 w-4 mr-2" />
+                Archive
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               className="text-red-600 focus:text-red-600"
               onClick={(e) => {
@@ -392,8 +450,14 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
         <div>
-          <h2 className="text-2xl font-bold">Customer Management</h2>
-          <p className="text-gray-500">Manage your customer information and history</p>
+          <h2 className="text-2xl font-bold">
+            {showArchived ? "Archived Customers" : "Customer Management"}
+          </h2>
+          <p className="text-gray-500">
+            {showArchived
+              ? "Archived customers can be restored at any time"
+              : "Manage your customer information and history"}
+          </p>
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <div className="relative flex-1 sm:w-64">
@@ -405,12 +469,23 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
               className="pl-9"
             />
           </div>
-          <Link href="/customers/new">
-            <Button className="flex items-center whitespace-nowrap">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add Customer
-            </Button>
-          </Link>
+          <Button
+            variant={showArchived ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowArchived(!showArchived)}
+            className="whitespace-nowrap"
+          >
+            <Archive className="mr-1.5 h-4 w-4" />
+            {showArchived ? "Active" : "Archived"}
+          </Button>
+          {!showArchived && (
+            <Link href="/customers/new">
+              <Button className="flex items-center whitespace-nowrap">
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Add Customer
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -544,15 +619,16 @@ export function CustomerTable({ businessId }: { businessId?: number | null }) {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Delete customer?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the customer{" "}
+              This will remove{" "}
               {customerToDelete && (
                 <span className="font-semibold">
                   {customerToDelete.first_name} {customerToDelete.last_name}
                 </span>
               )}{" "}
-              and all associated data. This action cannot be undone.
+              from your customer list. The record can be recovered by an administrator if needed.
+              Consider archiving instead if you may need to access this customer later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

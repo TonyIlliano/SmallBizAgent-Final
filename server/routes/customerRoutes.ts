@@ -54,6 +54,7 @@ router.get("/customers/enriched", async (req, res) => {
     }
 
     const search = (req.query.search as string) || '';
+    const archived = req.query.archived === 'true';
 
     // Single query that joins customers with invoice totals, appointment data (with service revenue), and call counts
     let query = `
@@ -101,10 +102,17 @@ router.get("/customers/enriched", async (req, res) => {
         WHERE business_id = $1
         GROUP BY caller_id
       ) calls ON calls.caller_id = c.phone
-      WHERE c.business_id = $1
+      WHERE c.business_id = $1 AND c.deleted_at IS NULL
     `;
 
     const params: any[] = [businessId];
+
+    // Filter by archived status
+    if (archived) {
+      query += ` AND c.is_archived = true`;
+    } else {
+      query += ` AND (c.is_archived = false OR c.is_archived IS NULL)`;
+    }
 
     if (search) {
       params.push(`%${search}%`);
@@ -153,6 +161,289 @@ router.get("/customers/tags", async (req, res) => {
   } catch (error) {
     console.error("Error fetching tags:", error);
     res.status(500).json({ error: "Failed to fetch tags" });
+  }
+});
+
+// Bulk import customers from CSV data
+router.post("/customers/import", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const businessId = req.user.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+
+    const importSchema = z.object({
+      customers: z.array(z.object({
+        firstName: z.string().min(1),
+        lastName: z.string().min(1),
+        email: z.string().optional().default(""),
+        phone: z.string().min(1),
+        tags: z.string().optional(),
+        notes: z.string().optional(),
+      })).min(1, "At least one customer is required").max(500, "Maximum 500 customers per import"),
+    });
+
+    const parsed = importSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid import data",
+        details: parsed.error.errors,
+      });
+    }
+
+    const rows = parsed.data.customers;
+    let imported = 0;
+    let skipped = 0;
+    const errors: Array<{ row: number; reason: string }> = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        // Validate email format if provided
+        if (row.email && row.email.trim()) {
+          const emailCheck = z.string().email().safeParse(row.email.trim());
+          if (!emailCheck.success) {
+            errors.push({ row: i + 1, reason: `Invalid email: ${row.email}` });
+            skipped++;
+            continue;
+          }
+        }
+
+        // Validate phone has at least some digits
+        const phoneDigits = row.phone.replace(/\D/g, "");
+        if (phoneDigits.length < 7) {
+          errors.push({ row: i + 1, reason: `Invalid phone number: ${row.phone}` });
+          skipped++;
+          continue;
+        }
+
+        // Check for duplicate phone within this business
+        const existing = await storage.getCustomerByPhone(row.phone, businessId);
+        if (existing) {
+          errors.push({ row: i + 1, reason: `Duplicate phone number: ${row.phone} (${existing.firstName} ${existing.lastName})` });
+          skipped++;
+          continue;
+        }
+
+        await storage.createCustomer({
+          businessId,
+          firstName: row.firstName.trim(),
+          lastName: row.lastName.trim(),
+          email: row.email?.trim() || null,
+          phone: row.phone.trim(),
+          notes: row.notes?.trim() || null,
+          tags: row.tags?.trim() || null,
+        });
+
+        imported++;
+      } catch (err: any) {
+        // Handle unique constraint violations (race condition on duplicate phone)
+        if (err.code === "23505") {
+          errors.push({ row: i + 1, reason: `Duplicate phone number: ${row.phone}` });
+          skipped++;
+        } else {
+          errors.push({ row: i + 1, reason: `Failed to create: ${err.message || "Unknown error"}` });
+          skipped++;
+        }
+      }
+    }
+
+    res.json({ imported, skipped, errors });
+  } catch (error: any) {
+    console.error("Error importing customers:", error);
+    if (error.name === "ZodError") {
+      return res.status(400).json({ error: "Invalid import data", details: error.errors });
+    }
+    res.status(500).json({ error: "Failed to import customers" });
+  }
+});
+
+// Communication timeline for a specific customer
+router.get("/customers/:id/timeline", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const businessId = req.user.businessId;
+    const customerId = parseInt(req.params.id);
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+    if (isNaN(customerId)) {
+      return res.status(400).json({ error: "Invalid customer ID" });
+    }
+
+    // Verify customer belongs to this business
+    const customer = await storage.getCustomer(customerId);
+    if (!customer || customer.businessId !== businessId) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    // Fetch all communication data in parallel
+    const notificationsQuery = pool.query(
+      `SELECT id, type, channel, recipient, subject, message, status, reference_type, reference_id, sent_at
+       FROM notification_log
+       WHERE business_id = $1 AND customer_id = $2
+       ORDER BY sent_at DESC
+       LIMIT $3`,
+      [businessId, customerId, limit]
+    );
+
+    const agentActivityQuery = pool.query(
+      `SELECT id, agent_type, action, reference_type, reference_id, details, created_at
+       FROM agent_activity_log
+       WHERE business_id = $1 AND customer_id = $2
+       ORDER BY created_at DESC
+       LIMIT $3`,
+      [businessId, customerId, limit]
+    );
+
+    const smsConversationsQuery = pool.query(
+      `SELECT id, agent_type, reference_type, reference_id, state, context, last_message_sent_at, last_reply_received_at, created_at
+       FROM sms_conversations
+       WHERE business_id = $1 AND customer_id = $2
+       ORDER BY created_at DESC
+       LIMIT $3`,
+      [businessId, customerId, limit]
+    );
+
+    const callLogsQuery = pool.query(
+      `SELECT id, caller_id, caller_name, status, transcript, intent_detected, call_duration, recording_url, call_time, created_at
+       FROM call_logs
+       WHERE business_id = $1 AND caller_id = $2
+       ORDER BY call_time DESC
+       LIMIT $3`,
+      [businessId, customer.phone, limit]
+    );
+
+    const appointmentsQuery = pool.query(
+      `SELECT a.id, a.start_date, a.end_date, a.status, a.notes, s.name as service_name,
+              CONCAT(st.first_name, ' ', st.last_name) as staff_name
+       FROM appointments a
+       LEFT JOIN services s ON s.id = a.service_id
+       LEFT JOIN staff st ON st.id = a.staff_id
+       WHERE a.business_id = $1 AND a.customer_id = $2
+       ORDER BY a.start_date DESC
+       LIMIT $3`,
+      [businessId, customerId, limit]
+    );
+
+    const [notifications, agentActivity, smsConvos, callLogs, appointments] = await Promise.all([
+      notificationsQuery.catch(() => ({ rows: [] })),
+      agentActivityQuery.catch(() => ({ rows: [] })),
+      smsConversationsQuery.catch(() => ({ rows: [] })),
+      callLogsQuery.catch(() => ({ rows: [] })),
+      appointmentsQuery.catch(() => ({ rows: [] })),
+    ]);
+
+    // Build unified timeline
+    const timeline: Array<{
+      type: string;
+      timestamp: string;
+      title: string;
+      details: string | null;
+      channel?: string;
+      id: number;
+      status?: string | null;
+    }> = [];
+
+    // Notification log entries
+    for (const n of notifications.rows) {
+      const channelLabel = n.channel === 'sms' ? 'SMS' : 'Email';
+      const typeLabel = (n.type || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      timeline.push({
+        type: n.channel === 'sms' ? 'sms' : 'email',
+        timestamp: n.sent_at,
+        title: `${channelLabel}: ${typeLabel}`,
+        details: n.message ? (n.message.length > 150 ? n.message.substring(0, 150) + '...' : n.message) : null,
+        channel: n.channel,
+        id: n.id,
+        status: n.status,
+      });
+    }
+
+    // Agent activity entries
+    for (const a of agentActivity.rows) {
+      const agentLabel = (a.agent_type || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      const actionLabel = (a.action || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      let detailText: string | null = null;
+      if (a.details) {
+        try {
+          const d = typeof a.details === 'string' ? JSON.parse(a.details) : a.details;
+          detailText = d.message || d.response || d.reason || null;
+        } catch { /* ignore */ }
+      }
+      timeline.push({
+        type: 'agent',
+        timestamp: a.created_at,
+        title: `${agentLabel} - ${actionLabel}`,
+        details: detailText,
+        id: a.id,
+      });
+    }
+
+    // SMS conversation entries
+    for (const s of smsConvos.rows) {
+      const agentLabel = (s.agent_type || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      timeline.push({
+        type: 'sms',
+        timestamp: s.created_at,
+        title: `SMS Conversation: ${agentLabel}`,
+        details: `State: ${(s.state || '').replace(/_/g, ' ')}`,
+        channel: 'sms',
+        id: s.id,
+        status: s.state,
+      });
+    }
+
+    // Call log entries
+    for (const c of callLogs.rows) {
+      const isSms = c.status === 'sms';
+      timeline.push({
+        type: isSms ? 'sms' : 'call',
+        timestamp: c.call_time || c.created_at,
+        title: isSms ? 'SMS Message' : `Phone Call${c.intent_detected ? ` - ${c.intent_detected}` : ''}`,
+        details: isSms
+          ? (c.transcript ? (c.transcript.length > 150 ? c.transcript.substring(0, 150) + '...' : c.transcript) : null)
+          : (c.call_duration ? `${Math.floor(c.call_duration / 60)}m ${c.call_duration % 60}s` : null),
+        channel: isSms ? 'sms' : 'phone',
+        id: c.id,
+        status: c.status,
+      });
+    }
+
+    // Appointment entries
+    for (const a of appointments.rows) {
+      let title = a.service_name || 'Appointment';
+      if (a.staff_name && a.staff_name.trim()) title += ` with ${a.staff_name.trim()}`;
+      timeline.push({
+        type: 'appointment',
+        timestamp: a.start_date,
+        title,
+        details: null,
+        id: a.id,
+        status: a.status,
+      });
+    }
+
+    // Sort by timestamp descending, take limit
+    timeline.sort((a, b) => {
+      const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return dateB - dateA;
+    });
+
+    res.json(timeline.slice(0, limit));
+  } catch (error) {
+    console.error("Error fetching customer timeline:", error);
+    res.status(500).json({ error: "Failed to fetch customer timeline" });
   }
 });
 
@@ -365,6 +656,64 @@ router.delete("/customers/:id", async (req, res) => {
   } catch (error) {
     console.error("Error deleting customer:", error);
     res.status(500).json({ error: "Failed to delete customer" });
+  }
+});
+
+// ── Archive / Restore ──
+
+// Archive a customer
+router.post("/customers/:id/archive", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = req.user.businessId;
+    const customerId = parseInt(req.params.id);
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+    if (isNaN(customerId)) {
+      return res.status(400).json({ error: "Invalid customer ID" });
+    }
+
+    const customer = await storage.getCustomer(customerId);
+    if (!customer || customer.businessId !== businessId) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    const updated = await storage.archiveCustomer(customerId, businessId);
+    res.json(updated);
+  } catch (error) {
+    console.error("Error archiving customer:", error);
+    res.status(500).json({ error: "Failed to archive customer" });
+  }
+});
+
+// Restore a customer (unarchive + clear deletedAt)
+router.post("/customers/:id/restore", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = req.user.businessId;
+    const customerId = parseInt(req.params.id);
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+    if (isNaN(customerId)) {
+      return res.status(400).json({ error: "Invalid customer ID" });
+    }
+
+    const customer = await storage.getCustomer(customerId);
+    if (!customer || customer.businessId !== businessId) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    const updated = await storage.restoreCustomer(customerId, businessId);
+    res.json(updated);
+  } catch (error) {
+    console.error("Error restoring customer:", error);
+    res.status(500).json({ error: "Failed to restore customer" });
   }
 });
 

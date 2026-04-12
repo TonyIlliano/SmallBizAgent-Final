@@ -124,12 +124,15 @@ export interface IStorage {
   
   // Customers
   getCustomers(businessId: number): Promise<Customer[]>;
+  getArchivedCustomers(businessId: number): Promise<Customer[]>;
   getCustomer(id: number): Promise<Customer | undefined>;
   getCustomerByPhone(phone: string, businessId: number): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: number, customer: Partial<Customer>): Promise<Customer>;
   deleteCustomer(id: number, businessId: number): Promise<void>;
-  
+  archiveCustomer(id: number, businessId: number): Promise<Customer>;
+  restoreCustomer(id: number, businessId: number): Promise<Customer>;
+
   // Staff
   getStaff(businessId: number): Promise<Staff[]>;
   getStaffMember(id: number): Promise<Staff | undefined>;
@@ -745,7 +748,16 @@ export class DatabaseStorage implements IStorage {
   // Customers
   async getCustomers(businessId: number): Promise<Customer[]> {
     return db.select().from(customers)
-      .where(eq(customers.businessId, businessId));
+      .where(and(eq(customers.businessId, businessId), isNull(customers.deletedAt)));
+  }
+
+  async getArchivedCustomers(businessId: number): Promise<Customer[]> {
+    return db.select().from(customers)
+      .where(and(
+        eq(customers.businessId, businessId),
+        isNull(customers.deletedAt),
+        eq(customers.isArchived, true)
+      ));
   }
 
   async getCustomer(id: number): Promise<Customer | undefined> {
@@ -803,7 +815,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteCustomer(id: number, businessId: number): Promise<void> {
-    await db.delete(customers).where(and(eq(customers.id, id), eq(customers.businessId, businessId)));
+    // Soft delete: set deletedAt instead of removing the row
+    await db.update(customers)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(customers.id, id), eq(customers.businessId, businessId)));
+  }
+
+  async archiveCustomer(id: number, businessId: number): Promise<Customer> {
+    const [updated] = await db.update(customers)
+      .set({ isArchived: true, updatedAt: new Date() })
+      .where(and(eq(customers.id, id), eq(customers.businessId, businessId)))
+      .returning();
+    return updated;
+  }
+
+  async restoreCustomer(id: number, businessId: number): Promise<Customer> {
+    const [updated] = await db.update(customers)
+      .set({ isArchived: false, deletedAt: null, updatedAt: new Date() })
+      .where(and(eq(customers.id, id), eq(customers.businessId, businessId)))
+      .returning();
+    return updated;
   }
 
   // Staff
