@@ -71,8 +71,13 @@ export async function checkRetell(): Promise<HealthCheckResult> {
     return { serviceName: "Retell AI", status: "down", responseTimeMs: 0, errorMessage: "Not configured", checkedAt: new Date() };
   }
   return timedCheck("Retell AI", async () => {
-    const resp = await fetch("https://api.retellai.com/v2/agent", {
-      headers: { Authorization: `Bearer ${key}` },
+    const resp = await fetch("https://api.retellai.com/v2/list-agents", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ limit: 1 }),
     });
     if (!resp.ok && resp.status !== 401) throw new Error(`HTTP ${resp.status}`);
   });

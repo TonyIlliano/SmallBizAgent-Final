@@ -45,8 +45,8 @@ export function getBoss(): PgBoss {
       retryLimit: 3,
       retryDelay: 30, // 30 seconds between retries
       retryBackoff: true, // Exponential backoff (30s, 60s, 120s)
-      // Expiration: jobs older than 24 hours are archived
-      expireInHours: 24,
+      // Expiration: jobs older than 4 hours are expired (pg-boss v10 max is < 24h)
+      expireInHours: 4,
       // Archive completed jobs for 7 days (for debugging)
       archiveCompletedAfterSeconds: 7 * 24 * 60 * 60,
       // Delete archived jobs after 14 days
