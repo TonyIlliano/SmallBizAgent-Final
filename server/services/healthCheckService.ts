@@ -71,15 +71,13 @@ export async function checkRetell(): Promise<HealthCheckResult> {
     return { serviceName: "Retell AI", status: "down", responseTimeMs: 0, errorMessage: "Not configured", checkedAt: new Date() };
   }
   return timedCheck("Retell AI", async () => {
-    const resp = await fetch("https://api.retellai.com/v2/list-agents", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ limit: 1 }),
+    // Use list-phone-numbers as a lightweight ping — returns 200 with valid key, 401 with invalid
+    // Both mean the API is reachable (healthy). Only 5xx or timeout = down.
+    const resp = await fetch("https://api.retellai.com/list-phone-numbers", {
+      headers: { Authorization: `Bearer ${key}` },
     });
-    if (!resp.ok && resp.status !== 401) throw new Error(`HTTP ${resp.status}`);
+    if (resp.status >= 500) throw new Error(`HTTP ${resp.status}`);
+    // 200, 401, 403 all mean the API is up
   });
 }
 
