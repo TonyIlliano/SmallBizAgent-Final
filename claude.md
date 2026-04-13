@@ -1863,4 +1863,14 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: April 12, 2026. AI Job Briefing feature: GET /api/jobs/:id/briefing endpoint generates AI-powered pre-job briefings by pulling from customer insights, call intelligence (last 5 calls), Mem0 memory, previous jobs, and line items. Uses claudeJson() with graceful fallback to raw-data briefing on AI failure. Returns structured JobBriefing (summary, customerContext, jobHistory, currentJob, sentiment, suggestedApproach, followUpOpportunities). Mobile JobDetailScreen gets collapsible purple-accented AI Briefing card with Generate button, loading state, expand/collapse, and Regenerate. Cached via React Query (10 min staleTime). Cost: ~$0.005/briefing. New files: server/services/jobBriefingService.ts. Modified: server/routes/jobRoutes.ts (new endpoint), mobile/src/api/jobs.ts (JobBriefing interface + getJobBriefing), mobile/src/screens/JobDetailScreen.tsx (AI Briefing card UI).*
+*Last updated: April 12, 2026. Major grind session covering operational maturity, React Native mobile app, AI differentiators, and Capacitor iOS app.*
+
+*Operational Maturity (10 items): Real service health monitoring (DB/Twilio/Retell/Stripe/OpenAI) with 5-min scheduler and admin alerts. Help page with 25 FAQ entries. Swagger API docs at /api/docs. Usage dashboard with projected overage. Type safety: 96→45 non-test `as any` casts. Capacitor mobile enhancements (push/share/deep links/offline). White-label branding (logo upload, brand name). E2E tests (80 new). Client React tests (9 new). Annual billing UI confirmed working.*
+
+*React Native Mobile App (Expo, in mobile/ directory): 33+ files, 16 screens, 7,000+ lines. JWT auth (POST /api/auth/mobile-login + /api/auth/mobile-refresh). 5-tab navigation. Offline SQLite cache with mutation queue. GPS navigation, job timer, on-my-way texts, camera photos. Decision: switched to Capacitor approach (web app in native shell) for faster time-to-market. React Native code retained for future reference.*
+
+*AI Differentiators: (1) AI Job Briefing — GET /api/jobs/:id/briefing generates pre-job intelligence from call transcripts, customer insights, Mem0 memory, sentiment, job history. ~$0.005/briefing. (2) Voice-to-Job-Notes — POST /api/jobs/:id/voice-notes parses technician dictation into structured notes, parts used, equipment info, follow-up opportunities via claudeJson().*
+
+*Server changes: JWT middleware in auth.ts, CSRF exemption for Bearer tokens, job photos endpoint (POST /api/jobs/:id/photos), healthCheckService with scheduler, usage projection endpoint, Swagger setup, jobBriefingService. Schema: healthChecks table, brandName + pushNotificationTokens + photos columns. Capacitor config updated: dark splash (#0a0a0a), push notifications plugin.*
+
+*Bug fixes: Retell health check endpoint (GET /v2/agent 404 → /list-phone-numbers), pg-boss expiration (24h → 4h, was crashing on every deploy). Tests: 523 total (514 server + 9 client), 0 failures. TypeScript: 0 errors across web + mobile.*

@@ -1,22 +1,35 @@
 import { MD3LightTheme, configureFonts } from 'react-native-paper';
 
+// Theme matching the web app: dark neutrals with green accents
 export const theme = {
   ...MD3LightTheme,
   colors: {
     ...MD3LightTheme.colors,
-    primary: '#663399',
-    primaryContainer: '#e8daf5',
-    secondary: '#f59e0b',
-    secondaryContainer: '#fef3c7',
-    background: '#f8f9fa',
+    primary: '#171717',        // Near-black (matches web --primary)
+    primaryContainer: '#f5f5f5',
+    secondary: '#22c55e',      // Green accent (matches web green-500)
+    secondaryContainer: '#dcfce7',
+    tertiary: '#3b82f6',       // Blue for info states
+    background: '#fafafa',
     surface: '#ffffff',
+    surfaceVariant: '#f5f5f5',
     error: '#ef4444',
     onPrimary: '#ffffff',
-    onBackground: '#1a1a2e',
-    onSurface: '#1a1a2e',
-    outline: '#e2e8f0',
+    onBackground: '#171717',
+    onSurface: '#171717',
+    onSurfaceVariant: '#6b7280',
+    outline: '#e5e7eb',
+    outlineVariant: '#f3f4f6',
+    elevation: {
+      level0: 'transparent',
+      level1: '#ffffff',
+      level2: '#fafafa',
+      level3: '#f5f5f5',
+      level4: '#f0f0f0',
+      level5: '#e5e5e5',
+    },
   },
-  roundness: 12,
+  roundness: 10,
 };
 
 // Status colors matching the web app

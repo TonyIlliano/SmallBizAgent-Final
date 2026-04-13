@@ -6,15 +6,15 @@ import { theme } from '../theme';
 
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      setError('Please enter both email and password');
+    if (!username.trim() || !password.trim()) {
+      setError('Please enter your username/email and password');
       return;
     }
 
@@ -22,12 +22,11 @@ export default function LoginScreen() {
     setIsLoading(true);
 
     try {
-      const result = await login(email.trim(), password);
+      const result = await login(username.trim(), password);
       if (result.requiresTwoFactor) {
         setError('Two-factor authentication is not yet supported in the mobile app. Please use the web app.');
         setIsLoading(false);
       }
-      // On success, AuthProvider updates user state and RootNavigator switches to Main
     } catch (err: any) {
       setError(err.message || 'Login failed. Please check your credentials.');
       setIsLoading(false);
@@ -44,30 +43,33 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <Surface style={styles.card} elevation={4}>
-            <View style={styles.logoContainer}>
-              <View style={styles.logoIcon}>
-                <Text style={styles.logoIconText}>S</Text>
-              </View>
-              <Text style={styles.appName}>SmallBizAgent</Text>
-              <Text style={styles.tagline}>Your business, always on</Text>
+          {/* Logo area on dark background */}
+          <View style={styles.logoContainer}>
+            <View style={styles.logoIcon}>
+              <Text style={styles.logoIconText}>S</Text>
             </View>
+            <Text style={styles.appName}>SmallBizAgent</Text>
+            <Text style={styles.tagline}>Your AI-powered business assistant</Text>
+          </View>
+
+          {/* Login card */}
+          <Surface style={styles.card} elevation={2}>
+            <Text style={styles.cardTitle}>Sign in to your account</Text>
 
             <TextInput
-              label="Email"
-              value={email}
+              label="Username or Email"
+              value={username}
               onChangeText={(text) => {
-                setEmail(text);
+                setUsername(text);
                 if (error) setError(null);
               }}
               mode="outlined"
-              keyboardType="email-address"
               autoCapitalize="none"
-              autoComplete="email"
-              left={<TextInput.Icon icon="email-outline" />}
+              autoComplete="username"
+              left={<TextInput.Icon icon="account-outline" />}
               style={styles.input}
-              outlineColor={theme.colors.outline}
-              activeOutlineColor={theme.colors.primary}
+              outlineColor="#e5e7eb"
+              activeOutlineColor="#171717"
               disabled={isLoading}
             />
 
@@ -90,14 +92,16 @@ export default function LoginScreen() {
                 />
               }
               style={styles.input}
-              outlineColor={theme.colors.outline}
-              activeOutlineColor={theme.colors.primary}
+              outlineColor="#e5e7eb"
+              activeOutlineColor="#171717"
               disabled={isLoading}
               onSubmitEditing={handleLogin}
             />
 
             {error && (
-              <Text style={styles.errorText}>{error}</Text>
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
             )}
 
             <Button
@@ -108,12 +112,13 @@ export default function LoginScreen() {
               style={styles.button}
               contentStyle={styles.buttonContent}
               labelStyle={styles.buttonLabel}
+              buttonColor="#171717"
             >
               {isLoading ? 'Signing In...' : 'Sign In'}
             </Button>
 
             <Text style={styles.footerText}>
-              Manage your business on the go
+              Use the same credentials as the web app
             </Text>
           </Surface>
         </ScrollView>
@@ -128,62 +133,74 @@ const styles = StyleSheet.create({
   },
   background: {
     flex: 1,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: '#0a0a0a',
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
   },
-  card: {
-    borderRadius: 20,
-    padding: 32,
-    backgroundColor: '#ffffff',
-  },
   logoContainer: {
     alignItems: 'center',
     marginBottom: 32,
   },
   logoIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: theme.colors.primary,
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#22c55e',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
   logoIconText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
     color: '#ffffff',
   },
   appName: {
     fontSize: 28,
     fontWeight: '700',
-    color: theme.colors.onBackground,
+    color: '#ffffff',
     letterSpacing: -0.5,
   },
   tagline: {
     fontSize: 14,
-    color: '#6b7280',
+    color: '#9ca3af',
     marginTop: 4,
+  },
+  card: {
+    borderRadius: 16,
+    padding: 28,
+    backgroundColor: '#ffffff',
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#171717',
+    marginBottom: 24,
+    textAlign: 'center',
   },
   input: {
     marginBottom: 16,
     backgroundColor: '#ffffff',
   },
+  errorContainer: {
+    backgroundColor: '#fef2f2',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
   errorText: {
-    color: theme.colors.error,
+    color: '#dc2626',
     fontSize: 13,
     textAlign: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 8,
   },
   button: {
-    marginTop: 8,
-    borderRadius: 12,
-    backgroundColor: theme.colors.primary,
+    marginTop: 4,
+    borderRadius: 10,
   },
   buttonContent: {
     paddingVertical: 6,
@@ -196,6 +213,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#9ca3af',
     fontSize: 12,
-    marginTop: 24,
+    marginTop: 20,
   },
 });
