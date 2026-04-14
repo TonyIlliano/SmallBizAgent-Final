@@ -13,6 +13,7 @@ import {
   subscriptionPlans,
   businesses
 } from "../../shared/schema";
+import { toMoney } from "../utils/money";
 
 interface DateRange {
   startDate: Date;
@@ -180,31 +181,31 @@ export async function getRevenueAnalytics(businessId: number, dateRange: DateRan
   );
   
   // Calculate revenue totals
-  const totalRevenue = invoiceData.reduce((sum, invoice) => sum + (invoice.total || 0), 0);
+  const totalRevenue = invoiceData.reduce((sum, invoice) => sum + toMoney(invoice.total), 0);
   const paidRevenue = invoiceData
     .filter(invoice => invoice.status === 'paid')
-    .reduce((sum, invoice) => sum + (invoice.total || 0), 0);
+    .reduce((sum, invoice) => sum + toMoney(invoice.total), 0);
   const pendingRevenue = invoiceData
     .filter(invoice => invoice.status === 'pending')
-    .reduce((sum, invoice) => sum + (invoice.total || 0), 0);
+    .reduce((sum, invoice) => sum + toMoney(invoice.total), 0);
   const overdueRevenue = invoiceData
     .filter(invoice => invoice.status === 'overdue')
-    .reduce((sum, invoice) => sum + (invoice.total || 0), 0);
-  
+    .reduce((sum, invoice) => sum + toMoney(invoice.total), 0);
+
   // Group revenue by month
   const revenueByMonth: { [key: string]: number } = {};
-  
+
   invoiceData.forEach(invoice => {
     if (!invoice.createdAt) return;
-    
+
     const date = new Date(invoice.createdAt);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    
+
     if (!revenueByMonth[monthKey]) {
       revenueByMonth[monthKey] = 0;
     }
-    
-    revenueByMonth[monthKey] += invoice.total || 0;
+
+    revenueByMonth[monthKey] += toMoney(invoice.total);
   });
   
   const revenueByMonthArray = Object.entries(revenueByMonth).map(([month, revenue]) => ({
@@ -595,7 +596,7 @@ export async function getCustomerAnalytics(businessId: number, dateRange: DateRa
   invoiceData.forEach(invoice => {
     if (!invoice.customerId || !invoice.total) return;
     const revenue = customerRevenueMap.get(invoice.customerId) || 0;
-    customerRevenueMap.set(invoice.customerId, revenue + invoice.total);
+    customerRevenueMap.set(invoice.customerId, revenue + toMoney(invoice.total));
   });
   
   // Count jobs by customer
@@ -687,7 +688,7 @@ export async function getPerformanceMetrics(
   );
   
   // Calculate revenue per job
-  const totalRevenue = invoiceData.reduce((sum, invoice) => sum + (invoice.total || 0), 0);
+  const totalRevenue = invoiceData.reduce((sum, invoice) => sum + toMoney(invoice.total), 0);
   const completedJobs = jobData.filter(job => job.status === 'completed').length;
   const revenuePerJob = completedJobs > 0 ? totalRevenue / completedJobs : 0;
   
@@ -865,7 +866,7 @@ export async function getAiRoiAnalytics(businessId: number, dateRange: DateRange
           gte(invoices.createdAt, startDate),
           lte(invoices.createdAt, endDate)
         ));
-      revenueFromBookings = invoiceData.reduce((sum, inv) => sum + (inv.total || 0), 0);
+      revenueFromBookings = invoiceData.reduce((sum, inv) => sum + toMoney(inv.total), 0);
     }
 
     // 4. Plan cost
@@ -884,7 +885,7 @@ export async function getAiRoiAnalytics(businessId: number, dateRange: DateRange
         .from(subscriptionPlans)
         .where(eq(subscriptionPlans.id, business[0].stripePlanId))
         .limit(1);
-      planCost = plan[0]?.price || 0;
+      planCost = toMoney(plan[0]?.price);
     }
 
     // 5. Calculate ROI metrics

@@ -1867,7 +1867,7 @@ export class DatabaseStorage implements IStorage {
       jobId: quoteData.jobId,
       invoiceNumber: `INV-${Date.now()}`, // Generate a new invoice number
       amount: quoteData.amount,
-      tax: quoteData.tax || 0,
+      tax: quoteData.tax || '0',
       total: quoteData.total,
       status: 'pending',
       notes: `Converted from Quote #${quoteData.quoteNumber}\n${quoteData.notes || ''}`.trim(),

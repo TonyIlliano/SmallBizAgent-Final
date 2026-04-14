@@ -382,14 +382,14 @@ describe('insertSubscriptionPlanSchema', () => {
   it('validates a complete subscription plan', () => {
     const result = insertSubscriptionPlanSchema.safeParse({
       name: 'Professional',
-      price: 79.0,
+      price: '79.00',
       interval: 'monthly',
     });
 
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.name).toBe('Professional');
-      expect(result.data.price).toBe(79.0);
+      expect(result.data.price).toBe('79.00');
       expect(result.data.interval).toBe('monthly');
     }
   });
@@ -406,7 +406,7 @@ describe('insertSubscriptionPlanSchema', () => {
   it('rejects when interval is missing', () => {
     const result = insertSubscriptionPlanSchema.safeParse({
       name: 'No Interval Plan',
-      price: 49.0,
+      price: '49.00',
     });
 
     expect(result.success).toBe(false);
@@ -415,19 +415,19 @@ describe('insertSubscriptionPlanSchema', () => {
   it('accepts optional fields like description, planTier, maxCallMinutes', () => {
     const result = insertSubscriptionPlanSchema.safeParse({
       name: 'Enterprise',
-      price: 299.0,
+      price: '299.00',
       interval: 'monthly',
       description: 'Full-featured enterprise plan',
       planTier: 'enterprise',
       maxCallMinutes: 2000,
-      overageRatePerMinute: 0.08,
+      overageRatePerMinute: '0.08',
       maxStaff: 50,
     });
 
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.maxCallMinutes).toBe(2000);
-      expect(result.data.overageRatePerMinute).toBe(0.08);
+      expect(result.data.overageRatePerMinute).toBe('0.08');
     }
   });
 });

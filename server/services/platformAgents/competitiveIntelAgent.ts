@@ -23,6 +23,7 @@ import { db } from "../../db";
 import { eq, sql, gte, and, desc, isNotNull } from "drizzle-orm";
 import { businesses, users, callLogs, appointments, customers, subscriptionPlans } from "../../../shared/schema";
 import { logAgentAction } from "../agentActivityService";
+import { toMoney } from "../../utils/money";
 
 const AGENT_TYPE = 'platform:competitive_intel';
 
@@ -360,7 +361,7 @@ async function analyzePricing(): Promise<PricingInsights> {
   for (const entry of planDistribution) {
     const plan = entry.planId ? planMap.get(entry.planId) : null;
     const planName = plan?.name || entry.planId || 'Unknown';
-    const planPrice = plan?.price || 0;
+    const planPrice = toMoney(plan?.price);
 
     totalRevenue += planPrice * entry.count;
     distribution.push({

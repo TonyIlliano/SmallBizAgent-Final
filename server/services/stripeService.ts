@@ -37,8 +37,14 @@ export async function createPaymentIntent(
   currency: string = 'usd',
   metadata: Record<string, string> = {}
 ) {
-  if (!amount || amount <= 0) {
-    throw new Error('Payment amount must be positive');
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Payment amount must be a positive finite number');
+  }
+  if (amount < 0.50) {
+    throw new Error('Payment amount must be at least $0.50 (Stripe minimum)');
+  }
+  if (amount > 999_999.99) {
+    throw new Error('Payment amount exceeds maximum allowed ($999,999.99)');
   }
 
   try {

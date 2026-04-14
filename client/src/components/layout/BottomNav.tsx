@@ -61,7 +61,7 @@ export function BottomNav() {
 
   return (
     <>
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border"
+      <nav role="navigation" aria-label="Mobile navigation" className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="flex items-center justify-around h-16">
@@ -90,6 +90,7 @@ export function BottomNav() {
               <Link
                 key={tab.path}
                 href={tab.path}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex flex-col items-center justify-center min-w-[48px] min-h-[48px] px-2 py-1 transition-colors",
                   isActive

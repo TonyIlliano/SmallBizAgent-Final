@@ -11,6 +11,24 @@ export function isAuthenticated(req: Request, res: Response, next: NextFunction)
   next();
 }
 
+/**
+ * Require email verification. Use after isAuthenticated.
+ * Allows: admin users (always), onboarding/settings routes (so users can finish setup).
+ * Blocks: all other protected routes until email is verified.
+ */
+export function requireEmailVerified(req: Request, res: Response, next: NextFunction) {
+  // Admin users bypass (needed for platform operations)
+  if (req.user?.role === 'admin') return next();
+  // Already verified
+  if (req.user?.emailVerified) return next();
+  // Not verified — block access
+  return res.status(403).json({
+    error: 'Email verification required',
+    code: 'EMAIL_NOT_VERIFIED',
+    message: 'Please verify your email address before accessing this feature.',
+  });
+}
+
 // Check if user is an admin
 export function isAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) {

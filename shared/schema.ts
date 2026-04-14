@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, doublePrecision, date, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, doublePrecision, numeric, date, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -179,7 +179,7 @@ export const services = pgTable("services", {
   businessId: integer("business_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
-  price: doublePrecision("price"),
+  price: numeric("price", { precision: 12, scale: 2 }),
   duration: integer("duration"), // in minutes
   active: boolean("active").default(true),
 });
@@ -321,8 +321,8 @@ export const jobLineItems = pgTable("job_line_items", {
   type: text("type").notNull(), // labor, parts, materials, service
   description: text("description").notNull(),
   quantity: real("quantity").default(1),
-  unitPrice: doublePrecision("unit_price").notNull(),
-  amount: doublePrecision("amount").notNull(), // quantity * unitPrice
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(), // quantity * unitPrice
   taxable: boolean("taxable").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -334,15 +334,16 @@ export const invoices = pgTable("invoices", {
   customerId: integer("customer_id").notNull(),
   jobId: integer("job_id"),
   invoiceNumber: text("invoice_number").notNull(),
-  amount: doublePrecision("amount").notNull(),
-  tax: doublePrecision("tax"),
-  total: doublePrecision("total").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  tax: numeric("tax", { precision: 12, scale: 2 }),
+  total: numeric("total", { precision: 12, scale: 2 }).notNull(),
   dueDate: date("due_date"),
   status: text("status").default("pending"), // pending, paid, overdue
   notes: text("notes"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   // Public access token for customer portal
   accessToken: text("access_token"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at"), // Portal links expire after 90 days
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -360,8 +361,8 @@ export const invoiceItems = pgTable("invoice_items", {
   invoiceId: integer("invoice_id").notNull(),
   description: text("description").notNull(),
   quantity: integer("quantity").default(1),
-  unitPrice: doublePrecision("unit_price").notNull(),
-  amount: doublePrecision("amount").notNull(),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
 });
 
 // Virtual Receptionist Configuration
@@ -540,14 +541,15 @@ export const quotes = pgTable("quotes", {
   customerId: integer("customer_id").notNull(),
   jobId: integer("job_id"),
   quoteNumber: text("quote_number").notNull(),
-  amount: doublePrecision("amount").notNull(),
-  tax: doublePrecision("tax"),
-  total: doublePrecision("total").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  tax: numeric("tax", { precision: 12, scale: 2 }),
+  total: numeric("total", { precision: 12, scale: 2 }).notNull(),
   validUntil: text("valid_until"), // Store date as string in YYYY-MM-DD format
   status: text("status").default("pending"), // pending, accepted, declined, expired, converted
   notes: text("notes"),
   convertedToInvoiceId: integer("converted_to_invoice_id"), // Reference to the invoice if this quote was converted
   accessToken: text("access_token"), // Token for customer portal access
+  accessTokenExpiresAt: timestamp("access_token_expires_at"), // Portal links expire after 90 days
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -558,8 +560,8 @@ export const quoteItems = pgTable("quote_items", {
   quoteId: integer("quote_id").notNull(),
   description: text("description").notNull(),
   quantity: integer("quantity").default(1),
-  unitPrice: doublePrecision("unit_price").notNull(),
-  amount: doublePrecision("amount").notNull(),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
 });
 
 // Review Settings (business review link configuration)
@@ -619,8 +621,8 @@ export const recurringSchedules = pgTable("recurring_schedules", {
   estimatedDuration: integer("estimated_duration"), // in minutes
   // Invoice configuration
   autoCreateInvoice: boolean("auto_create_invoice").default(true),
-  invoiceAmount: doublePrecision("invoice_amount"),
-  invoiceTax: doublePrecision("invoice_tax"),
+  invoiceAmount: numeric("invoice_amount", { precision: 12, scale: 2 }),
+  invoiceTax: numeric("invoice_tax", { precision: 12, scale: 2 }),
   invoiceNotes: text("invoice_notes"),
   // Status
   status: text("status").default("active"), // active, paused, completed, cancelled
@@ -636,8 +638,8 @@ export const recurringScheduleItems = pgTable("recurring_schedule_items", {
   scheduleId: integer("schedule_id").notNull(),
   description: text("description").notNull(),
   quantity: integer("quantity").default(1),
-  unitPrice: doublePrecision("unit_price").notNull(),
-  amount: doublePrecision("amount").notNull(),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
 });
 
 // Recurring Job History (tracks generated jobs)
@@ -1031,11 +1033,11 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   name: text("name").notNull(),
   description: text("description"),
   planTier: text("plan_tier"), // starter, growth, pro (legacy: professional, business, enterprise)
-  price: doublePrecision("price").notNull(),
+  price: numeric("price", { precision: 12, scale: 2 }).notNull(),
   interval: text("interval").notNull(), // monthly, yearly
   features: jsonb("features"), // Array of features included in this plan
   maxCallMinutes: integer("max_call_minutes"), // included AI call minutes per month
-  overageRatePerMinute: doublePrecision("overage_rate_per_minute"), // $/min after limit (in cents)
+  overageRatePerMinute: numeric("overage_rate_per_minute", { precision: 8, scale: 4 }), // $/min after limit
   maxStaff: integer("max_staff"), // max staff members
   stripeProductId: text("stripe_product_id"),
   stripePriceId: text("stripe_price_id"),
@@ -1054,8 +1056,8 @@ export const overageCharges = pgTable("overage_charges", {
   minutesUsed: integer("minutes_used").notNull(),
   minutesIncluded: integer("minutes_included").notNull(),
   overageMinutes: integer("overage_minutes").notNull(),
-  overageRate: doublePrecision("overage_rate").notNull(),
-  overageAmount: doublePrecision("overage_amount").notNull(),
+  overageRate: numeric("overage_rate", { precision: 8, scale: 4 }).notNull(),
+  overageAmount: numeric("overage_amount", { precision: 12, scale: 2 }).notNull(),
   stripeInvoiceId: text("stripe_invoice_id"),
   stripeInvoiceUrl: text("stripe_invoice_url"),
   status: text("status").default("pending"), // pending, invoiced, paid, failed, no_overage

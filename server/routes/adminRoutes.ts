@@ -13,6 +13,7 @@ import { db } from "../db";
 import { agentActivityLog, auditLogs, businesses, blogPosts, notificationLog, users } from "../../shared/schema";
 import { eq, sql, desc, and, gte, lte, inArray, isNull, or, ilike } from "drizzle-orm";
 import { hashPassword } from "../auth";
+import { toMoney } from "../utils/money";
 import { logAudit, getRequestContext } from "../services/auditService";
 
 const router = Router();
@@ -934,7 +935,7 @@ router.get("/api/admin/businesses/:id/detail", isAdmin, async (req: Request, res
       customerCount: customers.length,
       callCount: callLogs.length,
       invoiceCount: invoices.length,
-      totalRevenue: invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + (i.total || 0), 0),
+      totalRevenue: invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + toMoney(i.total), 0),
     });
   } catch (error: any) {
     console.error("[Admin] Business detail error:", error);

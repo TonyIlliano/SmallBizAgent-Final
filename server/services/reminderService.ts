@@ -3,6 +3,7 @@ import twilioService from "./twilioService";
 import { db } from "../db";
 import { notificationLog } from "../../shared/schema";
 import { and, eq, gte } from "drizzle-orm";
+import { toMoney } from "../utils/money";
 
 interface ReminderResult {
   appointmentId: number;
@@ -231,7 +232,7 @@ export async function sendInvoiceReminder(
     const amount = new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
-    }).format(invoice.total || 0);
+    }).format(toMoney(invoice.total));
 
     // Use the Twilio AI number so customers call the receptionist, fall back to business phone
     const contactNumber = business.twilioPhoneNumber || business.phone;

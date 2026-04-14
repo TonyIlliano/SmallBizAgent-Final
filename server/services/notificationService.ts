@@ -18,6 +18,7 @@ import {
   sendQuoteEmail,
   sendQuoteFollowUpEmail,
 } from "../emailService";
+import { toMoney } from "../utils/money";
 
 // TCPA compliance: Check if customer has opted in to SMS
 function canSendSms(customer: any, isMarketing: boolean = false): boolean {
@@ -343,7 +344,7 @@ export async function sendInvoiceCreatedNotification(invoiceId: number, business
     const business = await storage.getBusiness(businessId);
     if (!business) return;
 
-    const amount = formatCurrency(invoice.total || 0);
+    const amount = formatCurrency(toMoney(invoice.total));
     const dueDate = invoice.dueDate
       ? new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : 'Upon receipt';
@@ -433,7 +434,7 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
     const business = await storage.getBusiness(businessId);
     if (!business) return;
 
-    const amount = formatCurrency(invoice.total || 0);
+    const amount = formatCurrency(toMoney(invoice.total));
     const dueDate = invoice.dueDate
       ? new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : 'Upon receipt';
@@ -547,7 +548,7 @@ export async function sendPaymentConfirmation(invoiceId: number, businessId: num
     const business = await storage.getBusiness(businessId);
     if (!business) return;
 
-    const amount = formatCurrency(invoice.total || 0);
+    const amount = formatCurrency(toMoney(invoice.total));
 
     try {
       await sendPaymentConfirmationEmail(
@@ -839,7 +840,7 @@ export async function sendInvoiceSentNotification(
     const business = await storage.getBusiness(businessId);
     if (!business) return;
 
-    const amount = formatCurrency(invoice.total || 0);
+    const amount = formatCurrency(toMoney(invoice.total));
     const dueDate = invoice.dueDate
       ? new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : 'Upon receipt';
@@ -925,7 +926,7 @@ export async function sendQuoteConvertedNotification(
     const business = await storage.getBusiness(businessId);
     if (!business) return;
 
-    const amount = formatCurrency(invoice.total || 0);
+    const amount = formatCurrency(toMoney(invoice.total));
     const dueDate = invoice.dueDate
       ? new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : 'Upon receipt';

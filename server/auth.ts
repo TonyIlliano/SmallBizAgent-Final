@@ -366,28 +366,69 @@ export function setupAuth(app: Express) {
         console.error(`Failed to send verification email to ${user.email}:`, emailError);
       }
 
-      // Log the user in
-      req.login(user, (err) => {
-        if (err) return next(err);
+      // Regenerate session before login to prevent session fixation
+      req.session.regenerate((regenErr) => {
+        if (regenErr) return next(regenErr);
 
-        // Store session metadata for device/IP tracking
-        req.session.userAgent = req.headers['user-agent'] || '';
-        req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
-        req.session.lastActive = new Date().toISOString();
+        req.login(user, (err) => {
+          if (err) return next(err);
 
-        // Don't send the password back to the client
-        const { password, ...userWithoutPassword } = user;
-        return res.status(201).json(userWithoutPassword);
+          // Store session metadata for device/IP tracking
+          req.session.userAgent = req.headers['user-agent'] || '';
+          req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
+          req.session.lastActive = new Date().toISOString();
+
+          // Don't send the password back to the client
+          const { password, ...userWithoutPassword } = user;
+          return res.status(201).json(userWithoutPassword);
+        });
       });
     } catch (error) {
       next(error);
     }
   });
 
-  // Rate limiter for email verification (prevent brute-force of 6-digit codes)
+  // ── Rate Limiters ──────────────────────────────────────────────
+  // Login: 10 attempts per 15 minutes per IP (Turnstile also protects, but this is defense-in-depth)
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // Password reset request: 5 per hour per IP (prevents email bombing)
+  const forgotPasswordLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    message: { error: 'Too many password reset requests. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // Password reset execution: 5 per 15 minutes per IP (prevents brute-forcing reset tokens)
+  const resetPasswordLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { error: 'Too many reset attempts. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // 2FA validation: 5 per 15 minutes per IP (prevents brute-forcing 6-digit TOTP codes)
+  const twoFactorLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { error: 'Too many two-factor attempts. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // Email verification: 5 per 15 minutes per IP
   const verifyEmailLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // 5 attempts per IP per 15 minutes
+    windowMs: 15 * 60 * 1000,
+    max: 5,
     message: { error: 'Too many verification attempts, please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -477,7 +518,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", async (req, res, next) => {
+  app.post("/api/login", loginLimiter, async (req, res, next) => {
     // Verify Turnstile token (skip if not configured)
     const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
     if (turnstileSecret && req.body.turnstileToken) {
@@ -528,17 +569,24 @@ export function setupAuth(app: Express) {
         return;
       }
 
-      req.login(user, (err: Error | null) => {
-        if (err) return next(err);
+      // Regenerate session ID to prevent session fixation attacks.
+      // The old (pre-login) session ID is destroyed so an attacker who
+      // obtained it cannot hijack the now-authenticated session.
+      req.session.regenerate((regenErr) => {
+        if (regenErr) return next(regenErr);
 
-        // Store session metadata for device/IP tracking
-        req.session.userAgent = req.headers['user-agent'] || '';
-        req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
-        req.session.lastActive = new Date().toISOString();
+        req.login(user, (err: Error | null) => {
+          if (err) return next(err);
 
-        // Don't send the password back to the client
-        const { password, ...userWithoutPassword } = user;
-        return res.json(userWithoutPassword);
+          // Store session metadata for device/IP tracking
+          req.session.userAgent = req.headers['user-agent'] || '';
+          req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
+          req.session.lastActive = new Date().toISOString();
+
+          // Don't send the password back to the client
+          const { password, ...userWithoutPassword } = user;
+          return res.json(userWithoutPassword);
+        });
       });
     })(req, res, next);
   });
@@ -803,7 +851,7 @@ export function setupAuth(app: Express) {
   });
 
   // POST /api/2fa/validate - Validate TOTP during login (unauthenticated)
-  app.post("/api/2fa/validate", async (req: Request, res: Response, next: NextFunction) => {
+  app.post("/api/2fa/validate", twoFactorLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { token } = req.body;
 
@@ -867,21 +915,22 @@ export function setupAuth(app: Express) {
         return res.status(401).json({ error: "Invalid verification code" });
       }
 
-      // Complete login
-      req.login(user, (err: Error | null) => {
-        if (err) return next(err);
+      // Regenerate session before login to prevent session fixation
+      req.session.regenerate((regenErr) => {
+        if (regenErr) return next(regenErr);
 
-        // Clear pending 2FA
-        delete req.session.pending2FA;
+        req.login(user, (err: Error | null) => {
+          if (err) return next(err);
 
-        // Store session metadata for device/IP tracking
-        req.session.userAgent = req.headers['user-agent'] || '';
-        req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
-        req.session.lastActive = new Date().toISOString();
+          // Store session metadata for device/IP tracking
+          req.session.userAgent = req.headers['user-agent'] || '';
+          req.session.ip = req.ip || req.headers['x-forwarded-for'] as string || '';
+          req.session.lastActive = new Date().toISOString();
 
-        // Don't send the password back to the client
-        const { password, ...userWithoutPassword } = user;
-        return res.json(userWithoutPassword);
+          // Don't send the password back to the client
+          const { password, ...userWithoutPassword } = user;
+          return res.json(userWithoutPassword);
+        });
       });
     } catch (error) {
       console.error("Error validating 2FA:", error);
@@ -1089,7 +1138,7 @@ export function setupAuth(app: Express) {
   });
 
   // Forgot Password - Request password reset
-  app.post("/api/forgot-password", async (req, res) => {
+  app.post("/api/forgot-password", forgotPasswordLimiter, async (req, res) => {
     try {
       const { email } = req.body;
 
@@ -1144,7 +1193,7 @@ export function setupAuth(app: Express) {
   });
 
   // Reset Password - Use token to set new password
-  app.post("/api/reset-password", async (req, res) => {
+  app.post("/api/reset-password", resetPasswordLimiter, async (req, res) => {
     try {
       const { token, password: newPassword } = req.body;
 

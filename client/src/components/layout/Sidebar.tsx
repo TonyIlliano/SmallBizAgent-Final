@@ -167,6 +167,7 @@ export function Sidebar() {
           </div>
           <button
             onClick={toggleSidebar}
+            aria-label="Close navigation menu"
             className="md:hidden p-2 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors"
           >
             <X className="h-5 w-5" />
@@ -177,7 +178,7 @@ export function Sidebar() {
         <LocationSwitcher />
 
         {/* Navigation Links */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav role="navigation" aria-label="Main navigation" className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location === item.path || (item.path !== "/" && location.startsWith(item.path));
             return (
@@ -185,6 +186,7 @@ export function Sidebar() {
                 key={item.path}
                 href={item.path}
                 onClick={handleNavClick}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
                   isActive
@@ -233,6 +235,7 @@ export function Sidebar() {
                     key={item.path}
                     href={item.path}
                     onClick={handleNavClick}
+                    aria-current={isActive ? "page" : undefined}
                     className={cn(
                       "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
                       isActive
@@ -299,6 +302,7 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="sm"
+              aria-label="Log out"
               className="ml-auto p-0 h-9 w-9 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-all"
               onClick={() => logoutMutation.mutate()}
               disabled={logoutMutation.isPending}

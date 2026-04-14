@@ -10,6 +10,7 @@ import { isAuthenticated, ApiKeyRequest } from "../auth";
 import notificationService from "../services/notificationService";
 import { fireEvent } from "../services/webhookService";
 import { stripeConnectService } from "../services/stripeConnectService";
+import { toMoney, coerceMoneyFields } from "../utils/money";
 
 const router = Router();
 
@@ -112,16 +113,16 @@ router.get("/invoices/:id", isAuthenticated, async (req: Request, res: Response)
 router.post("/invoices", isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = getBusinessId(req);
-    const validatedData = insertInvoiceSchema.parse({ ...req.body, businessId });
+    const validatedData = insertInvoiceSchema.parse(coerceMoneyFields({ ...req.body, businessId }));
     const invoice = await storage.createInvoice(validatedData);
 
     // Handle invoice items if provided
     if (req.body.items && Array.isArray(req.body.items)) {
       for (const item of req.body.items) {
-        const validatedItem = insertInvoiceItemSchema.parse({
+        const validatedItem = insertInvoiceItemSchema.parse(coerceMoneyFields({
           ...item,
           invoiceId: invoice.id
-        });
+        }));
         await storage.createInvoiceItem(validatedItem);
       }
     }
@@ -216,12 +217,14 @@ router.post("/invoices/:id/generate-link", isAuthenticated, async (req: Request,
       return res.status(404).json({ message: "Invoice not found" });
     }
 
-    // Generate a unique access token
+    // Generate a unique access token with 90-day expiry
     const crypto = await import('crypto');
     const accessToken = crypto.randomBytes(32).toString('hex');
+    const accessTokenExpiresAt = new Date();
+    accessTokenExpiresAt.setDate(accessTokenExpiresAt.getDate() + 90);
 
-    // Update invoice with access token
-    await storage.updateInvoice(id, { accessToken });
+    // Update invoice with access token and expiry
+    await storage.updateInvoice(id, { accessToken, accessTokenExpiresAt });
 
     // Build the public URL
     const baseUrl = process.env.BASE_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
@@ -253,6 +256,11 @@ router.get("/portal/invoice/:token", async (req: Request, res: Response) => {
     const invoice = await storage.getInvoiceByAccessToken(token);
     if (!invoice) {
       return res.status(404).json({ message: "Invoice not found or link expired" });
+    }
+
+    // Check if access token has expired (90-day default)
+    if (invoice.accessTokenExpiresAt && new Date(invoice.accessTokenExpiresAt) < new Date()) {
+      return res.status(410).json({ message: "This invoice link has expired. Please contact the business for a new link." });
     }
 
     // Get related data
@@ -315,6 +323,11 @@ router.post("/portal/invoice/:token/pay", async (req: Request, res: Response) =>
       return res.status(404).json({ message: "Invoice not found" });
     }
 
+    // Check if access token has expired
+    if (invoice.accessTokenExpiresAt && new Date(invoice.accessTokenExpiresAt) < new Date()) {
+      return res.status(410).json({ message: "This invoice link has expired. Please contact the business for a new link." });
+    }
+
     if (invoice.status === 'paid') {
       return res.status(400).json({ message: "Invoice already paid" });
     }
@@ -323,7 +336,7 @@ router.post("/portal/invoice/:token/pay", async (req: Request, res: Response) =>
 
     // Use Stripe Connect service — will REJECT if business has no Connect account
     const result = await stripeConnectService.createPaymentIntentForInvoice({
-      amount: invoice.total || 0,
+      amount: toMoney(invoice.total),
       businessId: invoice.businessId,
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,

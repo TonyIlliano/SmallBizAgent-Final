@@ -9,9 +9,24 @@ if (process.env.SENTRY_DSN) {
     tracesSampleRate: process.env.NODE_ENV === "production" ? 0.2 : 1.0,
     sendDefaultPii: false,
   });
-  console.log("✅ Sentry initialized for server error tracking");
+  console.log("Sentry initialized for server error tracking");
 }
 
+// Catch unhandled promise rejections BEFORE anything else runs.
+// Without this, any missed await in fire-and-forget code silently fails.
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error("[FATAL] Unhandled Promise Rejection:", reason);
+  Sentry.captureException(reason);
+});
+
+process.on("uncaughtException", (error: Error) => {
+  console.error("[FATAL] Uncaught Exception:", error);
+  Sentry.captureException(error);
+  // Give Sentry time to flush, then exit — the process is in an unknown state
+  setTimeout(() => process.exit(1), 2000);
+});
+
+import "express-async-errors"; // Patches Express to catch async route errors automatically
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -25,7 +40,8 @@ import rateLimit from "express-rate-limit";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import crypto from "crypto";
-import { pool } from "./db";
+import { pool, stopPoolMonitor } from "./db";
+import { requestContextMiddleware } from "./utils/requestContext";
 
 /**
  * ===========================================
@@ -101,10 +117,25 @@ function validateEnvironment() {
 
   // Encryption key validation (needed for calendar token storage)
   if (!process.env.ENCRYPTION_KEY && process.env.NODE_ENV === 'production') {
-    console.warn('⚠️  WARNING: ENCRYPTION_KEY not set. Calendar tokens will not be securely encrypted.');
+    console.warn('WARNING: ENCRYPTION_KEY not set. Calendar tokens will not be securely encrypted.');
   }
 
-  console.log('✅ Environment validation passed');
+  // Stripe billing validation
+  if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_WEBHOOK_SECRET) {
+    console.error('[BILLING] STRIPE_SECRET_KEY is set but STRIPE_WEBHOOK_SECRET is missing!');
+    console.error('   Stripe webhooks (payment success, subscription changes) will NOT be verified.');
+    console.error('   Attackers can forge webhook events. Set STRIPE_WEBHOOK_SECRET from Stripe Dashboard.');
+    if (process.env.NODE_ENV === 'production') {
+      console.error('   THIS IS A CRITICAL SECURITY ISSUE IN PRODUCTION.');
+    }
+  }
+
+  // Anthropic AI validation (primary AI provider)
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.warn('WARNING: ANTHROPIC_API_KEY not set. AI features (receptionist, SMS agents, intelligence) will be degraded.');
+  }
+
+  console.log('Environment validation passed');
 }
 
 // Validate environment on startup
@@ -233,6 +264,11 @@ app.use(cookieParser());
 // Compression - gzip responses for faster page loads
 app.use(compression());
 
+// Distributed tracing — assign a request ID to every request.
+// Reads x-request-id from load balancer or generates a UUID.
+// Stored in AsyncLocalStorage for access anywhere in the call stack.
+app.use(requestContextMiddleware);
+
 /**
  * CSRF Protection (Double-Submit Cookie Pattern)
  *
@@ -324,9 +360,13 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      let logLine = `[${req.requestId?.slice(0, 8) ?? "--------"}] ${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        // Sanitize PII from log output — never log passwords, tokens, phone numbers, or emails in response bodies
+        let sanitized = JSON.stringify(capturedJsonResponse);
+        sanitized = sanitized.replace(/"password"\s*:\s*"[^"]*"/g, '"password":"[REDACTED]"');
+        sanitized = sanitized.replace(/"(accessToken|access_token|refreshToken|refresh_token|apiKey|secret|stripeCustomerId|stripeSubscriptionId)"\s*:\s*"[^"]*"/g, '"$1":"[REDACTED]"');
+        logLine += ` :: ${sanitized}`;
       }
 
       if (logLine.length > 80) {
@@ -377,8 +417,11 @@ app.use((req, res, next) => {
       try {
         const dbStart = Date.now();
         const client = await pool.connect();
-        await client.query('SELECT 1');
-        client.release();
+        try {
+          await client.query('SELECT 1');
+        } finally {
+          client.release(); // Always release, even if query throws
+        }
         checks.database = { status: 'healthy', latencyMs: Date.now() - dbStart };
       } catch (error: any) {
         checks.database = { status: 'unhealthy', details: error.message };
@@ -443,10 +486,13 @@ app.use((req, res, next) => {
         const duration = Date.now() - start;
         // Log slow requests (> 2 seconds)
         if (duration > 2000 && !req.path.startsWith('/health')) {
-          console.warn(`⚠️ Slow request: ${req.method} ${req.path} took ${duration}ms (status: ${res.statusCode})`);
+          console.warn(`[${req.requestId?.slice(0, 8) ?? "--------"}] Slow request: ${req.method} ${req.path} took ${duration}ms (status: ${res.statusCode})`);
           if (process.env.SENTRY_DSN) {
             Sentry.captureMessage(`Slow request: ${req.method} ${req.path}`, {
               level: 'warning',
+              tags: {
+                requestId: req.requestId ?? 'unknown',
+              },
               extra: {
                 duration,
                 statusCode: res.statusCode,
@@ -466,11 +512,12 @@ app.use((req, res, next) => {
       const message = err.message || "Internal Server Error";
 
       if (status >= 500) {
-        console.error('Server error:', err);
+        console.error(`[${_req.requestId?.slice(0, 8) ?? "--------"}] Server error:`, err);
         // Report 5xx errors to Sentry with context
         Sentry.withScope((scope) => {
           scope.setTag('error.type', 'server_error');
           scope.setTag('status_code', String(status));
+          scope.setTag('requestId', _req.requestId ?? 'unknown');
           if ((_req as any).user) {
             scope.setUser({
               id: String((_req as any).user.id),
@@ -543,6 +590,7 @@ app.use((req, res, next) => {
       forceTimer.unref(); // Don't keep process alive just for this timer
 
       schedulerService.stopAllSchedulers();
+      stopPoolMonitor();
       console.log('Schedulers stopped');
 
       try {

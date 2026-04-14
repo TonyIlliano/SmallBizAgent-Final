@@ -119,8 +119,8 @@ router.post("/quotes", async (req, res) => {
         quoteId: newQuote.id,
         description: item.description,
         quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        amount: item.quantity * item.unitPrice,
+        unitPrice: String(item.unitPrice),
+        amount: String(item.quantity * item.unitPrice),
       });
     }
 
@@ -206,8 +206,8 @@ router.patch("/quotes/:id", async (req, res) => {
         quoteId,
         description: item.description,
         quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        amount: item.quantity * item.unitPrice,
+        unitPrice: String(item.unitPrice),
+        amount: String(item.quantity * item.unitPrice),
       });
     }
 

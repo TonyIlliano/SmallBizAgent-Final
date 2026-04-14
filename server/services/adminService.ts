@@ -17,6 +17,7 @@ import {
 } from "../../shared/schema";
 import twilioService from "./twilioService";
 import stripeService from "./stripeService";
+import { toMoney } from "../utils/money";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -353,8 +354,9 @@ export async function getRevenueData(): Promise<RevenueData> {
     if (status === "active") {
       activeCount++;
       const plan = b.stripePlanId ? planMap.get(b.stripePlanId) : null;
-      const monthlyRevenue = plan?.price
-        ? (plan.interval === "yearly" ? plan.price / 12 : plan.price)
+      const planPrice = toMoney(plan?.price);
+      const monthlyRevenue = planPrice > 0
+        ? (plan!.interval === "yearly" ? planPrice / 12 : planPrice)
         : 0;
       mrr += monthlyRevenue;
       const tier = plan?.planTier || "unknown";
@@ -431,8 +433,9 @@ export async function getRevenueData(): Promise<RevenueData> {
       if (status === "active" && created && created <= monthEnd) {
         monthActive++;
         const plan = b.stripePlanId ? planMap.get(b.stripePlanId) : null;
-        if (plan?.price) {
-          monthMrr += plan.interval === "yearly" ? plan.price / 12 : plan.price;
+        const pp = toMoney(plan?.price);
+        if (pp > 0) {
+          monthMrr += plan!.interval === "yearly" ? pp / 12 : pp;
         }
       }
     }
@@ -449,7 +452,7 @@ export async function getRevenueData(): Promise<RevenueData> {
   const planDistribution = plans.map(p => ({
     planTier: p.planTier,
     planName: p.name,
-    price: p.price,
+    price: toMoney(p.price),
     businessCount: planTierCounts.get(p.planTier || "") || 0,
     revenue: Math.round((planTierRevenue.get(p.planTier || "") || 0) * 100) / 100,
   }));
@@ -941,8 +944,9 @@ export async function getCostsData(): Promise<CostsData> {
 
   const perBusiness: PerBusinessCost[] = allBiz.map(b => {
     const plan = b.stripePlanId ? planMap.get(b.stripePlanId) : null;
-    const subRevenue = (b.subscriptionStatus === "active" && plan?.price)
-      ? (plan.interval === "yearly" ? plan.price / 12 : plan.price)
+    const pp = toMoney(plan?.price);
+    const subRevenue = (b.subscriptionStatus === "active" && pp > 0)
+      ? (plan!.interval === "yearly" ? pp / 12 : pp)
       : 0;
 
     const bizCallMinutes = callMinutesMap.get(b.id) || 0;

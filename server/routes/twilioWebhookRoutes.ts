@@ -21,23 +21,39 @@ const router = Router();
 
 // Twilio webhook signature validation middleware
 const validateTwilioWebhook = (req: Request, res: Response, next: Function) => {
-  // Skip validation in development or if auth token not configured
-  if (process.env.NODE_ENV !== "production" || !process.env.TWILIO_AUTH_TOKEN) {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+  // In production, warn loudly if auth token is missing — webhooks are unverified
+  if (!authToken) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[SECURITY] TWILIO_AUTH_TOKEN not set — Twilio webhooks are NOT verified. Attackers can spoof calls/SMS.');
+    }
+    return next();
+  }
+
+  // Skip validation in development (localhost doesn't have valid signatures)
+  if (process.env.NODE_ENV !== 'production') {
     return next();
   }
 
   const twilioSignature = req.headers['x-twilio-signature'] as string;
-  const url = `${process.env.BASE_URL}${req.originalUrl}`;
+  if (!twilioSignature) {
+    console.error('[Twilio] Missing x-twilio-signature header — rejecting request');
+    return res.status(403).send('Forbidden');
+  }
+
+  const baseUrl = process.env.APP_URL || process.env.BASE_URL || '';
+  const url = `${baseUrl}${req.originalUrl}`;
 
   const isValid = twilio.validateRequest(
-    process.env.TWILIO_AUTH_TOKEN,
+    authToken,
     twilioSignature,
     url,
     req.body
   );
 
   if (!isValid) {
-    console.error('Invalid Twilio webhook signature');
+    console.error('[Twilio] Invalid webhook signature for', req.originalUrl);
     return res.status(403).send('Forbidden');
   }
 

@@ -547,13 +547,15 @@ export default function LandingPage() {
               className="md:hidden p-2 text-neutral-400 hover:text-white transition-colors"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label="Toggle navigation menu"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-nav-menu"
             >
               {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </button>
           </div>
           {/* Mobile menu dropdown */}
           {mobileMenuOpen && (
-            <div className="md:hidden border-t border-neutral-800 py-4 space-y-3">
+            <div id="mobile-nav-menu" className="md:hidden border-t border-neutral-800 py-4 space-y-3">
               <a href="#features" className="block text-sm text-neutral-400 hover:text-white transition-colors px-2 py-2" onClick={() => setMobileMenuOpen(false)}>Features</a>
               <a href="#pricing" className="block text-sm text-neutral-400 hover:text-white transition-colors px-2 py-2" onClick={() => setMobileMenuOpen(false)}>Pricing</a>
               <a href="#why" className="block text-sm text-neutral-400 hover:text-white transition-colors px-2 py-2" onClick={() => setMobileMenuOpen(false)}>Why Us</a>
@@ -574,6 +576,8 @@ export default function LandingPage() {
         </div>
       </nav>
 
+      {/* Main Content */}
+      <main id="main-content" role="main">
       {/* Hero Section */}
       <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -929,6 +933,8 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      </main>
 
       {/* Footer */}
       <footer className="py-12 px-4 sm:px-6 lg:px-8 border-t border-neutral-800">

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isAuthenticated, checkIsAdmin, checkBelongsToBusiness } from "../auth";
 import { dataCache } from "../services/callToolHandlers";
 import retellProvisioningService from "../services/retellProvisioningService";
+import { coerceMoneyFields } from "../utils/money";
 
 const router = Router();
 
@@ -56,7 +57,7 @@ router.get("/services/:id", isAuthenticated, async (req: Request, res: Response)
 router.post("/services", isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = getBusinessId(req);
-    const validatedData = insertServiceSchema.parse({ ...req.body, businessId });
+    const validatedData = insertServiceSchema.parse(coerceMoneyFields({ ...req.body, businessId }));
     const service = await storage.createService(validatedData);
 
     // Invalidate services cache
@@ -96,11 +97,7 @@ router.post("/services/template", isAuthenticated, async (req: Request, res: Res
 
     // Create services one by one
     for (const serviceData of services) {
-      const validatedData = insertServiceSchema.parse({
-        ...serviceData,
-        businessId,
-        active: true,
-      });
+      const validatedData = insertServiceSchema.parse(coerceMoneyFields({ ...serviceData, businessId, active: true }));
 
       const service = await storage.createService(validatedData);
       createdServices.push(service);
@@ -192,7 +189,7 @@ router.put("/services/:id", isAuthenticated, async (req: Request, res: Response)
     if (!existing || !verifyBusinessOwnership(existing, req)) {
       return res.status(404).json({ message: "Service not found" });
     }
-    const validatedData = insertServiceSchema.partial().parse(req.body);
+    const validatedData = insertServiceSchema.partial().parse(coerceMoneyFields(req.body));
     const service = await storage.updateService(id, validatedData);
 
     // Invalidate services cache

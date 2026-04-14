@@ -8,6 +8,7 @@ import { fireEvent } from "../services/webhookService";
 import notificationService from "../services/notificationService";
 import multer from "multer";
 import { uploadBufferToS3, isS3Configured } from "../utils/s3Upload";
+import { toMoney, roundMoney } from "../utils/money";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
@@ -228,10 +229,10 @@ router.put("/:id", isAuthenticated, async (req: Request, res: Response) => {
             const lineItems = await storage.getJobLineItems(job.id);
             if (lineItems.length > 0) {
               const taxRate = 0.08;
-              const subtotal = lineItems.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
-              const taxableAmount = lineItems.filter((item: any) => item.taxable).reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
-              const tax = taxableAmount * taxRate;
-              const total = subtotal + tax;
+              const subtotal = lineItems.reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
+              const taxableAmount = lineItems.filter((item: any) => item.taxable).reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
+              const tax = roundMoney(taxableAmount * taxRate);
+              const total = roundMoney(subtotal + tax);
               const invoiceDate = new Date();
               const invoiceNumber = `INV-${invoiceDate.getFullYear()}${String(invoiceDate.getMonth() + 1).padStart(2, '0')}${String(invoiceDate.getDate()).padStart(2, '0')}-${job.id}`;
               const dueDate = new Date();
@@ -241,9 +242,9 @@ router.put("/:id", isAuthenticated, async (req: Request, res: Response) => {
                 customerId: job.customerId,
                 jobId: job.id,
                 invoiceNumber,
-                amount: subtotal,
-                tax,
-                total,
+                amount: String(subtotal),
+                tax: String(tax),
+                total: String(total),
                 dueDate: dueDate.toISOString().split('T')[0],
                 status: 'pending',
               });
@@ -252,8 +253,8 @@ router.put("/:id", isAuthenticated, async (req: Request, res: Response) => {
                   invoiceId: invoice.id,
                   description: `${lineItem.type?.toUpperCase() || 'ITEM'}: ${lineItem.description}`,
                   quantity: lineItem.quantity || 1,
-                  unitPrice: lineItem.unitPrice,
-                  amount: lineItem.amount || 0,
+                  unitPrice: lineItem.unitPrice || '0',
+                  amount: lineItem.amount || '0',
                 });
               }
               console.log(`[AutoInvoice] Created invoice ${invoiceNumber} for completed job ${job.id}`);
@@ -397,8 +398,8 @@ router.post("/:jobId/line-items", isAuthenticated, async (req: Request, res: Res
         type,
         description,
         quantity: quantity || 1,
-        unitPrice,
-        amount,
+        unitPrice: String(unitPrice),
+        amount: String(amount),
         taxable: taxable !== false
       });
       res.status(201).json(item);
@@ -430,8 +431,8 @@ router.put("/:jobId/line-items/:id", isAuthenticated, async (req: Request, res: 
         type,
         description,
         quantity: quantity || 1,
-        unitPrice,
-        amount,
+        unitPrice: String(unitPrice),
+        amount: String(amount),
         taxable
       });
       res.json(item);
@@ -484,12 +485,12 @@ router.post("/:jobId/generate-invoice", isAuthenticated, async (req: Request, re
 
       // Calculate totals
       const taxRate = req.body.taxRate || 0.08; // Default 8% tax
-      const subtotal = lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      const subtotal = lineItems.reduce((sum, item) => sum + toMoney(item.amount), 0);
       const taxableAmount = lineItems
         .filter(item => item.taxable)
-        .reduce((sum, item) => sum + (item.amount || 0), 0);
-      const tax = taxableAmount * taxRate;
-      const total = subtotal + tax;
+        .reduce((sum, item) => sum + toMoney(item.amount), 0);
+      const tax = roundMoney(taxableAmount * taxRate);
+      const total = roundMoney(subtotal + tax);
 
       // Generate invoice number
       const date = new Date();
@@ -505,9 +506,9 @@ router.post("/:jobId/generate-invoice", isAuthenticated, async (req: Request, re
         customerId: job.customerId,
         jobId: job.id,
         invoiceNumber,
-        amount: subtotal,
-        tax,
-        total,
+        amount: String(subtotal),
+        tax: String(tax),
+        total: String(total),
         dueDate: dueDate.toISOString().split('T')[0],
         status: 'pending'
       });
@@ -518,8 +519,8 @@ router.post("/:jobId/generate-invoice", isAuthenticated, async (req: Request, re
           invoiceId: invoice.id,
           description: `${lineItem.type.toUpperCase()}: ${lineItem.description}`,
           quantity: lineItem.quantity || 1,
-          unitPrice: lineItem.unitPrice,
-          amount: lineItem.amount || 0
+          unitPrice: lineItem.unitPrice || '0',
+          amount: lineItem.amount || '0'
         });
       }
 
@@ -606,8 +607,8 @@ Return valid JSON only. No markdown, no code fences.`,
               type: 'part',
               description: part.name,
               quantity: part.quantity || 1,
-              unitPrice: 0, // Price unknown from voice — tech can update later
-              amount: 0,
+              unitPrice: '0', // Price unknown from voice — tech can update later
+              amount: '0',
               taxable: true,
             });
           } catch (lineItemErr: any) {

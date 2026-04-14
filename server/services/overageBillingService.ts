@@ -8,6 +8,7 @@
 
 import { db } from '../db';
 import { businesses, callLogs, subscriptionPlans, overageCharges } from '@shared/schema';
+import { toMoney, roundMoney } from '../utils/money';
 import { eq, and, gte, lt, sql } from 'drizzle-orm';
 import * as stripeService from './stripeService';
 
@@ -191,12 +192,12 @@ export async function processOverageBilling(businessId: number): Promise<Overage
   }
 
   const minutesIncluded = plan.maxCallMinutes || 0;
-  const overageRate = plan.overageRatePerMinute || 0;
+  const overageRate = toMoney(plan.overageRatePerMinute);
 
   // 6. Calculate usage for the completed period
   const minutesUsed = await getMinutesUsedForPeriod(businessId, periodStart, periodEnd);
   const overageMinutes = Math.max(0, minutesUsed - minutesIncluded);
-  const overageAmount = Math.round(overageMinutes * overageRate * 100) / 100;
+  const overageAmount = roundMoney(overageMinutes * overageRate);
 
   // 7. No overage — record it and move on
   if (overageMinutes === 0) {
@@ -207,8 +208,8 @@ export async function processOverageBilling(businessId: number): Promise<Overage
       minutesUsed,
       minutesIncluded,
       overageMinutes: 0,
-      overageRate,
-      overageAmount: 0,
+      overageRate: String(overageRate),
+      overageAmount: '0',
       status: 'no_overage',
       planName: plan.name,
       planTier: plan.planTier,
@@ -244,8 +245,8 @@ export async function processOverageBilling(businessId: number): Promise<Overage
       minutesUsed,
       minutesIncluded,
       overageMinutes,
-      overageRate,
-      overageAmount,
+      overageRate: String(overageRate),
+      overageAmount: String(overageAmount),
       stripeInvoiceId: invoice.id,
       stripeInvoiceUrl: invoice.hosted_invoice_url || null,
       status: 'invoiced',
@@ -274,8 +275,8 @@ export async function processOverageBilling(businessId: number): Promise<Overage
       minutesUsed,
       minutesIncluded,
       overageMinutes,
-      overageRate,
-      overageAmount,
+      overageRate: String(overageRate),
+      overageAmount: String(overageAmount),
       status: 'failed',
       failureReason: error.message,
       planName: plan.name,

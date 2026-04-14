@@ -3,6 +3,7 @@ import { db } from '../db';
 import { eq } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { sendPaymentFailedEmail } from '../emailService';
+import { toMoney } from '../utils/money';
 
 /**
  * Stripe API version 2025-03-31.basil removed some top-level fields from
@@ -681,7 +682,7 @@ export class SubscriptionService {
       }
 
       // Create product/price in Stripe
-      const unitAmount = Math.round(plan.price * 100);
+      const unitAmount = Math.round(toMoney(plan.price) * 100);
       const stripeInterval = plan.interval === 'monthly' ? 'month' as const : 'year' as const;
 
       let stripeProduct;
@@ -1015,7 +1016,7 @@ export class SubscriptionService {
       if (!currentItemId) throw new Error('No subscription item found');
 
       // Find or create the Stripe price for the new plan
-      const unitAmount = Math.round(newPlan.price * 100);
+      const unitAmount = Math.round(toMoney(newPlan.price) * 100);
       const stripeInterval = newPlan.interval === 'monthly' ? 'month' as const : 'year' as const;
 
       // Get or create product

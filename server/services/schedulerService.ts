@@ -62,6 +62,22 @@ async function withAdvisoryLock(lockName: string, fn: () => Promise<void>): Prom
   }
 }
 
+// ── Timeout Guard ─────────────────────────────────────────────────────
+// Prevents a scheduler task from hanging indefinitely (e.g., DB timeout, external API hang).
+// If the task exceeds timeoutMs, the current iteration is killed but the interval continues.
+
+async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`[Scheduler] ${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    fn().then(
+      (result) => { clearTimeout(timer); resolve(result); },
+      (error) => { clearTimeout(timer); reject(error); }
+    );
+  });
+}
+
 /**
  * Start the global reminder scheduler.
  * Uses a SINGLE timer that iterates all businesses, instead of one timer per business.
@@ -83,7 +99,9 @@ export function startGlobalReminderScheduler(): void {
 
   // Run every hour (first run happens ~1 hour after deploy, not immediately)
   const intervalId = setInterval(() => {
-    withReentryGuard('reminders-global', () => runAllBusinessReminderChecks());
+    withReentryGuard('reminders-global', () =>
+      withTimeout(() => runAllBusinessReminderChecks(), 120_000, 'reminders-global')
+    ).catch(err => console.error('[Scheduler] reminders-global error:', err));
   }, 60 * 60 * 1000); // Every hour
 
   scheduledJobs.set(jobKey, intervalId);
@@ -479,14 +497,18 @@ export function startOverageBillingScheduler(): void {
 
   // Run immediately on start (critical financial job — uses advisory lock for cross-instance safety)
   withReentryGuard('overage-billing', () =>
-    withAdvisoryLock('overage-billing', () => runOverageBillingCheck())
-  );
+    withAdvisoryLock('overage-billing', () =>
+      withTimeout(() => runOverageBillingCheck(), 180_000, 'overage-billing')
+    )
+  ).catch(err => console.error('[Scheduler] overage-billing error:', err));
 
   // Then run every 6 hours
   const intervalId = setInterval(() => {
     withReentryGuard('overage-billing', () =>
-      withAdvisoryLock('overage-billing', () => runOverageBillingCheck())
-    );
+      withAdvisoryLock('overage-billing', () =>
+        withTimeout(() => runOverageBillingCheck(), 180_000, 'overage-billing')
+      )
+    ).catch(err => console.error('[Scheduler] overage-billing error:', err));
   }, 6 * 60 * 60 * 1000);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -588,14 +610,18 @@ export function startTrialExpirationScheduler(): void {
 
   // Run immediately on start (critical — uses advisory lock for cross-instance safety)
   withReentryGuard('trial-expiration', () =>
-    withAdvisoryLock('trial-expiration', () => runTrialExpirationCheck())
-  );
+    withAdvisoryLock('trial-expiration', () =>
+      withTimeout(() => runTrialExpirationCheck(), 120_000, 'trial-expiration')
+    )
+  ).catch(err => console.error('[Scheduler] trial-expiration error:', err));
 
   // Then run every 24 hours
   const intervalId = setInterval(() => {
     withReentryGuard('trial-expiration', () =>
-      withAdvisoryLock('trial-expiration', () => runTrialExpirationCheck())
-    );
+      withAdvisoryLock('trial-expiration', () =>
+        withTimeout(() => runTrialExpirationCheck(), 120_000, 'trial-expiration')
+      )
+    ).catch(err => console.error('[Scheduler] trial-expiration error:', err));
   }, 24 * 60 * 60 * 1000);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -950,14 +976,18 @@ export function startDunningDeprovisionScheduler(): void {
 
   // Run immediately on start
   withReentryGuard(jobKey, () =>
-    withAdvisoryLock(jobKey, () => runDunningDeprovisionCheck())
-  );
+    withAdvisoryLock(jobKey, () =>
+      withTimeout(() => runDunningDeprovisionCheck(), 120_000, 'dunning-deprovision')
+    )
+  ).catch(err => console.error('[Scheduler] dunning-deprovision error:', err));
 
   // Then every 12 hours
   const intervalId = setInterval(() => {
     withReentryGuard(jobKey, () =>
-      withAdvisoryLock(jobKey, () => runDunningDeprovisionCheck())
-    );
+      withAdvisoryLock(jobKey, () =>
+        withTimeout(() => runDunningDeprovisionCheck(), 120_000, 'dunning-deprovision')
+      )
+    ).catch(err => console.error('[Scheduler] dunning-deprovision error:', err));
   }, 12 * 60 * 60 * 1000);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1057,11 +1087,15 @@ export function startDataRetentionScheduler(): void {
   console.log('Starting data retention scheduler');
 
   // Run immediately on start
-  withReentryGuard('data-retention', () => runDataRetention());
+  withReentryGuard('data-retention', () =>
+    withTimeout(() => runDataRetention(), 300_000, 'data-retention')
+  ).catch(err => console.error('[Scheduler] data-retention error:', err));
 
   // Then run every 24 hours
   const intervalId = setInterval(() => {
-    withReentryGuard('data-retention', () => runDataRetention());
+    withReentryGuard('data-retention', () =>
+      withTimeout(() => runDataRetention(), 300_000, 'data-retention')
+    ).catch(err => console.error('[Scheduler] data-retention error:', err));
   }, 24 * 60 * 60 * 1000); // Every 24 hours
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1110,14 +1144,16 @@ export function startFollowUpAgentScheduler(): void {
 
   const intervalMs = 5 * 60 * 1000; // 5 minutes
   const intervalId = setInterval(() => {
-    withReentryGuard('follow-up-agent', async () => {
-      try {
-        const { runFollowUpCheck } = await import('./followUpAgentService');
-        await runFollowUpCheck();
-      } catch (error) {
-        console.error('[FollowUpAgent] Scheduler error:', error);
-      }
-    });
+    withReentryGuard('follow-up-agent', () =>
+      withTimeout(async () => {
+        try {
+          const { runFollowUpCheck } = await import('./followUpAgentService');
+          await runFollowUpCheck();
+        } catch (error) {
+          console.error('[FollowUpAgent] Scheduler error:', error);
+        }
+      }, 120_000, 'follow-up-agent')
+    ).catch(err => console.error('[Scheduler] follow-up-agent error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1132,15 +1168,17 @@ export function startEstimateFollowUpAgentScheduler(): void {
 
   const intervalMs = 6 * 60 * 60 * 1000; // 6 hours
   const intervalId = setInterval(() => {
-    withReentryGuard('estimate-follow-up-agent', async () => {
-      try {
-        console.log(`[EstimateFollowUpAgent] Running scheduled check at ${new Date().toISOString()}`);
-        const { runEstimateFollowUpCheck } = await import('./estimateFollowUpAgentService');
-        await runEstimateFollowUpCheck();
-      } catch (error) {
-        console.error('[EstimateFollowUpAgent] Scheduler error:', error);
-      }
-    });
+    withReentryGuard('estimate-follow-up-agent', () =>
+      withTimeout(async () => {
+        try {
+          console.log(`[EstimateFollowUpAgent] Running scheduled check at ${new Date().toISOString()}`);
+          const { runEstimateFollowUpCheck } = await import('./estimateFollowUpAgentService');
+          await runEstimateFollowUpCheck();
+        } catch (error) {
+          console.error('[EstimateFollowUpAgent] Scheduler error:', error);
+        }
+      }, 60_000, 'estimate-follow-up-agent')
+    ).catch(err => console.error('[Scheduler] estimate-follow-up-agent error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1153,15 +1191,17 @@ export function startInvoiceCollectionAgentScheduler(): void {
 
   const intervalMs = 12 * 60 * 60 * 1000; // 12 hours
   const intervalId = setInterval(() => {
-    withReentryGuard('invoice-collection-agent', async () => {
-      try {
-        console.log(`[InvoiceCollectionAgent] Running scheduled check at ${new Date().toISOString()}`);
-        const { runInvoiceCollectionCheck } = await import('./invoiceCollectionAgentService');
-        await runInvoiceCollectionCheck();
-      } catch (error) {
-        console.error('[InvoiceCollectionAgent] Scheduler error:', error);
-      }
-    });
+    withReentryGuard('invoice-collection-agent', () =>
+      withTimeout(async () => {
+        try {
+          console.log(`[InvoiceCollectionAgent] Running scheduled check at ${new Date().toISOString()}`);
+          const { runInvoiceCollectionCheck } = await import('./invoiceCollectionAgentService');
+          await runInvoiceCollectionCheck();
+        } catch (error) {
+          console.error('[InvoiceCollectionAgent] Scheduler error:', error);
+        }
+      }, 120_000, 'invoice-collection-agent')
+    ).catch(err => console.error('[Scheduler] invoice-collection-agent error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1179,14 +1219,16 @@ export function startNoShowAgentScheduler(): void {
 
   const intervalMs = 30 * 60 * 1000; // 30 minutes
   const intervalId = setInterval(() => {
-    withReentryGuard('no-show-agent', async () => {
-      try {
-        const { processExpiredConversations } = await import('./noShowAgentService');
-        await processExpiredConversations();
-      } catch (error) {
-        console.error('[NoShowAgent] Scheduler error:', error);
-      }
-    });
+    withReentryGuard('no-show-agent', () =>
+      withTimeout(async () => {
+        try {
+          const { processExpiredConversations } = await import('./noShowAgentService');
+          await processExpiredConversations();
+        } catch (error) {
+          console.error('[NoShowAgent] Scheduler error:', error);
+        }
+      }, 60_000, 'no-show-agent')
+    ).catch(err => console.error('[Scheduler] no-show-agent error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1201,15 +1243,17 @@ export function startRebookingAgentScheduler(): void {
 
   const intervalMs = 24 * 60 * 60 * 1000; // 24 hours
   const intervalId = setInterval(() => {
-    withReentryGuard('rebooking-agent', async () => {
-      try {
-        console.log(`[RebookingAgent] Running scheduled check at ${new Date().toISOString()}`);
-        const { runRebookingCheck } = await import('./rebookingAgentService');
-        await runRebookingCheck();
-      } catch (error) {
-        console.error('[RebookingAgent] Scheduler error:', error);
-      }
-    });
+    withReentryGuard('rebooking-agent', () =>
+      withTimeout(async () => {
+        try {
+          console.log(`[RebookingAgent] Running scheduled check at ${new Date().toISOString()}`);
+          const { runRebookingCheck } = await import('./rebookingAgentService');
+          await runRebookingCheck();
+        } catch (error) {
+          console.error('[RebookingAgent] Scheduler error:', error);
+        }
+      }, 120_000, 'rebooking-agent')
+    ).catch(err => console.error('[Scheduler] rebooking-agent error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1277,21 +1321,25 @@ export function startPlatformAgentsScheduler(): void {
   if (!scheduledJobs.has(churnKey)) {
     // Run after 5 min delay on startup (let the DB warm up)
     const churnStartupTimer = setTimeout(() => {
-      withReentryGuard(churnKey, async () => {
-        try {
-          const { runChurnPrediction } = await import('./platformAgents/churnPredictionAgent');
-          await runChurnPrediction();
-        } catch (err) { console.error('[PlatformAgent:ChurnPrediction] Startup error:', err); }
-      });
+      withReentryGuard(churnKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runChurnPrediction } = await import('./platformAgents/churnPredictionAgent');
+            await runChurnPrediction();
+          } catch (err) { console.error('[PlatformAgent:ChurnPrediction] Startup error:', err); }
+        }, 180_000, churnKey)
+      ).catch(err => console.error(`[Scheduler] ${churnKey} error:`, err));
     }, 5 * 60 * 1000);
     scheduledJobs.set(`${churnKey}-startup`, churnStartupTimer);
     const id = setInterval(() => {
-      withReentryGuard(churnKey, async () => {
-        try {
-          const { runChurnPrediction } = await import('./platformAgents/churnPredictionAgent');
-          await runChurnPrediction();
-        } catch (err) { console.error('[PlatformAgent:ChurnPrediction] Error:', err); }
-      });
+      withReentryGuard(churnKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runChurnPrediction } = await import('./platformAgents/churnPredictionAgent');
+            await runChurnPrediction();
+          } catch (err) { console.error('[PlatformAgent:ChurnPrediction] Error:', err); }
+        }, 180_000, churnKey)
+      ).catch(err => console.error(`[Scheduler] ${churnKey} error:`, err));
     }, 24 * 60 * 60 * 1000);
     scheduledJobs.set(churnKey, id);
     console.log('Platform agent started: Churn Prediction (every 24h)');
@@ -1301,21 +1349,25 @@ export function startPlatformAgentsScheduler(): void {
   const onboardKey = 'platform-onboarding-coach';
   if (!scheduledJobs.has(onboardKey)) {
     const onboardStartupTimer = setTimeout(() => {
-      withReentryGuard(onboardKey, async () => {
-        try {
-          const { runOnboardingCoach } = await import('./platformAgents/onboardingCoachAgent');
-          await runOnboardingCoach();
-        } catch (err) { console.error('[PlatformAgent:OnboardingCoach] Startup error:', err); }
-      });
+      withReentryGuard(onboardKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runOnboardingCoach } = await import('./platformAgents/onboardingCoachAgent');
+            await runOnboardingCoach();
+          } catch (err) { console.error('[PlatformAgent:OnboardingCoach] Startup error:', err); }
+        }, 180_000, onboardKey)
+      ).catch(err => console.error(`[Scheduler] ${onboardKey} error:`, err));
     }, 6 * 60 * 1000);
     scheduledJobs.set(`${onboardKey}-startup`, onboardStartupTimer);
     const id = setInterval(() => {
-      withReentryGuard(onboardKey, async () => {
-        try {
-          const { runOnboardingCoach } = await import('./platformAgents/onboardingCoachAgent');
-          await runOnboardingCoach();
-        } catch (err) { console.error('[PlatformAgent:OnboardingCoach] Error:', err); }
-      });
+      withReentryGuard(onboardKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runOnboardingCoach } = await import('./platformAgents/onboardingCoachAgent');
+            await runOnboardingCoach();
+          } catch (err) { console.error('[PlatformAgent:OnboardingCoach] Error:', err); }
+        }, 180_000, onboardKey)
+      ).catch(err => console.error(`[Scheduler] ${onboardKey} error:`, err));
     }, 6 * 60 * 60 * 1000);
     scheduledJobs.set(onboardKey, id);
     console.log('Platform agent started: Onboarding Coach (every 6h)');
@@ -1325,21 +1377,25 @@ export function startPlatformAgentsScheduler(): void {
   const leadKey = 'platform-lead-scoring';
   if (!scheduledJobs.has(leadKey)) {
     const leadStartupTimer = setTimeout(() => {
-      withReentryGuard(leadKey, async () => {
-        try {
-          const { runLeadScoring } = await import('./platformAgents/leadScoringAgent');
-          await runLeadScoring();
-        } catch (err) { console.error('[PlatformAgent:LeadScoring] Startup error:', err); }
-      });
+      withReentryGuard(leadKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runLeadScoring } = await import('./platformAgents/leadScoringAgent');
+            await runLeadScoring();
+          } catch (err) { console.error('[PlatformAgent:LeadScoring] Startup error:', err); }
+        }, 180_000, leadKey)
+      ).catch(err => console.error(`[Scheduler] ${leadKey} error:`, err));
     }, 7 * 60 * 1000);
     scheduledJobs.set(`${leadKey}-startup`, leadStartupTimer);
     const id = setInterval(() => {
-      withReentryGuard(leadKey, async () => {
-        try {
-          const { runLeadScoring } = await import('./platformAgents/leadScoringAgent');
-          await runLeadScoring();
-        } catch (err) { console.error('[PlatformAgent:LeadScoring] Error:', err); }
-      });
+      withReentryGuard(leadKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runLeadScoring } = await import('./platformAgents/leadScoringAgent');
+            await runLeadScoring();
+          } catch (err) { console.error('[PlatformAgent:LeadScoring] Error:', err); }
+        }, 180_000, leadKey)
+      ).catch(err => console.error(`[Scheduler] ${leadKey} error:`, err));
     }, 12 * 60 * 60 * 1000);
     scheduledJobs.set(leadKey, id);
     console.log('Platform agent started: Lead Scoring (every 12h)');
@@ -1349,21 +1405,25 @@ export function startPlatformAgentsScheduler(): void {
   const healthKey = 'platform-health-score';
   if (!scheduledJobs.has(healthKey)) {
     const healthStartupTimer = setTimeout(() => {
-      withReentryGuard(healthKey, async () => {
-        try {
-          const { runHealthScoring } = await import('./platformAgents/healthScoreAgent');
-          await runHealthScoring();
-        } catch (err) { console.error('[PlatformAgent:HealthScore] Startup error:', err); }
-      });
+      withReentryGuard(healthKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runHealthScoring } = await import('./platformAgents/healthScoreAgent');
+            await runHealthScoring();
+          } catch (err) { console.error('[PlatformAgent:HealthScore] Startup error:', err); }
+        }, 180_000, healthKey)
+      ).catch(err => console.error(`[Scheduler] ${healthKey} error:`, err));
     }, 8 * 60 * 1000);
     scheduledJobs.set(`${healthKey}-startup`, healthStartupTimer);
     const id = setInterval(() => {
-      withReentryGuard(healthKey, async () => {
-        try {
-          const { runHealthScoring } = await import('./platformAgents/healthScoreAgent');
-          await runHealthScoring();
-        } catch (err) { console.error('[PlatformAgent:HealthScore] Error:', err); }
-      });
+      withReentryGuard(healthKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runHealthScoring } = await import('./platformAgents/healthScoreAgent');
+            await runHealthScoring();
+          } catch (err) { console.error('[PlatformAgent:HealthScore] Error:', err); }
+        }, 180_000, healthKey)
+      ).catch(err => console.error(`[Scheduler] ${healthKey} error:`, err));
     }, 24 * 60 * 60 * 1000);
     scheduledJobs.set(healthKey, id);
     console.log('Platform agent started: Health Score (every 24h)');
@@ -1373,21 +1433,25 @@ export function startPlatformAgentsScheduler(): void {
   const supportKey = 'platform-support-triage';
   if (!scheduledJobs.has(supportKey)) {
     const supportStartupTimer = setTimeout(() => {
-      withReentryGuard(supportKey, async () => {
-        try {
-          const { runSupportTriage } = await import('./platformAgents/supportTriageAgent');
-          await runSupportTriage();
-        } catch (err) { console.error('[PlatformAgent:SupportTriage] Startup error:', err); }
-      });
+      withReentryGuard(supportKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runSupportTriage } = await import('./platformAgents/supportTriageAgent');
+            await runSupportTriage();
+          } catch (err) { console.error('[PlatformAgent:SupportTriage] Startup error:', err); }
+        }, 180_000, supportKey)
+      ).catch(err => console.error(`[Scheduler] ${supportKey} error:`, err));
     }, 9 * 60 * 1000);
     scheduledJobs.set(`${supportKey}-startup`, supportStartupTimer);
     const id = setInterval(() => {
-      withReentryGuard(supportKey, async () => {
-        try {
-          const { runSupportTriage } = await import('./platformAgents/supportTriageAgent');
-          await runSupportTriage();
-        } catch (err) { console.error('[PlatformAgent:SupportTriage] Error:', err); }
-      });
+      withReentryGuard(supportKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runSupportTriage } = await import('./platformAgents/supportTriageAgent');
+            await runSupportTriage();
+          } catch (err) { console.error('[PlatformAgent:SupportTriage] Error:', err); }
+        }, 180_000, supportKey)
+      ).catch(err => console.error(`[Scheduler] ${supportKey} error:`, err));
     }, 6 * 60 * 60 * 1000);
     scheduledJobs.set(supportKey, id);
     console.log('Platform agent started: Support Triage (every 6h)');
@@ -1397,21 +1461,25 @@ export function startPlatformAgentsScheduler(): void {
   const revenueKey = 'platform-revenue-optimization';
   if (!scheduledJobs.has(revenueKey)) {
     const revenueStartupTimer = setTimeout(() => {
-      withReentryGuard(revenueKey, async () => {
-        try {
-          const { runRevenueOptimization } = await import('./platformAgents/revenueOptimizationAgent');
-          await runRevenueOptimization();
-        } catch (err) { console.error('[PlatformAgent:RevenueOptimization] Startup error:', err); }
-      });
+      withReentryGuard(revenueKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runRevenueOptimization } = await import('./platformAgents/revenueOptimizationAgent');
+            await runRevenueOptimization();
+          } catch (err) { console.error('[PlatformAgent:RevenueOptimization] Startup error:', err); }
+        }, 180_000, revenueKey)
+      ).catch(err => console.error(`[Scheduler] ${revenueKey} error:`, err));
     }, 10 * 60 * 1000);
     scheduledJobs.set(`${revenueKey}-startup`, revenueStartupTimer);
     const id = setInterval(() => {
-      withReentryGuard(revenueKey, async () => {
-        try {
-          const { runRevenueOptimization } = await import('./platformAgents/revenueOptimizationAgent');
-          await runRevenueOptimization();
-        } catch (err) { console.error('[PlatformAgent:RevenueOptimization] Error:', err); }
-      });
+      withReentryGuard(revenueKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runRevenueOptimization } = await import('./platformAgents/revenueOptimizationAgent');
+            await runRevenueOptimization();
+          } catch (err) { console.error('[PlatformAgent:RevenueOptimization] Error:', err); }
+        }, 180_000, revenueKey)
+      ).catch(err => console.error(`[Scheduler] ${revenueKey} error:`, err));
     }, 24 * 60 * 60 * 1000);
     scheduledJobs.set(revenueKey, id);
     console.log('Platform agent started: Revenue Optimization (every 24h)');
@@ -1421,12 +1489,14 @@ export function startPlatformAgentsScheduler(): void {
   const contentKey = 'platform-content-seo';
   if (!scheduledJobs.has(contentKey)) {
     const id = setInterval(() => {
-      withReentryGuard(contentKey, async () => {
-        try {
-          const { runContentSeoAgent } = await import('./platformAgents/contentSeoAgent');
-          await runContentSeoAgent();
-        } catch (err) { console.error('[PlatformAgent:ContentSEO] Error:', err); }
-      });
+      withReentryGuard(contentKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runContentSeoAgent } = await import('./platformAgents/contentSeoAgent');
+            await runContentSeoAgent();
+          } catch (err) { console.error('[PlatformAgent:ContentSEO] Error:', err); }
+        }, 180_000, contentKey)
+      ).catch(err => console.error(`[Scheduler] ${contentKey} error:`, err));
     }, 7 * 24 * 60 * 60 * 1000);
     scheduledJobs.set(contentKey, id);
     console.log('Platform agent started: Content & SEO (every 7d)');
@@ -1436,12 +1506,14 @@ export function startPlatformAgentsScheduler(): void {
   const testimonialKey = 'platform-testimonial';
   if (!scheduledJobs.has(testimonialKey)) {
     const id = setInterval(() => {
-      withReentryGuard(testimonialKey, async () => {
-        try {
-          const { runTestimonialAgent } = await import('./platformAgents/testimonialAgent');
-          await runTestimonialAgent();
-        } catch (err) { console.error('[PlatformAgent:Testimonial] Error:', err); }
-      });
+      withReentryGuard(testimonialKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runTestimonialAgent } = await import('./platformAgents/testimonialAgent');
+            await runTestimonialAgent();
+          } catch (err) { console.error('[PlatformAgent:Testimonial] Error:', err); }
+        }, 180_000, testimonialKey)
+      ).catch(err => console.error(`[Scheduler] ${testimonialKey} error:`, err));
     }, 7 * 24 * 60 * 60 * 1000);
     scheduledJobs.set(testimonialKey, id);
     console.log('Platform agent started: Testimonial (every 7d)');
@@ -1451,12 +1523,14 @@ export function startPlatformAgentsScheduler(): void {
   const compIntelKey = 'platform-competitive-intel';
   if (!scheduledJobs.has(compIntelKey)) {
     const id = setInterval(() => {
-      withReentryGuard(compIntelKey, async () => {
-        try {
-          const { runCompetitiveIntelAgent } = await import('./platformAgents/competitiveIntelAgent');
-          await runCompetitiveIntelAgent();
-        } catch (err) { console.error('[PlatformAgent:CompetitiveIntel] Error:', err); }
-      });
+      withReentryGuard(compIntelKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runCompetitiveIntelAgent } = await import('./platformAgents/competitiveIntelAgent');
+            await runCompetitiveIntelAgent();
+          } catch (err) { console.error('[PlatformAgent:CompetitiveIntel] Error:', err); }
+        }, 180_000, compIntelKey)
+      ).catch(err => console.error(`[Scheduler] ${compIntelKey} error:`, err));
     }, 7 * 24 * 60 * 60 * 1000);
     scheduledJobs.set(compIntelKey, id);
     console.log('Platform agent started: Competitive Intelligence (every 7d)');
@@ -1466,21 +1540,25 @@ export function startPlatformAgentsScheduler(): void {
   const socialMediaKey = 'platform-social-media';
   if (!scheduledJobs.has(socialMediaKey)) {
     const socialStartupTimer = setTimeout(() => {
-      withReentryGuard(socialMediaKey, async () => {
-        try {
-          const { runSocialMediaAgent } = await import('./platformAgents/socialMediaAgent');
-          await runSocialMediaAgent();
-        } catch (err) { console.error('[PlatformAgent:SocialMedia] Startup error:', err); }
-      });
+      withReentryGuard(socialMediaKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runSocialMediaAgent } = await import('./platformAgents/socialMediaAgent');
+            await runSocialMediaAgent();
+          } catch (err) { console.error('[PlatformAgent:SocialMedia] Startup error:', err); }
+        }, 180_000, socialMediaKey)
+      ).catch(err => console.error(`[Scheduler] ${socialMediaKey} error:`, err));
     }, 11 * 60 * 1000);
     scheduledJobs.set(`${socialMediaKey}-startup`, socialStartupTimer);
     const id = setInterval(() => {
-      withReentryGuard(socialMediaKey, async () => {
-        try {
-          const { runSocialMediaAgent } = await import('./platformAgents/socialMediaAgent');
-          await runSocialMediaAgent();
-        } catch (err) { console.error('[PlatformAgent:SocialMedia] Error:', err); }
-      });
+      withReentryGuard(socialMediaKey, () =>
+        withTimeout(async () => {
+          try {
+            const { runSocialMediaAgent } = await import('./platformAgents/socialMediaAgent');
+            await runSocialMediaAgent();
+          } catch (err) { console.error('[PlatformAgent:SocialMedia] Error:', err); }
+        }, 180_000, socialMediaKey)
+      ).catch(err => console.error(`[Scheduler] ${socialMediaKey} error:`, err));
     }, 24 * 60 * 60 * 1000);
     scheduledJobs.set(socialMediaKey, id);
     console.log('Platform agent started: Social Media (every 24h)');
@@ -1490,12 +1568,14 @@ export function startPlatformAgentsScheduler(): void {
   const socialPublisherKey = 'platform-social-publisher';
   if (!scheduledJobs.has(socialPublisherKey)) {
     const id = setInterval(() => {
-      withReentryGuard(socialPublisherKey, async () => {
-        try {
-          const { publishApprovedPosts } = await import('./platformAgents/socialMediaAgent');
-          await publishApprovedPosts();
-        } catch (err) { console.error('[PlatformAgent:SocialPublisher] Error:', err); }
-      });
+      withReentryGuard(socialPublisherKey, () =>
+        withTimeout(async () => {
+          try {
+            const { publishApprovedPosts } = await import('./platformAgents/socialMediaAgent');
+            await publishApprovedPosts();
+          } catch (err) { console.error('[PlatformAgent:SocialPublisher] Error:', err); }
+        }, 180_000, socialPublisherKey)
+      ).catch(err => console.error(`[Scheduler] ${socialPublisherKey} error:`, err));
     }, 30 * 60 * 1000);
     scheduledJobs.set(socialPublisherKey, id);
     console.log('Platform agent started: Social Media Publisher (every 30m)');
@@ -1506,19 +1586,22 @@ export function startPlatformAgentsScheduler(): void {
 
 export function startGbpSyncScheduler(): void {
   // Run every 24 hours (86400000ms)
-  setInterval(async () => {
-    await withReentryGuard('gbp-sync', async () => {
-      await withAdvisoryLock('gbp-sync', async () => {
-        try {
-          const { runGbpSync } = await import('./googleBusinessProfileService');
-          await runGbpSync();
-        } catch (error) {
-          console.error('[Scheduler] GBP sync error:', error);
-        }
-      });
-    });
+  const intervalId = setInterval(async () => {
+    await withReentryGuard('gbp-sync', () =>
+      withAdvisoryLock('gbp-sync', () =>
+        withTimeout(async () => {
+          try {
+            const { runGbpSync } = await import('./googleBusinessProfileService');
+            await runGbpSync();
+          } catch (error) {
+            console.error('[Scheduler] GBP sync error:', error);
+          }
+        }, 300_000, 'gbp-sync')
+      )
+    ).catch(err => console.error('[Scheduler] gbp-sync error:', err));
   }, 24 * 60 * 60 * 1000);
 
+  scheduledJobs.set('gbp-sync', intervalId);
   console.log('[Scheduler] GBP sync scheduler started (24h interval)');
 }
 
@@ -1534,16 +1617,18 @@ export function startMarketingTriggerProcessor(): void {
 
   const intervalMs = 5 * 60 * 1000; // Every 5 minutes
   const intervalId = setInterval(async () => {
-    await withReentryGuard(jobKey, async () => {
-      await withAdvisoryLock(jobKey, async () => {
-        try {
-          const { processReadyTriggers } = await import('./marketingTriggerEngine');
-          await processReadyTriggers();
-        } catch (error) {
-          console.error('[Scheduler] Marketing trigger processor error:', error);
-        }
-      });
-    });
+    await withReentryGuard(jobKey, () =>
+      withAdvisoryLock(jobKey, () =>
+        withTimeout(async () => {
+          try {
+            const { processReadyTriggers } = await import('./marketingTriggerEngine');
+            await processReadyTriggers();
+          } catch (error) {
+            console.error('[Scheduler] Marketing trigger processor error:', error);
+          }
+        }, 60_000, 'marketing-trigger-processor')
+      )
+    ).catch(err => console.error('[Scheduler] marketing-trigger-processor error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1560,16 +1645,18 @@ export function startMarketingTriggerEvaluator(): void {
 
   const intervalMs = 60 * 60 * 1000; // Every 1 hour
   const intervalId = setInterval(async () => {
-    await withReentryGuard(jobKey, async () => {
-      await withAdvisoryLock(jobKey, async () => {
-        try {
-          const { evaluateAllBusinesses } = await import('./marketingTriggerEngine');
-          await evaluateAllBusinesses();
-        } catch (error) {
-          console.error('[Scheduler] Marketing trigger evaluator error:', error);
-        }
-      });
-    });
+    await withReentryGuard(jobKey, () =>
+      withAdvisoryLock(jobKey, () =>
+        withTimeout(async () => {
+          try {
+            const { evaluateAllBusinesses } = await import('./marketingTriggerEngine');
+            await evaluateAllBusinesses();
+          } catch (error) {
+            console.error('[Scheduler] Marketing trigger evaluator error:', error);
+          }
+        }, 120_000, 'marketing-trigger-evaluator')
+      )
+    ).catch(err => console.error('[Scheduler] marketing-trigger-evaluator error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1589,14 +1676,16 @@ export function startWorkflowStepProcessor(): void {
 
   const intervalMs = 60 * 1000; // Every 60 seconds
   const intervalId = setInterval(async () => {
-    await withReentryGuard(jobKey, async () => {
-      try {
-        const { processWorkflowSteps } = await import('./workflowEngine');
-        await processWorkflowSteps();
-      } catch (error) {
-        console.error('[Scheduler] Workflow step processor error:', error);
-      }
-    });
+    await withReentryGuard(jobKey, () =>
+      withTimeout(async () => {
+        try {
+          const { processWorkflowSteps } = await import('./workflowEngine');
+          await processWorkflowSteps();
+        } catch (error) {
+          console.error('[Scheduler] Workflow step processor error:', error);
+        }
+      }, 60_000, 'workflow-step-processor')
+    ).catch(err => console.error('[Scheduler] workflow-step-processor error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1746,28 +1835,30 @@ export function startDailyDigestScheduler(): void {
   // Check every hour; for each business, send digest when it's 7 AM in their timezone
   const intervalMs = 60 * 60 * 1000; // 1 hour
   const intervalId = setInterval(() => {
-    withReentryGuard('daily-digest', async () => {
-      try {
-        const allBusinesses = await storage.getAllBusinesses();
-        const eligibleIds: number[] = [];
+    withReentryGuard('daily-digest', () =>
+      withTimeout(async () => {
+        try {
+          const allBusinesses = await storage.getAllBusinesses();
+          const eligibleIds: number[] = [];
 
-        for (const business of allBusinesses) {
-          const tz = business.timezone || 'America/New_York';
-          const localHour = getLocalHour(tz);
-          if (localHour === 7) {
-            eligibleIds.push(business.id);
+          for (const business of allBusinesses) {
+            const tz = business.timezone || 'America/New_York';
+            const localHour = getLocalHour(tz);
+            if (localHour === 7) {
+              eligibleIds.push(business.id);
+            }
           }
-        }
 
-        if (eligibleIds.length > 0) {
-          console.log(`[DailyDigest] Running daily digest for ${eligibleIds.length} businesses at ${new Date().toISOString()}`);
-          const { processDailyDigests } = await import('./dailyDigestService');
-          await processDailyDigests(eligibleIds);
+          if (eligibleIds.length > 0) {
+            console.log(`[DailyDigest] Running daily digest for ${eligibleIds.length} businesses at ${new Date().toISOString()}`);
+            const { processDailyDigests } = await import('./dailyDigestService');
+            await processDailyDigests(eligibleIds);
+          }
+        } catch (error) {
+          console.error('[DailyDigest] Scheduler error:', error);
         }
-      } catch (error) {
-        console.error('[DailyDigest] Scheduler error:', error);
-      }
-    });
+      }, 120_000, 'daily-digest')
+    ).catch(err => console.error('[Scheduler] daily-digest error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1783,16 +1874,18 @@ export function startCustomerInsightsScheduler(): void {
   const intervalMs = 24 * 60 * 60 * 1000; // 24 hours
   const intervalId = setInterval(() => {
     withReentryGuard('customer-insights', () =>
-      withAdvisoryLock('customer-insights', async () => {
-        try {
-          console.log(`[CustomerInsights] Running nightly batch at ${new Date().toISOString()}`);
-          const { runNightlyInsightsRecalculation } = await import('./customerInsightsService');
-          await runNightlyInsightsRecalculation();
-        } catch (error) {
-          console.error('[CustomerInsights] Scheduler error:', error);
-        }
-      })
-    );
+      withAdvisoryLock('customer-insights', () =>
+        withTimeout(async () => {
+          try {
+            console.log(`[CustomerInsights] Running nightly batch at ${new Date().toISOString()}`);
+            const { runNightlyInsightsRecalculation } = await import('./customerInsightsService');
+            await runNightlyInsightsRecalculation();
+          } catch (error) {
+            console.error('[CustomerInsights] Scheduler error:', error);
+          }
+        }, 300_000, 'customer-insights')
+      )
+    ).catch(err => console.error('[Scheduler] customer-insights error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1807,16 +1900,18 @@ export function startEngagementLockCleanupScheduler(): void {
 
   const intervalMs = 15 * 60 * 1000; // 15 minutes
   const intervalId = setInterval(() => {
-    withReentryGuard('engagement-lock-cleanup', async () => {
-      try {
-        const released = await storage.releaseExpiredEngagementLocks();
-        if (released > 0) {
-          console.log(`[EngagementLock] Released ${released} expired locks`);
+    withReentryGuard('engagement-lock-cleanup', () =>
+      withTimeout(async () => {
+        try {
+          const released = await storage.releaseExpiredEngagementLocks();
+          if (released > 0) {
+            console.log(`[EngagementLock] Released ${released} expired locks`);
+          }
+        } catch (error) {
+          console.error('[EngagementLock] Cleanup error:', error);
         }
-      } catch (error) {
-        console.error('[EngagementLock] Cleanup error:', error);
-      }
-    });
+      }, 30_000, 'engagement-lock-cleanup')
+    ).catch(err => console.error('[Scheduler] engagement-lock-cleanup error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1832,15 +1927,17 @@ export function startMorningBriefScheduler(): void {
   const intervalMs = 60 * 60 * 1000; // Check every hour
   const intervalId = setInterval(() => {
     withReentryGuard('morning-brief', () =>
-      withAdvisoryLock('morning-brief', async () => {
-        try {
-          const { sendMorningBriefs } = await import('./morningBriefService');
-          await sendMorningBriefs();
-        } catch (error) {
-          console.error('[MorningBrief] Scheduler error:', error);
-        }
-      })
-    );
+      withAdvisoryLock('morning-brief', () =>
+        withTimeout(async () => {
+          try {
+            const { sendMorningBriefs } = await import('./morningBriefService');
+            await sendMorningBriefs();
+          } catch (error) {
+            console.error('[MorningBrief] Scheduler error:', error);
+          }
+        }, 120_000, 'morning-brief')
+      )
+    ).catch(err => console.error('[Scheduler] morning-brief error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);
@@ -1856,15 +1953,17 @@ export function startAdminDigestScheduler(): void {
   const intervalMs = 60 * 60 * 1000; // Check every hour
   const intervalId = setInterval(() => {
     withReentryGuard('admin-digest', () =>
-      withAdvisoryLock('admin-digest', async () => {
-        try {
-          const { checkAndSendAdminDigest } = await import('./adminDigestService');
-          await checkAndSendAdminDigest();
-        } catch (error) {
-          console.error('[AdminDigest] Scheduler error:', error);
-        }
-      })
-    );
+      withAdvisoryLock('admin-digest', () =>
+        withTimeout(async () => {
+          try {
+            const { checkAndSendAdminDigest } = await import('./adminDigestService');
+            await checkAndSendAdminDigest();
+          } catch (error) {
+            console.error('[AdminDigest] Scheduler error:', error);
+          }
+        }, 60_000, 'admin-digest')
+      )
+    ).catch(err => console.error('[Scheduler] admin-digest error:', err));
   }, intervalMs);
 
   scheduledJobs.set(jobKey, intervalId);

@@ -10,6 +10,7 @@ import { db } from '../db';
 import { eq, sql, gte, lte, and, desc } from 'drizzle-orm';
 import { businesses, users, callLogs, agentActivityLog, notificationLog, subscriptionPlans } from '../../shared/schema';
 import { sendEmail } from '../emailService';
+import { toMoney } from '../utils/money';
 
 const ADMIN_TIMEZONE = process.env.ADMIN_TIMEZONE || 'America/New_York';
 
@@ -70,7 +71,7 @@ export async function sendAdminDigest(): Promise<void> {
       for (const b of activeBiz) {
         const plan = b.stripePlanId ? planMap.get(b.stripePlanId) : null;
         if (plan?.price) {
-          mrr += plan.interval === 'yearly' ? plan.price / 12 : plan.price;
+          mrr += plan.interval === 'yearly' ? toMoney(plan.price) / 12 : toMoney(plan.price);
         }
       }
       return { mrr: Math.round(mrr) };

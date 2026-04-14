@@ -17,6 +17,7 @@ import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 
 import { Progress } from "@/components/ui/progress";
 import { AiRoiCard } from "@/components/dashboard/AiRoiCard";
+import { SectionErrorBoundary } from "@/components/ui/section-error-boundary";
 
 import {
   CheckSquare,
@@ -108,86 +109,56 @@ export default function Dashboard() {
   // Get business ID from authenticated user
   const businessId = user?.businessId;
 
-  // Fetch business info for greeting
-  const { data: business, isError: businessError, error: businessErrorObj, refetch: refetchBusiness } = useQuery<any>({
-    queryKey: ['/api/business'],
-    enabled: !!businessId,
-  });
-
-  // Fetch dashboard data for backward compatibility
-  const { data: jobs = [] } = useQuery<any[]>({
-    queryKey: ['/api/jobs', { businessId, status: 'completed' }],
-    enabled: !!businessId,
-    refetchInterval: 10000,
-    staleTime: 5000, // Must be less than refetchInterval for TanStack v5 to actually refetch
-  });
-
-  const { data: invoices = [] } = useQuery<any[]>({
-    queryKey: ['/api/invoices', { businessId }],
-    enabled: !!businessId,
-  });
-
-  const { data: appointments = [] } = useQuery<any[]>({
-    queryKey: ['/api/appointments', {
-      businessId,
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: new Date().toISOString().split('T')[0]
-    }],
-    enabled: !!businessId,
-    refetchInterval: 10000,
-    staleTime: 5000,
-  });
-
-  const { data: calls = [] } = useQuery<any[]>({
-    queryKey: ['/api/call-logs', { businessId }],
-    enabled: !!businessId,
-    refetchInterval: 10000,
-    staleTime: 5000,
-  });
-
-  const { data: quotes = [] } = useQuery<any[]>({
-    queryKey: ['/api/quotes', { businessId }],
-    enabled: !!businessId,
-  });
-
-  // Fetch AI call usage data
-  const { data: usageData } = useQuery<{
-    minutesUsed: number;
-    minutesIncluded: number;
-    minutesRemaining: number;
-    overageMinutes: number;
-    overageRate: number;
-    overageCost: number;
-    percentUsed: number;
-    planName: string;
-    planTier: string | null;
-    isTrialActive: boolean;
-    trialEndsAt: string | null;
-    subscriptionStatus: string;
-    canAcceptCalls: boolean;
+  // Single batched dashboard query — replaces 8 separate API calls
+  const {
+    data: dashboardData,
+    isError: businessError,
+    error: businessErrorObj,
+    refetch: refetchDashboard,
+    isLoading: dashboardLoading,
+  } = useQuery<{
+    business: any;
+    jobs: any[];
+    invoices: any[];
+    appointments: any[];
+    callLogs: any[];
+    quotes: any[];
+    usage: {
+      minutesUsed: number;
+      minutesIncluded: number;
+      minutesRemaining: number;
+      overageMinutes: number;
+      overageRate: number;
+      overageCost: number;
+      percentUsed: number;
+      planName: string;
+      planTier: string | null;
+      isTrialActive: boolean;
+      trialEndsAt: string | null;
+      subscriptionStatus: string;
+      canAcceptCalls: boolean;
+    } | null;
+    analytics: BusinessAnalytics | null;
   }>({
-    queryKey: [`/api/subscription/usage/${businessId}`],
+    queryKey: ['/api/dashboard'],
     enabled: !!businessId,
-    retry: 2,
-    staleTime: 60000,
-    queryFn: async () => {
-      const res = await fetch(`/api/subscription/usage/${businessId}`, {
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        console.error(`Usage endpoint error: ${res.status}`, text);
-        throw new Error(`Usage fetch failed: ${res.status} - ${text}`);
-      }
-      return res.json();
-    },
+    refetchInterval: 30000, // Refresh every 30 seconds (was 10s on 3 individual queries)
+    staleTime: 10000,
   });
 
-  // Fetch analytics data (endpoint uses session auth, no need to pass businessId)
-  const { data: analytics, isLoading: analyticsLoading } = useQuery<BusinessAnalytics>({
-    queryKey: ['/api/analytics', { period: 'month' }],
-    enabled: !!businessId,
-  });
+  // Destructure batched response into the same variable names used throughout the component
+  const business = dashboardData?.business ?? null;
+  const jobs = dashboardData?.jobs ?? [];
+  const invoices = dashboardData?.invoices ?? [];
+  const appointments = dashboardData?.appointments ?? [];
+  const calls = dashboardData?.callLogs ?? [];
+  const quotes = dashboardData?.quotes ?? [];
+  const usageData = dashboardData?.usage ?? null;
+  const analytics = dashboardData?.analytics ?? null;
+  const analyticsLoading = dashboardLoading;
+
+  // Alias refetchDashboard as refetchBusiness for the error banner
+  const refetchBusiness = refetchDashboard;
 
   // Calculate monthly revenue (fallback method if analytics not available)
   const calculateMonthlyRevenue = () => {
@@ -348,6 +319,7 @@ export default function Dashboard() {
         <TrialExpirationBanner />
 
         {/* Quick Actions */}
+        <SectionErrorBoundary fallbackTitle="Quick actions">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {quickActions.map((action) => (
             <Link key={action.href} href={action.href}>
@@ -362,8 +334,11 @@ export default function Dashboard() {
             </Link>
           ))}
         </div>
+        </SectionErrorBoundary>
 
         {/* Top Section - Analytics Cards */}
+        <SectionErrorBoundary fallbackTitle="Dashboard stats">
+        <section aria-label="Key metrics">
         {analyticsLoading ? (
           <SkeletonStats />
         ) : (
@@ -427,8 +402,11 @@ export default function Dashboard() {
             />
           </div>
         )}
+        </section>
+        </SectionErrorBoundary>
 
         {/* AI Receptionist Usage Widget */}
+        <SectionErrorBoundary fallbackTitle="Usage info">
         {usageData && (
           <Card className="border-border bg-card shadow-sm rounded-xl overflow-hidden">
             <CardContent className="p-5">
@@ -502,9 +480,12 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         )}
+        </SectionErrorBoundary>
 
         {/* AI ROI Card — the "money story" */}
+        <SectionErrorBoundary fallbackTitle="AI insights">
         {usageData && businessId && <AiRoiCard businessId={businessId} />}
+        </SectionErrorBoundary>
 
         {/* Needs Attention Section */}
         {attentionItems.length > 0 && (
@@ -530,6 +511,8 @@ export default function Dashboard() {
         )}
 
         {/* Middle Section - Appointments and Jobs */}
+        <SectionErrorBoundary fallbackTitle="Schedule">
+        <section aria-label="Schedule and jobs">
         <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
           {/* Today's Schedule */}
           <div className="lg:col-span-1">
@@ -541,6 +524,8 @@ export default function Dashboard() {
             <JobsTable businessId={businessId} limit={3} />
           </div>
         </div>
+        </section>
+        </SectionErrorBoundary>
 
         {/* Bottom Section - Recent Calls and Invoices */}
         <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">

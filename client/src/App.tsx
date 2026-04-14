@@ -252,6 +252,9 @@ function ImpersonationBanner() {
 function App() {
   return (
     <ErrorBoundary>
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[200] focus:p-4 focus:bg-white focus:text-black focus:top-0 focus:left-0">
+        Skip to main content
+      </a>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <AuthProvider>

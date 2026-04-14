@@ -2336,6 +2336,23 @@ async function runMigrations() {
       console.error('Error running Vapi→Retell migration:', error);
     }
 
+    // Migrate money columns from double precision to numeric for exact decimal arithmetic
+    await migrateMoneyColumnsToNumeric();
+
+    // Add access token expiry to invoices and quotes (portal links expire after 90 days)
+    const addColIfNotExists = async (table: string, column: string, type: string) => {
+      try {
+        await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+      } catch (e: any) {
+        if (!e.message.includes('already exists')) throw e;
+      }
+    };
+    await addColIfNotExists('invoices', 'access_token_expires_at', 'TIMESTAMP');
+    await addColIfNotExists('quotes', 'access_token_expires_at', 'TIMESTAMP');
+
+    // Add foreign key constraints (NOT VALID — enforces on new rows without scanning existing data)
+    await addForeignKeyConstraints();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -2812,6 +2829,188 @@ async function addMonitoringAndBrandingTables() {
   }
 
   console.log('Monitoring and branding tables created successfully');
+}
+
+/**
+ * Migrate money columns from DOUBLE PRECISION to NUMERIC(12,2) for exact decimal arithmetic.
+ * DOUBLE PRECISION uses IEEE 754 floats which cannot represent $0.10 exactly.
+ * NUMERIC stores exact decimals — critical for financial calculations.
+ * This migration is idempotent: ALTER TYPE on an already-NUMERIC column is a no-op.
+ */
+async function migrateMoneyColumnsToNumeric() {
+  console.log('Migrating money columns from DOUBLE PRECISION to NUMERIC...');
+
+  const alterColumn = async (table: string, column: string, numericType: string) => {
+    try {
+      await pool.query(`ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${numericType} USING ${column}::${numericType}`);
+    } catch (e: any) {
+      // Ignore if column doesn't exist or is already the correct type
+      if (!e.message.includes('does not exist') && !e.message.includes('already')) {
+        console.log(`Note: Could not alter ${table}.${column}: ${e.message}`);
+      }
+    }
+  };
+
+  const MONEY = 'NUMERIC(12,2)';
+  const RATE = 'NUMERIC(8,4)'; // For per-minute rates like $0.0500
+
+  // Services
+  await alterColumn('services', 'price', MONEY);
+
+  // Job line items
+  await alterColumn('job_line_items', 'unit_price', MONEY);
+  await alterColumn('job_line_items', 'amount', MONEY);
+
+  // Invoices
+  await alterColumn('invoices', 'amount', MONEY);
+  await alterColumn('invoices', 'tax', MONEY);
+  await alterColumn('invoices', 'total', MONEY);
+
+  // Invoice items
+  await alterColumn('invoice_items', 'unit_price', MONEY);
+  await alterColumn('invoice_items', 'amount', MONEY);
+
+  // Quotes
+  await alterColumn('quotes', 'amount', MONEY);
+  await alterColumn('quotes', 'tax', MONEY);
+  await alterColumn('quotes', 'total', MONEY);
+
+  // Quote items
+  await alterColumn('quote_items', 'unit_price', MONEY);
+  await alterColumn('quote_items', 'amount', MONEY);
+
+  // Recurring schedules
+  await alterColumn('recurring_schedules', 'invoice_amount', MONEY);
+  await alterColumn('recurring_schedules', 'invoice_tax', MONEY);
+
+  // Recurring schedule items
+  await alterColumn('recurring_schedule_items', 'unit_price', MONEY);
+  await alterColumn('recurring_schedule_items', 'amount', MONEY);
+
+  // Subscription plans
+  await alterColumn('subscription_plans', 'price', MONEY);
+  await alterColumn('subscription_plans', 'overage_rate_per_minute', RATE);
+
+  // Overage charges
+  await alterColumn('overage_charges', 'overage_rate', RATE);
+  await alterColumn('overage_charges', 'overage_amount', MONEY);
+
+  console.log('Money column migration to NUMERIC complete');
+}
+
+/**
+ * Add foreign key constraints to enforce referential integrity.
+ * Uses NOT VALID so constraints are enforced on NEW inserts/updates
+ * without requiring a full table scan of existing data.
+ * Safe to re-run: catches "already exists" errors silently.
+ */
+async function addForeignKeyConstraints() {
+  console.log('Adding foreign key constraints (NOT VALID)...');
+
+  const addFK = async (
+    table: string,
+    column: string,
+    refTable: string,
+    refColumn: string,
+    onDelete: string,
+    constraintName: string
+  ) => {
+    try {
+      await pool.query(
+        `ALTER TABLE ${table} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${column}) REFERENCES ${refTable}(${refColumn}) ON DELETE ${onDelete} NOT VALID`
+      );
+      console.log(`  Added FK ${constraintName}`);
+    } catch (e: any) {
+      if (!e.message.includes('already exists')) {
+        console.log(`  Note: Could not add FK ${constraintName}: ${e.message}`);
+      }
+    }
+  };
+
+  // ============================================================
+  // CASCADE — delete parent = delete all children
+  // ============================================================
+
+  // invoice_items belong entirely to an invoice
+  await addFK('invoice_items', 'invoice_id', 'invoices', 'id', 'CASCADE', 'fk_invoice_items_invoice_id');
+
+  // quote_items belong entirely to a quote
+  await addFK('quote_items', 'quote_id', 'quotes', 'id', 'CASCADE', 'fk_quote_items_quote_id');
+
+  // job_line_items belong entirely to a job
+  await addFK('job_line_items', 'job_id', 'jobs', 'id', 'CASCADE', 'fk_job_line_items_job_id');
+
+  // recurring_schedule_items belong entirely to a recurring schedule
+  await addFK('recurring_schedule_items', 'schedule_id', 'recurring_schedules', 'id', 'CASCADE', 'fk_recurring_schedule_items_schedule_id');
+
+  // recurring_job_history belongs entirely to a recurring schedule
+  await addFK('recurring_job_history', 'schedule_id', 'recurring_schedules', 'id', 'CASCADE', 'fk_recurring_job_history_schedule_id');
+
+  // ============================================================
+  // SET NULL — delete parent = null out the reference
+  // (optional foreign keys where the child can exist independently)
+  // ============================================================
+
+  // jobs can optionally link to an appointment
+  await addFK('jobs', 'appointment_id', 'appointments', 'id', 'SET NULL', 'fk_jobs_appointment_id');
+
+  // jobs can optionally be assigned to a staff member
+  await addFK('jobs', 'staff_id', 'staff', 'id', 'SET NULL', 'fk_jobs_staff_id');
+
+  // invoices can optionally link to a job
+  await addFK('invoices', 'job_id', 'jobs', 'id', 'SET NULL', 'fk_invoices_job_id');
+
+  // quotes can optionally link to a job
+  await addFK('quotes', 'job_id', 'jobs', 'id', 'SET NULL', 'fk_quotes_job_id');
+
+  // appointments can optionally be assigned to a staff member
+  await addFK('appointments', 'staff_id', 'staff', 'id', 'SET NULL', 'fk_appointments_staff_id');
+
+  // appointments can optionally link to a service
+  await addFK('appointments', 'service_id', 'services', 'id', 'SET NULL', 'fk_appointments_service_id');
+
+  // ============================================================
+  // RESTRICT — prevent deleting parent while children exist
+  // (core business relationships that must be cleaned up first)
+  // ============================================================
+
+  // customers must belong to a business
+  await addFK('customers', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_customers_business_id');
+
+  // services must belong to a business
+  await addFK('services', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_services_business_id');
+
+  // staff must belong to a business
+  await addFK('staff', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_staff_business_id');
+
+  // appointments must belong to a business
+  await addFK('appointments', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_appointments_business_id');
+
+  // appointments must reference a valid customer
+  await addFK('appointments', 'customer_id', 'customers', 'id', 'RESTRICT', 'fk_appointments_customer_id');
+
+  // jobs must belong to a business
+  await addFK('jobs', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_jobs_business_id');
+
+  // jobs must reference a valid customer
+  await addFK('jobs', 'customer_id', 'customers', 'id', 'RESTRICT', 'fk_jobs_customer_id');
+
+  // invoices must belong to a business
+  await addFK('invoices', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_invoices_business_id');
+
+  // invoices must reference a valid customer
+  await addFK('invoices', 'customer_id', 'customers', 'id', 'RESTRICT', 'fk_invoices_customer_id');
+
+  // quotes must belong to a business
+  await addFK('quotes', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_quotes_business_id');
+
+  // quotes must reference a valid customer
+  await addFK('quotes', 'customer_id', 'customers', 'id', 'RESTRICT', 'fk_quotes_customer_id');
+
+  // call_logs must belong to a business
+  await addFK('call_logs', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_call_logs_business_id');
+
+  console.log('Foreign key constraint migration complete');
 }
 
 // ES modules don't have a direct equivalent to require.main === module

@@ -399,10 +399,6 @@ vi.mock('../routes/quoteRoutes', () => {
   const { Router } = require('express');
   return { default: Router() };
 });
-vi.mock('../routes/customerRoutes', () => {
-  const { Router } = require('express');
-  return { default: Router() };
-});
 vi.mock('../routes/recurring', () => {
   const { Router } = require('express');
   return { default: Router() };

@@ -401,6 +401,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `staffRoutes` | `/api/staff/*` | 20 staff CRUD/hours/invites/time-off endpoints |
 | `servicesRoutes` | `/api/services/*` | 6 service CRUD + template endpoints |
 | `businessRoutes` | `/api/business/*` | 9 business profile/hours/provisioning endpoints |
+| `dashboardRoutes` | `/api/dashboard` | 1 batched dashboard endpoint (replaces 8 separate calls) |
 | `retellRoutes` | `/api/retell/*` | 17 Retell AI + receptionist + admin phone endpoints |
 | `knowledgeRoutes` | `/api/knowledge/*` | 10 knowledge base + unanswered questions endpoints |
 | `notificationRoutes` | `/api/notifications/*` | 11 notification settings/log/send endpoints |
@@ -714,6 +715,21 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `329da2e` | Add shared SMS agent utilities (extracted from 5 agent services) |
 
 ### Recent changes (uncommitted):
+
+#### Batched Dashboard API — 8 Calls to 1
+- **Goal**: Replace 8 separate API calls on the dashboard page with a single batched endpoint for faster page loads and reduced server round-trips.
+
+##### Backend Endpoint
+- `server/routes/dashboardRoutes.ts` — **NEW**: `GET /api/dashboard`. Authenticated, reads businessId from session. Runs all 8 queries in parallel via `Promise.all`: business profile (sanitized), completed jobs (limit 50), invoices with customer data (limit 50), today's appointments with customer/staff/service (limit 50), call logs (limit 25), quotes (limit 50), subscription usage info, and monthly analytics. Each sub-query has independent error handling (catches and returns null/empty array) so a single failure does not break the entire response. Returns `{ business, jobs, invoices, appointments, callLogs, quotes, usage, analytics }`.
+- `server/routes.ts` — Imported and mounted `dashboardRoutes` at `/api` (after businessRoutes).
+
+##### Frontend Update
+- `client/src/pages/dashboard.tsx` — Replaced 8 `useQuery` hooks (business, jobs, invoices, appointments, call-logs, quotes, usage, analytics) with a single `useQuery` fetching `/api/dashboard`. Response is destructured into the same variable names (`business`, `jobs`, `invoices`, `appointments`, `calls`, `quotes`, `usageData`, `analytics`) so all existing template code works unchanged. `refetchBusiness` aliased to `refetchDashboard`. Refresh interval set to 30s (was 10s on 3 individual queries). staleTime set to 10s.
+
+##### Files Changed
+- `server/routes/dashboardRoutes.ts` — **NEW** (~160 lines)
+- `server/routes.ts` — Import + mount (2 lines)
+- `client/src/pages/dashboard.tsx` — 8 useQuery hooks replaced with 1 (~80 lines changed)
 
 #### Voice-to-Job-Notes — AI-Parsed Technician Dictation
 - **Goal**: After completing a job, the tech talks to their phone and AI parses the transcript into structured job notes, parts used, equipment info, and follow-up opportunities.
@@ -1741,7 +1757,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Data access layer | `server/storage.ts` |
 | React Query config | `client/src/lib/queryClient.ts` |
 | Auth hook | `client/src/hooks/use-auth.tsx` |
-| Admin dashboard | `client/src/pages/admin/index.tsx` |
+| Admin dashboard (shell) | `client/src/pages/admin/index.tsx` |
+| Admin shared types | `client/src/pages/admin/types.ts` |
+| Admin shared components | `client/src/pages/admin/shared.tsx` |
+| Admin tab components | `client/src/pages/admin/tabs/*.tsx` |
 | Social media page | `client/src/pages/admin/social-media.tsx` |
 | Video templates | `server/services/videoGenerationService.ts` |
 | Video assembly pipeline | `server/services/videoAssemblyService.ts` |
@@ -1761,7 +1780,19 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Mem0 persistent memory | `server/services/mem0Service.ts` |
 | Claude AI client | `server/services/claudeClient.ts` |
 | Safe async utility | `server/utils/safeAsync.ts` |
+| Money utility | `server/utils/money.ts` |
+| Request context / tracing | `server/utils/requestContext.ts` |
 | API error utility | `server/utils/apiError.ts` |
+| Section error boundary | `client/src/components/ui/section-error-boundary.tsx` |
+| Reservation routes | `server/routes/reservationRoutes.ts` |
+| Email routes | `server/routes/emailRoutes.ts` |
+| Search routes | `server/routes/searchRoutes.ts` |
+| Payment routes | `server/routes/paymentRoutes.ts` |
+| Misc routes (health, push, etc.) | `server/routes/miscRoutes.ts` |
+| Tenant isolation tests | `server/test/e2e-tenant-isolation.test.ts` |
+| Stripe webhook tests | `server/test/stripe-webhooks.test.ts` |
+| Customer+Job E2E tests | `server/test/e2e-customers-jobs.test.ts` |
+| Booking flow E2E tests | `server/test/e2e-booking-flow.test.ts` |
 | Managed Agents (Claude) | `server/services/managedAgents/` |
 | Express onboarding | `server/routes/expressSetupRoutes.ts` |
 | Express setup UI | `client/src/pages/onboarding/steps/express-setup.tsx` |
@@ -1804,6 +1835,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | Invoice routes | `server/routes/invoiceRoutes.ts` |
 | Staff routes | `server/routes/staffRoutes.ts` |
 | Business routes | `server/routes/businessRoutes.ts` |
+| Dashboard routes (batched) | `server/routes/dashboardRoutes.ts` |
 | Retell routes | `server/routes/retellRoutes.ts` |
 | Permission middleware | `server/middleware/permissions.ts` |
 | Workflow engine | `server/services/workflowEngine.ts` |
@@ -1863,7 +1895,17 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: April 12, 2026. Major grind session covering operational maturity, React Native mobile app, AI differentiators, and Capacitor iOS app.*
+*Last updated: April 13, 2026. Production readiness mega-session — 4 rounds of hardening (36 fixes, 167 new tests, 5 new route files, 2 page splits).*
+
+*Round 1 — Core Hardening (15 items): (1) Money columns migrated from DOUBLE PRECISION to NUMERIC(12,2) across all tables — exact decimal arithmetic for invoices, quotes, subscriptions, overage billing. `toMoney()` / `roundMoney()` / `coerceMoneyFields()` utilities at `server/utils/money.ts`. (2) 23 foreign key constraints added via migration with `NOT VALID` — CASCADE for line items, SET NULL for optional refs, RESTRICT for business-scoped tables. (3) `express-async-errors` installed — patches Express to catch async route errors automatically. (4) `process.on('unhandledRejection')` + `process.on('uncaughtException')` handlers with Sentry capture added to `server/index.ts`. (5) Session fixation prevention — `req.session.regenerate()` before `req.login()` in all 3 auth paths (register, login, 2FA). (6) React Query `staleTime: Infinity` → `30_000` + `refetchOnWindowFocus: true` — data now refreshes after 30s and on tab switch. (7) CRUD rate limiter (60 writes/min/IP) on customer creation endpoints. (8) Invoice/quote access token expiry — new `accessTokenExpiresAt` column, 90-day expiry set on token generation, portal routes check expiry and return 410 Gone. (9) Health check `pool.connect()` wrapped in try/finally to prevent connection leak. (10) Stripe payment validation — rejects non-finite, negative, < $0.50, > $999,999.99 amounts. (11) Admin dashboard split from 3,635-line monolith into lazy-loaded tab components at `client/src/pages/admin/tabs/`. (12) Settings page split from 3,543-line monolith into lazy-loaded sections at `client/src/pages/settings/`. (13) Cross-tenant isolation E2E tests (19 tests). (14) Stripe webhook integration tests (17 tests). (15) OAuth token encryption verified (was already implemented).*
+
+*Round 2 — Observability & Security (6 items): (16) Distributed request tracing via `AsyncLocalStorage` — `server/utils/requestContext.ts`, `x-request-id` header propagation, Sentry tags, log prefixes. (17) Scheduler timeout guards — `withTimeout()` on all 20 scheduler callbacks (30s–5min). (18) Twilio webhook hardening — loud production warning if `TWILIO_AUTH_TOKEN` missing, rejects missing signature header. (19) Auth rate limiting — 5 new limiters: login (10/15min), forgot-password (5/hr), reset-password (5/15min), 2FA (5/15min), verify-email (5/15min). (20) PII sanitization in response logging — passwords, tokens, keys redacted before console output. (21) Batched dashboard API — new `GET /api/dashboard` replaces 8 separate queries with 1 parallel call.*
+
+*Round 3 — Tests & Accessibility (5 items): (22) 59 new E2E tests for customer CRUD + job CRUD + cross-entity + CSRF enforcement. (23) Accessibility: skip-to-content link, ARIA labels on navigation, `aria-current="page"`, semantic `<section>` tags. (24) `prefers-reduced-motion` CSS support. (25) Booking flow E2E tests (39 tests). (26) Section-level error boundaries for dashboard + receptionist.*
+
+*Round 4 — Architecture & Performance (5 items): (27) Database `statement_timeout: 30000` prevents query cascade hangs. (28) Connection pool monitoring (60s interval with CRITICAL/WARNING thresholds + graceful shutdown). (29) routes.ts extraction: 1,298 → 290 lines — 5 new route files: `reservationRoutes`, `emailRoutes`, `searchRoutes`, `paymentRoutes`, `miscRoutes`. (30) Stripe webhook secret startup validation. (31) `requireEmailVerified` middleware for gating sensitive routes.*
+
+*Previous: April 12, 2026. Major grind session covering operational maturity, React Native mobile app, AI differentiators, and Capacitor iOS app.*
 
 *Operational Maturity (10 items): Real service health monitoring (DB/Twilio/Retell/Stripe/OpenAI) with 5-min scheduler and admin alerts. Help page with 25 FAQ entries. Swagger API docs at /api/docs. Usage dashboard with projected overage. Type safety: 96→45 non-test `as any` casts. Capacitor mobile enhancements (push/share/deep links/offline). White-label branding (logo upload, brand name). E2E tests (80 new). Client React tests (9 new). Annual billing UI confirmed working.*
 

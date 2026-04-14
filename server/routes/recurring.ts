@@ -14,6 +14,7 @@ import {
 } from "@shared/schema";
 import { eq, and, lte, gte, isNull, or, desc } from "drizzle-orm";
 import { z } from "zod";
+import { toMoney } from "../utils/money";
 
 const router = Router();
 
@@ -188,6 +189,8 @@ router.post("/", async (req: Request, res: Response) => {
       .insert(recurringSchedules)
       .values({
         ...scheduleData,
+        invoiceAmount: scheduleData.invoiceAmount != null ? String(scheduleData.invoiceAmount) : null,
+        invoiceTax: scheduleData.invoiceTax != null ? String(scheduleData.invoiceTax) : null,
         nextRunDate,
       })
       .returning();
@@ -197,7 +200,10 @@ router.post("/", async (req: Request, res: Response) => {
       await db.insert(recurringScheduleItems).values(
         items.map((item) => ({
           scheduleId: schedule.id,
-          ...item,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: String(item.unitPrice),
+          amount: String(item.amount),
         }))
       );
     }
@@ -604,8 +610,8 @@ async function executeRecurringSchedule(scheduleId: number) {
         jobId: job.id,
         invoiceNumber,
         amount: schedule.invoiceAmount,
-        tax: schedule.invoiceTax || 0,
-        total: schedule.invoiceAmount + (schedule.invoiceTax || 0),
+        tax: schedule.invoiceTax || '0',
+        total: String(toMoney(schedule.invoiceAmount) + toMoney(schedule.invoiceTax)),
         dueDate: dueDate.toISOString().split("T")[0],
         status: "pending",
         notes: schedule.invoiceNotes,

@@ -14,6 +14,7 @@ import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles, 
 import { useAuth } from "@/hooks/use-auth";
 
 import { FeatureTip } from "@/components/ui/feature-tip";
+import { SectionErrorBoundary } from "@/components/ui/section-error-boundary";
 
 
 // Recording disclosure keywords (must match server-side check)
@@ -194,23 +195,31 @@ export default function Receptionist() {
           </TabsList>
 
           <TabsContent value="calls" className="space-y-4">
-            <CallLog businessId={businessId} />
+            <SectionErrorBoundary fallbackTitle="Call history">
+              <CallLog businessId={businessId} />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="knowledge" className="space-y-4">
-            <KnowledgeBase businessId={businessId ?? undefined} />
+            <SectionErrorBoundary fallbackTitle="Knowledge base">
+              <KnowledgeBase businessId={businessId ?? undefined} />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="insights" className="space-y-4">
-            <WeeklySuggestions
-              businessId={businessId ?? undefined}
-              aiInsightsEnabled={aiInsightsEnabled}
-              callRecordingEnabled={callRecordingEnabled}
-            />
+            <SectionErrorBoundary fallbackTitle="AI insights">
+              <WeeklySuggestions
+                businessId={businessId ?? undefined}
+                aiInsightsEnabled={aiInsightsEnabled}
+                callRecordingEnabled={callRecordingEnabled}
+              />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="settings" className="space-y-4">
-            <ReceptionistConfig businessId={businessId} />
+            <SectionErrorBoundary fallbackTitle="Receptionist configuration">
+              <ReceptionistConfig businessId={businessId} />
+            </SectionErrorBoundary>
           </TabsContent>
         </Tabs>
       </div>

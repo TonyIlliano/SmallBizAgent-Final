@@ -26,6 +26,7 @@ import {
 } from "../../../shared/schema";
 import { logAgentAction } from "../agentActivityService";
 import { storage } from "../../storage";
+import { toMoney } from "../../utils/money";
 
 const AGENT_TYPE = "platform:revenue_optimization";
 const ACTION = "opportunity_identified";
@@ -160,7 +161,7 @@ async function getPlanTierMap(): Promise<Map<number, { planTier: string | null; 
   const plans = await db.select().from(subscriptionPlans);
   const map = new Map<number, { planTier: string | null; name: string; price: number }>();
   for (const plan of plans) {
-    map.set(plan.id, { planTier: plan.planTier, name: plan.name, price: plan.price });
+    map.set(plan.id, { planTier: plan.planTier, name: plan.name, price: toMoney(plan.price) });
   }
   return map;
 }

@@ -331,7 +331,7 @@ export function registerExpressSetupRoutes(app: Express) {
             businessId: business.id,
             name: tmpl.name,
             description: tmpl.description || null,
-            price: tmpl.price,
+            price: String(tmpl.price),
             duration: tmpl.duration,
             active: true,
           });

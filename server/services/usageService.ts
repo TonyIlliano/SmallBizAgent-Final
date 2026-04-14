@@ -1,6 +1,7 @@
 import { db } from '../db';
 import { callLogs, businesses, subscriptionPlans } from '@shared/schema';
 import { eq, and, gte, sql } from 'drizzle-orm';
+import { toMoney } from '../utils/money';
 
 /**
  * Usage tracking service for AI call minutes and subscription enforcement.
@@ -157,7 +158,7 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
     planTier = 'trial';
   } else if (isSubscribed && plan) {
     minutesIncluded = plan.maxCallMinutes || 0;
-    overageRate = plan.overageRatePerMinute || 0;
+    overageRate = toMoney(plan.overageRatePerMinute);
     planName = plan.name;
     planTier = plan.planTier || null;
   }

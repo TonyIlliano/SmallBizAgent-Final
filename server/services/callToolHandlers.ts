@@ -19,6 +19,7 @@ import { getCachedMenu as getHeartlandCachedMenu, createOrder as createHeartland
 import { canBusinessAcceptCalls } from './usageService';
 import { fireEvent } from './webhookService';
 import { getTimezoneAbbreviation } from '../utils/timezone';
+import { toMoney } from '../utils/money';
 // Pre-import intelligence services to avoid dynamic import latency during calls
 import { getLatestCustomerIntelligence } from './callIntelligenceService';
 import { searchMemory } from './mem0Service';
@@ -3393,7 +3394,7 @@ async function getEstimate(
       );
       if (match) {
         matchedServices.push(match);
-        totalEstimate += match.price || 0;
+        totalEstimate += toMoney(match.price);
         totalDuration += match.duration || 60;
       }
     }
@@ -3407,7 +3408,7 @@ async function getEstimate(
         if (service.name.toLowerCase().includes(keyword) ||
             (service.description && service.description.toLowerCase().includes(keyword))) {
           matchedServices.push(service);
-          totalEstimate += service.price || 0;
+          totalEstimate += toMoney(service.price);
           totalDuration += service.duration || 60;
           break;
         }
