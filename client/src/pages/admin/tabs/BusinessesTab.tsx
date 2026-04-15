@@ -352,7 +352,7 @@ function BusinessesTab() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">AI Receptionist</p>
-                  <p className="text-sm font-mono text-xs">{(businessDetail.retellAgentId || businessDetail.vapiAssistantId) ? ((businessDetail.retellAgentId || businessDetail.vapiAssistantId) as string).slice(0, 20) + "..." : "Not set"}</p>
+                  <p className="text-sm font-mono text-xs">{businessDetail.retellAgentId ? businessDetail.retellAgentId.slice(0, 20) + "..." : "Not set"}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">

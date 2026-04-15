@@ -68,6 +68,15 @@ router.get("/", isAuthenticated, async (req: Request, res: Response) => {
         params.staffId = staffId;
       }
 
+      if (req.query.limit) {
+        const limit = parseInt(req.query.limit as string);
+        if (!isNaN(limit)) params.limit = Math.min(limit, 500);
+      }
+      if (req.query.offset) {
+        const offset = parseInt(req.query.offset as string);
+        if (!isNaN(offset)) params.offset = offset;
+      }
+
       const jobs = await storage.getJobs(businessId, params);
 
       // Fetch related data for each job

@@ -128,7 +128,7 @@ export default function Receptionist() {
                   </CardDescription>
                 </div>
               </div>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 flex-shrink-0">
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 flex-shrink-0" aria-label={infoCardCollapsed ? "Expand info card" : "Collapse info card"}>
                 {infoCardCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
               </Button>
             </div>

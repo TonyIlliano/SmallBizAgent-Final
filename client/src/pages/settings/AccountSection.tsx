@@ -425,7 +425,7 @@ export default function AccountSection({ activeTab }: { activeTab: string }) {
   return (
     <div className="space-y-4">
       {/* AI Receptionist Refresh Card */}
-      {(business?.retellAgentId || business?.vapiAssistantId) && (
+      {business?.retellAgentId && (
         <Card>
           <CardHeader>
             <CardTitle>AI Receptionist Configuration</CardTitle>

@@ -70,8 +70,8 @@ function computeFeatureAdoption(biz: any): number {
   if (biz.twilioPhoneNumber) points += 5;
   // Has call forwarding enabled: +5
   if (biz.callForwardingEnabled) points += 5;
-  // Has AI receptionist enabled with a Vapi assistant: +5
-  if (biz.receptionistEnabled && biz.vapiAssistantId) points += 5;
+  // Has AI receptionist enabled with a Retell agent: +5
+  if (biz.receptionistEnabled && biz.retellAgentId) points += 5;
   // Has a public booking link configured: +5
   if (biz.bookingSlug && biz.bookingEnabled) points += 5;
   return points; // max 20

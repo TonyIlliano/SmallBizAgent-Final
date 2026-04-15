@@ -135,6 +135,25 @@ function validateEnvironment() {
     console.warn('WARNING: ANTHROPIC_API_KEY not set. AI features (receptionist, SMS agents, intelligence) will be degraded.');
   }
 
+  // Production-only: stricter requirements
+  if (process.env.NODE_ENV === 'production') {
+    const prodRequired = ['APP_URL', 'ANTHROPIC_API_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'RETELL_API_KEY'];
+    const prodMissing = prodRequired.filter(key => !process.env[key]);
+    if (prodMissing.length > 0) {
+      console.error('PRODUCTION: Missing critical environment variables:', prodMissing.join(', '));
+      console.error('   The platform cannot operate correctly without these.');
+      // Don't exit — log loudly but let the server start (some vars may be added after deploy)
+    }
+    // Verify APP_URL is a valid URL
+    if (process.env.APP_URL) {
+      try {
+        new URL(process.env.APP_URL);
+      } catch {
+        console.error('PRODUCTION: APP_URL is not a valid URL:', process.env.APP_URL);
+      }
+    }
+  }
+
   console.log('Environment validation passed');
 }
 
@@ -268,6 +287,30 @@ app.use(compression());
 // Reads x-request-id from load balancer or generates a UUID.
 // Stored in AsyncLocalStorage for access anywhere in the call stack.
 app.use(requestContextMiddleware);
+
+// HTTP request logging — lightweight JSON format matching the structured logger
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const durationMs = Date.now() - start;
+    // Skip noisy health checks and static assets from logs
+    if (req.path === '/api/health' || req.path.startsWith('/assets/')) return;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    const entry = {
+      timestamp: new Date().toISOString(),
+      level,
+      requestId: req.requestId,
+      message: `${req.method} ${req.originalUrl} ${res.statusCode}`,
+      method: req.method,
+      url: req.originalUrl,
+      status: res.statusCode,
+      durationMs,
+    };
+    if (level === 'error') console.error(JSON.stringify(entry));
+    else console.log(JSON.stringify(entry));
+  });
+  next();
+});
 
 /**
  * CSRF Protection (Double-Submit Cookie Pattern)
@@ -445,11 +488,56 @@ app.use((req, res, next) => {
       };
       if (heapPercent >= 95) overallHealthy = false;
 
-      // 4. External services configured
-      checks.retellAi = { status: process.env.RETELL_API_KEY ? 'configured' : 'not_configured' };
-      checks.twilio = { status: (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) ? 'configured' : 'not_configured' };
-      checks.stripe = { status: process.env.STRIPE_SECRET_KEY ? 'configured' : 'not_configured' };
+      // 4. External service liveness probes (parallel, with timeouts)
+      const probeTimeout = 5000;
+      const [stripeProbe, twilioProbe, retellProbe] = await Promise.allSettled([
+        // Stripe: verify API key by listing 0 customers (cheapest API call)
+        process.env.STRIPE_SECRET_KEY
+          ? Promise.race([
+              fetch('https://api.stripe.com/v1/customers?limit=1', {
+                headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+              }).then(r => r.ok ? 'live' : `error: ${r.status}`),
+              new Promise<string>((_, reject) => setTimeout(() => reject('timeout'), probeTimeout)),
+            ]).catch(e => `error: ${e}`)
+          : Promise.resolve('not_configured'),
+        // Twilio: verify credentials
+        (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN)
+          ? Promise.race([
+              fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}.json`, {
+                headers: { Authorization: 'Basic ' + Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64') },
+              }).then(r => r.ok ? 'live' : `error: ${r.status}`),
+              new Promise<string>((_, reject) => setTimeout(() => reject('timeout'), probeTimeout)),
+            ]).catch(e => `error: ${e}`)
+          : Promise.resolve('not_configured'),
+        // Retell: verify API key
+        process.env.RETELL_API_KEY
+          ? Promise.race([
+              fetch('https://api.retellai.com/v2/agent', {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${process.env.RETELL_API_KEY}` },
+              }).then(r => (r.ok || r.status === 404) ? 'live' : `error: ${r.status}`),
+              new Promise<string>((_, reject) => setTimeout(() => reject('timeout'), probeTimeout)),
+            ]).catch(e => `error: ${e}`)
+          : Promise.resolve('not_configured'),
+      ]);
+
+      const getProbeResult = (result: PromiseSettledResult<string>) =>
+        result.status === 'fulfilled' ? result.value : `error: ${result.reason}`;
+
+      checks.stripe = {
+        status: getProbeResult(stripeProbe) === 'live' ? 'healthy' : getProbeResult(stripeProbe) === 'not_configured' ? 'not_configured' : 'unhealthy',
+        details: getProbeResult(stripeProbe),
+      };
+      checks.twilio = {
+        status: getProbeResult(twilioProbe) === 'live' ? 'healthy' : getProbeResult(twilioProbe) === 'not_configured' ? 'not_configured' : 'unhealthy',
+        details: getProbeResult(twilioProbe),
+      };
+      checks.retellAi = {
+        status: getProbeResult(retellProbe) === 'live' ? 'healthy' : getProbeResult(retellProbe) === 'not_configured' ? 'not_configured' : 'unhealthy',
+        details: getProbeResult(retellProbe),
+      };
       checks.openai = { status: process.env.OPENAI_API_KEY ? 'configured' : 'not_configured' };
+      checks.anthropic = { status: process.env.ANTHROPIC_API_KEY ? 'configured' : 'not_configured' };
       checks.sentry = { status: process.env.SENTRY_DSN ? 'configured' : 'not_configured' };
 
       const statusCode = overallHealthy ? 200 : 503;

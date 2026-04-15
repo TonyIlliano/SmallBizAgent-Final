@@ -18,7 +18,6 @@ export interface AdminBusiness {
   industry: string | null;
   subscriptionStatus: string | null;
   twilioPhoneNumber: string | null;
-  vapiAssistantId: string | null;
   retellAgentId: string | null;
   createdAt: string | null;
   ownerUsername: string | null;
@@ -202,8 +201,6 @@ export interface BusinessDetail {
   subscriptionStatus: string | null;
   twilioPhoneNumber: string | null;
   twilioPhoneNumberSid: string | null;
-  vapiAssistantId: string | null;
-  vapiPhoneNumberId: string | null;
   retellAgentId: string | null;
   retellLlmId: string | null;
   retellPhoneNumberId: string | null;

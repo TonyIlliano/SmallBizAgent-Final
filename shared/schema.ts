@@ -71,9 +71,6 @@ export const businesses = pgTable("businesses", {
   twilioDateProvisioned: timestamp("twilio_date_provisioned"),
   // Call forwarding tracking (whether owner set up *72 forwarding to the Twilio number)
   callForwardingEnabled: boolean("call_forwarding_enabled").default(false),
-  // Vapi.ai AI receptionist (legacy — migrating to Retell AI)
-  vapiAssistantId: text("vapi_assistant_id"),
-  vapiPhoneNumberId: text("vapi_phone_number_id"),
   // Retell AI receptionist
   retellAgentId: text("retell_agent_id"),
   retellLlmId: text("retell_llm_id"),
@@ -1152,7 +1149,6 @@ export const businessPhoneNumbers = pgTable("business_phone_numbers", {
   businessId: integer("business_id").notNull(), // FK -> businesses.id
   twilioPhoneNumber: text("twilio_phone_number").notNull(), // E.164 format
   twilioPhoneNumberSid: text("twilio_phone_number_sid").notNull(),
-  vapiPhoneNumberId: text("vapi_phone_number_id"), // Vapi phone number ID when connected (legacy)
   retellPhoneNumberId: text("retell_phone_number_id"), // Retell phone number ID when connected
   label: text("label"), // "Main Line", "After Hours", "Emergency", etc.
   status: text("status").default("active"), // active, released, pending

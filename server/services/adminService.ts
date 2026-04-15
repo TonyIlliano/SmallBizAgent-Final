@@ -39,7 +39,6 @@ export interface AdminBusiness {
   industry: string | null;
   subscriptionStatus: string | null;
   twilioPhoneNumber: string | null;
-  vapiAssistantId: string | null;
   createdAt: Date | null;
   ownerUsername: string | null;
   ownerEmail: string | null;
@@ -281,7 +280,6 @@ export async function getAdminBusinesses(): Promise<AdminBusiness[]> {
     industry: b.industry,
     subscriptionStatus: b.subscriptionStatus,
     twilioPhoneNumber: b.twilioPhoneNumber,
-    vapiAssistantId: b.vapiAssistantId,
     createdAt: b.createdAt,
     ownerUsername: ownerMap.get(b.id)?.username || null,
     ownerEmail: ownerMap.get(b.id)?.email || null,

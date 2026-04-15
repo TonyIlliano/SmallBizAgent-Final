@@ -25,16 +25,15 @@ router.get("/customers", async (req, res) => {
       return res.status(400).json({ error: "No business associated with user" });
     }
 
-    // Get query parameters for filtering and searching
+    // Get query parameters for filtering, searching, and pagination
     const search = req.query.search as string;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+    const offset = req.query.offset ? parseInt(req.query.offset as string) : undefined;
 
-    let query = storage.getCustomers(businessId);
-    
-    if (search) {
-      // TODO: Implement search if needed
-    }
-
-    const allCustomers = await query;
+    const allCustomers = await storage.getCustomers(businessId, {
+      limit: limit && !isNaN(limit) ? Math.min(limit, 500) : undefined,
+      offset: offset && !isNaN(offset) ? offset : undefined,
+    });
 
     res.json(allCustomers);
   } catch (error) {

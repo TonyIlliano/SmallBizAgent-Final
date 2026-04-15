@@ -235,7 +235,7 @@ async function runVapiRefresh(): Promise<void> {
     let updated = 0;
 
     for (const business of allBusinesses) {
-      if ((business.retellAgentId || business.vapiAssistantId) && business.receptionistEnabled !== false) {
+      if (business.retellAgentId && business.receptionistEnabled !== false) {
         try {
           await updateRetellAgent(business.id);
           updated++;

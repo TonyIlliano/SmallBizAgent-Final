@@ -41,7 +41,7 @@ async function main() {
     // 2. Check current business state
     const bizResult = await pool.query(
       `SELECT id, name, subscription_status, twilio_phone_number, twilio_phone_number_sid,
-              vapi_assistant_id, receptionist_enabled FROM businesses WHERE id = $1`,
+              retell_agent_id, receptionist_enabled FROM businesses WHERE id = $1`,
       [businessId]
     );
 
@@ -55,12 +55,12 @@ async function main() {
     console.log(`Current status: ${business.subscription_status}`);
     console.log(`Current phone: ${business.twilio_phone_number || 'none'}`);
     console.log(`Current phone SID: ${business.twilio_phone_number_sid || 'none'}`);
-    console.log(`Current Vapi assistant: ${business.vapi_assistant_id || 'none'}`);
+    console.log(`Current Retell agent: ${business.retell_agent_id || 'none'}`);
     console.log(`Receptionist enabled: ${business.receptionist_enabled}`);
     console.log('');
 
-    if (business.twilio_phone_number_sid && business.vapi_assistant_id) {
-      console.log('Business already has a phone number and Vapi assistant.');
+    if (business.twilio_phone_number_sid && business.retell_agent_id) {
+      console.log('Business already has a phone number and Retell agent.');
       console.log('Skipping provisioning. If you want to re-provision, deprovision first.');
       process.exit(0);
     }
@@ -89,13 +89,13 @@ async function main() {
     console.log(`Success: ${result.success}`);
     console.log(`Twilio provisioned: ${result.twilioProvisioned}`);
     console.log(`Phone number: ${result.twilioPhoneNumber || 'none'}`);
-    console.log(`Vapi provisioned: ${result.vapiProvisioned}`);
-    console.log(`Vapi assistant ID: ${result.vapiAssistantId || 'none'}`);
+    console.log(`Retell provisioned: ${result.retellProvisioned}`);
+    console.log(`Retell agent ID: ${result.retellAgentId || 'none'}`);
 
     if (!result.success) {
       console.error('\nProvisioning failed!');
       console.error('Twilio error:', result.twilioError);
-      console.error('Vapi error:', result.vapiError);
+      console.error('Retell error:', result.retellError);
       process.exit(1);
     }
 

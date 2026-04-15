@@ -78,6 +78,7 @@ export function BottomNav() {
                 <button
                   key={tab.path}
                   onClick={() => setMoreOpen(true)}
+                  aria-label="Open more actions menu"
                   className="flex flex-col items-center justify-center min-w-[48px] min-h-[48px] px-2 py-1 text-muted-foreground active:text-foreground transition-colors"
                 >
                   <tab.icon className="h-5 w-5" />

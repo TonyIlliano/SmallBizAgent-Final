@@ -55,7 +55,6 @@ router.get("/api/admin/businesses", isAdmin, async (req: Request, res: Response)
           industry: b.industry,
           subscriptionStatus: b.subscriptionStatus,
           twilioPhoneNumber: b.twilioPhoneNumber,
-          vapiAssistantId: b.vapiAssistantId,
           createdAt: b.createdAt,
           ownerUsername: null,
           ownerEmail: null,

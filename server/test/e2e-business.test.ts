@@ -543,7 +543,6 @@ function makeBusiness(overrides: Record<string, any> = {}) {
     bookingEnabled: true,
     description: null,
     twilioPhoneNumber: null,
-    vapiAssistantId: null,
     receptionistEnabled: true,
     provisioningStatus: 'pending',
     provisioningResult: null,

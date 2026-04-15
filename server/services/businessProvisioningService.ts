@@ -47,7 +47,7 @@ export async function provisionBusiness(
       businessId,
       success: true,
       twilioProvisioned: false,
-      vapiProvisioned: false,
+      retellProvisioned: false,
       virtualReceptionistConfigured: false,
       businessHoursConfigured: false,
       servicesConfigured: false
@@ -198,23 +198,15 @@ export async function provisionBusiness(
         if (retellResult.error) {
           results.retellError = retellResult.error;
         }
-        // Keep backward-compatible fields for existing code that checks vapiProvisioned
-        results.vapiProvisioned = retellResult.success;
-        results.vapiAssistantId = retellResult.agentId;
-        results.vapiPhoneConnected = retellResult.phoneConnected;
       } else {
         console.warn('[Provisioning] Retell API key not set, skipping AI receptionist provisioning');
         results.retellProvisioned = false;
         results.retellSkipped = true;
-        results.vapiProvisioned = false;
-        results.vapiSkipped = true;
       }
     } catch (error) {
       console.error(`[Provisioning] Business ${businessId}: Error provisioning Retell AI receptionist:`, error);
       results.retellProvisioned = false;
       results.retellError = error instanceof Error ? error.message : String(error);
-      results.vapiProvisioned = false;
-      results.vapiError = error instanceof Error ? error.message : String(error);
     }
 
     console.log(`Provisioning completed for business ID ${businessId}`);
@@ -231,7 +223,7 @@ export async function provisionBusiness(
     }
 
     // Determine actual success based on provisioning outcomes
-    results.success = results.twilioProvisioned && results.vapiProvisioned;
+    results.success = results.twilioProvisioned && results.retellProvisioned;
 
     // Store provisioning results in database
     const finalStatus = results.success ? 'completed' : 'failed';
@@ -249,7 +241,7 @@ export async function provisionBusiness(
           type: 'provisioning_failed',
           severity: 'high',
           title: `Provisioning Failed: ${business?.name || `Business #${businessId}`}`,
-          details: { businessId, businessName: business?.name || 'Unknown', twilioOk: results.twilioProvisioned, vapiOk: results.vapiProvisioned, twilioError: results.twilioError || 'none', vapiError: results.vapiError || 'none' },
+          details: { businessId, businessName: business?.name || 'Unknown', twilioOk: results.twilioProvisioned, retellOk: results.retellProvisioned, twilioError: results.twilioError || 'none', retellError: results.retellError || 'none' },
         });
       } catch (alertErr) {
         console.error('[Provisioning] Admin alert failed:', alertErr);
@@ -291,23 +283,19 @@ export async function deprovisionBusiness(businessId: number) {
       businessId,
       success: true,
       twilioDeprovisioned: false,
-      vapiDeprovisioned: false
+      retellDeprovisioned: false
     };
 
     // Remove Retell AI agent if one exists
     try {
       const retellResult = await retellProvisioningService.removeRetellAgent(businessId);
-      results.vapiDeprovisioned = retellResult.success; // backward compat field name
       results.retellDeprovisioned = retellResult.success;
       if (retellResult.error) {
         results.retellError = retellResult.error;
-        results.vapiError = retellResult.error;
       }
     } catch (error) {
       console.error('Error removing Retell agent:', error);
-      results.vapiDeprovisioned = false;
       results.retellDeprovisioned = false;
-      results.vapiError = error instanceof Error ? error.message : String(error);
       results.retellError = error instanceof Error ? error.message : String(error);
     }
 

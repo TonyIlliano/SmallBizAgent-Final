@@ -163,7 +163,7 @@ async function analyzeFeatureAdoption(): Promise<FeatureGapAnalysis> {
       bookingEnabled: businesses.bookingEnabled,
       bookingSlug: businesses.bookingSlug,
       receptionistEnabled: businesses.receptionistEnabled,
-      vapiAssistantId: businesses.vapiAssistantId,
+      retellAgentId: businesses.retellAgentId,
       website: businesses.website,
       industry: businesses.industry,
       stripeConnectAccountId: businesses.stripeConnectAccountId,
@@ -212,7 +212,7 @@ async function analyzeFeatureAdoption(): Promise<FeatureGapAnalysis> {
     },
     {
       feature: 'AI receptionist active',
-      adopted: activeBusinesses.filter(b => b.receptionistEnabled && !!b.vapiAssistantId).length,
+      adopted: activeBusinesses.filter(b => b.receptionistEnabled && !!b.retellAgentId).length,
       totalActive: total,
       adoptionPercent: 0,
     },

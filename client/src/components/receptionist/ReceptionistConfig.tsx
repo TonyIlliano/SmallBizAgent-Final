@@ -406,6 +406,7 @@ export function ReceptionistConfig({ businessId }: { businessId?: number | null 
                         onClick={() => toggleVoicePreview(field.value)}
                         disabled={audioLoading}
                         title={playingVoice === field.value ? "Stop preview" : "Preview voice"}
+                        aria-label={playingVoice === field.value ? "Stop voice preview" : "Preview voice"}
                       >
                         {audioLoading ? (
                           <Loader2 className="h-4 w-4 animate-spin" />

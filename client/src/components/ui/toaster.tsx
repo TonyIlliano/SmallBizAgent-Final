@@ -13,20 +13,23 @@ export function Toaster() {
 
   return (
     <ToastProvider>
-      {toasts.map(function ({ id, title, description, action, ...props }) {
-        return (
-          <Toast key={id} {...props}>
-            <div className="grid gap-1">
-              {title && <ToastTitle>{title}</ToastTitle>}
-              {description && (
-                <ToastDescription>{description}</ToastDescription>
-              )}
-            </div>
-            {action}
-            <ToastClose />
-          </Toast>
-        )
-      })}
+      <div aria-live="polite" aria-atomic="true" role="status">
+        {toasts.map(function ({ id, title, description, action, ...props }) {
+          const isError = props.variant === "destructive";
+          return (
+            <Toast key={id} {...props}>
+              <div className="grid gap-1" aria-live={isError ? "assertive" : "polite"} role={isError ? "alert" : "status"}>
+                {title && <ToastTitle>{title}</ToastTitle>}
+                {description && (
+                  <ToastDescription>{description}</ToastDescription>
+                )}
+              </div>
+              {action}
+              <ToastClose aria-label="Close notification" />
+            </Toast>
+          )
+        })}
+      </div>
       <ToastViewport />
     </ToastProvider>
   )

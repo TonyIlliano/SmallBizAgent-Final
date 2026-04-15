@@ -156,7 +156,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
   }, [scrapeStatus?.status, queryClient]);
 
   // Fetch business profile to get the website URL and phone for test call
-  const { data: business } = useQuery<{ website?: string; name?: string; phone?: string; vapiAssistantId?: string; vapiPhoneNumberId?: string; retellAgentId?: string; retellPhoneNumberId?: string }>({
+  const { data: business } = useQuery<{ website?: string; name?: string; phone?: string; retellAgentId?: string; retellPhoneNumberId?: string }>({
     queryKey: ["/api/business"],
     enabled: !!businessId,
   });
@@ -314,7 +314,7 @@ export function KnowledgeBase({ businessId }: KnowledgeBaseProps) {
           </div>
         </CardHeader>
         <CardContent className="p-4">
-          {(business?.retellAgentId || business?.vapiAssistantId) && (business?.retellPhoneNumberId || business?.vapiPhoneNumberId) ? (
+          {business?.retellAgentId && business?.retellPhoneNumberId ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 Enter your phone number and we'll call you, connecting you to your AI receptionist.

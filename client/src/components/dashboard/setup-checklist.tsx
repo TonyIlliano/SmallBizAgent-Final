@@ -48,7 +48,6 @@ interface SetupStatus {
     serviceCount: number;
     staffCount: number;
     customerCount: number;
-    vapiAssistantId: string | null;
     retellAgentId: string | null;
     twilioPhoneNumber: string | null;
     businessHoursDays: number;

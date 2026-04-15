@@ -980,7 +980,6 @@ async function fixExistingTables() {
       business_id INTEGER NOT NULL,
       twilio_phone_number TEXT NOT NULL,
       twilio_phone_number_sid TEXT NOT NULL,
-      vapi_phone_number_id TEXT,
       label TEXT,
       status TEXT DEFAULT 'active',
       is_primary BOOLEAN DEFAULT false,
@@ -1013,8 +1012,8 @@ async function fixExistingTables() {
 
   // Backfill business_phone_numbers from existing businesses.twilio_phone_number
   await pool.query(`
-    INSERT INTO business_phone_numbers (business_id, twilio_phone_number, twilio_phone_number_sid, vapi_phone_number_id, status, is_primary, date_provisioned)
-    SELECT id, twilio_phone_number, twilio_phone_number_sid, vapi_phone_number_id,
+    INSERT INTO business_phone_numbers (business_id, twilio_phone_number, twilio_phone_number_sid, status, is_primary, date_provisioned)
+    SELECT id, twilio_phone_number, twilio_phone_number_sid,
            COALESCE(twilio_phone_number_status, 'active'), true, twilio_date_provisioned
     FROM businesses
     WHERE twilio_phone_number IS NOT NULL AND twilio_phone_number_sid IS NOT NULL
@@ -1474,8 +1473,6 @@ async function createBaseTables() {
       twilio_phone_number_sid TEXT,
       twilio_phone_number_status TEXT,
       twilio_date_provisioned TIMESTAMP,
-      vapi_assistant_id TEXT,
-      vapi_phone_number_id TEXT,
       receptionist_enabled BOOLEAN DEFAULT true,
       provisioning_status TEXT DEFAULT 'pending',
       provisioning_result TEXT,
@@ -2353,6 +2350,9 @@ async function runMigrations() {
     // Add foreign key constraints (NOT VALID — enforces on new rows without scanning existing data)
     await addForeignKeyConstraints();
 
+    // Drop legacy Vapi columns and add missing indexes
+    await dropVapiColumnsAndAddIndexes();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3011,6 +3011,25 @@ async function addForeignKeyConstraints() {
   await addFK('call_logs', 'business_id', 'businesses', 'id', 'RESTRICT', 'fk_call_logs_business_id');
 
   console.log('Foreign key constraint migration complete');
+}
+
+/**
+ * Drop legacy Vapi columns (replaced by Retell) and add missing indexes
+ * on frequently-queried businesses columns.
+ */
+async function dropVapiColumnsAndAddIndexes() {
+  console.log('Dropping legacy Vapi columns and adding indexes...');
+  try {
+    await pool.query(`ALTER TABLE businesses DROP COLUMN IF EXISTS vapi_assistant_id`);
+    await pool.query(`ALTER TABLE businesses DROP COLUMN IF EXISTS vapi_phone_number_id`);
+    await pool.query(`ALTER TABLE business_phone_numbers DROP COLUMN IF EXISTS vapi_phone_number_id`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS businesses_subscription_status_idx ON businesses(subscription_status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS businesses_business_group_id_idx ON businesses(business_group_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS businesses_is_active_idx ON businesses(is_active)`);
+    console.log('Legacy Vapi columns dropped and indexes created successfully');
+  } catch (error) {
+    console.error('Error dropping Vapi columns / creating indexes:', error);
+  }
 }
 
 // ES modules don't have a direct equivalent to require.main === module
