@@ -7,6 +7,7 @@ import {
 import { User } from "@shared/schema";
 import { queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getUtmParams, clearUtmParams } from "@/lib/utm";
 
 // Extended user type that includes role/permission fields from GET /api/user
 export type AuthUser = User & {
@@ -118,10 +119,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (csrfToken) headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
 
+      // Attach UTM attribution data so we know which channel converted
+      const utmParams = getUtmParams();
+      const bodyWithUtm = { ...userData, ...(Object.keys(utmParams).length > 0 ? { attribution: utmParams } : {}) };
+
       const res = await fetch("/api/register", {
         method: "POST",
         headers,
-        body: JSON.stringify(userData),
+        body: JSON.stringify(bodyWithUtm),
         credentials: "include",
       });
 
@@ -151,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/user"], user);
+      clearUtmParams(); // Attribution captured — clear so it doesn't re-send
       toast({
         title: "Registration successful",
         description: `Welcome, ${user.username}!`,

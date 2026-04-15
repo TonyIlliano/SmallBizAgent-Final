@@ -14,6 +14,7 @@ import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
 import { SupportChat } from "@/components/ui/support-chat";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { OfflineBanner } from "@/components/ui/offline-banner";
+import { captureUtmParams } from "@/lib/utm";
 
 // Eagerly loaded (critical path)
 import NotFound from "@/pages/not-found";
@@ -90,6 +91,7 @@ const SocialMediaAdmin = lazyWithRetry(() => import("@/pages/admin/social-media"
 // Staff pages
 const StaffDashboard = lazyWithRetry(() => import("@/pages/staff/dashboard"));
 const StaffJoin = lazyWithRetry(() => import("@/pages/staff/join"));
+const PricingPage = lazyWithRetry(() => import("@/pages/pricing"));
 const PrivacyPolicy = lazyWithRetry(() => import("@/pages/privacy"));
 const TermsOfService = lazyWithRetry(() => import("@/pages/terms"));
 const SmsTerms = lazyWithRetry(() => import("@/pages/sms-terms"));
@@ -198,6 +200,7 @@ function Router() {
         <Route path="/book/:slug/manage-reservation/:token" component={ManageReservation} />
         <Route path="/book/:slug/manage/:token" component={ManageAppointment} />
         <Route path="/book/:slug" component={PublicBooking} />
+        <Route path="/pricing" component={PricingPage} />
         <Route path="/privacy" component={PrivacyPolicy} />
         <Route path="/terms" component={TermsOfService} />
         <Route path="/sms-terms" component={SmsTerms} />
@@ -248,6 +251,9 @@ function ImpersonationBanner() {
     </div>
   );
 }
+
+// Capture UTM params on initial page load (before React renders)
+captureUtmParams();
 
 function App() {
   return (
