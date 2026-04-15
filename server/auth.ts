@@ -1154,16 +1154,18 @@ export function setupAuth(app: Express) {
         return res.json({ message: "If an account exists with that email, a password reset link will be sent." });
       }
 
-      // Generate a secure random token
+      // Generate a secure random token and hash it before storage
+      // The raw token goes in the email link; only the hash is stored in DB
       const token = randomBytes(32).toString("hex");
+      const tokenHash = createHash("sha256").update(token).digest("hex");
 
       // Set expiration to 1 hour from now
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      // Store the token
+      // Store the hashed token (never store plaintext reset tokens)
       await storage.createPasswordResetToken({
         userId: user.id,
-        token,
+        token: tokenHash,
         expiresAt,
         used: false,
       });
@@ -1210,8 +1212,9 @@ export function setupAuth(app: Express) {
         });
       }
 
-      // Find the token
-      const resetToken = await storage.getPasswordResetToken(token);
+      // Hash the incoming token to match against the stored hash
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const resetToken = await storage.getPasswordResetToken(tokenHash);
 
       if (!resetToken) {
         return res.status(400).json({ error: "Invalid or expired reset token" });
@@ -1259,7 +1262,9 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ valid: false, error: "Token is required" });
       }
 
-      const resetToken = await storage.getPasswordResetToken(token);
+      // Hash the incoming token to match against stored hash
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const resetToken = await storage.getPasswordResetToken(tokenHash);
 
       if (!resetToken) {
         return res.json({ valid: false, error: "Invalid or expired reset token" });
