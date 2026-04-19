@@ -57,8 +57,11 @@ export function verifyRetellSignature(
  * Express middleware to validate Retell webhook signatures.
  *
  * Uses the Retell SDK's verify() method for proper signature validation.
- * Falls through with a warning if verification fails — we don't want to
- * block legitimate calls due to signature format mismatches.
+ *
+ * SECURITY: If RETELL_API_KEY is configured, this enforces signature
+ * verification strictly. Missing or invalid signatures are rejected with 403.
+ * In non-production environments without a key, requests pass through with
+ * a warning so developers can iterate without a key configured.
  */
 export function validateRetellWebhook(
   req: Request,
@@ -66,31 +69,38 @@ export function validateRetellWebhook(
   next: NextFunction,
 ): void {
   if (!RETELL_API_KEY) {
-    console.warn('[Retell] No RETELL_API_KEY configured, skipping signature verification');
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[Retell][SECURITY] RETELL_API_KEY not configured in production — rejecting webhook');
+      res.status(500).json({ error: 'Retell webhook not configured' });
+      return;
+    }
+    console.warn('[Retell] No RETELL_API_KEY configured (dev), skipping signature verification');
     next();
     return;
   }
 
   const signature = req.headers['x-retell-signature'] as string | undefined;
   if (!signature) {
-    // Retell custom function calls may not always include signature header
-    // Allow through — the businessId resolution provides security
-    next();
+    console.error('[Retell][SECURITY] Webhook request missing x-retell-signature header — rejecting');
+    res.status(403).json({ error: 'Missing signature header' });
     return;
   }
 
-  // Try Retell SDK verification
+  // Verify via Retell SDK
   try {
     const Retell = require('retell-sdk');
     const client = new Retell({ apiKey: RETELL_API_KEY });
     const body = JSON.stringify(req.body);
     const isValid = client.verify(body, RETELL_API_KEY, signature);
     if (!isValid) {
-      console.warn('[Retell] Signature verification failed — allowing through (may be format mismatch)');
+      console.error('[Retell][SECURITY] Invalid signature on webhook request — rejecting');
+      res.status(403).json({ error: 'Invalid signature' });
+      return;
     }
   } catch (err) {
-    // SDK verification failed — log but allow through
-    console.warn('[Retell] Signature verification error:', (err as Error).message);
+    console.error('[Retell][SECURITY] Signature verification error:', (err as Error).message);
+    res.status(403).json({ error: 'Signature verification failed' });
+    return;
   }
 
   next();

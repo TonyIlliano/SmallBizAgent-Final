@@ -737,6 +737,8 @@ async function createAuthenticatedAgent(): Promise<{
       username: 'testuser',
       email: 'test@example.com',
       password: 'TestPassword1!',
+    acceptTerms: true,
+    acceptPrivacy: true
     });
 
   expect(regRes.status).toBe(201);

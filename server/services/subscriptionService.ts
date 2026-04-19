@@ -376,8 +376,27 @@ export class SubscriptionService {
    */
   async handleWebhookEvent(event: Stripe.Event) {
     try {
-      console.log('Processing webhook event:', event.type);
-      
+      console.log('Processing webhook event:', event.type, event.id);
+
+      // Idempotency check: skip if we've already processed this event
+      const { pool } = await import('../db');
+      try {
+        await pool.query(
+          `INSERT INTO processed_webhook_events (event_id, source, event_type) VALUES ($1, 'stripe', $2)`,
+          [event.id, event.type]
+        );
+      } catch (dupErr: any) {
+        // Unique constraint violation means we already processed this event
+        if (dupErr.code === '23505') {
+          console.log(`[Stripe] Skipping duplicate webhook event: ${event.id} (${event.type})`);
+          return { success: true, duplicate: true };
+        }
+        // Table might not exist yet (pre-migration) — continue processing
+        if (dupErr.code !== '42P01') {
+          console.warn('[Stripe] Idempotency check failed, proceeding:', dupErr.message);
+        }
+      }
+
       switch (event.type) {
         case 'invoice.payment_succeeded': {
           const invoice = event.data.object as Stripe.Invoice;

@@ -1,7 +1,9 @@
 import { Router, Request, Response } from "express";
+import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
 import Stripe from "stripe";
 import { stripeConnectService } from "../services/stripeConnectService";
+import { toMoney, roundMoney } from "../utils/money";
 
 // SECURITY: Stripe key is required - no fallback
 const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -12,16 +14,73 @@ const stripe = stripeKey ? new Stripe(stripeKey) : null;
 
 const router = Router();
 
+// Rate limit payment intent creation (10/min/IP) to prevent invoice ID walking
+const paymentIntentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many payment requests. Please try again in a moment." },
+});
+
 // =================== PAYMENT API (STRIPE CONNECT) ===================
 // Uses Stripe Connect destination charges - money goes to business, NOT platform
-router.post("/create-payment-intent", async (req: Request, res: Response) => {
+router.post("/create-payment-intent", paymentIntentLimiter, async (req: Request, res: Response) => {
   try {
-    const { amount, invoiceId } = req.body;
+    const { amount, invoiceId, accessToken } = req.body;
+
+    // SECURITY: Validate invoiceId
+    const invoiceIdNum = typeof invoiceId === 'number' ? invoiceId : parseInt(invoiceId);
+    if (!Number.isFinite(invoiceIdNum) || invoiceIdNum <= 0) {
+      return res.status(400).json({ message: "Invalid invoice ID" });
+    }
 
     // Fetch invoice to get customer details
-    const invoice = await storage.getInvoice(invoiceId);
+    const invoice = await storage.getInvoice(invoiceIdNum);
     if (!invoice) {
       return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    // SECURITY: Authorization check — must be authenticated owner OR have valid access token
+    const isAuthenticatedOwner =
+      req.isAuthenticated?.() &&
+      (req.user?.role === 'admin' || req.user?.businessId === invoice.businessId);
+
+    const hasValidAccessToken =
+      !!accessToken &&
+      !!invoice.accessToken &&
+      String(accessToken) === String(invoice.accessToken);
+
+    // If access token provided, also check expiry
+    if (hasValidAccessToken && invoice.accessTokenExpiresAt) {
+      const expiresAt = new Date(invoice.accessTokenExpiresAt as any).getTime();
+      if (Number.isFinite(expiresAt) && expiresAt < Date.now()) {
+        return res.status(410).json({ message: "Payment link has expired. Please request a new one." });
+      }
+    }
+
+    if (!isAuthenticatedOwner && !hasValidAccessToken) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // SECURITY: Reject already-paid invoices
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ message: "Invoice is already paid" });
+    }
+
+    // SECURITY: Validate amount equals invoice.total exactly (to the cent)
+    const requestedAmount = roundMoney(toMoney(amount));
+    const invoiceTotal = roundMoney(toMoney(invoice.total));
+
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      return res.status(400).json({ message: "Invalid payment amount" });
+    }
+
+    // Use integer cents comparison to avoid floating-point drift
+    if (Math.round(requestedAmount * 100) !== Math.round(invoiceTotal * 100)) {
+      return res.status(400).json({
+        message: "Payment amount must match the invoice total exactly",
+      });
     }
 
     const customer = await storage.getCustomer(invoice.customerId);
@@ -31,16 +90,16 @@ router.post("/create-payment-intent", async (req: Request, res: Response) => {
 
     // Use Stripe Connect service - will REJECT if business has no Connect account
     const result = await stripeConnectService.createPaymentIntentForInvoice({
-      amount,
+      amount: requestedAmount,
       businessId: invoice.businessId,
-      invoiceId,
+      invoiceId: invoiceIdNum,
       invoiceNumber: invoice.invoiceNumber,
       customerName: `${customer.firstName} ${customer.lastName}`,
-      isPortalPayment: false,
+      isPortalPayment: hasValidAccessToken && !isAuthenticatedOwner,
     });
 
     // Update invoice with payment intent ID
-    await storage.updateInvoice(invoiceId, {
+    await storage.updateInvoice(invoiceIdNum, {
       stripePaymentIntentId: result.paymentIntentId
     });
 

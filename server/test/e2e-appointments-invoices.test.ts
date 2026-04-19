@@ -698,6 +698,8 @@ async function createAuthenticatedAgent(): Promise<{
       username: 'testuser',
       email: 'test@example.com',
       password: 'TestPassword1!',
+    acceptTerms: true,
+    acceptPrivacy: true
     });
 
   expect(regRes.status).toBe(201);
@@ -1568,6 +1570,8 @@ describe('Full Flow: Register -> Appointment -> Invoice', () => {
       username: 'flowuser',
       email: 'flow@example.com',
       password: 'TestPassword1!',
+    acceptTerms: true,
+    acceptPrivacy: true
     });
     expect(regRes.status).toBe(201);
 

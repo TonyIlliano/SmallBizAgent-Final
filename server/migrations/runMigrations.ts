@@ -507,6 +507,15 @@ async function fixExistingTables() {
   // Auto-verify existing users who already have a business (so they don't get locked out)
   await pool.query(`UPDATE users SET email_verified = true WHERE business_id IS NOT NULL AND email_verified = false`);
 
+  // Legal acceptance columns (CAN-SPAM / TCPA / Stripe Connect / Twilio A2P 10DLC)
+  await addColumnIfNotExists('users', 'terms_accepted_at', 'TIMESTAMP');
+  await addColumnIfNotExists('users', 'privacy_accepted_at', 'TIMESTAMP');
+  await addColumnIfNotExists('users', 'tos_version', 'TEXT');
+  await addColumnIfNotExists('users', 'terms_accepted_ip', 'TEXT');
+  // Grandfather existing users so they can still log in and finish flows.
+  // They will be prompted to re-accept on next material TOS update.
+  await pool.query(`UPDATE users SET terms_accepted_at = created_at, privacy_accepted_at = created_at, tos_version = 'grandfathered' WHERE terms_accepted_at IS NULL`);
+
   // Create clover_menu_cache table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clover_menu_cache (
@@ -2353,6 +2362,9 @@ async function runMigrations() {
     // Drop legacy Vapi columns and add missing indexes
     await dropVapiColumnsAndAddIndexes();
 
+    // Production readiness: webhook idempotency, invoice sequences, password token hashing
+    await addProductionReadinessTables();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3029,6 +3041,63 @@ async function dropVapiColumnsAndAddIndexes() {
     console.log('Legacy Vapi columns dropped and indexes created successfully');
   } catch (error) {
     console.error('Error dropping Vapi columns / creating indexes:', error);
+  }
+}
+
+/**
+ * Production readiness tables:
+ * 1. Webhook idempotency tracking (prevents duplicate Stripe/Twilio processing)
+ * 2. Invoice number sequences (atomic sequential generation per business)
+ * 3. Password reset token hashing column
+ */
+async function addProductionReadinessTables() {
+  console.log('Adding production readiness tables...');
+  try {
+    // Webhook idempotency
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS processed_webhook_events (
+        id SERIAL PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        processed_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS processed_webhook_events_event_id_source_idx
+      ON processed_webhook_events (event_id, source)
+    `);
+    // Auto-cleanup: drop events older than 7 days (prevents unbounded growth)
+    await pool.query(`
+      DELETE FROM processed_webhook_events WHERE processed_at < NOW() - INTERVAL '7 days'
+    `);
+
+    // Invoice number sequences (atomic per-business counter)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS invoice_sequences (
+        id SERIAL PRIMARY KEY,
+        business_id INTEGER NOT NULL,
+        last_number INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS invoice_sequences_business_id_idx
+      ON invoice_sequences (business_id)
+    `);
+
+    // Password reset token hash column (migrate from plaintext to hashed)
+    const addColIfNotExists = async (table: string, column: string, type: string) => {
+      try {
+        await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+      } catch (e: any) {
+        if (!e.message.includes('already exists')) throw e;
+      }
+    };
+    await addColIfNotExists('password_reset_tokens', 'token_hash', 'TEXT');
+
+    console.log('Production readiness tables created successfully');
+  } catch (error) {
+    console.error('Error creating production readiness tables:', error);
   }
 }
 

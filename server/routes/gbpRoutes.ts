@@ -10,6 +10,7 @@ import { Router } from 'express';
 import { GoogleBusinessProfileService } from '../services/googleBusinessProfileService';
 import { logAndSwallow } from '../utils/safeAsync';
 import { isAuthenticated } from '../auth';
+import { belongsToBusiness } from '../middleware/auth';
 import { storage } from '../storage';
 import { claudeText } from '../services/claudeClient';
 
@@ -17,7 +18,7 @@ const router = Router();
 const gbpService = new GoogleBusinessProfileService();
 
 // Get GBP connection status and stored data
-router.get('/status/:businessId', isAuthenticated, async (req, res) => {
+router.get('/status/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -32,7 +33,7 @@ router.get('/status/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // Get OAuth URL for connecting GBP
-router.get('/auth-url/:businessId', isAuthenticated, async (req, res) => {
+router.get('/auth-url/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -292,7 +293,7 @@ function mapGbpCategoryToIndustry(category: string): string {
 }
 
 // Debug GBP connection (returns detailed diagnostic info)
-router.get('/debug/:businessId', isAuthenticated, async (req, res) => {
+router.get('/debug/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -349,7 +350,7 @@ router.get('/debug/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // List GBP accounts
-router.get('/accounts/:businessId', isAuthenticated, async (req, res) => {
+router.get('/accounts/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -366,7 +367,7 @@ router.get('/accounts/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // List locations for a GBP account
-router.get('/locations/:businessId', isAuthenticated, async (req, res) => {
+router.get('/locations/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -384,7 +385,7 @@ router.get('/locations/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // Set booking link on a GBP location
-router.post('/set-booking-link/:businessId', isAuthenticated, async (req, res) => {
+router.post('/set-booking-link/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -425,7 +426,7 @@ router.post('/set-booking-link/:businessId', isAuthenticated, async (req, res) =
 });
 
 // Select a GBP account + location (does NOT require booking to be enabled)
-router.post('/select-location/:businessId', isAuthenticated, async (req, res) => {
+router.post('/select-location/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -458,7 +459,7 @@ router.post('/select-location/:businessId', isAuthenticated, async (req, res) =>
 });
 
 // Get current phone numbers for a GBP location
-router.get('/phone-numbers/:businessId', isAuthenticated, async (req, res) => {
+router.get('/phone-numbers/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -482,7 +483,7 @@ router.get('/phone-numbers/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // Set AI receptionist phone number on GBP listing
-router.post('/set-ai-phone/:businessId', isAuthenticated, async (req, res) => {
+router.post('/set-ai-phone/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -521,7 +522,7 @@ router.post('/set-ai-phone/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // Restore original phone number on GBP listing
-router.post('/restore-phone/:businessId', isAuthenticated, async (req, res) => {
+router.post('/restore-phone/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -546,7 +547,7 @@ router.post('/restore-phone/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // Remove booking link from GBP location
-router.delete('/booking-link/:businessId', isAuthenticated, async (req, res) => {
+router.delete('/booking-link/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -577,7 +578,7 @@ router.delete('/booking-link/:businessId', isAuthenticated, async (req, res) => 
 });
 
 // Disconnect GBP entirely
-router.delete('/:businessId', isAuthenticated, async (req, res) => {
+router.delete('/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) {
@@ -604,7 +605,7 @@ router.delete('/:businessId', isAuthenticated, async (req, res) => {
 // ─── New: Business Info Sync ──────────────────────────────────────────────────
 
 // Full sync from GBP (pull business info + reviews)
-router.post('/sync/:businessId', isAuthenticated, async (req, res) => {
+router.post('/sync/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -628,7 +629,7 @@ router.post('/sync/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // Get cached/fresh business info from GBP
-router.get('/business-info/:businessId', isAuthenticated, async (req, res) => {
+router.get('/business-info/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -684,7 +685,7 @@ router.get('/business-info/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // Push specified fields to GBP
-router.post('/push/:businessId', isAuthenticated, async (req, res) => {
+router.post('/push/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -708,7 +709,7 @@ router.post('/push/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // Resolve a specific field conflict
-router.post('/resolve-conflict/:businessId', isAuthenticated, async (req, res) => {
+router.post('/resolve-conflict/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -763,7 +764,7 @@ router.post('/resolve-conflict/:businessId', isAuthenticated, async (req, res) =
 // ─── New: Review Management ─────────────────────────────────────────────────
 
 // Batch review sync from GBP
-router.post('/reviews/sync/:businessId', isAuthenticated, async (req, res) => {
+router.post('/reviews/sync/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -776,7 +777,7 @@ router.post('/reviews/sync/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // List local reviews (from gbp_reviews table)
-router.get('/reviews/:businessId', isAuthenticated, async (req, res) => {
+router.get('/reviews/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -825,7 +826,11 @@ router.post('/reviews/:reviewId/reply', isAuthenticated, async (req, res) => {
     // Get the local review by ID
     const review = await storage.getGbpReviewById(reviewId);
     if (!review) return res.status(404).json({ error: 'Review not found' });
-    if (review.businessId !== req.user?.businessId) return res.status(403).json({ error: 'Access denied' });
+
+    // Check ownership (supports multi-location via user_business_access)
+    const { checkBelongsToBusinessAsync } = await import('../middleware/auth');
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, review.businessId);
+    if (!hasAccess) return res.status(403).json({ error: 'Access denied' });
 
     const businessId = review.businessId;
 
@@ -850,11 +855,15 @@ router.post('/reviews/:reviewId/suggest-reply', isAuthenticated, async (req, res
     const reviewId = parseInt(req.params.reviewId);
     if (isNaN(reviewId)) return res.status(400).json({ error: "Invalid review ID" });
 
-    const businessId = req.user?.businessId || 0;
     const review = await storage.getGbpReviewById(reviewId);
     if (!review) return res.status(404).json({ error: 'Review not found' });
-    if (review.businessId !== businessId) return res.status(403).json({ error: 'Access denied' });
 
+    // Check ownership (supports multi-location via user_business_access)
+    const { checkBelongsToBusinessAsync } = await import('../middleware/auth');
+    const hasAccess = await checkBelongsToBusinessAsync(req.user, review.businessId);
+    if (!hasAccess) return res.status(403).json({ error: 'Access denied' });
+
+    const businessId = review.businessId;
     const business = await storage.getBusiness(businessId);
 
     const suggestedReply = await claudeText({
@@ -872,7 +881,7 @@ router.post('/reviews/:reviewId/suggest-reply', isAuthenticated, async (req, res
 // ─── New: GBP Posts ──────────────────────────────────────────────────────────
 
 // AI-generate a GBP post draft
-router.post('/posts/generate/:businessId', isAuthenticated, async (req, res) => {
+router.post('/posts/generate/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -902,7 +911,7 @@ router.post('/posts/generate/:businessId', isAuthenticated, async (req, res) => 
 });
 
 // Publish a draft post to GBP
-router.post('/posts/publish/:businessId', isAuthenticated, async (req, res) => {
+router.post('/posts/publish/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -943,7 +952,7 @@ router.post('/posts/publish/:businessId', isAuthenticated, async (req, res) => {
 });
 
 // List posts (drafts + published)
-router.get('/posts/:businessId', isAuthenticated, async (req, res) => {
+router.get('/posts/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
@@ -961,7 +970,7 @@ router.get('/posts/:businessId', isAuthenticated, async (req, res) => {
 // ─── New: SEO Score ──────────────────────────────────────────────────────────
 
 // Calculate local SEO score
-router.get('/seo-score/:businessId', isAuthenticated, async (req, res) => {
+router.get('/seo-score/:businessId', isAuthenticated, belongsToBusiness, async (req, res) => {
   try {
     const businessId = parseInt(req.params.businessId);
     if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });

@@ -595,8 +595,9 @@ async function executeRecurringSchedule(scheduleId: number) {
       .from(recurringScheduleItems)
       .where(eq(recurringScheduleItems.scheduleId, scheduleId));
 
-    // Generate invoice number
-    const invoiceNumber = `INV-${Date.now()}`;
+    // Generate sequential invoice number (atomic)
+    const { generateInvoiceNumber } = await import('../utils/invoiceNumber');
+    const invoiceNumber = await generateInvoiceNumber(schedule.businessId);
 
     // Calculate due date (30 days from now)
     const dueDate = new Date();

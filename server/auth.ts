@@ -14,19 +14,38 @@ import QRCode from 'qrcode';
 import { pool } from './db';
 import jwt from 'jsonwebtoken';
 
-// JWT secret — reuse SESSION_SECRET for simplicity
-const JWT_SECRET = process.env.SESSION_SECRET || 'dev-only-jwt-secret';
+// JWT secret — reuse SESSION_SECRET. NEVER fall back to a hardcoded value.
+// SECURITY: A hardcoded fallback would allow any attacker with knowledge of the
+// default string to forge tokens. We refuse to sign or verify tokens if the
+// secret is missing or matches any known dev string.
+const KNOWN_WEAK_SECRETS = new Set([
+  'dev-only-jwt-secret',
+  'dev-only-secret-change-in-production',
+  'changeme',
+  'secret',
+]);
+
+function getJwtSecret(): string {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < 16 || KNOWN_WEAK_SECRETS.has(secret)) {
+    throw new Error(
+      'SESSION_SECRET is not configured or is using a known weak/default value. ' +
+      'Set SESSION_SECRET to a strong random string (32+ chars) before using JWT tokens.'
+    );
+  }
+  return secret;
+}
 const JWT_EXPIRES_IN = '30d'; // Mobile tokens last 30 days
 
 /** Sign a JWT for mobile auth */
 export function signMobileToken(payload: { userId: number; businessId: number | null; role: string }): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN, issuer: 'smallbizagent' });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRES_IN, issuer: 'smallbizagent' });
 }
 
 /** Verify and decode a JWT mobile token */
 export function verifyMobileToken(token: string): { userId: number; businessId: number | null; role: string } | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET, { issuer: 'smallbizagent' }) as any;
+    const decoded = jwt.verify(token, getJwtSecret(), { issuer: 'smallbizagent' }) as any;
     return { userId: decoded.userId, businessId: decoded.businessId, role: decoded.role };
   } catch {
     return null;
@@ -320,6 +339,14 @@ export function setupAuth(app: Express) {
         });
       }
 
+      // SECURITY/LEGAL: Require Terms of Service + Privacy Policy acceptance
+      // Required for Stripe Connect, Twilio A2P 10DLC, CAN-SPAM, and general SaaS consent.
+      if (!req.body.acceptTerms || !req.body.acceptPrivacy) {
+        return res.status(400).json({
+          error: "You must accept the Terms of Service and Privacy Policy to create an account.",
+        });
+      }
+
       // Normalize username to lowercase for case-insensitive login
       const normalizedUsername = req.body.username.toLowerCase();
 
@@ -339,12 +366,20 @@ export function setupAuth(app: Express) {
       // SECURITY: Only pick safe fields from req.body — never spread req.body directly
       // to prevent privilege escalation (e.g., setting role: "admin" or businessId)
       const hashedPassword = await hashPassword(req.body.password);
+      const now = new Date();
+      const tosVersion = process.env.TOS_VERSION || '2026-04-16';
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
+
       const userData: InsertUser = {
         username: normalizedUsername,
         email: req.body.email,
         password: hashedPassword,
         role: 'user', // Always force 'user' role for public registration
-      };
+        termsAcceptedAt: now,
+        privacyAcceptedAt: now,
+        tosVersion,
+        termsAcceptedIp: clientIp,
+      } as InsertUser;
 
       const user = await storage.createUser(userData);
 

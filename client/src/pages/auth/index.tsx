@@ -43,6 +43,12 @@ const registerFormSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   password: passwordSchema,
   confirmPassword: z.string(),
+  acceptTerms: z.boolean().refine((v) => v === true, {
+    message: "You must accept the Terms of Service to continue",
+  }),
+  acceptPrivacy: z.boolean().refine((v) => v === true, {
+    message: "You must accept the Privacy Policy to continue",
+  }),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
@@ -89,6 +95,8 @@ export default function AuthPage() {
       email: "",
       password: "",
       confirmPassword: "",
+      acceptTerms: false,
+      acceptPrivacy: false,
     },
   });
 
@@ -590,6 +598,62 @@ export default function AuthPage() {
                           <FormControl>
                             <Input type="password" placeholder="••••••••" {...field} />
                           </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={registerForm.control}
+                      name="acceptTerms"
+                      render={({ field }) => (
+                        <FormItem>
+                          <div className="flex items-start gap-2">
+                            <FormControl>
+                              <input
+                                type="checkbox"
+                                checked={field.value}
+                                onChange={(e) => field.onChange(e.target.checked)}
+                                className="mt-1"
+                                data-testid="accept-terms-checkbox"
+                              />
+                            </FormControl>
+                            <label className="text-sm text-muted-foreground leading-snug">
+                              I agree to the{" "}
+                              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                                Terms of Service
+                              </a>
+                              {" "}and{" "}
+                              <a href="/sms-terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                                SMS/Communication Terms
+                              </a>.
+                            </label>
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={registerForm.control}
+                      name="acceptPrivacy"
+                      render={({ field }) => (
+                        <FormItem>
+                          <div className="flex items-start gap-2">
+                            <FormControl>
+                              <input
+                                type="checkbox"
+                                checked={field.value}
+                                onChange={(e) => field.onChange(e.target.checked)}
+                                className="mt-1"
+                                data-testid="accept-privacy-checkbox"
+                              />
+                            </FormControl>
+                            <label className="text-sm text-muted-foreground leading-snug">
+                              I acknowledge I have read the{" "}
+                              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                                Privacy Policy
+                              </a>.
+                            </label>
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}

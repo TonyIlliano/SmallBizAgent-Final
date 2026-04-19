@@ -520,7 +520,7 @@ async function createTenantAgent(tenant: typeof TENANT_A): Promise<{
   // Register (CSRF-exempt) to create a session
   const regRes = await agent
     .post('/api/register')
-    .send({ username: tenant.username, email: tenant.email, password: 'TestPassword1!' });
+    .send({ username: tenant.username, email: tenant.email, password: 'TestPassword1!', acceptTerms: true, acceptPrivacy: true });
 
   expect(regRes.status).toBe(201);
 
@@ -790,6 +790,8 @@ describe('Cross-Tenant Isolation', () => {
         username: 'staffmember',
         email: 'staff@example.com',
         password: 'TestPassword1!',
+      acceptTerms: true,
+      acceptPrivacy: true
       });
       expect(regRes.status).toBe(201);
 

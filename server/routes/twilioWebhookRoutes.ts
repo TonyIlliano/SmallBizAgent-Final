@@ -23,11 +23,15 @@ const router = Router();
 const validateTwilioWebhook = (req: Request, res: Response, next: Function) => {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
 
-  // In production, warn loudly if auth token is missing — webhooks are unverified
+  // SECURITY: In production, refuse to process webhooks without auth token.
+  // Silently accepting unsigned webhooks lets attackers forge calls/SMS.
   if (!authToken) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('[SECURITY] TWILIO_AUTH_TOKEN not set — Twilio webhooks are NOT verified. Attackers can spoof calls/SMS.');
+      console.error('[SECURITY] TWILIO_AUTH_TOKEN not set in production — rejecting webhook to prevent spoofing');
+      return res.status(500).send('Twilio webhook not configured');
     }
+    // In dev, allow through with a warning
+    console.warn('[Twilio] TWILIO_AUTH_TOKEN not set (dev) — skipping signature verification');
     return next();
   }
 

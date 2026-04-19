@@ -43,6 +43,8 @@ type RegisterData = {
   businessId?: number;
   active?: boolean;
   turnstileToken?: string | null;
+  acceptTerms?: boolean;
+  acceptPrivacy?: boolean;
 };
 
 export const AuthContext = createContext<AuthContextType | null>(null);

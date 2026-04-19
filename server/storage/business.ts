@@ -277,14 +277,41 @@ export async function updateReceptionistConfig(id: number, config: Partial<Recep
 // =================== Password Reset Tokens ===================
 
 export async function createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken> {
+  // Store both the plaintext token (for backward compat) and a SHA256 hash
+  const { createHash } = await import('crypto');
+  const tokenHash = createHash('sha256').update(token.token).digest('hex');
   const [newToken] = await db.insert(passwordResetTokens).values({
     ...token,
     createdAt: new Date()
   }).returning();
+  // Store hash in the new column (if it exists — graceful for pre-migration)
+  try {
+    const { pool } = await import('../db');
+    await pool.query(
+      `UPDATE password_reset_tokens SET token_hash = $1 WHERE id = $2`,
+      [tokenHash, newToken.id]
+    );
+  } catch {
+    // token_hash column may not exist yet — plaintext lookup will work
+  }
   return newToken;
 }
 
 export async function getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined> {
+  // Try hash-based lookup first (secure), fall back to plaintext (backward compat)
+  const { createHash } = await import('crypto');
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+  try {
+    const { pool } = await import('../db');
+    const { rows } = await pool.query(
+      `SELECT * FROM password_reset_tokens WHERE token_hash = $1 AND used = false LIMIT 1`,
+      [tokenHash]
+    );
+    if (rows.length > 0) return rows[0] as PasswordResetToken;
+  } catch {
+    // token_hash column may not exist yet
+  }
+  // Fallback: plaintext lookup for tokens created before migration
   const [resetToken] = await db.select().from(passwordResetTokens)
     .where(and(
       eq(passwordResetTokens.token, token),

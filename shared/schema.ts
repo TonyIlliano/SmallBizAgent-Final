@@ -24,6 +24,11 @@ export const users = pgTable("users", {
   setupChecklistDismissed: boolean("setup_checklist_dismissed").default(false),
   dismissedTips: text("dismissed_tips"), // JSON array of dismissed tip IDs
   lastLogin: timestamp("last_login"),
+  // Legal acceptance (CAN-SPAM / TCPA / Stripe Connect / Twilio A2P 10DLC require documented consent)
+  termsAcceptedAt: timestamp("terms_accepted_at"),
+  privacyAcceptedAt: timestamp("privacy_accepted_at"),
+  tosVersion: text("tos_version"), // e.g., "2026-04-16"
+  termsAcceptedIp: text("terms_accepted_ip"), // IP at time of acceptance (evidentiary)
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => {
@@ -1852,3 +1857,23 @@ export const healthChecks = pgTable("health_checks", {
 export const insertHealthCheckSchema = createInsertSchema(healthChecks).omit({ id: true });
 export type HealthCheck = typeof healthChecks.$inferSelect;
 export type InsertHealthCheck = z.infer<typeof insertHealthCheckSchema>;
+
+// Processed Webhook Events (idempotency tracking for Stripe/Twilio webhooks)
+export const processedWebhookEvents = pgTable("processed_webhook_events", {
+  id: serial("id").primaryKey(),
+  eventId: text("event_id").notNull(), // Stripe event ID or Twilio MessageSid
+  source: text("source").notNull(), // 'stripe' | 'twilio'
+  eventType: text("event_type").notNull(), // e.g. 'invoice.payment_succeeded'
+  processedAt: timestamp("processed_at").defaultNow(),
+}, (table) => ({
+  eventIdSourceIdx: unique("processed_webhook_events_event_id_source_idx").on(table.eventId, table.source),
+}));
+
+// Invoice Number Sequences (atomic sequential invoice numbers per business)
+export const invoiceSequences = pgTable("invoice_sequences", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  lastNumber: integer("last_number").notNull().default(0),
+}, (table) => ({
+  businessIdIdx: unique("invoice_sequences_business_id_idx").on(table.businessId),
+}));

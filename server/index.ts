@@ -78,12 +78,20 @@ function validateEnvironment() {
   }
 
   // Check for weak/default secrets
-  if (process.env.SESSION_SECRET === 'dev-only-secret-change-in-production') {
+  const KNOWN_WEAK_SESSION_SECRETS = new Set([
+    'dev-only-secret-change-in-production',
+    'dev-only-jwt-secret',
+    'changeme',
+    'secret',
+  ]);
+  const sessionSecret = process.env.SESSION_SECRET;
+  const isWeakSecret = !sessionSecret || sessionSecret.length < 16 || KNOWN_WEAK_SESSION_SECRETS.has(sessionSecret);
+  if (isWeakSecret) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('❌ CRITICAL: Cannot use default SESSION_SECRET in production');
+      console.error('❌ CRITICAL: SESSION_SECRET is missing, too short (<16 chars), or a known weak value. Cannot start in production.');
       process.exit(1);
     } else {
-      console.warn('⚠️  WARNING: Using default SESSION_SECRET - change this for production');
+      console.warn('⚠️  WARNING: SESSION_SECRET is weak or missing - set a strong random value (32+ chars) for production');
     }
   }
 

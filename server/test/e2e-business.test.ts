@@ -644,6 +644,8 @@ async function createAuthenticatedAgent(): Promise<{
       username: 'testuser',
       email: 'test@example.com',
       password: 'TestPassword1!',
+    acceptTerms: true,
+    acceptPrivacy: true
     });
 
   expect(regRes.status).toBe(201);
@@ -860,6 +862,8 @@ describe('Business Onboarding', () => {
         username: 'testuser',
         email: 'test@example.com',
         password: 'TestPassword1!',
+      acceptTerms: true,
+      acceptPrivacy: true
       });
 
       const res = await agent.get('/api/business');
@@ -1433,6 +1437,8 @@ describe('Full Onboarding Flow', () => {
       username: 'onboarduser',
       email: 'onboard@example.com',
       password: 'TestPassword1!',
+    acceptTerms: true,
+    acceptPrivacy: true
     });
     expect(regRes.status).toBe(201);
 

@@ -349,7 +349,7 @@ export async function convertQuoteToInvoice(quoteId: number): Promise<Invoice> {
     businessId: quoteData.businessId,
     customerId: quoteData.customerId,
     jobId: quoteData.jobId,
-    invoiceNumber: `INV-${Date.now()}`, // Generate a new invoice number
+    invoiceNumber: await (await import('../utils/invoiceNumber')).generateInvoiceNumber(quoteData.businessId),
     amount: quoteData.amount,
     tax: quoteData.tax || '0',
     total: quoteData.total,

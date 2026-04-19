@@ -198,6 +198,8 @@ describe('POST /api/register', () => {
         username: 'testuser',
         email: 'test@example.com',
         password: 'TestPassword1!',
+      acceptTerms: true,
+      acceptPrivacy: true
       });
 
     expect(res.status).toBe(201);
@@ -232,6 +234,8 @@ describe('POST /api/register', () => {
         username: 'testuser',
         email: 'new@example.com',
         password: 'TestPassword1!',
+      acceptTerms: true,
+      acceptPrivacy: true
       });
 
     expect(res.status).toBe(400);
@@ -249,6 +253,8 @@ describe('POST /api/register', () => {
         username: 'newuser',
         email: 'test@example.com',
         password: 'TestPassword1!',
+      acceptTerms: true,
+      acceptPrivacy: true
       });
 
     expect(res.status).toBe(400);
@@ -273,6 +279,8 @@ describe('POST /api/register', () => {
         username: 'testuser',
         email: 'test@example.com',
         password: 'TestPassword1!',
+      acceptTerms: true,
+      acceptPrivacy: true
       });
 
     expect(regRes.status).toBe(201);
@@ -385,7 +393,7 @@ describe('POST /api/login', () => {
 
     const res = await supertest(app)
       .post('/api/login')
-      .send({ username: 'testuser', password: 'TestPassword1!' });
+      .send({ username: 'testuser', password: 'TestPassword1!', acceptTerms: true, acceptPrivacy: true });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('username', 'testuser');
@@ -410,7 +418,7 @@ describe('POST /api/login', () => {
 
     const res = await supertest(app)
       .post('/api/login')
-      .send({ username: 'nobody', password: 'TestPassword1!' });
+      .send({ username: 'nobody', password: 'TestPassword1!', acceptTerms: true, acceptPrivacy: true });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toMatch(/invalid username or password/i);
@@ -433,7 +441,7 @@ describe('GET /api/user', () => {
     // Login first
     await agent
       .post('/api/login')
-      .send({ username: 'testuser', password: 'TestPassword1!' });
+      .send({ username: 'testuser', password: 'TestPassword1!', acceptTerms: true, acceptPrivacy: true });
 
     // Now hit /api/user
     const res = await agent.get('/api/user');
@@ -460,7 +468,7 @@ describe('POST /api/logout', () => {
     // Login
     await agent
       .post('/api/login')
-      .send({ username: 'testuser', password: 'TestPassword1!' });
+      .send({ username: 'testuser', password: 'TestPassword1!', acceptTerms: true, acceptPrivacy: true });
 
     // Confirm logged in
     const authed = await agent.get('/api/user');
@@ -492,7 +500,7 @@ describe('CSRF protection', () => {
     // Login (exempt from CSRF)
     await agent
       .post('/api/login')
-      .send({ username: 'testuser', password: 'TestPassword1!' });
+      .send({ username: 'testuser', password: 'TestPassword1!', acceptTerms: true, acceptPrivacy: true });
 
     // POST /api/customers is CSRF-protected — without CSRF header it should fail
     const res = await agent
@@ -514,7 +522,7 @@ describe('CSRF protection', () => {
     // Login (CSRF-exempt, also sets csrf-token cookie)
     const loginRes = await agent
       .post('/api/login')
-      .send({ username: 'testuser', password: 'TestPassword1!' });
+      .send({ username: 'testuser', password: 'TestPassword1!', acceptTerms: true, acceptPrivacy: true });
 
     // Extract the csrf-token cookie from login response
     const cookies: string[] = Array.isArray(loginRes.headers['set-cookie'])
@@ -571,6 +579,8 @@ describe('CSRF protection', () => {
         username: 'testuser',
         email: 'test@example.com',
         password: 'TestPassword1!',
+      acceptTerms: true,
+      acceptPrivacy: true
       });
 
     expect(res.status).toBe(201);
