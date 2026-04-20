@@ -635,6 +635,8 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 | Commit | Change |
 |--------|--------|
+| `054824f` | Pre-launch: batch dashboard lookups (N+1 fix via getCustomersByIds/getStaffByIds/getServicesByIds) + scrub 9 error.message leaks from websiteBuilderRoutes |
+| `0e9376b` | Pre-launch P0 security hardening: 7 showstopper fixes |
 | `d37ba5b` | Add logout button to mobile bottom nav |
 | `87e86d4` | 4x faster recognizeCaller: single parallel batch (~150ms vs ~600ms) |
 | `c3665e4` | Add platform messages to admin + scope business messages to customers only |
@@ -1895,7 +1897,17 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: April 13, 2026. Production readiness mega-session — 4 rounds of hardening (36 fixes, 167 new tests, 5 new route files, 2 page splits).*
+*Last updated: April 20, 2026. Pre-launch audit fixes — dashboard N+1 elimination + website builder error-leak scrub.*
+
+*Pre-Launch Audit (April 20, 2026) — commit `054824f`:*
+- **Dashboard N+1 fix.** `GET /api/dashboard` was firing ~200 sequential DB round-trips per page load (1 `getCustomer` per invoice + 3 per appointment). Added three batched storage helpers — `getCustomersByIds(ids[])`, `getStaffByIds(ids[])`, `getServicesByIds(ids[])` — each using drizzle `inArray()` with an empty-array short-circuit. Wired through `IStorage` interface and `DatabaseStorage` class in `server/storage/index.ts`. Rewrote the invoice + appointment blocks in `server/routes/dashboardRoutes.ts` to fetch rows first, then collect unique ids into `Set`s, run all three batch queries in parallel, build `Map<id, row>` lookups, and hydrate invoices (`customer`) and appointments (`customer` + `staff` + `service`) from the maps. API response shape unchanged — frontend untouched.
+- **Website builder error-leak scrub.** All 9 occurrences of `res.status(500).json({ error: error.message })` in `server/routes/websiteBuilderRoutes.ts` replaced. Raw Claude/OpenAI/DB error strings no longer reach the client. Each catch block now logs `console.error("[WebsiteBuilder] <context>:", error)` server-side and returns a generic user-facing string: "Website generation failed. Please try again." / "Unable to save customizations." / "Unable to update custom domain." / "Domain verification failed. Check your DNS settings." / "Unable to submit setup request." / "An error occurred. Please try again."
+- **Files changed:** `server/storage/customers.ts` (+inArray import, +getCustomersByIds), `server/storage/staff.ts` (+getStaffByIds — inArray already imported), `server/storage/business.ts` (+inArray import, +getServicesByIds), `server/storage/index.ts` (3 IStorage signatures + 3 DatabaseStorage assignments), `server/routes/dashboardRoutes.ts` (invoice/appointment hydration refactor), `server/routes/websiteBuilderRoutes.ts` (9 error responses).
+- **Verification:** `npx tsc --noEmit` clean. No schema changes. No migrations required. Tests not run (not in scope for this session).
+
+---
+
+*Previous: April 13, 2026. Production readiness mega-session — 4 rounds of hardening (36 fixes, 167 new tests, 5 new route files, 2 page splits).*
 
 *Round 1 — Core Hardening (15 items): (1) Money columns migrated from DOUBLE PRECISION to NUMERIC(12,2) across all tables — exact decimal arithmetic for invoices, quotes, subscriptions, overage billing. `toMoney()` / `roundMoney()` / `coerceMoneyFields()` utilities at `server/utils/money.ts`. (2) 23 foreign key constraints added via migration with `NOT VALID` — CASCADE for line items, SET NULL for optional refs, RESTRICT for business-scoped tables. (3) `express-async-errors` installed — patches Express to catch async route errors automatically. (4) `process.on('unhandledRejection')` + `process.on('uncaughtException')` handlers with Sentry capture added to `server/index.ts`. (5) Session fixation prevention — `req.session.regenerate()` before `req.login()` in all 3 auth paths (register, login, 2FA). (6) React Query `staleTime: Infinity` → `30_000` + `refetchOnWindowFocus: true` — data now refreshes after 30s and on tab switch. (7) CRUD rate limiter (60 writes/min/IP) on customer creation endpoints. (8) Invoice/quote access token expiry — new `accessTokenExpiresAt` column, 90-day expiry set on token generation, portal routes check expiry and return 410 Gone. (9) Health check `pool.connect()` wrapped in try/finally to prevent connection leak. (10) Stripe payment validation — rejects non-finite, negative, < $0.50, > $999,999.99 amounts. (11) Admin dashboard split from 3,635-line monolith into lazy-loaded tab components at `client/src/pages/admin/tabs/`. (12) Settings page split from 3,543-line monolith into lazy-loaded sections at `client/src/pages/settings/`. (13) Cross-tenant isolation E2E tests (19 tests). (14) Stripe webhook integration tests (17 tests). (15) OAuth token encryption verified (was already implemented).*
 
