@@ -141,7 +141,7 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
       });
     } catch (error: any) {
       console.error("[WebsiteBuilder] Generation error:", error);
-      res.status(500).json({ error: error.message || "Website generation failed" });
+      res.status(500).json({ error: "Website generation failed. Please try again." });
     }
   });
 
@@ -163,7 +163,8 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
 
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("[WebsiteBuilder] Customizations save error:", error);
+      res.status(500).json({ error: "Unable to save customizations." });
     }
   });
 
@@ -216,7 +217,7 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
       });
     } catch (error: any) {
       console.error("[WebsiteBuilder] Domain info error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "An error occurred. Please try again." });
     }
   });
 
@@ -261,7 +262,7 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
       });
     } catch (error: any) {
       console.error("[WebsiteBuilder] Set custom domain error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Unable to update custom domain." });
     }
   });
 
@@ -303,7 +304,7 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
       }
     } catch (error: any) {
       console.error("[WebsiteBuilder] Verify domain error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Domain verification failed. Check your DNS settings." });
     }
   });
 
@@ -333,7 +334,8 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
 
       res.json(website);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("[WebsiteBuilder] Get site error:", error);
+      res.status(500).json({ error: "An error occurred. Please try again." });
     }
   });
 
@@ -361,7 +363,8 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
 
       res.json(website);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("[WebsiteBuilder] Save site HTML error:", error);
+      res.status(500).json({ error: "An error occurred. Please try again." });
     }
   });
 
@@ -387,7 +390,8 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
 
       res.json({ success: true, message: "Your website will be set up within 24 hours" });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("[WebsiteBuilder] Request setup error:", error);
+      res.status(500).json({ error: "Unable to submit setup request." });
     }
   });
 
@@ -424,7 +428,8 @@ export function registerWebsiteBuilderRoutes(app: Express): void {
 
       res.json({ ...features, planTier: usage.planTier });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("[WebsiteBuilder] Features lookup error:", error);
+      res.status(500).json({ error: "An error occurred. Please try again." });
     }
   });
 }

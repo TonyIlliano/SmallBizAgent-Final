@@ -21,6 +21,11 @@ export async function getStaffMember(id: number): Promise<Staff | undefined> {
   return staffMember;
 }
 
+export async function getStaffByIds(ids: number[]): Promise<Staff[]> {
+  if (ids.length === 0) return [];
+  return db.select().from(staff).where(inArray(staff.id, ids));
+}
+
 export async function getStaffMemberByUserId(userId: number): Promise<Staff | undefined> {
   const [staffMember] = await db.select().from(staff).where(eq(staff.userId, userId));
   return staffMember;

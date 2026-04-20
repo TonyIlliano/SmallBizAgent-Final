@@ -116,6 +116,7 @@ export interface IStorage {
   // Services
   getServices(businessId: number): Promise<Service[]>;
   getService(id: number): Promise<Service | undefined>;
+  getServicesByIds(ids: number[]): Promise<Service[]>;
   createService(service: InsertService): Promise<Service>;
   updateService(id: number, service: Partial<Service>): Promise<Service>;
   deleteService(id: number, businessId: number): Promise<void>;
@@ -124,6 +125,7 @@ export interface IStorage {
   getCustomers(businessId: number, params?: { limit?: number; offset?: number }): Promise<Customer[]>;
   getArchivedCustomers(businessId: number): Promise<Customer[]>;
   getCustomer(id: number): Promise<Customer | undefined>;
+  getCustomersByIds(ids: number[]): Promise<Customer[]>;
   getCustomerByPhone(phone: string, businessId: number): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: number, customer: Partial<Customer>): Promise<Customer>;
@@ -134,6 +136,7 @@ export interface IStorage {
   // Staff
   getStaff(businessId: number): Promise<Staff[]>;
   getStaffMember(id: number): Promise<Staff | undefined>;
+  getStaffByIds(ids: number[]): Promise<Staff[]>;
   getStaffMemberByUserId(userId: number): Promise<Staff | undefined>;
   createStaffMember(staff: InsertStaff): Promise<Staff>;
   updateStaffMember(id: number, staff: Partial<Staff>): Promise<Staff>;
@@ -549,6 +552,7 @@ export class DatabaseStorage implements IStorage {
   // --- Services (business.ts) ---
   getServices = businessFns.getServices;
   getService = businessFns.getService;
+  getServicesByIds = businessFns.getServicesByIds;
   createService = businessFns.createService;
   updateService = businessFns.updateService;
   deleteService = businessFns.deleteService;
@@ -557,6 +561,7 @@ export class DatabaseStorage implements IStorage {
   getCustomers = customerFns.getCustomers;
   getArchivedCustomers = customerFns.getArchivedCustomers;
   getCustomer = customerFns.getCustomer;
+  getCustomersByIds = customerFns.getCustomersByIds;
   getCustomerByPhone = customerFns.getCustomerByPhone;
   createCustomer = customerFns.createCustomer;
   updateCustomer = customerFns.updateCustomer;
@@ -573,6 +578,7 @@ export class DatabaseStorage implements IStorage {
   // --- Staff (staff.ts) ---
   getStaff = staffFns.getStaff;
   getStaffMember = staffFns.getStaffMember;
+  getStaffByIds = staffFns.getStaffByIds;
   getStaffMemberByUserId = staffFns.getStaffMemberByUserId;
   createStaffMember = staffFns.createStaffMember;
   updateStaffMember = staffFns.updateStaffMember;

@@ -49,8 +49,8 @@ router.get("/dashboard", isAuthenticated, async (req: Request, res: Response) =>
     const [
       business,
       jobs,
-      invoices,
-      appointments,
+      rawInvoices,
+      rawAppointments,
       callLogs,
       quotes,
       usage,
@@ -71,47 +71,22 @@ router.get("/dashboard", isAuthenticated, async (req: Request, res: Response) =>
           return [];
         }),
 
-      // 3. All invoices (limit 50) with customer data
+      // 3. All invoices (limit 50) — hydration happens after Promise.all
       storage
         .getInvoices(businessId)
-        .then(async (allInvoices) => {
-          const capped = allInvoices.slice(0, 50);
-          // Populate customer for each invoice (needed for dashboard display)
-          return Promise.all(
-            capped.map(async (invoice) => {
-              const customer = await storage.getCustomer(invoice.customerId).catch(() => null);
-              return { ...invoice, customer };
-            })
-          );
-        })
+        .then((allInvoices) => allInvoices.slice(0, 50))
         .catch((err) => {
           console.error("[Dashboard] Error fetching invoices:", err);
           return [];
         }),
 
-      // 4. Upcoming appointments (today's date, limit 50) with related data
+      // 4. Upcoming appointments (today's date, limit 50) — hydration after Promise.all
       storage
         .getAppointments(businessId, {
           startDate: new Date(todayStr),
           endDate: new Date(todayStr),
         })
-        .then(async (allAppointments) => {
-          const capped = allAppointments.slice(0, 50);
-          return Promise.all(
-            capped.map(async (appointment) => {
-              const [customer, staff, service] = await Promise.all([
-                storage.getCustomer(appointment.customerId).catch(() => null),
-                appointment.staffId
-                  ? storage.getStaffMember(appointment.staffId).catch(() => null)
-                  : null,
-                appointment.serviceId
-                  ? storage.getService(appointment.serviceId).catch(() => null)
-                  : null,
-              ]);
-              return { ...appointment, customer, staff, service };
-            })
-          );
-        })
+        .then((allAppointments) => allAppointments.slice(0, 50))
         .catch((err) => {
           console.error("[Dashboard] Error fetching appointments:", err);
           return [];
@@ -157,6 +132,68 @@ router.get("/dashboard", isAuthenticated, async (req: Request, res: Response) =>
         return null;
       }),
     ]);
+
+    // Collect unique related IDs across invoices + appointments for batch fetch
+    const customerIdSet = new Set<number>();
+    for (const inv of rawInvoices) {
+      if (inv.customerId != null) customerIdSet.add(inv.customerId);
+    }
+    for (const appt of rawAppointments) {
+      if (appt.customerId != null) customerIdSet.add(appt.customerId);
+    }
+    const staffIdSet = new Set<number>();
+    const serviceIdSet = new Set<number>();
+    for (const appt of rawAppointments) {
+      if (appt.staffId != null) staffIdSet.add(appt.staffId);
+      if (appt.serviceId != null) serviceIdSet.add(appt.serviceId);
+    }
+
+    const customerIds = Array.from(customerIdSet);
+    const staffIds = Array.from(staffIdSet);
+    const serviceIds = Array.from(serviceIdSet);
+
+    // Batch fetch related rows in parallel
+    const [customersList, staffList, servicesList] = await Promise.all([
+      storage.getCustomersByIds(customerIds).catch((err) => {
+        console.error("[Dashboard] Error batch-fetching customers:", err);
+        return [];
+      }),
+      storage.getStaffByIds(staffIds).catch((err) => {
+        console.error("[Dashboard] Error batch-fetching staff:", err);
+        return [];
+      }),
+      storage.getServicesByIds(serviceIds).catch((err) => {
+        console.error("[Dashboard] Error batch-fetching services:", err);
+        return [];
+      }),
+    ]);
+
+    // Build O(1) lookup maps
+    const customerMap = new Map(customersList.map((c) => [c.id, c]));
+    const staffMap = new Map(staffList.map((s) => [s.id, s]));
+    const serviceMap = new Map(servicesList.map((s) => [s.id, s]));
+
+    // Hydrate invoices with customer
+    const invoices = rawInvoices.map((invoice) => ({
+      ...invoice,
+      customer: invoice.customerId != null
+        ? customerMap.get(invoice.customerId) ?? null
+        : null,
+    }));
+
+    // Hydrate appointments with customer + staff + service
+    const appointments = rawAppointments.map((appointment) => ({
+      ...appointment,
+      customer: appointment.customerId != null
+        ? customerMap.get(appointment.customerId) ?? null
+        : null,
+      staff: appointment.staffId != null
+        ? staffMap.get(appointment.staffId) ?? null
+        : null,
+      service: appointment.serviceId != null
+        ? serviceMap.get(appointment.serviceId) ?? null
+        : null,
+    }));
 
     res.json({
       business: business ? sanitizeBusiness(business) : null,

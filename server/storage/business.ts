@@ -17,7 +17,7 @@ import {
   WebsiteScrapeCache, InsertWebsiteScrapeCache, websiteScrapeCache,
   businessPhoneNumbers,
 } from "@shared/schema";
-import { eq, and, or, desc, ilike, sql } from "drizzle-orm";
+import { eq, and, or, desc, ilike, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { encryptField, decryptField } from "../utils/encryption";
 
@@ -228,6 +228,11 @@ export async function getServices(businessId: number): Promise<Service[]> {
 export async function getService(id: number): Promise<Service | undefined> {
   const [service] = await db.select().from(services).where(eq(services.id, id));
   return service;
+}
+
+export async function getServicesByIds(ids: number[]): Promise<Service[]> {
+  if (ids.length === 0) return [];
+  return db.select().from(services).where(inArray(services.id, ids));
 }
 
 export async function createService(service: InsertService): Promise<Service> {

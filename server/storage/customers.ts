@@ -2,7 +2,7 @@ import {
   Customer, InsertCustomer, customers,
   CustomerInsightsRow, InsertCustomerInsights, customerInsights,
 } from "@shared/schema";
-import { eq, and, or, desc, gte, isNull, sql } from "drizzle-orm";
+import { eq, and, or, desc, gte, isNull, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { normalizePhone } from "./index";
 
@@ -32,6 +32,11 @@ export async function getArchivedCustomers(businessId: number): Promise<Customer
 export async function getCustomer(id: number): Promise<Customer | undefined> {
   const [customer] = await db.select().from(customers).where(eq(customers.id, id));
   return customer;
+}
+
+export async function getCustomersByIds(ids: number[]): Promise<Customer[]> {
+  if (ids.length === 0) return [];
+  return db.select().from(customers).where(inArray(customers.id, ids));
 }
 
 export async function getCustomerByPhone(phone: string, businessId: number): Promise<Customer | undefined> {
