@@ -284,6 +284,30 @@ export function registerExpressSetupRoutes(app: Express) {
         console.log(`[ExpressSetup] Starting for user ${userId}`);
 
         // -----------------------------------------------------------------
+        // 0. Idempotency: if this user already has a business, return it.
+        //    With synchronous provisioning taking 20-45 seconds, the risk of
+        //    a duplicate submit (refresh during wait, double-tap on mobile,
+        //    bad mobile network retry) is real. Without this check, a second
+        //    business gets created mid-flight.
+        // -----------------------------------------------------------------
+        const existingBusinessId = req.user!.businessId;
+        if (existingBusinessId) {
+          const existing = await storage.getBusiness(existingBusinessId);
+          if (existing) {
+            console.log(`[ExpressSetup] User ${userId} already has business ${existing.id} — returning existing`);
+            return res.json({
+              success: true,
+              alreadySetup: true,
+              provisioningSuccess: existing.provisioningStatus === 'completed',
+              provisioningError: null,
+              twilioPhoneNumber: existing.twilioPhoneNumber || null,
+              business: existing,
+              servicesCreated: 0,
+            });
+          }
+        }
+
+        // -----------------------------------------------------------------
         // 1. Validate input
         // -----------------------------------------------------------------
         const parsed = expressSetupSchema.safeParse(req.body);
