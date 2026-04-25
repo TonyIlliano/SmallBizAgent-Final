@@ -189,7 +189,7 @@ describe('UsageService', () => {
         id: 1,
         name: 'Starter',
         maxCallMinutes: 100,
-        overageRatePerMinute: 0.15,
+        overageRatePerMinute: 0.20,
         planTier: 'starter',
       };
 
@@ -213,8 +213,8 @@ describe('UsageService', () => {
       expect(usage.minutesUsed).toBe(120);
       expect(usage.minutesIncluded).toBe(100);
       expect(usage.overageMinutes).toBe(20);
-      expect(usage.overageRate).toBe(0.15);
-      expect(usage.overageCost).toBeCloseTo(3.0); // 20 * $0.15
+      expect(usage.overageRate).toBe(0.20);
+      expect(usage.overageCost).toBeCloseTo(4.0); // 20 * $0.20
       expect(usage.minutesRemaining).toBe(0);
       expect(usage.percentUsed).toBe(100); // capped at 100
       expect(usage.canAcceptCalls).toBe(true); // paid subscribers always allowed
@@ -233,10 +233,10 @@ describe('UsageService', () => {
 
       const plan = {
         id: 2,
-        name: 'Professional',
+        name: 'Pro',
         maxCallMinutes: 500,
         overageRatePerMinute: 0.10,
-        planTier: 'professional',
+        planTier: 'pro',
       };
 
       mockSelectChain.from.mockReturnValueOnce({

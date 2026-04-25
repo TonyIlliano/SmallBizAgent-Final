@@ -12,7 +12,7 @@ const plans = [
     annualTotal: "$1,429/yr",
     description: "Perfect for solo operators",
     minutes: "150 AI receptionist min/mo",
-    overage: "$0.05/min overage",
+    overage: "$0.20/min overage",
     features: [
       "24/7 AI voice receptionist",
       "150 AI receptionist minutes/mo",
@@ -33,7 +33,7 @@ const plans = [
     annualTotal: "$2,869/yr",
     description: "Most popular for growing businesses",
     minutes: "300 AI receptionist min/mo",
-    overage: "$0.05/min overage",
+    overage: "$0.15/min overage",
     features: [
       "24/7 AI voice receptionist",
       "300 AI receptionist minutes/mo",
@@ -56,7 +56,7 @@ const plans = [
     annualTotal: "$4,309/yr",
     description: "For established businesses",
     minutes: "500 AI receptionist min/mo",
-    overage: "$0.05/min overage",
+    overage: "$0.10/min overage",
     features: [
       "24/7 AI voice receptionist",
       "500 AI receptionist minutes/mo",
@@ -77,7 +77,7 @@ const plans = [
 const faqs = [
   {
     q: "What happens when my AI minutes run out?",
-    a: "Your AI receptionist keeps answering calls. You're charged $0.05 per additional minute. No service interruption ever.",
+    a: "Your AI receptionist keeps answering calls. Additional minutes are billed at your plan's overage rate: $0.20/min on Starter, $0.15/min on Growth, $0.10/min on Pro. No service interruption ever.",
   },
   {
     q: "Can I change plans later?",

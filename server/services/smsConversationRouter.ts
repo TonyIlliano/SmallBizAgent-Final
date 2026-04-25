@@ -170,6 +170,14 @@ async function handleDisambiguationReply(
       status: 'cancelled',
       notes: `[Cancelled via SMS on ${new Date().toLocaleDateString()}]`,
     });
+
+    // Remove from merchant's connected calendar (Google/Microsoft/Apple).
+    // Fire-and-forget: no-op if no calendar event ID was ever stored.
+    import('./calendarService').then(({ CalendarService }) => {
+      new CalendarService().deleteAppointment(selectedApt.id)
+        .catch(err => console.error('[SMSRouter] Calendar delete error after disambig cancel:', err));
+    }).catch(err => console.error('[SMSRouter] Calendar service import error:', err));
+
     // Dispatch cancellation event for insights recalculation
     if (customer?.id) {
       import('./orchestrationService').then(mod => {
@@ -289,6 +297,14 @@ Return valid JSON only, no markdown.`,
               });
               await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
 
+              // Sync new time to merchant's connected calendar (Google/Microsoft/Apple).
+              // Fire-and-forget: SMS reply is not blocked on calendar API latency.
+              // No-op if no calendar is connected — syncAppointment checks integration status.
+              import('./calendarService').then(({ CalendarService }) => {
+                new CalendarService().syncAppointment(context.appointmentId)
+                  .catch(err => console.error('[SMSRouter] Calendar sync error after reschedule:', err));
+              }).catch(err => console.error('[SMSRouter] Calendar service import error:', err));
+
               const dateStr = newStart.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
               const timeStr = newStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
               return {
@@ -333,6 +349,14 @@ Return valid JSON only, no markdown.`,
           notes: `[Cancelled via SMS reschedule flow on ${new Date().toLocaleDateString()}]`,
         });
         await storage.updateSmsConversation(conversation.id, { state: 'resolved' });
+
+        // Remove from merchant's connected calendar (Google/Microsoft/Apple).
+        // Fire-and-forget: no-op if no calendar event ID was ever stored.
+        import('./calendarService').then(({ CalendarService }) => {
+          new CalendarService().deleteAppointment(context.appointmentId)
+            .catch(err => console.error('[SMSRouter] Calendar delete error after cancel:', err));
+        }).catch(err => console.error('[SMSRouter] Calendar service import error:', err));
+
         return {
           replyMessage: `Your ${context?.serviceName || 'appointment'} has been cancelled. To rebook, visit ${business?.bookingSlug ? `${appUrl}/book/${business.bookingSlug}` : 'our website'} or call us. - ${businessName}`,
         };

@@ -823,8 +823,109 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 - `server/services/notificationService.ts` — 3 new notification functions
 - `server/services/messageIntelligenceService.ts` — 2 new MessageTypes
 
+#### Express Onboarding Synchronous Provisioning + Twilio Rollback (Pre-Launch P0 #6 + #7)
+- **Goal**: Stop returning fake `{success: true}` from express setup before provisioning has actually run. Previously the endpoint fired `provisionBusiness()` fire-and-forget and returned immediately — if Twilio or Retell failed 30 seconds later, the user was already on the dashboard with no idea their AI receptionist didn't exist. First customer call → dead air. Also fix the partial-failure case where Twilio succeeded and Retell failed, leaving an orphaned `$1/mo` Twilio number rented for nothing.
+- **Files changed**:
+  - `server/routes/expressSetupRoutes.ts` — Replaced fire-and-forget with `await provisionBusiness(business.id, { preferredAreaCode })`. Added `extractAreaCode()` helper that derives a 3-digit area code from the user's submitted phone (10-digit, 11-digit-with-1-prefix, or mixed format), so businesses get a local-feeling number. Response shape extended with `provisioningSuccess` (true source of truth), `provisioningError` (first non-null of error/twilioError/retellError), and `twilioPhoneNumber` (refetched after provisioning so the new number is included). Setup itself still returns `success: true` even when provisioning fails because the business shell + services + hours were created — just provisioningSuccess is false.
+  - `server/services/businessProvisioningService.ts` — Added auto-rollback block after the Retell provisioning step. If Twilio succeeded AND Retell failed AND we just provisioned a NEW number (not pre-existing) AND Retell wasn't intentionally skipped (dev env), call `releasePhoneNumber()`, clear phone fields on the business record, and delete the `business_phone_numbers` row we just inserted. Sets `results.twilioRolledBack = true` on success, `results.twilioRollbackFailed = true` on failure (with error captured) — `results.success` recalculation correctly shows false in both cases. Defensive: never rolls back pre-existing numbers (would destroy working setups) or in dev environments where Retell is intentionally skipped.
+  - `client/src/pages/onboarding/steps/express-setup.tsx` — Mutation now stages 4 progress messages via cascading `setTimeout` (Creating → Provisioning phone → Setting up AI → Almost there) so the 20-45 second sync wait feels alive instead of frozen. Timers cleared in `finally` block. `onSuccess` branches on `data.provisioningSuccess`: true path shows "You're all set! Your AI line: +1330..." with the actual provisioned number and 1.5s redirect; false path shows "Setup partially complete" destructive toast (12s duration) explaining team has been notified, with 3s redirect (user still has a usable business shell). Existing `onError` path unchanged for true network/server failures.
+- **What this fixes operationally**:
+  - User no longer redirects to dashboard with a phantom phone number that doesn't actually exist
+  - When provisioning fails, user sees the failure inline AND admin gets the existing `sendAdminAlert('provisioning_failed')` notification (existing infrastructure, just now wired into a synchronous path)
+  - Orphaned Twilio numbers from partial failures are auto-released — no more $1/mo dead-line leaks
+  - Phone numbers are area-code matched to the user's region (e.g., 330 for Northeast Ohio) → callers more likely to answer
+- **Verification**: `npx tsc --noEmit` clean. 793/793 tests pass. No schema changes (existing `provisioningStatus`/`provisioningResult`/`provisioningCompletedAt` columns reused). No new dependencies. Backwards compatible — existing businesses unaffected.
+
+#### Plan-Tier Feature Gates — Deferred + Marketing Claims Removed
+- **Decision**: Server-side enforcement of plan tiers (custom domain, API access, multi-location, staff limits, etc.) deferred until customer scale justifies it. Frontend gates are sufficient for one-customer pre-launch. Real abuse risk requires a curious technically-skilled customer who'd first need to pay for Starter to test bypasses — not a problem at this stage. Documented as known tech debt to revisit at ~50 customers.
+- **However**, removed all forward-promising marketing claims that were lying about feature availability:
+  - **Removed "QuickBooks integration" from Growth tier** in landing.tsx, runMigrations.ts (seed + always-run UPDATE), and update_pricing_v2.ts (Growth Monthly + Annual). Reason: Intuit hasn't approved production use yet. Listing it would be false advertising for paying customers.
+  - **Removed "Social media content pipeline" from Pro tier** in same 3 files (Pro Monthly + Annual). Reason: feature is currently admin-only — platform admin generates and approves posts via internal workflow. Not customer-facing today. Marketing it as a paid feature would mislead customers into expecting access they don't have.
+  - **Help page FAQ #1** updated — replaced "QuickBooks integration" + "social media pipeline" claims with the actual differentiators (calendar sync, GBP sync, advanced analytics, multi-location, API, custom training, etc.)
+  - **Landing page JSX simplified** — removed the dead `comingSoon` object handling code path now that no features use that form.
+  - `server/migrations/update_pricing_v4.ts` — **NEW**: Removes "QuickBooks integration" and "Social media content pipeline" feature strings from existing prod `subscription_plans.features` JSONB rows via regex (handles legacy "(Coming Soon)" suffix and the clean form). Idempotent via migrations table. Wrapped BEGIN/COMMIT/ROLLBACK. Comments document that both features will be re-added (QuickBooks → Growth, Social Media → Pro) when genuinely customer-ready.
+
+#### Past-Date / Out-of-Hours Booking Validation (Pre-Launch P0 #8)
+- **Goal**: Stop the AI from booking impossible appointments. Catches LLM/parser errors that produce past dates ("Tuesday" parsed as last Tuesday → silent appointment in the past, no reminders), far-future hallucinations (wrong year), bookings on closed days (Sunday at a Mon-Sat shop), and bookings outside business hours (8pm at a 6pm closer).
+- **File changed**: `server/services/callToolHandlers.ts:1954` — Added 4 stacked guards in `bookAppointment` between duration calc and staff time-off check, in cheapest-first order:
+  1. **Past-date guard**: `appointmentDate <= now` → returns `pastDate: true` + AI-friendly message "I can't book in the past. What date would you like?"
+  2. **>1 year future guard**: `appointmentDate > now + 365d` → returns `tooFarOut: true` + "I can only book up to a year out."
+  3. **Closed-day guard**: queries `getCachedBusinessHours()`, finds matching `dayHours` by day name (in business timezone), returns `businessClosed: true` if no row, `isClosed: true`, or empty open/close → "We're closed on Sundays. What other day works?"
+  4. **Out-of-hours guard**: extracts HH:MM in business timezone via `toLocaleTimeString`, converts to minutes-since-midnight, allows `apptEnd <= close` (so 5–6pm at a 6pm closer is OK), strict `<` on open and `>` on close → "We're open 9 AM to 6 PM on Fridays. Want to try a time within those hours?"
+- **Correctness details**: All day-of-week and HH:MM extractions use `businessTimezone` (not server UTC) — copies pattern from existing code in same file. Variable names `nowForBookingValidation` and `businessHoursForValidation` chosen to avoid collision with later-scoped vars.
+- **Skipped staff-hours validation** intentionally — already enforced upstream by `getAvailableSlotsForDay`, would add extra DB call for hypothetical bug. Will add if real production data shows it's needed.
+- **Verification**: TypeScript clean. 793/793 tests pass. No tests exercise `bookAppointment` end-to-end so zero breakage risk.
+
+#### Express Onboarding Email Verification (Pre-Launch P0 #9)
+- **Goal**: Block spam farms / scripted clients from creating businesses + provisioning Twilio/Retell without verifying email. Browser users were already redirected by `App.tsx:127`, but API-level (curl, custom mobile clients) had no enforcement.
+- **File changed**: `server/routes/expressSetupRoutes.ts:10, 261` — Added `requireEmailVerified` to import from `../middleware/auth`, applied as second middleware on `app.post("/api/onboarding/express-setup", ...)`. Reuses existing well-tested middleware that handles admin bypass, returns 403 with `code: 'EMAIL_NOT_VERIFIED'` if unverified.
+- **Verification**: TypeScript clean. 793/793 tests pass.
+
+#### SMS Reschedule + Cancel Calendar Sync (Pre-Launch P0 #5)
+- **Goal**: When customer reschedules or cancels via SMS, push the change to merchant's connected calendar (Google/Microsoft/Apple). Voice + web booking paths already synced; SMS path didn't, causing staff to double-book based on stale calendar data.
+- **6 paths fixed** (audit caught 1, found 5 more during verification):
+  1. `server/services/smsConversationRouter.ts:294` — SMS reschedule (free-text date/time): `syncAppointment()` after DB update
+  2. `server/services/smsConversationRouter.ts:343` — SMS cancel via reschedule flow: `deleteAppointment()` after DB update
+  3. `server/services/smsConversationRouter.ts:177` — SMS cancel via disambiguation flow (multiple appointments): `deleteAppointment()` after DB update
+  4. `server/routes/twilioWebhookRoutes.ts:413` — CANCEL/C keyword direct (single appointment): `deleteAppointment()` after DB update
+  5. `server/services/managedAgents/smsIntelligenceAgent.ts:156` — Managed agent `rescheduleAppointment` tool: `syncAppointment()` after DB update
+  6. `server/services/managedAgents/smsIntelligenceAgent.ts:172` — Managed agent `cancelAppointment` tool: `deleteAppointment()` after DB update
+- **Pattern**: Fire-and-forget dynamic `import('./calendarService')` then call `syncAppointment(id)` or `deleteAppointment(id)` with `.catch(err => console.error(...))`. SMS reply is not blocked on calendar API. `syncAppointment` checks integration status internally — no-op when no calendar is connected (so businesses without OAuth-connected calendars see no change).
+- **Confirm actions intentionally NOT synced** (status='confirmed' doesn't change time, calendar event already correct).
+- **Verification**: TypeScript clean. 793/793 tests pass. Same pattern as existing voice + web reschedule paths.
+
+#### Stripe Webhook Idempotency Tightening + 500/400 Polish (Pre-Launch P0 #4)
+- **Goal**: Fix lenient catch in `subscriptionService.handleWebhookEvent()` that swallowed non-23505/non-42P01 DB errors and continued processing. Transient DB hiccup during dedup INSERT could cause duplicate `payment_succeeded` to re-fire reprovisioning, duplicate `payment_failed` to send duplicate dunning emails/SMS.
+- **Files changed**:
+  - `server/services/subscriptionService.ts:381-407` — Strict mode. Lenient `console.warn(...continue)` replaced with `throw` on any DB error other than 23505 (duplicate) or 42P01 (table missing). Stripe will retry instead of double-processing.
+  - `server/routes/subscriptionRoutes.ts:244-272` — Split route handler into two phases. Signature errors → 400 (Stripe stops retrying — permanent). Processing errors → 500 (Stripe retries with exponential backoff up to 3 days). Cleaner Stripe Dashboard ergonomics.
+
+#### Retell Webhook Idempotency (Pre-Launch P0 #3)
+- **Goal**: Prevent double-processing on Retell webhook retries. Without dedup, retried `call_ended` event creates duplicate `call_logs` row → double-counted minutes → double overage billing. Customers charged twice for same call.
+- **File changed**: `server/services/retellWebhookHandler.ts:332-371` — Added strict idempotency block at top of `handleRetellWebhook`. Composite key `${call_id}:${event}` (since same call_id is reused across call_started/call_ended/call_analyzed). On duplicate (Postgres 23505) → return 200 silently. Table missing (42P01) → log warn and continue (pre-migration grace). Any other DB error → return 500 so Retell retries; do NOT process. Reuses existing `processed_webhook_events` table — no schema change.
+
+#### Twilio Webhook Tenant Hardening (Pre-Launch P0 #2)
+- **Goal**: Stop trusting `?businessId=` URL query param as the source of truth for tenant identity on inbound voice/SMS webhooks. Look up businessId from the dialed Twilio number in `business_phone_numbers` (DB) instead. Defense-in-depth against provisioning bugs that could route calls/SMS to the wrong tenant.
+- **File changed**: `server/routes/twilioWebhookRoutes.ts` — Added `resolveBusinessIdFromTwilio()` helper (~50 lines) above route handlers. Looks up businessId from `Called` (voice) or `To` (SMS) field via `storage.getPhoneNumberByTwilioNumber()`. If URL `?businessId=` disagrees with DB, **DB wins** and a SECURITY-tagged warning logs (catches your own provisioning bugs). Applied to `/api/twilio/incoming-call` and `/api/twilio/sms`. Mid-call callbacks (`recording-callback`, `appointment-callback`, `general-callback`, `voicemail-complete`) left unchanged — protected by Twilio signature check + unguessable `CallSid` chained from incoming-call.
+
+#### Pricing V3 — Tiered Overages (Margin Repair)
+- **Goal**: Replace flat $0.05/min overage with tiered overages priced above COGS. Real cost per minute is ~$0.10–0.20 (Retell + Twilio + LLM). Flat $0.05 was negative margin. New tiered structure: **Starter $0.20/min, Growth $0.15/min, Pro $0.10/min**. Tiered design also creates self-driving upgrade funnel — Starter customers who consistently overage are motivated to upgrade to Growth where the per-minute rate is cheaper.
+- **Plan base prices, included minutes, and Stripe product/price IDs are unchanged.** Only `overage_rate_per_minute` column changes.
+- **Files changed**:
+  - `server/migrations/update_pricing_v3.ts` — **NEW**: One-time UPDATE migration that runs on existing active plan rows, sets new tiered rates by `plan_tier`. Wrapped in BEGIN/COMMIT/ROLLBACK. Idempotent via `migrations` table check.
+  - `server/migrations/runMigrations.ts` — Registered v3 migration after v2. Updated initial seed INSERT (line ~619) and "always run" UPDATE statements (line ~628) to use new tiered rates so a fresh DB or one that hasn't run v3 yet still gets correct values.
+  - `server/migrations/update_pricing_v2.ts` — All 6 occurrences of `0.05` updated to tiered values. Header comment updated to reference v3 for current rates. (Defense in depth — if someone seeds a fresh DB before v3 runs, v2 still produces correct rates.)
+  - `client/src/pages/pricing.tsx` — 3 hardcoded "$0.05/min overage" labels updated to "$0.20", "$0.15", "$0.10". FAQ "What happens when minutes run out?" updated to explain tiered rates.
+  - `client/src/pages/landing.tsx` — Same 3 hardcoded labels updated.
+  - `client/src/pages/help.tsx` — Overage billing FAQ updated to reflect tiered rates.
+  - `server/services/usageService.test.ts` — Test fixtures updated: Starter overageRate `0.15` → `0.20`, assertion overageCost `3.0` → `4.0`. Old tier name `'Professional'` → `'Pro'`, `'professional'` → `'pro'` (was stale from v2 rename).
+  - `server/test/e2e-usage-billing.test.ts` — `makeUsageInfo()` default overageRate `0.05` → `0.20`. Overage assertions updated: `overageCost` `1.5` → `6.0` (30 min × $0.20).
+- **Components that read pricing dynamically (no changes needed)**:
+  - `server/services/usageService.ts` (line 161) — Reads `plan.overageRatePerMinute` from DB
+  - `server/services/overageBillingService.ts` (line 195) — Reads from DB
+  - `client/src/components/subscription/SubscriptionPlans.tsx` — Fetches via `/api/subscription/plans`
+  - `client/src/pages/onboarding/subscription.tsx` — Fetches via API
+- **No Stripe Dashboard changes required** — overage is billed via custom invoice items computed from `overage_rate_per_minute` in DB, not via Stripe metered prices.
+- **Grandfathering**: Not implemented in code. New rates apply uniformly to all existing and new businesses on next billing cycle. (No paying customers at the time of this change.)
+
+#### Stripe Webhook Idempotency Tightening
+- **Goal**: Fix the lenient catch in `subscriptionService.handleWebhookEvent()` that swallowed non-23505/non-42P01 DB errors and continued processing. A transient DB hiccup during the dedup INSERT could let an event be processed twice (e.g., duplicate `payment_succeeded` re-fires reprovisioning, duplicate `payment_failed` sends duplicate dunning emails).
+- **Files changed**:
+  - `server/services/subscriptionService.ts` (lines 381-407) — Strict mode: any DB error other than `23505` (duplicate) or `42P01` (table missing) now throws so Stripe retries. No more "log and continue."
+  - `server/routes/subscriptionRoutes.ts` (lines 244-272) — Split route handler into two phases: signature verification returns 400 (permanent error, Stripe stops retrying); processing failures return 500 (transient, Stripe retries with exponential backoff). Cleaner Stripe Dashboard ergonomics.
+
+#### Retell Webhook Idempotency
+- **Goal**: Prevent double-processing of Retell webhook retries. Without dedup, a retried `call_ended` event creates a duplicate `call_logs` row, causing double-counted minutes and double overage billing.
+- **Files changed**:
+  - `server/services/retellWebhookHandler.ts` (lines 332-371) — Added strict idempotency block at top of `handleRetellWebhook`. Composite key `${call_id}:${event}` (since same call_id is reused across call_started/call_ended/call_analyzed). On duplicate (23505) → return 200, skip processing. On other DB errors → return 500 so Retell retries. Reuses existing `processed_webhook_events` table (no schema change).
+
+#### Twilio Webhook Tenant Hardening
+- **Goal**: Stop trusting `?businessId=` query param as the source of truth for tenant identity on inbound voice/SMS webhooks. Look up the businessId from the dialed Twilio number in `business_phone_numbers` (DB) instead. Defense-in-depth against provisioning bugs that could route calls/SMS to the wrong tenant.
+- **Files changed**:
+  - `server/routes/twilioWebhookRoutes.ts` — Added `resolveBusinessIdFromTwilio()` helper (~50 lines) above the route handlers. Looks up businessId from `Called` (voice) or `To` (SMS) field via `storage.getPhoneNumberByTwilioNumber()`. If URL `?businessId=` disagrees with DB, DB wins and a SECURITY-tagged warning is logged. Applied to `/api/twilio/incoming-call` and `/api/twilio/sms`. Mid-call callbacks (`recording-callback`, `appointment-callback`, `general-callback`, `voicemail-complete`) left unchanged — they're protected by Twilio signature check + unguessable `CallSid` chained from incoming-call.
+
 #### Pricing V2 Overhaul — New Tiers & Pricing
-- **Goal**: Replace existing 3-tier pricing (Starter $79 / Professional $149 / Business $249) with new pricing (Starter $149 / Growth $299 / Pro $449). Unify overage rate to $0.05/min across all tiers. Add "Coming Soon" badges for QuickBooks (Growth) and Social media pipeline (Pro).
+- **Goal**: Replace existing 3-tier pricing (Starter $79 / Professional $149 / Business $249) with new pricing (Starter $149 / Growth $299 / Pro $449). Unify overage rate to $0.05/min across all tiers (later changed in v3 — see above). Add "Coming Soon" badges for QuickBooks (Growth) and Social media pipeline (Pro).
 
 ##### Tier Renaming
 - **Professional → Growth** (plan_tier: `professional` → `growth`)
@@ -1897,7 +1998,9 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: April 20, 2026. Pre-launch audit fixes — dashboard N+1 elimination + website builder error-leak scrub.*
+*Last updated: April 25, 2026. Complete pre-launch P0 cleanup — every blocker from the audit is resolved. Twilio webhook tenant hardening, Retell webhook idempotency, Stripe webhook idempotency tightening + 500/400 polish, SMS reschedule/cancel calendar sync (6 paths), past-date/out-of-hours booking validation (4 guards), express onboarding email verification, express onboarding synchronous provisioning + Twilio rollback, plan-tier marketing claim cleanup (QuickBooks + Social Media removed pending real availability), pricing v3 (tiered overages $0.20/$0.15/$0.10), pricing v4 (strip false marketing claims from prod). 793/793 tests passing.*
+
+*Previous: April 20, 2026. Pre-launch audit fixes — dashboard N+1 elimination + website builder error-leak scrub.*
 
 *Pre-Launch Audit (April 20, 2026) — commit `054824f`:*
 - **Dashboard N+1 fix.** `GET /api/dashboard` was firing ~200 sequential DB round-trips per page load (1 `getCustomer` per invoice + 3 per appointment). Added three batched storage helpers — `getCustomersByIds(ids[])`, `getStaffByIds(ids[])`, `getServicesByIds(ids[])` — each using drizzle `inArray()` with an empty-array short-circuit. Wired through `IStorage` interface and `DatabaseStorage` class in `server/storage/index.ts`. Rewrote the invoice + appointment blocks in `server/routes/dashboardRoutes.ts` to fetch rows first, then collect unique ids into `Set`s, run all three batch queries in parallel, build `Map<id, row>` lookups, and hydrate invoices (`customer`) and appointments (`customer` + `staff` + `service`) from the maps. API response shape unchanged — frontend untouched.

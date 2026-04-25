@@ -209,6 +209,41 @@ export async function provisionBusiness(
       results.retellError = error instanceof Error ? error.message : String(error);
     }
 
+    // ── Rollback on partial failure: release orphaned Twilio number ─────
+    // If Twilio succeeded but Retell failed AND we just provisioned a NEW number
+    // (not a pre-existing one), release the number to prevent paying $1/mo rent
+    // on a dead line and to let the user cleanly retry. We do NOT release if the
+    // number was already provisioned before this run (results.twilioAlreadyProvisioned)
+    // — that would be destructive to existing setups.
+    if (
+      results.twilioProvisioned &&
+      !results.retellProvisioned &&
+      !results.twilioAlreadyProvisioned &&
+      !results.retellSkipped // don't release if Retell was skipped intentionally (e.g., no API key in dev)
+    ) {
+      console.warn(`[Provisioning] Business ${businessId}: Retell failed after Twilio succeeded — releasing orphaned phone number to prevent leak`);
+      try {
+        await twilioProvisioningService.releasePhoneNumber(businessId);
+        await storage.updateBusiness(businessId, {
+          twilioPhoneNumber: null,
+          twilioPhoneNumberSid: null,
+          twilioPhoneNumberStatus: 'released',
+          twilioDateProvisioned: null,
+        });
+        // Also clean up business_phone_numbers row(s) we just inserted
+        await db.delete(businessPhoneNumbers).where(eq(businessPhoneNumbers.businessId, businessId));
+        results.twilioRolledBack = true;
+        // Reset twilioProvisioned flag — we no longer have a phone number
+        results.twilioProvisioned = false;
+        results.twilioPhoneNumber = null;
+        console.log(`[Provisioning] Business ${businessId}: Rolled back Twilio provisioning successfully`);
+      } catch (rollbackErr) {
+        console.error(`[Provisioning] Business ${businessId}: ROLLBACK FAILED — orphaned phone number left in place:`, rollbackErr);
+        results.twilioRollbackFailed = true;
+        results.twilioRollbackError = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+      }
+    }
+
     console.log(`Provisioning completed for business ID ${businessId}`);
 
     // Enable all SMS automation agents by default

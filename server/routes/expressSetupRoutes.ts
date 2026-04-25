@@ -7,7 +7,7 @@
  */
 
 import type { Express, Request, Response } from "express";
-import { isAuthenticated } from "../middleware/auth";
+import { isAuthenticated, requireEmailVerified } from "../middleware/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 
@@ -38,6 +38,25 @@ function slugify(name: string): string {
     .replace(/[\s_]+/g, "-")  // spaces/underscores → hyphens
     .replace(/-+/g, "-")      // collapse multiple hyphens
     .replace(/^-+|-+$/g, ""); // trim leading/trailing hyphens
+}
+
+/**
+ * Extract a 3-digit US area code from a free-form phone string.
+ * Accepts formats like "+1 (330) 555-1234", "330-555-1234", "13305551234", etc.
+ * Returns undefined if no plausible area code is found.
+ */
+function extractAreaCode(phone: string): string | undefined {
+  if (!phone) return undefined;
+  const digits = phone.replace(/\D/g, "");
+  // 11-digit number starting with 1 → area code is digits 2-4
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return digits.slice(1, 4);
+  }
+  // 10-digit number → area code is digits 1-3
+  if (digits.length === 10) {
+    return digits.slice(0, 3);
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +277,7 @@ export function registerExpressSetupRoutes(app: Express) {
   app.post(
     "/api/onboarding/express-setup",
     isAuthenticated,
+    requireEmailVerified, // Block API-level bypass: spam farms / scripted clients can't provision Twilio+Retell without verified email
     async (req: Request, res: Response) => {
       try {
         const userId = req.user!.id;
@@ -349,35 +369,51 @@ export function registerExpressSetupRoutes(app: Express) {
         console.log("[ExpressSetup] Business hours created (Mon-Fri 9-5, Sat+Sun closed)");
 
         // -----------------------------------------------------------------
-        // 7. Fire-and-forget: start provisioning (Twilio + Retell AI)
+        // 7. SYNCHRONOUSLY provision Twilio + Retell AI
+        //    We wait for the result instead of fire-and-forget so the user
+        //    sees the actual outcome — not a false "success" that masks a
+        //    silent provisioning failure (which would leave their AI receptionist
+        //    dead-on-arrival when their first customer calls).
+        //
+        //    Pass area code derived from the user's submitted phone so they
+        //    get a local-feeling number (more likely to be answered by callers).
         // -----------------------------------------------------------------
-        let provisioningStarted = false;
+        const preferredAreaCode = extractAreaCode(parsed.data.phone);
+        let provisioningResult: any = { success: false };
         try {
-          import("../services/businessProvisioningService").then((m) => {
-            m.provisionBusiness(business.id).catch((err: any) => {
-              console.error(`[ExpressSetup] Provisioning failed for business ${business.id}:`, err);
-            });
-          });
-          provisioningStarted = true;
-          console.log(`[ExpressSetup] Provisioning kicked off for business ${business.id}`);
-        } catch (provErr) {
-          console.error("[ExpressSetup] Failed to start provisioning:", provErr);
+          const { provisionBusiness } = await import("../services/businessProvisioningService");
+          provisioningResult = await provisionBusiness(business.id, { preferredAreaCode });
+          console.log(`[ExpressSetup] Provisioning complete for business ${business.id}: success=${provisioningResult.success}`);
+        } catch (provErr: any) {
+          console.error(`[ExpressSetup] Provisioning threw for business ${business.id}:`, provErr);
+          provisioningResult = {
+            success: false,
+            error: provErr?.message || String(provErr),
+          };
         }
 
         // -----------------------------------------------------------------
         // 8. Mark onboarding complete
+        //    Even if provisioning failed, the business + services + hours exist.
+        //    Owner can retry provisioning from settings/admin without redoing onboarding.
         // -----------------------------------------------------------------
         await storage.updateUser(userId, { onboardingComplete: true });
         console.log(`[ExpressSetup] Onboarding marked complete for user ${userId}`);
 
         // -----------------------------------------------------------------
         // 9. Return result
+        //    `provisioningSuccess` is the source of truth for the frontend —
+        //    it triggers the "your number is ready" success path or the
+        //    "we hit a snag, support has been notified" recovery path.
         // -----------------------------------------------------------------
+        const refreshedBusiness = await storage.getBusiness(business.id);
         return res.json({
-          success: true,
-          business,
+          success: true, // setup itself succeeded (business created)
+          provisioningSuccess: provisioningResult.success === true,
+          provisioningError: provisioningResult.error || provisioningResult.twilioError || provisioningResult.retellError || null,
+          twilioPhoneNumber: refreshedBusiness?.twilioPhoneNumber || null,
+          business: refreshedBusiness || business,
           servicesCreated,
-          provisioningStarted,
         });
       } catch (error: any) {
         console.error("[ExpressSetup] Unexpected error:", error);

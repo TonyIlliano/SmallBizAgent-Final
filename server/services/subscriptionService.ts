@@ -378,7 +378,14 @@ export class SubscriptionService {
     try {
       console.log('Processing webhook event:', event.type, event.id);
 
-      // Idempotency check: skip if we've already processed this event
+      // ── Idempotency check: prevent double-processing on Stripe webhook retries ──
+      // Stripe retries on any non-2xx for up to 3 days with exponential backoff.
+      // Without strict dedup, a duplicate payment_succeeded could double-fire reprovisioning,
+      // a duplicate payment_failed could send duplicate dunning emails/SMS, etc.
+      //
+      // STRICT mode: if dedup check fails for any reason other than duplicate (23505) or
+      // table-missing (42P01), throw so the route returns non-2xx and Stripe retries.
+      // Better to retry once on a transient DB error than to silently double-process.
       const { pool } = await import('../db');
       try {
         await pool.query(
@@ -386,14 +393,18 @@ export class SubscriptionService {
           [event.id, event.type]
         );
       } catch (dupErr: any) {
-        // Unique constraint violation means we already processed this event
-        if (dupErr.code === '23505') {
+        if (dupErr?.code === '23505') {
+          // Duplicate event — already processed, ack as success
           console.log(`[Stripe] Skipping duplicate webhook event: ${event.id} (${event.type})`);
           return { success: true, duplicate: true };
         }
-        // Table might not exist yet (pre-migration) — continue processing
-        if (dupErr.code !== '42P01') {
-          console.warn('[Stripe] Idempotency check failed, proceeding:', dupErr.message);
+        if (dupErr?.code === '42P01') {
+          // Table missing (pre-migration window) — log and continue rather than fail prod
+          console.warn('[Stripe] processed_webhook_events table missing; skipping idempotency check');
+        } else {
+          // Any other DB error — throw so Stripe retries; do NOT process
+          console.error(`[Stripe] Idempotency check failed for ${event.id}, requesting retry:`, dupErr);
+          throw new Error(`Idempotency check failed: ${dupErr?.message || 'unknown error'}`);
         }
       }
 

@@ -1951,6 +1951,98 @@ async function bookAppointment(
   const endTime = new Date(appointmentDate);
   endTime.setMinutes(endTime.getMinutes() + duration);
 
+  // ── Guard: appointment must be in the future ──────────────────────────────
+  // Catches LLM/parser errors that produce past dates (e.g. "Tuesday" parsed
+  // as last Tuesday). Past-dated bookings silently break reminders + calendar
+  // sync and confuse customers/staff.
+  const nowForBookingValidation = new Date();
+  if (appointmentDate.getTime() <= nowForBookingValidation.getTime()) {
+    return {
+      result: {
+        success: false,
+        pastDate: true,
+        error: "I can't book in the past. What date would you like?"
+      }
+    };
+  }
+
+  // ── Guard: appointment must be within 1 year ──────────────────────────────
+  // Catches LLM hallucinations (wrong year) and parser edge cases on year
+  // boundaries. 1 year is more than any service business books out.
+  const oneYearFromNow = new Date(nowForBookingValidation.getTime() + 365 * 24 * 60 * 60 * 1000);
+  if (appointmentDate.getTime() > oneYearFromNow.getTime()) {
+    return {
+      result: {
+        success: false,
+        tooFarOut: true,
+        error: "I can only book up to a year out. What date were you thinking?"
+      }
+    };
+  }
+
+  // ── Guard: business must be open on this day, and time must be within hours ─
+  // Day-of-week and HH:MM are computed in BUSINESS timezone (not server UTC).
+  // Same pattern used by getAvailableSlotsForDay and others in this file.
+  const apptDayName = appointmentDate.toLocaleDateString('en-US', {
+    timeZone: businessTimezone,
+    weekday: 'long',
+  }).toLowerCase();
+
+  const businessHoursForValidation = await getCachedBusinessHours(businessId);
+  const dayHours = businessHoursForValidation.find(h => h.day === apptDayName);
+
+  // Closed: explicit isClosed flag, no row, or no open/close times configured
+  if (!dayHours || dayHours.isClosed === true || (!dayHours.open && !dayHours.close)) {
+    const dayCapitalized = apptDayName.charAt(0).toUpperCase() + apptDayName.slice(1);
+    return {
+      result: {
+        success: false,
+        businessClosed: true,
+        error: `We're closed on ${dayCapitalized}s. What other day works for you?`
+      }
+    };
+  }
+
+  // Convert HH:MM strings to minutes-since-midnight for comparison
+  const toMinutes = (hhmm: string): number => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const apptStartHHMM = appointmentDate.toLocaleTimeString('en-US', {
+    timeZone: businessTimezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const apptEndHHMM = endTime.toLocaleTimeString('en-US', {
+    timeZone: businessTimezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const apptStartMin = toMinutes(apptStartHHMM);
+  const apptEndMin = toMinutes(apptEndHHMM);
+  const openMin = toMinutes(dayHours.open);
+  const closeMin = toMinutes(dayHours.close);
+
+  // Allow appointments that end exactly at close time (e.g. 5–6pm at a 6pm closer)
+  if (apptStartMin < openMin || apptEndMin > closeMin) {
+    const fmtTime = (hhmm: string): string => {
+      const [h, m] = hhmm.split(':').map(Number);
+      const period = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      return m === 0 ? `${h12} ${period}` : `${h12}:${String(m).padStart(2, '0')} ${period}`;
+    };
+    const dayCapitalized = apptDayName.charAt(0).toUpperCase() + apptDayName.slice(1);
+    return {
+      result: {
+        success: false,
+        outsideHours: true,
+        error: `We're open ${fmtTime(dayHours.open)} to ${fmtTime(dayHours.close)} on ${dayCapitalized}s. Want to try a time within those hours?`
+      }
+    };
+  }
+
   // Check if staff has time off on the booking date (vacation, sick, etc.)
   if (resolvedStaffId && await isStaffOffOnDate(resolvedStaffId, parsedDate)) {
     const staffLabel = staffMember ? staffMember.firstName : 'That team member';

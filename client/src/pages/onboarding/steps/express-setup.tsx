@@ -92,23 +92,51 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
 
   const setupMutation = useMutation({
     mutationFn: async (data: ExpressSetupData) => {
+      // Server now provisions Twilio + Retell synchronously, so this can take 20-45 seconds.
+      // Step messages give the user something to watch instead of staring at a frozen spinner.
       setProvisioningStep('Creating your business...');
-      const res = await apiRequest('POST', '/api/onboarding/express-setup', data);
-      return res.json();
+      const stepTimer1 = setTimeout(() => setProvisioningStep('Provisioning your phone number...'), 3000);
+      const stepTimer2 = setTimeout(() => setProvisioningStep('Setting up your AI receptionist...'), 12000);
+      const stepTimer3 = setTimeout(() => setProvisioningStep('Almost there...'), 25000);
+      try {
+        const res = await apiRequest('POST', '/api/onboarding/express-setup', data);
+        return res.json();
+      } finally {
+        clearTimeout(stepTimer1);
+        clearTimeout(stepTimer2);
+        clearTimeout(stepTimer3);
+      }
     },
     onSuccess: (data) => {
-      setProvisioningStep('Done! Redirecting...');
-      // Invalidate user + business queries so dashboard loads fresh data
+      // Always invalidate so dashboard picks up the new business.
       queryClient.invalidateQueries({ queryKey: ['/api/user'] });
       queryClient.invalidateQueries({ queryKey: ['/api/business'] });
 
-      toast({
-        title: 'You\'re all set!',
-        description: `${data.servicesCreated} services configured. Your AI receptionist is being set up now.`,
-      });
-
-      // Short delay so user sees the success state
-      setTimeout(() => navigate('/'), 1500);
+      // Branch: did provisioning ACTUALLY succeed, or did setup-only succeed?
+      if (data.provisioningSuccess) {
+        setProvisioningStep('Done! Redirecting...');
+        const phoneText = data.twilioPhoneNumber
+          ? `Your AI line: ${data.twilioPhoneNumber}`
+          : 'Your AI receptionist is live.';
+        toast({
+          title: "You're all set!",
+          description: `${data.servicesCreated} services configured. ${phoneText}`,
+        });
+        setTimeout(() => navigate('/'), 1500);
+      } else {
+        // Business + services + hours exist, but Twilio/Retell hit a snag.
+        // Surface the issue clearly so the user knows AND admin alerting (server-side) flags it for support.
+        setProvisioningStep(null);
+        toast({
+          title: 'Setup partially complete',
+          description:
+            'Your business was created, but we hit a snag setting up your phone line. Our team has been notified and will reach out shortly. You can continue exploring the dashboard while we sort it out.',
+          variant: 'destructive',
+          duration: 12000,
+        });
+        // Still redirect — they have a usable business shell. Provisioning can be retried later by admin.
+        setTimeout(() => navigate('/'), 3000);
+      }
     },
     onError: (error: Error) => {
       setProvisioningStep(null);

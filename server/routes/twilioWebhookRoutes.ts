@@ -65,16 +65,69 @@ const validateTwilioWebhook = (req: Request, res: Response, next: Function) => {
 };
 
 // =================== TWILIO WEBHOOK ENDPOINTS ===================
+
+/**
+ * Resolve businessId from the Twilio number that was dialed/texted.
+ *
+ * SECURITY: The URL ?businessId= param is provisioning metadata, not authenticated identity.
+ * The DB row in business_phone_numbers is the source of truth for which business owns a number.
+ * We look it up from the inbound `Called` (voice) or `To` (SMS) field and reject on mismatch.
+ *
+ * Returns { businessId, phoneNumberId } or null on lookup failure.
+ */
+async function resolveBusinessIdFromTwilio(
+  twilioNumber: string | undefined,
+  urlBusinessIdRaw: unknown,
+  context: string
+): Promise<{ businessId: number; phoneNumberId: number | null } | null> {
+  const urlBusinessId = parseInt(urlBusinessIdRaw as string);
+
+  if (!twilioNumber) {
+    // No To/Called field: fall back to URL param (defensive, shouldn't happen for entry-point webhooks)
+    if (!urlBusinessId) {
+      console.error(`[${context}] Webhook missing both Twilio number and URL businessId`);
+      return null;
+    }
+    console.warn(`[${context}] Twilio number missing from body; trusting URL businessId=${urlBusinessId}`);
+    return { businessId: urlBusinessId, phoneNumberId: null };
+  }
+
+  let phoneRecord;
+  try {
+    phoneRecord = await storage.getPhoneNumberByTwilioNumber(twilioNumber);
+  } catch (err) {
+    console.error(`[${context}] Error looking up phone number ${twilioNumber}:`, err);
+    return null;
+  }
+
+  if (!phoneRecord) {
+    console.error(`[${context}] No business owns Twilio number ${twilioNumber} — rejecting webhook`);
+    return null;
+  }
+
+  if (urlBusinessId && urlBusinessId !== phoneRecord.businessId) {
+    // Provisioning mismatch — DB wins, but loud log so we catch the bug
+    console.error(
+      `[${context}][SECURITY] businessId mismatch for ${twilioNumber}: ` +
+      `URL=${urlBusinessId} DB=${phoneRecord.businessId}. Trusting DB.`
+    );
+  }
+
+  return { businessId: phoneRecord.businessId, phoneNumberId: phoneRecord.id };
+}
+
 // Twilio webhook for incoming calls
 router.post("/api/twilio/incoming-call", validateTwilioWebhook, async (req: Request, res: Response) => {
   try {
     const { From, Called, CallSid } = req.body;
-    // Extract businessId from query params (set by Twilio webhook URL)
-    const businessId = parseInt(req.query.businessId as string);
-    if (!businessId) {
-      console.error('Twilio webhook called without businessId');
+
+    // Resolve businessId authoritatively from the dialed number (DB), not the URL
+    const resolved = await resolveBusinessIdFromTwilio(Called, req.query.businessId, 'incoming-call');
+    if (!resolved) {
       return res.status(400).json({ message: "Business ID required" });
     }
+    const { businessId, phoneNumberId } = resolved;
+    const phoneNumberUsed = Called || null;
 
     // Fetch business and receptionist config
     const business = await storage.getBusiness(businessId);
@@ -86,20 +139,6 @@ router.post("/api/twilio/incoming-call", validateTwilioWebhook, async (req: Requ
 
     // Check if caller is an existing customer
     const customer = await storage.getCustomerByPhone(From, businessId);
-
-    // Resolve which phone number was called for multi-line tracking
-    let phoneNumberId: number | null = null;
-    const phoneNumberUsed = Called || null;
-    if (phoneNumberUsed) {
-      try {
-        const phoneRecord = await storage.getPhoneNumberByTwilioNumber(phoneNumberUsed);
-        if (phoneRecord) {
-          phoneNumberId = phoneRecord.id;
-        }
-      } catch (pnErr) {
-        console.error('Error resolving phoneNumberId:', pnErr);
-      }
-    }
 
     // Create a call log entry
     await storage.createCallLog({
@@ -172,12 +211,14 @@ router.post("/api/twilio/recording-callback", validateTwilioWebhook, async (req:
 // Twilio webhook for incoming SMS
 router.post("/api/twilio/sms", validateTwilioWebhook, async (req: Request, res: Response) => {
   try {
-    const { From, Body, MessageSid } = req.body;
-    const businessId = parseInt(req.query.businessId as string);
-    if (!businessId) {
-      console.error('SMS webhook called without businessId');
+    const { From, To, Body, MessageSid } = req.body;
+
+    // Resolve businessId authoritatively from the recipient Twilio number (DB), not the URL
+    const resolved = await resolveBusinessIdFromTwilio(To, req.query.businessId, 'sms');
+    if (!resolved) {
       return res.status(400).send('');
     }
+    const { businessId } = resolved;
 
     // Fetch business info
     const business = await storage.getBusiness(businessId);
@@ -367,6 +408,13 @@ router.post("/api/twilio/sms", validateTwilioWebhook, async (req: Request, res: 
             status: 'cancelled',
             notes: `${nextApt.notes || ''}\n[Cancelled via SMS on ${new Date().toLocaleDateString()}]`.trim()
           });
+
+          // Remove from merchant's connected calendar (Google/Microsoft/Apple).
+          // Fire-and-forget: no-op if no calendar event ID was ever stored.
+          import('../services/calendarService').then(({ CalendarService }) => {
+            new CalendarService().deleteAppointment(nextApt.id)
+              .catch(err => console.error('[SMS] Calendar delete error after CANCEL keyword:', err));
+          }).catch(err => console.error('[SMS] Calendar service import error:', err));
 
           // Dispatch cancellation event for insights recalculation
           import('../services/orchestrationService').then(mod => {

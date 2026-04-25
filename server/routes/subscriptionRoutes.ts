@@ -239,35 +239,38 @@ router.post('/webhook', async (req: Request, res: Response) => {
     return res.status(503).json({ error: 'Stripe not configured' });
   }
 
+  if (!endpointSecret) {
+    console.error('STRIPE_WEBHOOK_SECRET not configured - rejecting webhook');
+    return res.status(500).json({ error: 'Webhook not configured' });
+  }
+
+  // ── Step 1: signature verification (4xx errors here are permanent — bad payload/sig) ──
+  // Stripe treats 4xx as "do not retry" and marks the event as failed in their dashboard.
   let event: Stripe.Event;
-
   try {
-    if (!endpointSecret) {
-      console.error('STRIPE_WEBHOOK_SECRET not configured - rejecting webhook');
-      return res.status(500).json({ error: 'Webhook not configured' });
-    }
-
-    // Get the signature sent by Stripe
     const signature = req.headers['stripe-signature'] as string;
     if (!signature) {
       return res.status(400).json({ error: 'Missing Stripe signature' });
     }
-
-    // Verify the event
     event = stripe.webhooks.constructEvent(
       req.body,
       signature,
       endpointSecret
     );
+  } catch (sigError: any) {
+    console.error('[Stripe] Signature verification failed:', sigError.message);
+    return res.status(400).json({ error: `Signature verification failed: ${sigError.message}` });
+  }
 
-    // Handle the event
+  // ── Step 2: event processing (5xx errors here are transient — Stripe should retry) ──
+  // The service throws on transient errors (e.g., idempotency check DB failure).
+  // Returning 500 tells Stripe to retry with exponential backoff (up to 3 days).
+  try {
     await subscriptionService.handleWebhookEvent(event);
-
-    // Return a 200 to acknowledge receipt of the event
     res.json({ received: true });
-  } catch (error: any) {
-    console.error('Webhook Error:', error.message);
-    res.status(400).json({ error: `Webhook Error: ${error.message}` });
+  } catch (procError: any) {
+    console.error(`[Stripe] Processing failed for event ${event.id} (${event.type}):`, procError.message);
+    res.status(500).json({ error: 'Processing failed; will be retried' });
   }
 });
 

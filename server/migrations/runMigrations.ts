@@ -616,9 +616,9 @@ async function fixExistingTables() {
     console.log('Seeding subscription plans...');
     await pool.query(`
       INSERT INTO subscription_plans (name, description, plan_tier, price, interval, features, max_call_minutes, overage_rate_per_minute, max_staff, active, sort_order) VALUES
-      ('Starter', 'Perfect for solo operators', 'starter', 149, 'monthly', '["150 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]', 150, 0.05, 1, true, 1),
-      ('Growth', 'Most popular for growing businesses', 'growth', 299, 'monthly', '["300 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS automation suite", "Google Business Profile sync", "Calendar sync (Google, Apple, Microsoft)", "Staff scheduling (up to 5)", "Website chat widget", "Advanced analytics + call transcripts", "QuickBooks integration (Coming Soon)"]', 300, 0.05, 5, true, 2),
-      ('Pro', 'For established businesses', 'pro', 449, 'monthly', '["500 AI receptionist minutes/mo", "Everything in Growth, plus:", "Up to 3 locations", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support", "White-label ready", "Social media content pipeline (Coming Soon)"]', 500, 0.05, 15, true, 3)
+      ('Starter', 'Perfect for solo operators', 'starter', 149, 'monthly', '["150 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]', 150, 0.20, 1, true, 1),
+      ('Growth', 'Most popular for growing businesses', 'growth', 299, 'monthly', '["300 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS automation suite", "Google Business Profile sync", "Calendar sync (Google, Apple, Microsoft)", "Staff scheduling (up to 5)", "Website chat widget", "Advanced analytics + call transcripts"]', 300, 0.15, 5, true, 2),
+      ('Pro', 'For established businesses', 'pro', 449, 'monthly', '["500 AI receptionist minutes/mo", "Everything in Growth, plus:", "Up to 3 locations", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support", "White-label ready"]', 500, 0.10, 15, true, 3)
     `);
     console.log('Subscription plans seeded');
   }
@@ -633,7 +633,7 @@ async function fixExistingTables() {
         price = 149,
         features = '["150 AI receptionist minutes/mo", "Unlimited customers", "Appointment scheduling", "Invoicing & payments", "Email reminders", "Public booking page", "Basic analytics"]',
         max_call_minutes = 150,
-        overage_rate_per_minute = 0.05,
+        overage_rate_per_minute = 0.20,
         max_staff = 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE sort_order = 1
@@ -644,9 +644,9 @@ async function fixExistingTables() {
         description = 'Most popular for growing businesses',
         plan_tier = 'growth',
         price = 299,
-        features = '["300 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS automation suite", "Google Business Profile sync", "Calendar sync (Google, Apple, Microsoft)", "Staff scheduling (up to 5)", "Website chat widget", "Advanced analytics + call transcripts", "QuickBooks integration (Coming Soon)"]',
+        features = '["300 AI receptionist minutes/mo", "Everything in Starter, plus:", "SMS automation suite", "Google Business Profile sync", "Calendar sync (Google, Apple, Microsoft)", "Staff scheduling (up to 5)", "Website chat widget", "Advanced analytics + call transcripts"]',
         max_call_minutes = 300,
-        overage_rate_per_minute = 0.05,
+        overage_rate_per_minute = 0.15,
         max_staff = 5,
         updated_at = CURRENT_TIMESTAMP
       WHERE sort_order = 2
@@ -657,9 +657,9 @@ async function fixExistingTables() {
         description = 'For established businesses',
         plan_tier = 'pro',
         price = 449,
-        features = '["500 AI receptionist minutes/mo", "Everything in Growth, plus:", "Up to 3 locations", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support", "White-label ready", "Social media content pipeline (Coming Soon)"]',
+        features = '["500 AI receptionist minutes/mo", "Everything in Growth, plus:", "Up to 3 locations", "Up to 15 staff members", "API access & webhooks", "Custom AI receptionist training", "Dedicated onboarding", "Priority support", "White-label ready"]',
         max_call_minutes = 500,
-        overage_rate_per_minute = 0.05,
+        overage_rate_per_minute = 0.10,
         max_staff = 15,
         updated_at = CURRENT_TIMESTAMP
       WHERE sort_order = 3
@@ -2319,6 +2319,22 @@ async function runMigrations() {
       await migratePricingV2();
     } catch (error) {
       console.error('Error running pricing v2 migration:', error);
+    }
+
+    // Run pricing v3 migration (tiered overages: $0.20 / $0.15 / $0.10)
+    try {
+      const { migrate: migratePricingV3 } = await import('./update_pricing_v3.js');
+      await migratePricingV3();
+    } catch (error) {
+      console.error('Error running pricing v3 migration:', error);
+    }
+
+    // Run pricing v4 migration (strip "(Coming Soon)" suffix from feature strings)
+    try {
+      const { migrate: migratePricingV4 } = await import('./update_pricing_v4.js');
+      await migratePricingV4();
+    } catch (error) {
+      console.error('Error running pricing v4 migration:', error);
     }
 
     // Always update Stripe price IDs (idempotent — runs every deploy to ensure LIVE IDs are set)

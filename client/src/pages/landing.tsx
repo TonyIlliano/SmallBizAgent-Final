@@ -118,7 +118,7 @@ const pricingPlans = [
     annualTotal: "$1,429/yr",
     description: "Perfect for solo operators",
     minutes: "150 AI receptionist min/mo",
-    overage: "$0.05/min overage",
+    overage: "$0.20/min overage",
     features: [
       "150 AI receptionist minutes/mo",
       "Unlimited customers",
@@ -138,7 +138,7 @@ const pricingPlans = [
     annualTotal: "$2,869/yr",
     description: "Most popular for growing businesses",
     minutes: "300 AI receptionist min/mo",
-    overage: "$0.05/min overage",
+    overage: "$0.15/min overage",
     features: [
       "300 AI receptionist minutes/mo",
       "Everything in Starter, plus:",
@@ -147,8 +147,7 @@ const pricingPlans = [
       "Calendar sync (Google, Apple, Microsoft)",
       "Staff scheduling (up to 5)",
       "Website chat widget",
-      "Advanced analytics + call transcripts",
-      { text: "QuickBooks integration", comingSoon: true }
+      "Advanced analytics + call transcripts"
     ],
     cta: "Start Free Trial",
     popular: true
@@ -160,7 +159,7 @@ const pricingPlans = [
     annualTotal: "$4,309/yr",
     description: "For established businesses",
     minutes: "500 AI receptionist min/mo",
-    overage: "$0.05/min overage",
+    overage: "$0.10/min overage",
     features: [
       "500 AI receptionist minutes/mo",
       "Everything in Growth, plus:",
@@ -170,8 +169,7 @@ const pricingPlans = [
       "Custom AI receptionist training",
       "Dedicated onboarding",
       "Priority support",
-      "White-label ready",
-      { text: "Social media content pipeline", comingSoon: true }
+      "White-label ready"
     ],
     cta: "Start Free Trial",
     popular: false
@@ -485,23 +483,12 @@ function PricingSection() {
                   </Button>
                 </a>
                 <ul className="mt-6 space-y-3">
-                  {plan.features.map((feature, j) => {
-                    const isComingSoon = typeof feature === 'object' && feature.comingSoon;
-                    const text = typeof feature === 'object' ? feature.text : feature;
-                    return (
-                      <li key={j} className={`flex items-center gap-2 text-sm ${isComingSoon ? 'text-neutral-500' : 'text-neutral-300'}`}>
-                        {isComingSoon ? (
-                          <div className="h-4 w-4 rounded-full border border-neutral-600 flex-shrink-0" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
-                        )}
-                        {text}
-                        {isComingSoon && (
-                          <span className="text-xs bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded ml-1">Coming Soon</span>
-                        )}
-                      </li>
-                    );
-                  })}
+                  {plan.features.map((feature, j) => (
+                    <li key={j} className="flex items-center gap-2 text-sm text-neutral-300">
+                      <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                      {feature}
+                    </li>
+                  ))}
                 </ul>
               </CardContent>
             </Card>

@@ -117,12 +117,12 @@ const faqSections: FaqSection[] = [
       {
         question: "What plans are available?",
         answer:
-          "SmallBizAgent offers three plans: Starter ($149/month, 150 AI call minutes), Growth ($299/month, 300 minutes), and Pro ($449/month, 500 minutes). All plans include the AI receptionist, scheduling, invoicing, CRM, and SMS agents. Growth adds features like calendar sync and QuickBooks integration. Pro adds the social media pipeline and advanced analytics. Annual billing saves roughly 20%.",
+          "SmallBizAgent offers three plans: Starter ($149/month, 150 AI call minutes), Growth ($299/month, 300 minutes), and Pro ($449/month, 500 minutes). All plans include the AI receptionist, scheduling, invoicing, CRM, and SMS agents. Growth adds calendar sync, Google Business Profile sync, advanced analytics, and staff scheduling for up to 5. Pro adds multi-location support, up to 15 staff, API access, custom AI training, dedicated onboarding, and white-label readiness. Annual billing saves roughly 20%.",
       },
       {
         question: "How does overage billing work?",
         answer:
-          "If you exceed your included AI call minutes in a billing period, additional minutes are billed at $0.05 per minute across all plans. Overage charges are calculated at the end of each billing cycle and added to your next Stripe invoice. You can monitor your usage in the Settings under the Billing section.",
+          "If you exceed your included AI call minutes in a billing period, additional minutes are billed at your plan's overage rate: $0.20/min on Starter, $0.15/min on Growth, $0.10/min on Pro. Overage charges are calculated at the end of each billing cycle and added to your next Stripe invoice. You can monitor your usage in the Settings under the Billing section.",
       },
       {
         question: "How do I cancel my subscription?",

@@ -130,7 +130,7 @@ function makeUsageInfo(overrides: Record<string, any> = {}) {
     minutesIncluded: 150,
     minutesRemaining: 105,
     overageMinutes: 0,
-    overageRate: 0.05,
+    overageRate: 0.20,
     overageCost: 0,
     percentUsed: 30,
     planName: 'Starter',
@@ -197,7 +197,7 @@ describe('GET /api/subscription/usage/:businessId', () => {
     expect(res.body).toHaveProperty('minutesIncluded', 150);
     expect(res.body).toHaveProperty('minutesRemaining', 105);
     expect(res.body).toHaveProperty('overageMinutes', 0);
-    expect(res.body).toHaveProperty('overageRate', 0.05);
+    expect(res.body).toHaveProperty('overageRate', 0.20);
     expect(res.body).toHaveProperty('planName', 'Starter');
     expect(res.body).toHaveProperty('planTier', 'starter');
     expect(res.body).toHaveProperty('canAcceptCalls', true);
@@ -283,8 +283,8 @@ describe('GET /api/subscription/usage/:businessId', () => {
       minutesIncluded: 150,
       minutesRemaining: 0,
       overageMinutes: 30,
-      overageRate: 0.05,
-      overageCost: 1.5, // 30 * $0.05
+      overageRate: 0.20,
+      overageCost: 6.0, // 30 * $0.20
       percentUsed: 100,
     });
     mockGetUsageInfo.mockResolvedValue(overageUsage);
@@ -293,7 +293,7 @@ describe('GET /api/subscription/usage/:businessId', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.overageMinutes).toBe(30);
-    expect(res.body.overageCost).toBe(1.5);
+    expect(res.body.overageCost).toBe(6.0);
     expect(res.body.minutesRemaining).toBe(0);
     expect(res.body.percentUsed).toBe(100);
   });

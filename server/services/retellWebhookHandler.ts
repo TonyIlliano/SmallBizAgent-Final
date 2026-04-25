@@ -329,6 +329,45 @@ export async function handleRetellWebhook(
       `[Retell] Webhook event: ${event} | call_id=${call?.call_id || 'unknown'}`,
     );
 
+    // ── Idempotency: prevent double-processing on Retell webhook retries ──
+    // Retell retries on non-2xx responses and sometimes on slow 2xx responses.
+    // Without dedup, a retried call_ended event creates a duplicate call_logs row,
+    // which causes double-counted minutes in usage tracking and double overage billing.
+    //
+    // Composite key (call_id + event_type) is required because the same call_id is
+    // reused across call_started / call_ended / call_analyzed events for one call.
+    //
+    // STRICT mode: if dedup check fails for any reason other than duplicate (23505)
+    // or table-missing (42P01), return 500 so Retell retries. Better to lose a webhook
+    // momentarily than to silently double-process and double-bill the customer.
+    const callId = call?.call_id;
+    if (callId && event) {
+      const eventKey = `${callId}:${event}`;
+      const { pool } = await import('../db');
+      try {
+        await pool.query(
+          `INSERT INTO processed_webhook_events (event_id, source, event_type) VALUES ($1, 'retell', $2)`,
+          [eventKey, event],
+        );
+      } catch (dupErr: any) {
+        if (dupErr?.code === '23505') {
+          // Duplicate event — already processed, ack with 200
+          console.log(`[Retell] Skipping duplicate webhook event: ${eventKey}`);
+          res.status(200).send();
+          return;
+        }
+        if (dupErr?.code === '42P01') {
+          // Table missing (pre-migration window) — log and continue rather than fail prod
+          console.warn(`[Retell] processed_webhook_events table missing; skipping idempotency check`);
+        } else {
+          // Any other DB error — return 500 so Retell retries; do NOT process
+          console.error(`[Retell] Idempotency check failed for ${eventKey}, requesting retry:`, dupErr);
+          res.status(500).send();
+          return;
+        }
+      }
+    }
+
     switch (event) {
       case 'call_started': {
         console.log(

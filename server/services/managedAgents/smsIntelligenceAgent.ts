@@ -152,6 +152,13 @@ export function createSmsToolHandlers(businessId: number) {
         status: 'scheduled',
       });
 
+      // Sync new time to merchant's connected calendar (Google/Microsoft/Apple).
+      // Fire-and-forget: no-op if no calendar is connected.
+      import('../calendarService').then(({ CalendarService }) => {
+        new CalendarService().syncAppointment(input.appointmentId)
+          .catch(err => console.error('[SmsIntelligenceAgent] Calendar sync error after reschedule:', err));
+      }).catch(err => console.error('[SmsIntelligenceAgent] Calendar service import error:', err));
+
       return { success: true, newStartDate: startDate.toISOString(), newEndDate: endDate.toISOString() };
     },
 
@@ -161,6 +168,14 @@ export function createSmsToolHandlers(businessId: number) {
         return { error: 'Appointment not found' };
       }
       await storage.updateAppointment(input.appointmentId, { status: 'cancelled' });
+
+      // Remove from merchant's connected calendar (Google/Microsoft/Apple).
+      // Fire-and-forget: no-op if no calendar event ID was ever stored.
+      import('../calendarService').then(({ CalendarService }) => {
+        new CalendarService().deleteAppointment(input.appointmentId)
+          .catch(err => console.error('[SmsIntelligenceAgent] Calendar delete error after cancel:', err));
+      }).catch(err => console.error('[SmsIntelligenceAgent] Calendar service import error:', err));
+
       return { success: true, cancelled: true };
     },
 

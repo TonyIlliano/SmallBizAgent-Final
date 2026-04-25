@@ -4,7 +4,7 @@ import { pool } from '../db';
  * Update subscription plans to new pricing structure v2:
  * Starter ($149/mo, $1,429/yr), Growth ($299/mo, $2,869/yr), Pro ($449/mo, $4,309/yr)
  * Renames: Professional → Growth, Business → Pro
- * All tiers now use $0.05/min overage (previously $0.99/$0.89/$0.79)
+ * Tiered overages (updated in v3): Starter $0.20, Growth $0.15, Pro $0.10
  * Minutes: 150/300/500 (previously 75/200/500)
  */
 export async function migrate() {
@@ -43,7 +43,7 @@ export async function migrate() {
           'monthly',
           $1,
           150,
-          0.05,
+          0.20,
           1,
           true,
           10
@@ -72,7 +72,7 @@ export async function migrate() {
           'monthly',
           $1,
           300,
-          0.05,
+          0.15,
           5,
           true,
           20
@@ -85,8 +85,7 @@ export async function migrate() {
         'Calendar sync (Google, Apple, Microsoft)',
         'Staff scheduling (up to 5)',
         'Website chat widget',
-        'Advanced analytics + call transcripts',
-        'QuickBooks integration (Coming Soon)'
+        'Advanced analytics + call transcripts'
       ])]);
 
       // Pro Monthly - $449/mo
@@ -103,7 +102,7 @@ export async function migrate() {
           'monthly',
           $1,
           500,
-          0.05,
+          0.10,
           15,
           true,
           30
@@ -117,8 +116,7 @@ export async function migrate() {
         'Custom AI receptionist training',
         'Dedicated onboarding',
         'Priority support',
-        'White-label ready',
-        'Social media content pipeline (Coming Soon)'
+        'White-label ready'
       ])]);
 
       // Starter Annual - $1,429/yr ($119.08/mo)
@@ -135,7 +133,7 @@ export async function migrate() {
           'yearly',
           $1,
           150,
-          0.05,
+          0.20,
           1,
           true,
           11
@@ -164,7 +162,7 @@ export async function migrate() {
           'yearly',
           $1,
           300,
-          0.05,
+          0.15,
           5,
           true,
           21
@@ -177,8 +175,7 @@ export async function migrate() {
         'Calendar sync (Google, Apple, Microsoft)',
         'Staff scheduling (up to 5)',
         'Website chat widget',
-        'Advanced analytics + call transcripts',
-        'QuickBooks integration (Coming Soon)'
+        'Advanced analytics + call transcripts'
       ])]);
 
       // Pro Annual - $4,309/yr ($359.08/mo)
@@ -195,7 +192,7 @@ export async function migrate() {
           'yearly',
           $1,
           500,
-          0.05,
+          0.10,
           15,
           true,
           31
@@ -209,8 +206,7 @@ export async function migrate() {
         'Custom AI receptionist training',
         'Dedicated onboarding',
         'Priority support',
-        'White-label ready',
-        'Social media content pipeline (Coming Soon)'
+        'White-label ready'
       ])]);
 
       // Update Stripe product/price IDs for all new plans (LIVE)
