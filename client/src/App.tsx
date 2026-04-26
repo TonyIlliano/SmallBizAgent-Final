@@ -92,6 +92,13 @@ const SocialMediaAdmin = lazyWithRetry(() => import("@/pages/admin/social-media"
 const StaffDashboard = lazyWithRetry(() => import("@/pages/staff/dashboard"));
 const StaffJoin = lazyWithRetry(() => import("@/pages/staff/join"));
 const PricingPage = lazyWithRetry(() => import("@/pages/pricing"));
+// Vertical landing pages — `/for/<vertical>` (SEO + targeted ad campaigns)
+const ForBarbershops = lazyWithRetry(() => import("@/pages/for/barbershops"));
+const ForSalons = lazyWithRetry(() => import("@/pages/for/salons"));
+const ForHvac = lazyWithRetry(() => import("@/pages/for/hvac"));
+const ForPlumbing = lazyWithRetry(() => import("@/pages/for/plumbing"));
+const ForCleaning = lazyWithRetry(() => import("@/pages/for/cleaning"));
+const ForAuto = lazyWithRetry(() => import("@/pages/for/auto"));
 const PrivacyPolicy = lazyWithRetry(() => import("@/pages/privacy"));
 const TermsOfService = lazyWithRetry(() => import("@/pages/terms"));
 const SmsTerms = lazyWithRetry(() => import("@/pages/sms-terms"));
@@ -201,6 +208,13 @@ function Router() {
         <Route path="/book/:slug/manage/:token" component={ManageAppointment} />
         <Route path="/book/:slug" component={PublicBooking} />
         <Route path="/pricing" component={PricingPage} />
+        {/* Vertical landing pages */}
+        <Route path="/for/barbershops" component={ForBarbershops} />
+        <Route path="/for/salons" component={ForSalons} />
+        <Route path="/for/hvac" component={ForHvac} />
+        <Route path="/for/plumbing" component={ForPlumbing} />
+        <Route path="/for/cleaning" component={ForCleaning} />
+        <Route path="/for/auto" component={ForAuto} />
         <Route path="/privacy" component={PrivacyPolicy} />
         <Route path="/terms" component={TermsOfService} />
         <Route path="/sms-terms" component={SmsTerms} />

@@ -945,12 +945,12 @@ export default function LandingPage() {
         </p>
       </div>
 
-      {/* Footer — expanded with contact, social, and clearer link groupings.
+      {/* Footer — expanded with contact, social, vertical pages, and clearer link groupings.
           Bottom padding on mobile keeps the sticky CTA from covering the copyright. */}
       <footer className="py-12 px-4 sm:px-6 lg:px-8 border-t border-neutral-800 pb-32 md:pb-12">
         <div className="max-w-7xl mx-auto">
-          {/* Top: 4-column nav */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
+          {/* Top: 5-column nav (collapses to 2 on mobile) */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-10">
             {/* Brand + tagline */}
             <div className="col-span-2 md:col-span-1">
               <div className="flex items-center gap-3 mb-3">
@@ -994,6 +994,19 @@ export default function LandingPage() {
                 </li>
                 <li><Link href="/support"><span className="hover:text-white transition-colors cursor-pointer">Help Center</span></Link></li>
                 <li><Link href="/contact"><span className="hover:text-white transition-colors cursor-pointer">Contact</span></Link></li>
+              </ul>
+            </div>
+
+            {/* By Industry — vertical landing pages (also helps SEO via internal links) */}
+            <div>
+              <h4 className="text-sm font-semibold text-white mb-3">By Industry</h4>
+              <ul className="space-y-2 text-sm text-neutral-400">
+                <li><Link href="/for/barbershops"><span className="hover:text-white transition-colors cursor-pointer">Barbershops</span></Link></li>
+                <li><Link href="/for/salons"><span className="hover:text-white transition-colors cursor-pointer">Salons</span></Link></li>
+                <li><Link href="/for/hvac"><span className="hover:text-white transition-colors cursor-pointer">HVAC</span></Link></li>
+                <li><Link href="/for/plumbing"><span className="hover:text-white transition-colors cursor-pointer">Plumbing</span></Link></li>
+                <li><Link href="/for/cleaning"><span className="hover:text-white transition-colors cursor-pointer">Cleaning</span></Link></li>
+                <li><Link href="/for/auto"><span className="hover:text-white transition-colors cursor-pointer">Auto Repair</span></Link></li>
               </ul>
             </div>
 
