@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Phone, ArrowRight, Zap, Shield, Clock } from "lucide-react";
+import { CheckCircle2, Phone, ArrowRight, Zap, Shield, Clock, Mail, Instagram } from "lucide-react";
 
 const plans = [
   {
@@ -10,6 +10,7 @@ const plans = [
     monthlyPrice: "$149",
     annualPrice: "$119",
     annualTotal: "$1,429/yr",
+    annualSavings: "$359/yr",
     description: "Perfect for solo operators",
     minutes: "150 AI receptionist min/mo",
     overage: "$0.20/min overage",
@@ -23,7 +24,7 @@ const plans = [
       "Public booking page",
       "Basic analytics",
     ],
-    cta: "Start Free Trial",
+    cta: "Start with Starter",
     popular: false,
   },
   {
@@ -31,6 +32,7 @@ const plans = [
     monthlyPrice: "$299",
     annualPrice: "$239",
     annualTotal: "$2,869/yr",
+    annualSavings: "$719/yr",
     description: "Most popular for growing businesses",
     minutes: "300 AI receptionist min/mo",
     overage: "$0.15/min overage",
@@ -46,7 +48,7 @@ const plans = [
       "Advanced analytics + call transcripts",
       "Workflow automation builder",
     ],
-    cta: "Start Free Trial",
+    cta: "Try Growth Free",
     popular: true,
   },
   {
@@ -54,6 +56,7 @@ const plans = [
     monthlyPrice: "$449",
     annualPrice: "$359",
     annualTotal: "$4,309/yr",
+    annualSavings: "$1,079/yr",
     description: "For established businesses",
     minutes: "500 AI receptionist min/mo",
     overage: "$0.10/min overage",
@@ -69,7 +72,7 @@ const plans = [
       "Priority support",
       "White-label ready",
     ],
-    cta: "Start Free Trial",
+    cta: "Go Pro",
     popular: false,
   },
 ];
@@ -195,7 +198,7 @@ export default function PricingPage() {
                 </div>
                 {annual && (
                   <div className="text-xs text-green-500 mb-2">
-                    Billed annually at {plan.annualTotal}
+                    Billed annually at {plan.annualTotal} • Save {plan.annualSavings}
                   </div>
                 )}
                 <p className="text-sm text-neutral-400 mb-2">{plan.description}</p>
@@ -241,7 +244,7 @@ export default function PricingPage() {
             </div>
             <h3 className="font-semibold mb-2">No hidden fees</h3>
             <p className="text-sm text-neutral-400">
-              Competitors charge per SMS ($0.02), per AI minute ($0.16), per email. We include everything in one flat price.
+              Other tools nickel-and-dime you for SMS, AI minutes, and emails. We bundle everything into one flat price.
             </p>
           </div>
           <div className="text-center">
@@ -295,11 +298,23 @@ export default function PricingPage() {
       <footer className="border-t border-neutral-800 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-neutral-500">
           <span>&copy; {new Date().getFullYear()} SmallBizAgent. All rights reserved.</span>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+            <a href="mailto:bark@smallbizagent.ai" className="inline-flex items-center gap-1.5 hover:text-white">
+              <Mail className="h-3.5 w-3.5" />
+              bark@smallbizagent.ai
+            </a>
+            <a
+              href="https://instagram.com/smallbizagent"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 hover:text-white"
+            >
+              <Instagram className="h-3.5 w-3.5" />
+              @smallbizagent
+            </a>
             <Link href="/privacy"><span className="hover:text-white cursor-pointer">Privacy</span></Link>
             <Link href="/terms"><span className="hover:text-white cursor-pointer">Terms</span></Link>
             <Link href="/support"><span className="hover:text-white cursor-pointer">Support</span></Link>
-            <Link href="/contact"><span className="hover:text-white cursor-pointer">Contact</span></Link>
           </div>
         </div>
       </footer>

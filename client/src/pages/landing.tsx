@@ -26,7 +26,9 @@ import {
   PhoneCall,
   Volume2,
   Menu,
-  X
+  X,
+  Mail,
+  Instagram
 } from "lucide-react";
 
 // Robot Logo SVG matching the SmallBizAgent brand
@@ -68,7 +70,7 @@ const features = [
   {
     icon: Calendar,
     title: "Smart Scheduling",
-    description: "Online booking that syncs with your calendar. Automatic reminders reduce no-shows by up to 50%."
+    description: "Online booking that syncs with your calendar. Automatic SMS + email reminders cut down on no-shows."
   },
   {
     icon: Users,
@@ -116,6 +118,7 @@ const pricingPlans = [
     monthlyPrice: "$149",
     annualPrice: "$119",
     annualTotal: "$1,429/yr",
+    annualSavings: "$359/yr",
     description: "Perfect for solo operators",
     minutes: "150 AI receptionist min/mo",
     overage: "$0.20/min overage",
@@ -128,7 +131,7 @@ const pricingPlans = [
       "Public booking page",
       "Basic analytics"
     ],
-    cta: "Start Free Trial",
+    cta: "Start with Starter",
     popular: false
   },
   {
@@ -136,6 +139,7 @@ const pricingPlans = [
     monthlyPrice: "$299",
     annualPrice: "$239",
     annualTotal: "$2,869/yr",
+    annualSavings: "$719/yr",
     description: "Most popular for growing businesses",
     minutes: "300 AI receptionist min/mo",
     overage: "$0.15/min overage",
@@ -149,7 +153,7 @@ const pricingPlans = [
       "Website chat widget",
       "Advanced analytics + call transcripts"
     ],
-    cta: "Start Free Trial",
+    cta: "Try Growth Free",
     popular: true
   },
   {
@@ -157,6 +161,7 @@ const pricingPlans = [
     monthlyPrice: "$449",
     annualPrice: "$359",
     annualTotal: "$4,309/yr",
+    annualSavings: "$1,079/yr",
     description: "For established businesses",
     minutes: "500 AI receptionist min/mo",
     overage: "$0.10/min overage",
@@ -171,7 +176,7 @@ const pricingPlans = [
       "Priority support",
       "White-label ready"
     ],
-    cta: "Start Free Trial",
+    cta: "Go Pro",
     popular: false
   }
 ];
@@ -335,7 +340,7 @@ function LandingAuthForm() {
                 {registerMutation.isPending ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...</>
                 ) : (
-                  <>Start Free Trial <ArrowRight className="ml-2 h-4 w-4" /></>
+                  <>Start My 14-Day Trial <ArrowRight className="ml-2 h-4 w-4" /></>
                 )}
               </Button>
             </form>
@@ -462,7 +467,7 @@ function PricingSection() {
                 </div>
                 {annual && (
                   <div className="text-xs text-green-500 mb-2">
-                    Billed annually at {plan.annualTotal}
+                    Billed annually at {plan.annualTotal} • Save {plan.annualSavings}
                   </div>
                 )}
                 <p className="text-sm text-neutral-400 mb-2">{plan.description}</p>
@@ -573,21 +578,23 @@ export default function LandingPage() {
               <Sparkles className="h-4 w-4 text-yellow-500" />
               <span className="text-sm text-neutral-300">AI-Powered Business Management</span>
             </div>
-            <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6">
-              Your Business,
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-tight">
+              Stop missing calls.
               <br />
               <span className="bg-gradient-to-r from-white via-neutral-300 to-neutral-500 bg-clip-text text-transparent">
-                On Autopilot
+                Book more appointments.
               </span>
+              <br />
+              Get paid faster.
             </h1>
             <p className="text-xl text-neutral-400 mb-10 max-w-2xl mx-auto">
-              The all-in-one platform that handles your calls, books your appointments,
-              and manages your customers — so you can focus on what you do best.
+              The AI receptionist + scheduler + invoicing platform built for
+              service businesses. Set up in 2 minutes. Live 24/7.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <a href="#get-started">
                 <Button size="lg" className="bg-white text-black hover:bg-neutral-200 px-8 py-6 text-lg">
-                  Start Free Trial
+                  Get My AI Receptionist
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </a>
@@ -603,13 +610,13 @@ export default function LandingPage() {
             </p>
           </div>
 
-          {/* Value Props */}
+          {/* Value Props — kept honest. No fake percentages or unfalsifiable claims. */}
           <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
             {[
-              { value: "24/7", label: "AI Availability" },
-              { value: "0", label: "Missed Calls" },
-              { value: "50%", label: "Fewer No-Shows" },
-              { value: "<15 min", label: "Setup Time" }
+              { value: "24/7", label: "Always Answering" },
+              { value: "2 min", label: "Setup Time" },
+              { value: "15+", label: "Industries Tuned" },
+              { value: "$0", label: "To Try It" }
             ].map((stat, i) => (
               <div key={i} className="text-center">
                 <div className="text-3xl md:text-4xl font-bold text-white">{stat.value}</div>
@@ -749,7 +756,7 @@ export default function LandingPage() {
                   "AI answers every call, 24/7/365",
                   "Automatic scheduling that prevents conflicts",
                   "Get paid faster with online invoicing",
-                  "SMS reminders that reduce no-shows 50%"
+                  "SMS reminders that reduce no-shows"
                 ].map((solution, i) => (
                   <div key={i} className="flex items-center gap-3 text-neutral-300">
                     <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
@@ -923,24 +930,87 @@ export default function LandingPage() {
 
       </main>
 
-      {/* Footer */}
-      <footer className="py-12 px-4 sm:px-6 lg:px-8 border-t border-neutral-800">
+      {/* Sticky mobile CTA — only on mobile, hidden on >= md screens.
+          Always visible at bottom-of-screen so the conversion is one tap away
+          regardless of how far the visitor has scrolled. */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-lg border-t border-neutral-800 px-4 py-3 safe-area-pb">
+        <a href="#get-started" className="block">
+          <Button className="w-full bg-white text-black hover:bg-neutral-200 py-5 text-base font-semibold">
+            Start My 14-Day Free Trial
+            <ArrowRight className="ml-2 h-5 w-5" />
+          </Button>
+        </a>
+        <p className="text-center text-xs text-neutral-500 mt-1.5">
+          No credit card required
+        </p>
+      </div>
+
+      {/* Footer — expanded with contact, social, and clearer link groupings.
+          Bottom padding on mobile keeps the sticky CTA from covering the copyright. */}
+      <footer className="py-12 px-4 sm:px-6 lg:px-8 border-t border-neutral-800 pb-32 md:pb-12">
         <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
-              <RobotLogo className="h-6 w-6 text-white" />
-              <span className="font-bold">SMALLBIZ AGENT</span>
+          {/* Top: 4-column nav */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
+            {/* Brand + tagline */}
+            <div className="col-span-2 md:col-span-1">
+              <div className="flex items-center gap-3 mb-3">
+                <RobotLogo className="h-7 w-7 text-white" />
+                <span className="font-bold tracking-wide">SMALLBIZ AGENT</span>
+              </div>
+              <p className="text-sm text-neutral-500 mb-4">
+                AI receptionist + scheduler + invoicing for service businesses.
+              </p>
+              <a
+                href="https://instagram.com/smallbizagent"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-neutral-400 hover:text-white transition-colors"
+              >
+                <Instagram className="h-4 w-4" />
+                @smallbizagent
+              </a>
             </div>
-            <div className="flex items-center gap-8 text-sm text-neutral-400">
-              <Link href="/privacy"><span className="hover:text-white transition-colors cursor-pointer">Privacy</span></Link>
-              <Link href="/terms"><span className="hover:text-white transition-colors cursor-pointer">Terms</span></Link>
-              <Link href="/sms-terms"><span className="hover:text-white transition-colors cursor-pointer">SMS Terms</span></Link>
-              <Link href="/support"><span className="hover:text-white transition-colors cursor-pointer">Support</span></Link>
-              <Link href="/contact"><span className="hover:text-white transition-colors cursor-pointer">Contact</span></Link>
+
+            {/* Product */}
+            <div>
+              <h4 className="text-sm font-semibold text-white mb-3">Product</h4>
+              <ul className="space-y-2 text-sm text-neutral-400">
+                <li><a href="#features" className="hover:text-white transition-colors">Features</a></li>
+                <li><a href="#pricing" className="hover:text-white transition-colors">Pricing</a></li>
+                <li><a href="#demo" className="hover:text-white transition-colors">Live Demo</a></li>
+                <li><a href="#why" className="hover:text-white transition-colors">Why Us</a></li>
+              </ul>
             </div>
-            <div className="text-sm text-neutral-500">
-              &copy; {new Date().getFullYear()} SmallBizAgent. All rights reserved.
+
+            {/* Support */}
+            <div>
+              <h4 className="text-sm font-semibold text-white mb-3">Support</h4>
+              <ul className="space-y-2 text-sm text-neutral-400">
+                <li>
+                  <a href="mailto:bark@smallbizagent.ai" className="inline-flex items-center gap-1.5 hover:text-white transition-colors">
+                    <Mail className="h-3.5 w-3.5" />
+                    bark@smallbizagent.ai
+                  </a>
+                </li>
+                <li><Link href="/support"><span className="hover:text-white transition-colors cursor-pointer">Help Center</span></Link></li>
+                <li><Link href="/contact"><span className="hover:text-white transition-colors cursor-pointer">Contact</span></Link></li>
+              </ul>
             </div>
+
+            {/* Legal */}
+            <div>
+              <h4 className="text-sm font-semibold text-white mb-3">Legal</h4>
+              <ul className="space-y-2 text-sm text-neutral-400">
+                <li><Link href="/privacy"><span className="hover:text-white transition-colors cursor-pointer">Privacy Policy</span></Link></li>
+                <li><Link href="/terms"><span className="hover:text-white transition-colors cursor-pointer">Terms of Service</span></Link></li>
+                <li><Link href="/sms-terms"><span className="hover:text-white transition-colors cursor-pointer">SMS Terms</span></Link></li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Bottom: copyright */}
+          <div className="pt-8 border-t border-neutral-900 text-sm text-neutral-500 text-center">
+            &copy; {new Date().getFullYear()} SmallBizAgent. All rights reserved.
           </div>
         </div>
       </footer>
