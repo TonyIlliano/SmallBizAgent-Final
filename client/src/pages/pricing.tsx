@@ -126,10 +126,11 @@ export default function PricingPage() {
             <Link href="/#features">
               <span className="text-sm text-neutral-400 hover:text-white cursor-pointer hidden sm:inline">Features</span>
             </Link>
+            {/* Plain styled <Link> — sidesteps Button-variant CSS interference. */}
             <Link href="/auth">
-              <Button size="sm" variant="outline" className="bg-transparent border-neutral-700 text-white hover:bg-neutral-800 hover:text-white">
+              <span className="inline-flex items-center justify-center h-9 px-4 text-xs font-semibold rounded-lg border border-neutral-700 text-white bg-transparent hover:bg-neutral-800 transition-colors cursor-pointer">
                 Sign In
-              </Button>
+              </span>
             </Link>
             <Link href="/auth">
               <Button size="sm" className="bg-white text-black hover:bg-neutral-200">

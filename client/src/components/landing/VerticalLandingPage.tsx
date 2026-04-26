@@ -61,14 +61,12 @@ export default function VerticalLandingPage({ vertical }: { vertical: VerticalDa
                 Live Demo
               </span>
             </Link>
+            {/* Plain styled <Link> — sidesteps any Button-variant CSS interference
+                that was washing the white text out against the variant's background. */}
             <Link href="/auth">
-              <Button
-                size="sm"
-                variant="outline"
-                className="bg-transparent border-neutral-700 text-white hover:bg-neutral-800 hover:text-white hidden sm:inline-flex"
-              >
+              <span className="hidden sm:inline-flex items-center justify-center h-9 px-4 text-xs font-semibold rounded-lg border border-neutral-700 text-white bg-transparent hover:bg-neutral-800 transition-colors cursor-pointer">
                 Sign In
-              </Button>
+              </span>
             </Link>
             <Link href="/auth">
               <Button size="sm" className="bg-white text-black hover:bg-neutral-200">
