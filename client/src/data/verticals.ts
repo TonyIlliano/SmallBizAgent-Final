@@ -55,22 +55,92 @@ export interface VerticalData {
   whyReasons: { title: string; description: string }[];
   /** Footer-friendly tagline */
   microTagline: string;
+  /**
+   * "Everything in one place" stack — what's included on this vertical's plan.
+   * Per-vertical so barbers/salons don't see invoicing copy that doesn't apply.
+   * Each item is a feature pill rendered in a grid.
+   */
+  stackFeatures: { title: string; description: string }[];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reusable "stack" feature sets.
+// These are the cards rendered in the "Everything in one place" section.
+// Two flavors: APPOINTMENT_STACK for chair-based businesses (barbers, salons)
+// where invoicing isn't part of the workflow; FULL_STACK for service businesses
+// (HVAC, plumbing, cleaning, auto) where invoicing + chase actually matter.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const APPOINTMENT_STACK: { title: string; description: string }[] = [
+  {
+    title: 'AI Voice Receptionist',
+    description: 'Answers every call 24/7. Books with the right staff, knows your services and lingo.',
+  },
+  {
+    title: 'Smart Scheduling',
+    description: 'Online booking + staff calendars + automatic SMS reminders. Cut no-shows.',
+  },
+  {
+    title: 'Customer CRM',
+    description: 'Auto-built from every call and booking. Notes, history, preferences — one click away.',
+  },
+  {
+    title: 'SMS Automation',
+    description: 'Reminders, no-show recovery, rebooking nudges, review requests — all on autopilot.',
+  },
+  {
+    title: 'Public Booking Page',
+    description: 'A clean booking page customers can use 24/7. Sync with Google Business Profile.',
+  },
+  {
+    title: 'Analytics + Insights',
+    description: 'See call volume, booking conversion, top customers, and where revenue is leaking.',
+  },
+];
+
+const FULL_STACK: { title: string; description: string }[] = [
+  {
+    title: 'AI Voice Receptionist',
+    description: 'Answers every call 24/7. Triages emergencies, books service tickets, captures details.',
+  },
+  {
+    title: 'Smart Scheduling + Dispatch',
+    description: 'Calendar + staff routing + SMS reminders. Real emergencies escalate to your phone.',
+  },
+  {
+    title: 'Invoicing + Payments',
+    description: 'Send invoices in seconds with one-tap payment links. Stripe-powered. Get paid faster.',
+  },
+  {
+    title: 'Automatic Invoice Chase',
+    description: 'Overdue tickets chased via SMS at day 7, 14, 30. Recover money you used to write off.',
+  },
+  {
+    title: 'Customer CRM',
+    description: 'Every call, ticket, and invoice tracked per customer. History, notes, lifetime value.',
+  },
+  {
+    title: 'SMS Automation Suite',
+    description: 'Follow-ups, no-show recovery, review requests, rebooking nudges — all on autopilot.',
+  },
+];
 
 export const verticals: Record<string, VerticalData> = {
   // ───────────────────────────────────────────── Barbershops
+  // Pitch: AI receptionist + scheduling. Barbers don't deal with invoices —
+  // it's cash/card-at-chair. Don't muddy the message with billing copy.
   barbershops: {
     slug: 'barbershops',
     nameSingular: 'barbershop',
     namePlural: 'barbershops',
-    seoTitle: 'AI Receptionist for Barbershops',
+    seoTitle: 'AI Receptionist & Scheduling for Barbershops',
     seoDescription:
-      'Stop missing calls between cuts. SmallBizAgent answers your barbershop phone 24/7, books appointments, and texts confirmations — so you can keep the clippers running.',
+      "Stop missing calls between cuts. SmallBizAgent answers your barbershop phone 24/7, books appointments, sends SMS reminders, and fills empty chairs — so you can keep the clippers running.",
     heroLine1: 'Stop missing calls',
     heroLine2Highlight: 'between haircuts.',
     heroLine3: 'Keep the chair full.',
     heroSubhead:
-      "Your AI receptionist for barbershops. Answers every call while you're cutting, books appointments, sends confirmations. Live in 2 minutes.",
+      "AI receptionist + scheduling for barbershops. Answers every call while you're cutting, books appointments, sends reminders, fills empty chairs. Live in 2 minutes.",
     painHeadline: "Sound familiar?",
     painPoints: [
       "Phone rings while you're mid-fade — caller hangs up, books with the shop down the street",
@@ -91,9 +161,9 @@ export const verticals: Record<string, VerticalData> = {
           "AI knows barbershop lingo — recognizes 'lineup' as an edge-up service, quotes the price, and offers next-available times.",
       },
       {
-        scenario: 'Saturday rush, you can\'t answer',
+        scenario: 'No-show? Fill the chair instantly',
         description:
-          "Three calls come in while you're with a client. AI handles all three, books two, and texts the third with availability.",
+          "Client cancels their 2 PM. SMS goes out automatically to your last few callers offering the open slot. Chair gets filled before you'd even notice.",
       },
     ],
     demoHeader: 'Sample call · Barbershop',
@@ -114,35 +184,38 @@ export const verticals: Record<string, VerticalData> = {
       {
         title: 'Knows your services',
         description:
-          'Lineup, fade, taper, beard trim, hot towel shave — your AI speaks barbershop and books the right service with the right barber.',
+          'Lineup, fade, taper, beard trim, hot towel shave — AI speaks barbershop and books the right service with the right barber.',
       },
       {
-        title: 'Works while you cut',
+        title: 'Books while you cut',
         description:
-          'No more putting clippers down to grab the phone. Every call gets answered, every booking lands on your calendar.',
+          'No more putting clippers down to grab the phone. Every call answered, every booking on your calendar, every reminder sent.',
       },
       {
-        title: 'Books late-night customers',
+        title: 'Fills no-shows automatically',
         description:
-          'The customer calling at 10 PM looking for a Saturday slot? AI books them while you sleep. You wake up to a full chair.',
+          'When someone cancels, SMS goes out to recent callers to fill the slot. Less downtime, more cuts, more revenue.',
       },
     ],
-    microTagline: 'AI receptionist for barbershops',
+    microTagline: 'AI receptionist + scheduling for barbershops',
+    stackFeatures: APPOINTMENT_STACK,
   },
 
   // ───────────────────────────────────────────── Salons
+  // Same as barbers: salons collect at the chair, no invoicing workflow.
+  // Pitch: AI receptionist + scheduling + SMS automation.
   salons: {
     slug: 'salons',
     nameSingular: 'salon',
     namePlural: 'salons',
-    seoTitle: 'AI Receptionist for Hair Salons',
+    seoTitle: 'AI Receptionist & Scheduling for Hair Salons',
     seoDescription:
-      "SmallBizAgent answers your salon's phone 24/7 — books color, cuts, and styles with the right stylist, sends confirmations, and reduces no-shows.",
+      "SmallBizAgent answers your salon's phone 24/7 — books color, cuts, and styles with the right stylist, sends SMS reminders, and fills cancellations automatically.",
     heroLine1: 'Stop missing calls',
     heroLine2Highlight: 'between clients.',
     heroLine3: 'Book more chairs.',
     heroSubhead:
-      "Your AI receptionist for hair salons. Books color, cuts, and styles with the right stylist — even while you're foiling. Live in 2 minutes.",
+      "AI receptionist + scheduling for hair salons. Books color, cuts, and styles with the right stylist — even while you're foiling. Live in 2 minutes.",
     painHeadline: 'Running a salon is loud. Your phone shouldn\'t be.',
     painPoints: [
       "Phone rings during a color application — you can't pick up, client hangs up",
@@ -199,22 +272,25 @@ export const verticals: Record<string, VerticalData> = {
           "When a client cancels, AI can text waitlisted clients to fill the slot — turning lost revenue into a booked chair.",
       },
     ],
-    microTagline: 'AI receptionist for hair salons',
+    microTagline: 'AI receptionist + scheduling for hair salons',
+    stackFeatures: APPOINTMENT_STACK,
   },
 
   // ───────────────────────────────────────────── HVAC
+  // Full front office: AI + scheduling + invoicing + invoice chase.
+  // HVAC tickets often go on 30-day terms; chase agent is real revenue.
   hvac: {
     slug: 'hvac',
     nameSingular: 'HVAC contractor',
     namePlural: 'HVAC contractors',
-    seoTitle: 'AI Receptionist for HVAC Contractors',
+    seoTitle: 'Front Office Software for HVAC: AI Receptionist + Scheduling + Invoicing',
     seoDescription:
-      'Never miss an emergency AC call again. SmallBizAgent answers HVAC calls 24/7, qualifies emergencies, books service appointments, and routes urgent jobs to you.',
-    heroLine1: 'Never miss',
-    heroLine2Highlight: 'an emergency call.',
-    heroLine3: 'Book more service jobs.',
+      'Never miss an emergency call. Never chase another invoice. SmallBizAgent answers HVAC calls 24/7, books service jobs, sends invoices, and chases overdue payments — automatically.',
+    heroLine1: 'Never miss a call.',
+    heroLine2Highlight: 'Never chase an invoice.',
+    heroLine3: 'Stay on the job.',
     heroSubhead:
-      "Your AI receptionist for HVAC. Answers 24/7, qualifies emergencies, books service calls — so you can stay on the job, not on the phone. Live in 2 minutes.",
+      "The all-in-one front office for HVAC. AI receptionist + scheduling + invoicing + automatic chase — so you can stay on the lift, not on the phone or chasing payments. Live in 2 minutes.",
     painHeadline: 'Every missed call is a $400 service ticket.',
     painPoints: [
       "Phone rings while you're on a roof in 95° heat — and you can't reach it",
@@ -230,9 +306,9 @@ export const verticals: Record<string, VerticalData> = {
           "Frustrated homeowner with no AC. AI recognizes the urgency, gathers the issue (no cooling, unit age, address), schedules first-thing morning service, and texts you the ticket.",
       },
       {
-        scenario: 'Maintenance season prep',
+        scenario: '$1,200 ticket, 30 days late',
         description:
-          'Customer wants their seasonal tune-up booked. AI checks your schedule, books a 90-minute slot, and adds the address + unit notes from CRM.',
+          "Customer ghosts on the invoice. Automatic SMS chase kicks in at day 7, 14, 30 — escalating tone, payment link in every message. Most pay before day 14.",
       },
       {
         scenario: '"How much for a new system?"',
@@ -261,32 +337,35 @@ export const verticals: Record<string, VerticalData> = {
           'Short cycling, frozen coils, R-22 vs R-410A, heat pump vs furnace — AI speaks HVAC and asks the right diagnostic questions to qualify the call.',
       },
       {
-        title: 'Triages emergencies',
+        title: 'Triages + dispatches + books',
         description:
-          'AI distinguishes "no heat in winter" from "filter change in spring" — escalates true emergencies to your phone, books routine jobs into your schedule.',
+          'Real emergencies escalate to your phone in real-time. Routine jobs land on your schedule. No more juggling tickets in your truck.',
       },
       {
-        title: 'Books while you\'re on the job',
+        title: 'Invoices + chases automatically',
         description:
-          'No more dropping a wrench to grab the phone. AI handles the call, sends you a text with the ticket, and the customer gets a confirmation.',
+          "Send invoices in seconds with one-tap payment links. Overdue tickets get chased automatically — most pay before day 14 without you lifting a finger.",
       },
     ],
-    microTagline: 'AI receptionist for HVAC contractors',
+    microTagline: 'Front office for HVAC contractors',
+    stackFeatures: FULL_STACK,
   },
 
   // ───────────────────────────────────────────── Plumbing
+  // Full front office: AI + scheduling + invoicing + chase. Emergency plumbing
+  // tickets often go on terms — chase agent recovers a real % of overdues.
   plumbing: {
     slug: 'plumbing',
     nameSingular: 'plumber',
     namePlural: 'plumbers',
-    seoTitle: 'AI Receptionist for Plumbers',
+    seoTitle: 'Front Office Software for Plumbers: AI Receptionist + Scheduling + Invoicing',
     seoDescription:
-      'Stop losing emergency plumbing calls. SmallBizAgent answers your plumbing phone 24/7, qualifies leaks vs clogs, dispatches urgent jobs, and books service.',
-    heroLine1: 'Pick up every',
-    heroLine2Highlight: 'flooding emergency.',
-    heroLine3: 'Book more drain jobs.',
+      "Pick up every flooding emergency. Send invoices in seconds. Stop chasing overdue tickets. SmallBizAgent answers plumbing calls 24/7, dispatches emergencies, invoices customers, and chases payments — automatically.",
+    heroLine1: 'Pick up every emergency.',
+    heroLine2Highlight: 'Get paid for every job.',
+    heroLine3: 'Stay in the truck.',
     heroSubhead:
-      "Your AI receptionist for plumbing. Answers 24/7, qualifies emergencies, dispatches urgent jobs — so you don't lose another flooded basement to voicemail. Live in 2 minutes.",
+      "The all-in-one front office for plumbers. AI receptionist + dispatch + invoicing + automatic chase — so you don't lose another flooded basement to voicemail or another invoice to silence. Live in 2 minutes.",
     painHeadline: 'A burst pipe at midnight is your highest-margin job. If you answer.',
     painPoints: [
       "Pipe bursts at 2 AM. They call you, then your competitor. Whoever picks up wins.",
@@ -307,9 +386,9 @@ export const verticals: Record<string, VerticalData> = {
           "AI recognizes a routine drain call vs an emergency. Books a next-day appointment, captures the issue (slow tub, gurgling toilet), no late-night dispatch.",
       },
       {
-        scenario: 'Water heater replacement quote',
+        scenario: '$800 emergency invoice goes unpaid',
         description:
-          "AI gathers tank size + age + location, gives a ballpark range, books a free estimate. You don't waste a truck roll on a maybe.",
+          "Customer pays half, ghosts on the rest. Automatic SMS chase kicks in at day 7, 14, 30 with payment links. Recovery happens while you're on the next job.",
       },
     ],
     demoHeader: 'Sample call · Plumbing',
@@ -330,35 +409,37 @@ export const verticals: Record<string, VerticalData> = {
       {
         title: 'Knows plumbing',
         description:
-          'Sewer line, slab leak, water heater, sump pump, garbage disposal, P-trap — AI speaks plumbing and asks the right qualifying questions.',
+          'Sewer line, slab leak, water heater, sump pump, garbage disposal, P-trap — AI speaks plumbing and qualifies emergency vs routine.',
       },
       {
-        title: 'Triages by urgency',
+        title: 'Captures emergencies 24/7',
         description:
-          'A burst pipe gets dispatched in real-time. A slow drain gets a next-day slot. AI knows the difference and routes accordingly.',
+          "The plumber who answers at 11 PM gets the $1,200 emergency. AI is awake when you're not — and texts you the moment a real emergency comes in.",
       },
       {
-        title: 'Captures emergency calls 24/7',
+        title: 'Invoices + chases automatically',
         description:
-          "The plumber who answers at 11 PM gets the $1,200 emergency job. AI is awake when you're not — and texts you the moment a real emergency comes in.",
+          'Send invoices from the truck with one-tap payment links. Overdue tickets chase themselves via SMS — recover money you used to write off.',
       },
     ],
-    microTagline: 'AI receptionist for plumbers',
+    microTagline: 'Front office for plumbers',
+    stackFeatures: FULL_STACK,
   },
 
   // ───────────────────────────────────────────── Cleaning
+  // Full front office: recurring billing is the killer feature for this vertical.
   cleaning: {
     slug: 'cleaning',
     nameSingular: 'cleaning service',
     namePlural: 'cleaning services',
-    seoTitle: 'AI Receptionist for Cleaning Services',
+    seoTitle: 'Front Office Software for Cleaning Services: AI Receptionist + Scheduling + Invoicing',
     seoDescription:
-      'SmallBizAgent answers your cleaning service phone 24/7, books recurring + one-time jobs, sends confirmations, and follows up with quote requests automatically.',
-    heroLine1: 'Stop losing leads',
-    heroLine2Highlight: 'while you\'re cleaning.',
-    heroLine3: 'Book more recurring jobs.',
+      'SmallBizAgent answers your cleaning service phone 24/7, books recurring + one-time jobs, sends invoices automatically, and chases overdue payments — so you stop losing leads and stop chasing money.',
+    heroLine1: 'Stop losing leads.',
+    heroLine2Highlight: 'Stop chasing checks.',
+    heroLine3: 'Just clean.',
     heroSubhead:
-      "Your AI receptionist for cleaning services. Quotes one-time and recurring jobs, books crews, sends confirmations — even while your team is on-site. Live in 2 minutes.",
+      "The all-in-one front office for cleaning services. AI receptionist + scheduling + recurring invoicing + automatic chase — even while your team is on-site. Live in 2 minutes.",
     painHeadline: 'You can\'t answer the phone with a vacuum running.',
     painPoints: [
       "Lead calls while you're on a deep clean — they don't leave a message",
@@ -379,9 +460,9 @@ export const verticals: Record<string, VerticalData> = {
           'Bi-weekly client needs to push their Wednesday clean to Thursday. AI checks your team\'s schedule, moves the appointment, texts confirmation.',
       },
       {
-        scenario: '"Do you bring supplies?"',
+        scenario: 'Recurring invoice on autopilot',
         description:
-          "AI answers FAQs (supplies, eco-friendly options, pet policy, time estimates) without you having to pick up. Qualified leads get booked, tire-kickers get info.",
+          "Bi-weekly client billed automatically every other Wednesday after the clean. Invoice with payment link sent via email + SMS. Late payment chased without you lifting a finger.",
       },
     ],
     demoHeader: 'Sample call · Cleaning service',
@@ -413,27 +494,30 @@ export const verticals: Record<string, VerticalData> = {
           'AI gathers square footage, bedroom/bathroom count, and scope to give realistic price ranges — converting more leads vs sending them to your inbox.',
       },
       {
-        title: 'Locks in recurring revenue',
+        title: 'Recurring billing on autopilot',
         description:
-          "Recurring clients can self-serve scheduling changes via SMS. Your highest-margin business runs itself instead of eating your evenings.",
+          "Bi-weekly + monthly clients invoiced automatically after each clean. Payment links in every invoice. Overdue tickets chased via SMS — zero evenings spent on bookkeeping.",
       },
     ],
-    microTagline: 'AI receptionist for cleaning services',
+    microTagline: 'Front office for cleaning services',
+    stackFeatures: FULL_STACK,
   },
 
   // ───────────────────────────────────────────── Auto Repair
+  // Most shops collect at pickup, but bigger fleet/repair tickets use invoicing.
+  // Pitch: AI + scheduling primary; invoicing as a soft mention.
   auto: {
     slug: 'auto',
     nameSingular: 'auto repair shop',
     namePlural: 'auto repair shops',
-    seoTitle: 'AI Receptionist for Auto Repair Shops',
+    seoTitle: 'AI Receptionist & Scheduling for Auto Repair Shops',
     seoDescription:
-      'SmallBizAgent answers your auto shop phone 24/7 — books appointments, qualifies vehicle issues, gathers VIN + symptoms, and texts confirmations. Built for mechanics.',
+      'SmallBizAgent answers your auto shop phone 24/7 — books appointments, qualifies vehicle issues, captures VIN + symptoms, sends SMS reminders, and invoices customers. Built for mechanics.',
     heroLine1: 'Stop losing calls',
-    heroLine2Highlight: 'while you\'re in the bay.',
+    heroLine2Highlight: "while you're in the bay.",
     heroLine3: 'Book more service tickets.',
     heroSubhead:
-      "Your AI receptionist for auto repair shops. Books service appointments, qualifies symptoms, captures VIN + issue — so you can stay on the lift. Live in 2 minutes.",
+      "AI receptionist + scheduling + invoicing for auto repair shops. Books service tickets with VIN + symptoms, sends reminders, invoices customers — so you can stay on the lift. Live in 2 minutes.",
     painHeadline: 'You can\'t hear the phone over the impact gun.',
     painPoints: [
       "You're under a hood — phone in the office rings, no one to answer",
@@ -485,12 +569,13 @@ export const verticals: Record<string, VerticalData> = {
           "AI gets the vehicle info upfront so your service writers don't have to. Tickets land in your system pre-filled and ready to schedule.",
       },
       {
-        title: 'Books while you\'re in the bay',
+        title: 'Invoice from the lift',
         description:
-          "No more dropping the impact gun to grab the phone. AI handles every call, every booking lands on your shop's calendar.",
+          "Send invoices in seconds with one-tap payment links. Bigger fleet/insurance tickets get tracked. Overdue invoices chased automatically.",
       },
     ],
-    microTagline: 'AI receptionist for auto repair shops',
+    microTagline: 'AI receptionist + scheduling for auto repair shops',
+    stackFeatures: FULL_STACK,
   },
 };
 

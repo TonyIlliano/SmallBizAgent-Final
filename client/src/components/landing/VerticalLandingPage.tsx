@@ -65,7 +65,7 @@ export default function VerticalLandingPage({ vertical }: { vertical: VerticalDa
               <Button
                 size="sm"
                 variant="outline"
-                className="border-neutral-700 text-white hover:bg-neutral-800 hidden sm:inline-flex"
+                className="bg-transparent border-neutral-700 text-white hover:bg-neutral-800 hover:text-white hidden sm:inline-flex"
               >
                 Sign In
               </Button>
@@ -216,7 +216,7 @@ export default function VerticalLandingPage({ vertical }: { vertical: VerticalDa
               Built for {vertical.namePlural}
             </h2>
             <p className="text-neutral-400 text-lg">
-              Not a generic chatbot. An AI receptionist trained on your industry.
+              Not a generic chatbot. Software trained on your industry.
             </p>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
@@ -235,8 +235,41 @@ export default function VerticalLandingPage({ vertical }: { vertical: VerticalDa
         </div>
       </section>
 
+      {/* Everything in one place — full-stack overview.
+          Per-vertical so chair-businesses don't see invoicing copy that doesn't apply. */}
+      <section className="py-16 px-4 sm:px-6 lg:px-8 bg-neutral-950">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">
+              Everything in one place
+            </h2>
+            <p className="text-neutral-400 text-lg max-w-2xl mx-auto">
+              One platform replaces 4-5 tools. No per-SMS fees, no add-ons, no surprises.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {vertical.stackFeatures.map((f, i) => (
+              <div
+                key={i}
+                className="bg-neutral-900 rounded-xl p-5 border border-neutral-800 hover:border-neutral-700 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 h-5 w-5 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-white text-sm mb-1">{f.title}</h3>
+                    <p className="text-neutral-400 text-xs leading-relaxed">{f.description}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Final CTA */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 text-center bg-neutral-950">
+      <section className="py-20 px-4 sm:px-6 lg:px-8 text-center">
         <div className="max-w-3xl mx-auto">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
             Ready to stop missing calls?

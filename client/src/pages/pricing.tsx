@@ -127,7 +127,7 @@ export default function PricingPage() {
               <span className="text-sm text-neutral-400 hover:text-white cursor-pointer hidden sm:inline">Features</span>
             </Link>
             <Link href="/auth">
-              <Button size="sm" variant="outline" className="border-neutral-700 text-white hover:bg-neutral-800">
+              <Button size="sm" variant="outline" className="bg-transparent border-neutral-700 text-white hover:bg-neutral-800 hover:text-white">
                 Sign In
               </Button>
             </Link>
