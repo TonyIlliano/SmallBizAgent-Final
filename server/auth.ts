@@ -1065,6 +1065,40 @@ export function setupAuth(app: Express) {
 
       // If admin is impersonating a business, override businessId in response
       const impersonating = req.session?.impersonating;
+      const effectiveBusinessId = (impersonating && freshUser.role === 'admin')
+        ? impersonating.businessId
+        : freshUser.businessId;
+
+      // Pull subscription fields so the global trial banner / modal can render
+      // on every page without an extra round-trip. Founder accounts (businesses
+      // created before the subscription system launch) are flagged so the UI
+      // can suppress trial nudges entirely.
+      const SUBSCRIPTION_LAUNCH_DATE = new Date('2026-02-23T00:00:00Z');
+      let subscriptionStatus: string | null = null;
+      let trialEndsAt: Date | null = null;
+      let isTrialActive = false;
+      let isFounder = false;
+      if (effectiveBusinessId) {
+        try {
+          const biz = await storage.getBusiness(effectiveBusinessId);
+          if (biz) {
+            subscriptionStatus = biz.subscriptionStatus ?? null;
+            trialEndsAt = biz.trialEndsAt ?? null;
+            isTrialActive = !!(biz.trialEndsAt && new Date(biz.trialEndsAt).getTime() > Date.now());
+            isFounder = !!(biz.createdAt && new Date(biz.createdAt) < SUBSCRIPTION_LAUNCH_DATE);
+          }
+        } catch (err) {
+          console.error('Failed to load business subscription fields for /api/user:', err);
+        }
+      }
+
+      const subscriptionFields = {
+        subscriptionStatus,
+        trialEndsAt,
+        isTrialActive,
+        isFounder,
+      };
+
       if (impersonating && freshUser.role === 'admin') {
         res.json({
           ...userWithoutPassword,
@@ -1076,12 +1110,14 @@ export function setupAuth(app: Express) {
             businessName: impersonating.businessName,
             originalBusinessId: impersonating.originalBusinessId,
           },
+          ...subscriptionFields,
         });
       } else {
         res.json({
           ...userWithoutPassword,
           effectiveRole,
           permissions,
+          ...subscriptionFields,
         });
       }
     } catch (error) {

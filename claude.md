@@ -718,6 +718,36 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### In-App Trial Warning System — Global Banner + Login Modal
+- **Goal**: Close the conversion gap where a trial user could log in on day 13, see everything working, log out, then get blindsided when the AI receptionist stops answering calls. Email warnings already existed (7d / 3d / 1d / grace nudges at 0/7/14/21 days), but nothing in-app surfaced trial state outside the dashboard's usage card.
+
+##### Backend
+- `server/auth.ts` — `GET /api/user` now enriches the response with four subscription fields read from the user's business: `subscriptionStatus`, `trialEndsAt`, `isTrialActive` (computed: `trialEndsAt > now`), and `isFounder` (computed: `createdAt < SUBSCRIPTION_LAUNCH_DATE`, the 2026-02-23 grandfather cutoff). Computed once per `/api/user` call so the global banner / modal can render on every page without an extra fetch. DB lookup wrapped in try/catch — if it fails, fields fall back to null/false and the banner just hides itself. Honors admin impersonation (uses impersonated businessId).
+
+##### Frontend Components
+- `client/src/components/global-trial-banner.tsx` — **NEW**: Fixed-position top banner, follows the `ImpersonationBanner` z-[99] / shadow-md pattern. Stacks below the impersonation banner (top-10) when both are active. Three render states: (1) **Trial 3-7 days left** → amber banner, "Your trial ends in X days. Add a payment method to keep your AI receptionist active." (2) **Trial 0-2 days left** → red urgent variant, same shape. (3) **Grace period** (`subscriptionStatus === 'grace_period'`) → red banner, "Your AI receptionist is paused. Add a payment method to resume taking calls." Hidden for: unauthenticated users, founder accounts, active subscribers, trials with >7 days left. Per-day localStorage dismissal (key `sba-trial-banner-dismissed`, value = today's ISO date) — banner reappears the next UTC day. **Grace period banner is non-dismissible** (revenue-critical, AI is actively paused). "Add Payment" button → `/settings?tab=subscription`.
+- `client/src/components/trial-login-modal.tsx` — **NEW**: One-shot modal, triggered on app load when the user crosses a critical threshold. Three thresholds, each shown at most once per browser per user (localStorage flags `sba-trial-modal-7d-shown`, `sba-trial-modal-1d-shown`, `sba-trial-modal-grace-shown`): 7 days remaining, 1 day remaining, grace period entry. Grace > 1d > 7d priority. Uses shadcn `Dialog`. "Add Payment Method" CTA navigates to `/settings?tab=subscription` and marks the threshold shown. Dismissal (X, Escape, overlay click, "Not now" / "Remind me later") also marks the threshold shown — the global banner remains visible after dismissal so the merchant still sees a persistent reminder. Filters: hidden for founder accounts, active subscribers, unauthenticated users.
+
+##### Wire-up
+- `client/src/hooks/use-auth.tsx` — `AuthUser` type extended with optional `subscriptionStatus`, `trialEndsAt`, `isTrialActive`, `isFounder` fields matching the new `/api/user` response.
+- `client/src/App.tsx` — Imports `GlobalTrialBanner` and `TrialLoginModal`. Both mounted inside `<AuthProvider>` after `<ImpersonationBanner />` and before `<Router />`. Both components are no-ops when there's no authenticated user, so they do not affect logged-out marketing pages.
+
+##### Behavior Decisions
+- **Existing dashboard `TrialExpirationBanner` kept as-is** — it has unique copy about call forwarding and *73 unforwarding instructions, only shows when call forwarding is enabled, and is dashboard-scoped. The new global banner covers the general case across all pages.
+- **Once-per-day banner dismissal** (not once-per-trial-phase) — gentle but persistent. A merchant can dismiss it Monday and still see it Tuesday morning.
+- **Once-ever modal dismissal per threshold** — modals are higher-impact and should not nag. The banner picks up the slack.
+- **Founder accounts (created before 2026-02-23) excluded entirely** — they're grandfathered to unlimited and have no trial state.
+
+##### Files Changed
+- `server/auth.ts` — `/api/user` enrichment
+- `client/src/hooks/use-auth.tsx` — `AuthUser` type
+- `client/src/App.tsx` — Imports + component mount
+- `client/src/components/global-trial-banner.tsx` — **NEW** (~130 lines)
+- `client/src/components/trial-login-modal.tsx` — **NEW** (~165 lines)
+
+##### Verification
+- `npx tsc --noEmit` clean.
+
 #### Batched Dashboard API — 8 Calls to 1
 - **Goal**: Replace 8 separate API calls on the dashboard page with a single batched endpoint for faster page loads and reduced server round-trips.
 

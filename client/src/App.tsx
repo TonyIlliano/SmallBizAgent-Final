@@ -14,6 +14,8 @@ import { PWAInstallPrompt } from "@/components/ui/PWAInstallPrompt";
 import { SupportChat } from "@/components/ui/support-chat";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { OfflineBanner } from "@/components/ui/offline-banner";
+import { GlobalTrialBanner } from "@/components/global-trial-banner";
+import { TrialLoginModal } from "@/components/trial-login-modal";
 import { captureUtmParams } from "@/lib/utm";
 
 // Eagerly loaded (critical path)
@@ -286,6 +288,8 @@ function App() {
               <OfflineBanner />
               <CapacitorInit />
               <ImpersonationBanner />
+              <GlobalTrialBanner />
+              <TrialLoginModal />
               <Router />
             </SidebarProvider>
           </AuthProvider>

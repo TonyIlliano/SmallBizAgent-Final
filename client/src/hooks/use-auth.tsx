@@ -18,6 +18,11 @@ export type AuthUser = User & {
     businessName: string;
     originalBusinessId: number;
   };
+  // Subscription fields enriched server-side for the global trial banner / modal.
+  subscriptionStatus?: string | null;
+  trialEndsAt?: string | null;
+  isTrialActive?: boolean;
+  isFounder?: boolean;
 };
 
 type AuthContextType = {
