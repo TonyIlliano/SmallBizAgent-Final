@@ -754,6 +754,10 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 ##### Verification
 - `npx tsc --noEmit` clean.
 
+##### Admin On-Demand Trigger (follow-up)
+- `server/routes/adminRoutes.ts` — Added `POST /api/admin/intelligence-refresh/run` (admin-only). Dynamically imports `runWeeklyIntelligenceRefresh` and returns the full result `{ total, refreshed, skipped, failed, errors[] }`. Lets the platform owner trigger the job on demand instead of waiting 7 days for the next scheduler tick.
+- `client/src/pages/admin/tabs/SystemTab.tsx` — Added "Maintenance Actions" card with a "Run Intelligence Refresh" button. Calls the new endpoint via `useMutation`. On success, shows a result panel with Total / Refreshed / Skipped / Failed counts and an expandable errors list (`<details>` element). Toast notification on completion. Used for testing immediately after deploy and for forcing a refresh after a meaningful product change.
+
 #### In-App Trial Warning System — Global Banner + Login Modal
 - **Goal**: Close the conversion gap where a trial user could log in on day 13, see everything working, log out, then get blindsided when the AI receptionist stops answering calls. Email warnings already existed (7d / 3d / 1d / grace nudges at 0/7/14/21 days), but nothing in-app surfaced trial state outside the dashboard's usage card.
 

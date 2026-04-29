@@ -186,6 +186,24 @@ router.post("/api/admin/process-overage-billing", isAdmin, async (req: Request, 
 });
 
 /**
+ * POST /api/admin/intelligence-refresh/run — Manually trigger the weekly
+ * intelligence refresh that rebuilds Retell agent prompts with fresh
+ * call_intelligence patterns. Normally runs every 7 days via the scheduler;
+ * this lets the platform owner kick it off on demand for testing or after a
+ * meaningful product change. Returns full result summary.
+ */
+router.post("/api/admin/intelligence-refresh/run", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { runWeeklyIntelligenceRefresh } = await import("../services/intelligenceRefreshService.js");
+    const result = await runWeeklyIntelligenceRefresh();
+    res.json(result);
+  } catch (error: any) {
+    console.error("[Admin] Error running intelligence refresh:", error);
+    res.status(500).json({ error: "Failed to run intelligence refresh" });
+  }
+});
+
+/**
  * PATCH /api/admin/businesses/:id/subscription-status — Update a business's subscription status
  */
 router.patch("/api/admin/businesses/:id/subscription-status", isAdmin, async (req: Request, res: Response) => {
