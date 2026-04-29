@@ -1360,6 +1360,10 @@ async function fixExistingTables() {
   // GBP last synced timestamp on businesses
   await addColumnIfNotExists('businesses', 'gbp_last_synced_at', 'TIMESTAMP');
 
+  // AI receptionist intelligence refresh timestamp — tracks when the Retell
+  // agent's system prompt was last regenerated with fresh call patterns.
+  await addColumnIfNotExists('businesses', 'last_intelligence_refresh_at', 'TIMESTAMP');
+
   // GBP Reviews table (synced from Google Business Profile)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS gbp_reviews (

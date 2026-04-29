@@ -1134,6 +1134,43 @@ async function runAutoRefine(): Promise<void> {
   }
 }
 
+// ── Intelligence Refresh Scheduler (every 7 days) ──
+// Silently rebuilds each Retell agent's system prompt with fresh
+// call_intelligence patterns so dormant owners still get a smarter AI.
+// Skips businesses with no new intelligence since their last refresh.
+export function startIntelligenceRefreshScheduler(): void {
+  const jobKey = 'intelligence-refresh';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Intelligence refresh scheduler already running');
+    return;
+  }
+
+  console.log('Starting intelligence refresh scheduler (runs every 7 days)');
+
+  // Run every 7 days — no immediate run on startup. Offset from auto-refine
+  // by relying on different startup moment so we don't double-update agents.
+  const intervalId = setInterval(() => {
+    withReentryGuard('intelligence-refresh', () =>
+      withAdvisoryLock('intelligence-refresh', () => runIntelligenceRefresh())
+    );
+  }, 7 * 24 * 60 * 60 * 1000);
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+async function runIntelligenceRefresh(): Promise<void> {
+  try {
+    console.log(
+      `[IntelligenceRefresh] Running weekly prompt refresh at ${new Date().toISOString()}`
+    );
+    const { runWeeklyIntelligenceRefresh } = await import('./intelligenceRefreshService');
+    await runWeeklyIntelligenceRefresh();
+  } catch (error) {
+    console.error('[IntelligenceRefresh] Error:', error);
+  }
+}
+
 // ── Follow-Up Agent Scheduler (every 5 minutes) ──
 // Sends thank-you and upsell SMS for completed appointments/jobs.
 // Replaced the old setTimeout-based approach which lost pending sends on server restart.
@@ -1758,6 +1795,10 @@ export async function startAllSchedulers(): Promise<void> {
 
     // Start auto-refine scheduler (analyzes call transcripts weekly, suggests receptionist improvements)
     startAutoRefineScheduler();
+
+    // Start weekly intelligence refresh — auto-rebuilds Retell agent system
+    // prompts with fresh call patterns so dormant businesses still improve.
+    startIntelligenceRefreshScheduler();
 
     // Start SMS automation agent schedulers
     startFollowUpAgentScheduler();

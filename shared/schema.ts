@@ -151,6 +151,10 @@ export const businesses = pgTable("businesses", {
   subscriptionEndDate: timestamp("subscription_end_date"),
   trialEndsAt: timestamp("trial_ends_at"),
   gbpLastSyncedAt: timestamp("gbp_last_synced_at"), // Last time GBP data was synced
+  // AI receptionist auto-learning: last time the system prompt was refreshed
+  // with fresh call_intelligence patterns. Used by intelligenceRefreshService
+  // to skip dormant businesses and surface "AI last learned" in the UI.
+  lastIntelligenceRefreshAt: timestamp("last_intelligence_refresh_at"),
   // White-label branding
   brandName: text("brand_name"), // Custom brand name to replace "SmallBizAgent" in customer-facing content
   // Push notification tokens (mobile app)

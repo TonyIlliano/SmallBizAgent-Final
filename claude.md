@@ -718,6 +718,42 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Weekly Intelligence Refresh — Closes the AI Learning Loop on Retell
+- **Goal**: Without this, the Retell agent's system prompt only refreshes when an owner takes action (manual "Refresh Assistant", accepting an auto-refine suggestion, knowledge base / config edit). Meanwhile `call_intelligence` rows accumulate continuously — new objections, frequently requested services, sentiment trends, unanswered questions — and `buildIntelligenceHints()` is ready to inject them. A busy owner who never logs in was running on a stale prompt while fresh patterns sat unused. This closes the gap silently: every active business gets its agent prompt regenerated weekly with the latest patterns, no owner action required. Retell itself does *not* offer this — their post-call analysis is for human review only. This is a SmallBizAgent meta-layer differentiator.
+
+##### Schema + Migration
+- `shared/schema.ts` — Added `lastIntelligenceRefreshAt` (timestamp) to `businesses` table. Tracks when the agent's system prompt was last regenerated with fresh patterns. Used by the scheduler to skip dormant businesses and by the UI to surface the "AI last learned" indicator.
+- `server/migrations/runMigrations.ts` — `addColumnIfNotExists('businesses', 'last_intelligence_refresh_at', 'TIMESTAMP')` after the GBP column.
+
+##### New Service
+- `server/services/intelligenceRefreshService.ts` — **NEW** (~165 lines). Exports `runWeeklyIntelligenceRefresh()` returning `{ total, refreshed, skipped, failed, errors[] }`.
+  - Iterates `storage.getAllBusinesses()` (capped at 500).
+  - Eligibility filter (`isEligibleForRefresh`): must have `retellAgentId` + `retellLlmId`; subscription must be `active` / `trialing` / `grace_period`; must not have refreshed within `MIN_INTERVAL_MS` (6 days, defends against scheduler over-firing); must have new `call_intelligence` rows since last refresh (compares latest intel timestamp vs `lastIntelligenceRefreshAt`).
+  - For eligible businesses: dynamically imports `updateRetellAgent` (avoids circular deps), awaits it, then writes `lastIntelligenceRefreshAt = now`. Failures don't abort the loop — collected into `errors[]` for logging.
+  - 500ms pause between businesses to avoid bursting Retell's rate limit.
+  - Fully fail-soft: storage errors, intelligence-check errors, and timestamp-write errors all log + continue.
+
+##### Scheduler Wiring
+- `server/services/schedulerService.ts` — Added `startIntelligenceRefreshScheduler()` (every 7 days, no immediate run on startup). Wrapped with both `withReentryGuard('intelligence-refresh')` and `withAdvisoryLock('intelligence-refresh')` for cross-instance safety on Railway. Runs `runIntelligenceRefresh()` which dynamically imports the service. Registered in `startAllSchedulers()` immediately after `startAutoRefineScheduler()`.
+
+##### UI Indicator
+- `client/src/pages/receptionist/index.tsx` — Added `AiLearningIndicator` inline component that renders a small pill below the page title showing "AI last learned from your calls: X days ago" (or hours / "just now" for tighter timing). Hidden when `lastIntelligenceRefreshAt` is null (brand-new accounts). Tooltip explains the auto-learning behavior to build trust. Uses lucide `Zap` icon. Reads from existing `/api/business` query.
+
+##### Behavior Notes
+- **Auto-refine still runs separately** and surfaces big changes (greeting / instruction edits) for owner approval. The new scheduler only handles silent data refreshes (CALLER PATTERNS block) — owner-impactful suggestions still require explicit acceptance.
+- **No new dependencies, no Retell-side configuration changes.** This is purely additive on top of the existing `updateRetellAgent()` flow that already runs on manual Refresh / config edits.
+- **First run on existing prod data**: every business with a Retell agent and any `call_intelligence` rows will be refreshed once on the first scheduler tick after deploy (since `lastIntelligenceRefreshAt` starts null). Subsequent runs only refresh businesses with new intelligence.
+
+##### Files Changed
+- `shared/schema.ts` — `lastIntelligenceRefreshAt` column
+- `server/migrations/runMigrations.ts` — column migration
+- `server/services/intelligenceRefreshService.ts` — **NEW** (~165 lines)
+- `server/services/schedulerService.ts` — `startIntelligenceRefreshScheduler()` + registration
+- `client/src/pages/receptionist/index.tsx` — `AiLearningIndicator` component, business profile query, Zap import
+
+##### Verification
+- `npx tsc --noEmit` clean.
+
 #### In-App Trial Warning System — Global Banner + Login Modal
 - **Goal**: Close the conversion gap where a trial user could log in on day 13, see everything working, log out, then get blindsided when the AI receptionist stops answering calls. Email warnings already existed (7d / 3d / 1d / grace nudges at 0/7/14/21 days), but nothing in-app surfaced trial state outside the dashboard's usage card.
 

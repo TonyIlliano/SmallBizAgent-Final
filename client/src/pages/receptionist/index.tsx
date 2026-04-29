@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles, ChevronDown, ChevronUp, Zap } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 import { FeatureTip } from "@/components/ui/feature-tip";
@@ -27,6 +27,38 @@ function hasRecordingDisclosure(greeting: string | null | undefined): boolean {
 }
 
 // Removed global key — now scoped per business inside component
+
+/**
+ * Small inline indicator showing when the AI's system prompt was last
+ * refreshed with fresh call patterns. Hidden when the business has never
+ * had a refresh (typical for brand-new accounts).
+ */
+function AiLearningIndicator({ lastRefreshAt }: { lastRefreshAt?: string | null }) {
+  if (!lastRefreshAt) return null;
+  const last = new Date(lastRefreshAt).getTime();
+  if (Number.isNaN(last)) return null;
+
+  const diffMs = Date.now() - last;
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+
+  let label: string;
+  if (days >= 2) label = `${days} days ago`;
+  else if (days === 1) label = '1 day ago';
+  else if (hours >= 1) label = `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  else label = 'just now';
+
+  return (
+    <div
+      className="mt-2 inline-flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2.5 py-1"
+      title="Your AI receptionist automatically learns from recent calls each week — common questions, frequently mentioned services, and caller sentiment."
+      data-testid="ai-learning-indicator"
+    >
+      <Zap className="h-3 w-3 text-amber-500" />
+      <span>AI last learned from your calls: <strong className="font-medium text-gray-700">{label}</strong></span>
+    </div>
+  );
+}
 
 export default function Receptionist() {
   const { user } = useAuth();
@@ -90,6 +122,14 @@ export default function Receptionist() {
     queryKey: [`/api/receptionist-config/${businessId}`],
     enabled: !!businessId,
   });
+
+  // Fetch business profile to surface lastIntelligenceRefreshAt — the
+  // timestamp of the most recent auto-refresh of the agent's system prompt
+  // with fresh call patterns. Used in the "AI last learned" indicator.
+  const { data: businessProfile } = useQuery<any>({
+    queryKey: ['/api/business'],
+    enabled: !!businessId,
+  });
   const aiInsightsEnabled = receptionistConfig?.aiInsightsEnabled === true;
   const callRecordingEnabled = receptionistConfig?.callRecordingEnabled !== false; // defaults to true
   const greetingHasDisclosure = hasRecordingDisclosure(receptionistConfig?.greeting);
@@ -110,6 +150,7 @@ export default function Receptionist() {
           <p className="text-gray-500">
             Manage your virtual receptionist settings and view call history
           </p>
+          <AiLearningIndicator lastRefreshAt={businessProfile?.lastIntelligenceRefreshAt} />
         </div>
 
         <Card className="mb-6">
