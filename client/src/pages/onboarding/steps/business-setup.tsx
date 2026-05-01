@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Search, Building2 } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { Loader2, Search, Building2, MapPin, CheckCircle2 } from 'lucide-react';
 import GooglePlacesAutocomplete, { PlaceDetails } from '@/components/ui/google-places-autocomplete';
 
 interface BusinessSetupProps {
@@ -43,6 +44,8 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [placeSelected, setPlaceSelected] = useState(false);
+  const [gbpConnected, setGbpConnected] = useState(false);
+  const [gbpConnecting, setGbpConnecting] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -78,6 +81,69 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
       description: 'We auto-filled your details. Review and complete the remaining fields below.',
     });
   }, [form, toast]);
+
+  // ── Google Business Profile import (same flow as express setup) ──
+  // Uses GBP OAuth (which works in this codebase) instead of Places Autocomplete
+  // (which needs a separate VITE_GOOGLE_PLACES_API_KEY). Listens for the
+  // postMessage from the OAuth popup and pre-fills form fields.
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'gbp-onboarding-data' && event.data.data) {
+        const d = event.data.data;
+        setGbpConnected(true);
+        setGbpConnecting(false);
+
+        if (d.name) form.setValue('name', d.name, { shouldValidate: true });
+        if (d.phone) form.setValue('phone', d.phone, { shouldValidate: true });
+        if (d.address) form.setValue('address', d.address, { shouldValidate: true });
+        if (d.city) form.setValue('city', d.city, { shouldValidate: true });
+        if (d.state) form.setValue('state', d.state, { shouldValidate: true });
+        if (d.zipCode) form.setValue('zipCode', d.zipCode, { shouldValidate: true });
+        if (d.industry) form.setValue('industry', d.industry, { shouldValidate: true });
+        if (d.website) form.setValue('website', d.website, { shouldValidate: true });
+        if (d.email) form.setValue('email', d.email, { shouldValidate: true });
+
+        setShowManualEntry(true);
+        toast({
+          title: 'Business info imported!',
+          description: `Found "${d.name}" on Google. Review the details and continue.`,
+        });
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [form, toast]);
+
+  const handleConnectGbp = async () => {
+    setGbpConnecting(true);
+    try {
+      const res = await apiRequest('GET', '/api/gbp/onboarding/auth-url');
+      const { url } = await res.json();
+      if (url) {
+        const popup = window.open(url, 'gbp-onboarding', 'width=600,height=700');
+        if (!popup) {
+          toast({
+            title: 'Popup blocked',
+            description: 'Please allow popups and try again, or fill in your details manually below.',
+            variant: 'destructive',
+          });
+          setGbpConnecting(false);
+          setShowManualEntry(true);
+        }
+      } else {
+        throw new Error('No OAuth URL returned');
+      }
+    } catch (err) {
+      console.error('GBP connect error:', err);
+      toast({
+        title: 'Could not connect to Google',
+        description: 'Fill in your business details manually below.',
+        variant: 'destructive',
+      });
+      setGbpConnecting(false);
+      setShowManualEntry(true);
+    }
+  };
 
   // Fetch existing business if available
   const businessId = user?.businessId;
@@ -182,32 +248,70 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
   
   return (
     <div className="space-y-6">
-      {/* Google Places Business Search */}
+      {/* Find Your Business — GBP first (works today), Places fallback */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Building2 className="h-5 w-5 text-primary" />
           <h3 className="text-lg font-medium">Find Your Business</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          Search for your business to auto-fill your details, or enter them manually.
+          Connect your Google Business Profile to auto-fill everything, or enter your details manually.
         </p>
-        <GooglePlacesAutocomplete
-          onPlaceSelected={handlePlaceSelected}
-          onUnavailable={() => {
-            // Auto-expand manual entry so the user is never stuck on a blank
-            // section if Places autocomplete is unavailable (no key, CSP block,
-            // network failure, etc.). Manual link is still available below.
-            setShowManualEntry(true);
-          }}
-          placeholder="Type your business name..."
-        />
+
+        {/* GBP success state */}
+        {gbpConnected && (
+          <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+            <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+            <span className="text-sm text-green-700 dark:text-green-400">
+              Business info imported from Google. Review and continue.
+            </span>
+          </div>
+        )}
+
+        {/* GBP Connect button */}
+        {!gbpConnected && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full py-6 border-2 border-dashed hover:border-blue-500 hover:bg-blue-50/5 transition-all"
+            onClick={handleConnectGbp}
+            disabled={gbpConnecting}
+            data-testid="connect-gbp-button"
+          >
+            {gbpConnecting ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                Connecting to Google...
+              </>
+            ) : (
+              <>
+                <MapPin className="mr-2 h-5 w-5 text-blue-500" />
+                Connect Google Business Profile
+                <span className="ml-2 text-xs text-muted-foreground">(auto-fills everything)</span>
+              </>
+            )}
+          </Button>
+        )}
+
+        {/* Optional Places Autocomplete fallback (renders only when API key is configured) */}
+        {!gbpConnected && (
+          <GooglePlacesAutocomplete
+            onPlaceSelected={handlePlaceSelected}
+            onUnavailable={() => {
+              // Places key isn't set — that's fine, GBP button above is the primary path.
+              // No need to surface anything to the user.
+            }}
+            placeholder="Or search by business name..."
+          />
+        )}
+
         {!showManualEntry && (
           <button
             type="button"
             onClick={() => setShowManualEntry(true)}
             className="text-sm text-primary hover:underline"
           >
-            Can't find your business? Enter details manually
+            Or enter your details manually
           </button>
         )}
       </div>

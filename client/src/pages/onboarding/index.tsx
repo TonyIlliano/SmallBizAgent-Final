@@ -256,30 +256,37 @@ export default function OnboardingPage() {
         </div>
       </main>
 
-      <footer className="bg-background py-4 px-6 border-t">
-        <div className="container max-w-3xl mx-auto flex justify-between">
-          <Button
-            variant="outline"
-            onClick={handleBack}
-            disabled={currentStepIndex === 0}
-            className="gap-1"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Back
-          </Button>
-
-          {currentStepIndex < steps.length - 1 && (
+      {/* Hide footer nav on the welcome step — the user must explicitly pick
+          Quick or Detailed setup by clicking a card. A bottom Next button
+          here is a trap because it bypasses the path selection and silently
+          drops the user into the detailed wizard regardless of which card
+          was visually highlighted. */}
+      {currentStep.id !== 'welcome' && (
+        <footer className="bg-background py-4 px-6 border-t">
+          <div className="container max-w-3xl mx-auto flex justify-between">
             <Button
-              variant="default"
-              onClick={handleNext}
+              variant="outline"
+              onClick={handleBack}
+              disabled={currentStepIndex === 0}
               className="gap-1"
             >
-              Next
-              <ChevronRight className="h-4 w-4" />
+              <ChevronLeft className="h-4 w-4" />
+              Back
             </Button>
-          )}
-        </div>
-      </footer>
+
+            {currentStepIndex < steps.length - 1 && (
+              <Button
+                variant="default"
+                onClick={handleNext}
+                className="gap-1"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
