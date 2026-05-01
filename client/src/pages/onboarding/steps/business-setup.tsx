@@ -193,6 +193,12 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
         </p>
         <GooglePlacesAutocomplete
           onPlaceSelected={handlePlaceSelected}
+          onUnavailable={() => {
+            // Auto-expand manual entry so the user is never stuck on a blank
+            // section if Places autocomplete is unavailable (no key, CSP block,
+            // network failure, etc.). Manual link is still available below.
+            setShowManualEntry(true);
+          }}
           placeholder="Type your business name..."
         />
         {!showManualEntry && (
