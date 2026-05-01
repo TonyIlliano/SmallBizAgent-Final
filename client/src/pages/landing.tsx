@@ -199,6 +199,8 @@ function LandingAuthForm() {
   const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regConfirmPassword, setRegConfirmPassword] = useState("");
+  const [regAcceptTerms, setRegAcceptTerms] = useState(false);
+  const [regAcceptPrivacy, setRegAcceptPrivacy] = useState(false);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -245,6 +247,14 @@ function LandingAuthForm() {
     }
     if (regPassword !== regConfirmPassword) {
       setRegisterError("Passwords do not match");
+      return;
+    }
+    if (!regAcceptTerms) {
+      setRegisterError("You must agree to the Terms of Service and SMS/Communication Terms to continue");
+      return;
+    }
+    if (!regAcceptPrivacy) {
+      setRegisterError("You must acknowledge the Privacy Policy to continue");
       return;
     }
     registerMutation.mutate(
@@ -335,8 +345,48 @@ function LandingAuthForm() {
                   className="mt-1 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
                 />
               </div>
+              <div className="flex items-start gap-2 pt-1">
+                <input
+                  id="reg-accept-terms"
+                  type="checkbox"
+                  checked={regAcceptTerms}
+                  onChange={(e) => { setRegisterError(null); setRegAcceptTerms(e.target.checked); }}
+                  className="mt-1 cursor-pointer"
+                  data-testid="landing-accept-terms-checkbox"
+                />
+                <label htmlFor="reg-accept-terms" className="text-xs text-neutral-400 leading-snug cursor-pointer">
+                  I agree to the{" "}
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-neutral-200">
+                    Terms of Service
+                  </a>
+                  {" "}and{" "}
+                  <a href="/sms-terms" target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-neutral-200">
+                    SMS/Communication Terms
+                  </a>.
+                </label>
+              </div>
+              <div className="flex items-start gap-2">
+                <input
+                  id="reg-accept-privacy"
+                  type="checkbox"
+                  checked={regAcceptPrivacy}
+                  onChange={(e) => { setRegisterError(null); setRegAcceptPrivacy(e.target.checked); }}
+                  className="mt-1 cursor-pointer"
+                  data-testid="landing-accept-privacy-checkbox"
+                />
+                <label htmlFor="reg-accept-privacy" className="text-xs text-neutral-400 leading-snug cursor-pointer">
+                  I acknowledge I have read the{" "}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-neutral-200">
+                    Privacy Policy
+                  </a>.
+                </label>
+              </div>
               <Turnstile onVerify={setTurnstileToken} onExpire={handleTurnstileExpire} />
-              <Button type="submit" className="w-full bg-white text-black hover:bg-neutral-200" disabled={registerMutation.isPending}>
+              <Button
+                type="submit"
+                className="w-full bg-white text-black hover:bg-neutral-200 disabled:opacity-50"
+                disabled={registerMutation.isPending || !regAcceptTerms || !regAcceptPrivacy}
+              >
                 {registerMutation.isPending ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...</>
                 ) : (
