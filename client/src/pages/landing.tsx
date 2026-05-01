@@ -258,7 +258,14 @@ function LandingAuthForm() {
       return;
     }
     registerMutation.mutate(
-      { username: regUsername, email: regEmail, password: regPassword, turnstileToken },
+      {
+        username: regUsername,
+        email: regEmail,
+        password: regPassword,
+        turnstileToken,
+        acceptTerms: regAcceptTerms,
+        acceptPrivacy: regAcceptPrivacy,
+      },
       {
         onSuccess: () => {
           window.location.href = "/onboarding/subscription";
