@@ -408,7 +408,7 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
                         <TableRow key={service.id}>
                           <TableCell className="font-medium">{service.name}</TableCell>
                           <TableCell>{service.description || "N/A"}</TableCell>
-                          <TableCell className="text-right">${(service.price ?? 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right">${Number(service.price ?? 0).toFixed(2)}</TableCell>
                           <TableCell>{service.duration ?? 0} min</TableCell>
                           <TableCell>
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${service.active ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>

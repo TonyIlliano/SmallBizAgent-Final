@@ -203,7 +203,7 @@ function RevenueTab() {
                       <Badge variant="outline" className="capitalize">{plan.planTier || "\u2014"}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      {plan.price ? `$${plan.price.toFixed(2)}/mo` : "\u2014"}
+                      {plan.price ? `$${Number(plan.price).toFixed(2)}/mo` : "\u2014"}
                     </TableCell>
                     <TableCell className="text-right font-medium">{plan.businessCount}</TableCell>
                     <TableCell className="text-right font-medium text-emerald-600">

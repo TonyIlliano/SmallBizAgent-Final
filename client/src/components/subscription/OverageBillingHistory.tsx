@@ -10,8 +10,10 @@ interface OverageCharge {
   minutesUsed: number;
   minutesIncluded: number;
   overageMinutes: number;
-  overageRate: number;
-  overageAmount: number;
+  // Numeric DB columns are returned by Drizzle as strings (PostgreSQL NUMERIC
+  // can exceed JS Number precision). Always coerce with num() before formatting.
+  overageRate: number | string;
+  overageAmount: number | string;
   stripeInvoiceId: string | null;
   stripeInvoiceUrl: string | null;
   status: string;
@@ -19,6 +21,12 @@ interface OverageCharge {
   planName: string | null;
   planTier: string | null;
   createdAt: string;
+}
+
+function num(value: number | string | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function formatDate(dateStr: string): string {
@@ -118,8 +126,8 @@ export function OverageBillingHistory({ businessId }: { businessId: number }) {
               </div>
             </div>
             <div className="flex items-center justify-between pt-2 border-t">
-              <span className="text-sm font-semibold">${charge.overageAmount.toFixed(2)}</span>
-              <span className="text-xs text-muted-foreground">${charge.overageRate.toFixed(2)}/min</span>
+              <span className="text-sm font-semibold">${num(charge.overageAmount).toFixed(2)}</span>
+              <span className="text-xs text-muted-foreground">${num(charge.overageRate).toFixed(2)}/min</span>
               {charge.stripeInvoiceUrl && (
                 <a href={charge.stripeInvoiceUrl} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">
@@ -157,9 +165,9 @@ export function OverageBillingHistory({ businessId }: { businessId: number }) {
                 <td className="py-3 text-right font-medium text-orange-600">
                   {charge.overageMinutes} min
                 </td>
-                <td className="py-3 text-right">${charge.overageRate.toFixed(2)}/min</td>
+                <td className="py-3 text-right">${num(charge.overageRate).toFixed(2)}/min</td>
                 <td className="py-3 text-right font-semibold">
-                  ${charge.overageAmount.toFixed(2)}
+                  ${num(charge.overageAmount).toFixed(2)}
                 </td>
                 <td className="py-3 text-center">
                   <StatusBadge status={charge.status} />

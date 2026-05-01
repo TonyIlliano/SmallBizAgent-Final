@@ -15,14 +15,22 @@ interface Plan {
   name: string;
   description: string;
   planTier: string;
-  price: number;
+  // Numeric DB columns are returned by Drizzle as strings (PostgreSQL NUMERIC
+  // can exceed JS Number precision). Always coerce with num() before math/format.
+  price: number | string;
   interval: string;
   features: string[];
   maxCallMinutes: number;
-  overageRatePerMinute: number;
+  overageRatePerMinute: number | string | null;
   maxStaff: number | null;
   active: boolean;
   sortOrder: number;
+}
+
+function num(value: number | string | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export default function OnboardingSubscription() {
@@ -153,13 +161,13 @@ export default function OnboardingSubscription() {
                 <CardDescription className="mt-2 text-neutral-400">{plan.description}</CardDescription>
                 <div className="mt-4">
                   <span className="text-4xl font-bold text-white">
-                    ${billingInterval === 'yearly' ? Math.round(plan.price / 12) : plan.price}
+                    ${billingInterval === 'yearly' ? Math.round(num(plan.price) / 12) : num(plan.price)}
                   </span>
                   <span className="text-neutral-500 ml-1">/month</span>
                 </div>
                 {billingInterval === 'yearly' && (
                   <p className="text-xs text-green-500 mt-1">
-                    Billed annually at ${plan.price}/yr
+                    Billed annually at ${num(plan.price)}/yr
                   </p>
                 )}
                 <div className="flex items-center gap-1.5 mt-3 text-sm font-medium text-white">
@@ -167,7 +175,7 @@ export default function OnboardingSubscription() {
                   <span>{plan.maxCallMinutes} AI minutes/mo</span>
                 </div>
                 <p className="text-xs text-neutral-500 mt-1">
-                  then ${plan.overageRatePerMinute?.toFixed(2)}/min overage
+                  then ${num(plan.overageRatePerMinute).toFixed(2)}/min overage
                 </p>
               </CardHeader>
               <CardContent className="flex-grow">

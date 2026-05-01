@@ -17,14 +17,23 @@ interface Plan {
   name: string;
   description: string;
   planTier: string;
-  price: number;
+  // Numeric DB columns are returned by Drizzle as strings (numeric overflows JS Number precision).
+  // Always coerce with Number(...) before doing math or formatting. Treat null as 0.
+  price: number | string;
   interval: string;
   features: string[];
   maxCallMinutes: number;
-  overageRatePerMinute: number;
+  overageRatePerMinute: number | string | null;
   maxStaff: number | null;
   active: boolean;
   sortOrder: number;
+}
+
+// Safe coercion for numeric columns coming back as strings from PostgreSQL.
+function num(value: number | string | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export function SubscriptionPlans({ businessId }: { businessId: number }) {
@@ -410,13 +419,13 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
               <CardDescription className="mt-2">{plan.description}</CardDescription>
               <div className="mt-4">
                 <span className="text-3xl font-bold">
-                  ${billingInterval === 'yearly' ? Math.round(plan.price / 12) : plan.price}
+                  ${billingInterval === 'yearly' ? Math.round(num(plan.price) / 12) : num(plan.price)}
                 </span>
                 <span className="text-muted-foreground ml-1">/month</span>
               </div>
               {billingInterval === 'yearly' && (
                 <p className="text-xs text-green-600 mt-1">
-                  Billed annually at ${plan.price}/yr
+                  Billed annually at ${num(plan.price)}/yr
                 </p>
               )}
               <div className="flex items-center gap-1.5 mt-3 text-sm font-medium text-primary">
@@ -424,7 +433,7 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
                 <span>{plan.maxCallMinutes} AI minutes/mo</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                then ${plan.overageRatePerMinute?.toFixed(2)}/min overage
+                then ${num(plan.overageRatePerMinute).toFixed(2)}/min overage
               </p>
             </CardHeader>
             <CardContent className="flex-grow">
@@ -462,7 +471,7 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
                     onClick={() => setChangePlanTarget(plan)}
                   >
                     {changePlanMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {plan.price > (subscriptionStatus?.plan?.price || 0) ? 'Upgrade' : 'Downgrade'} to {plan.name}
+                    {num(plan.price) > num(subscriptionStatus?.plan?.price) ? 'Upgrade' : 'Downgrade'} to {plan.name}
                   </Button>
                 )
               )}
@@ -489,15 +498,15 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setChangePlanTarget(null)}>
           <div className="bg-background rounded-lg p-6 max-w-md mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-2">
-              {changePlanTarget.price > (subscriptionStatus?.plan?.price || 0) ? 'Upgrade' : 'Downgrade'} to {changePlanTarget.name}?
+              {num(changePlanTarget.price) > num(subscriptionStatus?.plan?.price) ? 'Upgrade' : 'Downgrade'} to {changePlanTarget.name}?
             </h3>
             <p className="text-sm text-muted-foreground mb-1">
-              {changePlanTarget.price > (subscriptionStatus?.plan?.price || 0)
+              {num(changePlanTarget.price) > num(subscriptionStatus?.plan?.price)
                 ? 'You\'ll be charged a prorated amount for the remainder of your current billing period.'
                 : 'You\'ll receive a prorated credit on your next invoice.'}
             </p>
             <p className="text-sm text-muted-foreground mb-4">
-              New price: <strong>${changePlanTarget.price}/{changePlanTarget.interval === 'yearly' ? 'year' : 'month'}</strong>
+              New price: <strong>${num(changePlanTarget.price)}/{changePlanTarget.interval === 'yearly' ? 'year' : 'month'}</strong>
             </p>
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setChangePlanTarget(null)}>
