@@ -363,11 +363,23 @@ function LandingAuthForm() {
                 />
                 <label htmlFor="reg-accept-terms" className="text-xs text-neutral-400 leading-snug cursor-pointer">
                   I agree to the{" "}
-                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-neutral-200">
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#60a5fa', textDecoration: 'underline' }}
+                    className="hover:opacity-80"
+                  >
                     Terms of Service
                   </a>
                   {" "}and{" "}
-                  <a href="/sms-terms" target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-neutral-200">
+                  <a
+                    href="/sms-terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#60a5fa', textDecoration: 'underline' }}
+                    className="hover:opacity-80"
+                  >
                     SMS/Communication Terms
                   </a>.
                 </label>
@@ -383,7 +395,13 @@ function LandingAuthForm() {
                 />
                 <label htmlFor="reg-accept-privacy" className="text-xs text-neutral-400 leading-snug cursor-pointer">
                   I acknowledge I have read the{" "}
-                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-neutral-200">
+                  <a
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#60a5fa', textDecoration: 'underline' }}
+                    className="hover:opacity-80"
+                  >
                     Privacy Policy
                   </a>.
                 </label>
