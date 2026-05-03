@@ -195,6 +195,11 @@ app.use(helmet({
     },
   },
   crossOriginEmbedderPolicy: false, // Required for some external resources
+  // Allow OAuth popups (Google Business Profile, future SSO) to postMessage
+  // back to the opener window after cross-origin navigation. Helmet's default
+  // is 'same-origin' which severs window.opener as soon as the popup leaves
+  // our origin — this breaks the GBP onboarding handoff.
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
 }));
 
 // Allow embedding booking pages in iframes on external websites
