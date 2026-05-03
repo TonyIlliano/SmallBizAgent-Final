@@ -243,25 +243,12 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
             });
           }, 90_000);
 
-          // Also poll for popup close as a faster signal
-          const pollClosed = setInterval(() => {
-            if (popup.closed) {
-              clearInterval(pollClosed);
-              // Give postMessage one extra second in case it's racing
-              setTimeout(() => {
-                setIsConnectingGbp(prev => {
-                  if (prev) {
-                    // Still spinning means no message arrived
-                    if (watchdogRef.current) {
-                      clearTimeout(watchdogRef.current);
-                      watchdogRef.current = null;
-                    }
-                  }
-                  return false;
-                });
-              }, 1000);
-            }
-          }, 500);
+          // NOTE: We intentionally do NOT poll popup.closed here. Reading
+          // that property while the popup is on a cross-origin URL (Google's
+          // OAuth pages) triggers Cross-Origin-Opener-Policy violations in
+          // the console. The watchdog timeout + the popup's own auto-close
+          // (server callback closes itself) + the postMessage listener
+          // cover every flow without crossing COOP.
         }
       } else {
         const serverError = data?.error || 'No OAuth URL returned by the server';

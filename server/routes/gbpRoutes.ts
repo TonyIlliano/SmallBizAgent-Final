@@ -125,20 +125,56 @@ router.get('/google/callback', async (req, res) => {
         }
 
         const safeData = JSON.stringify(businessData).replace(/'/g, "\\'").replace(/</g, '\\u003c');
+        const dataKeys = Object.keys(businessData).filter(k => businessData[k] && businessData[k] !== '').join(', ') || '(empty)';
         return res.send(`
           <html>
             <body style="font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb;">
-              <div style="text-align: center; padding: 40px;">
+              <div style="text-align: center; padding: 40px; max-width: 500px;">
                 <div style="font-size: 48px; margin-bottom: 16px;">&#10004;&#65039;</div>
                 <h1 style="color: #333; margin-bottom: 8px;">${businessData.name ? 'Business Info Found!' : 'Connected!'}</h1>
-                <p style="color: #666;">${businessData.name ? 'Filling in your details now...' : 'Could not find business data. Fill in manually.'}</p>
-                <p style="color: #999; font-size: 14px;">This window will close shortly...</p>
+                <p style="color: #666;">${businessData.name ? 'Sending data to the signup form...' : 'Could not find business data. Fill in manually.'}</p>
+                <div id="status" style="color: #999; font-size: 13px; margin-top: 20px; padding: 12px; background: white; border-radius: 6px; border: 1px solid #e5e7eb; text-align: left;">
+                  <div style="font-weight: 600; color: #374151; margin-bottom: 6px;">Diagnostic info:</div>
+                  <div>Fields received: <code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;">${dataKeys}</code></div>
+                  <div id="opener-status" style="margin-top: 4px;">Checking opener...</div>
+                  <div id="post-status" style="margin-top: 4px;"></div>
+                </div>
+                <p style="color: #999; font-size: 12px; margin-top: 16px;" id="close-msg">This window will close in 4 seconds (longer for debugging)...</p>
               </div>
               <script>
-                if (window.opener) {
-                  window.opener.postMessage({ type: 'gbp-onboarding-data', data: JSON.parse('${safeData}') }, '*');
-                }
-                setTimeout(function() { window.close(); }, 2000);
+                (function() {
+                  var statusEl = function(id) { return document.getElementById(id); };
+                  var setText = function(id, text) {
+                    var el = statusEl(id);
+                    if (el) el.textContent = text;
+                  };
+
+                  // Check opener availability
+                  var hasOpener = !!window.opener;
+                  setText('opener-status', hasOpener
+                    ? 'window.opener: AVAILABLE'
+                    : 'window.opener: NULL (COOP/popup blocker — message cannot be sent)');
+                  console.log('[GBP Popup] window.opener =', hasOpener ? 'available' : 'null');
+
+                  if (hasOpener) {
+                    try {
+                      var data = JSON.parse('${safeData}');
+                      console.log('[GBP Popup] Posting message to opener:', data);
+                      window.opener.postMessage({ type: 'gbp-onboarding-data', data: data }, '*');
+                      setText('post-status', 'postMessage: SENT to opener');
+                      console.log('[GBP Popup] postMessage call completed without throwing');
+                    } catch (e) {
+                      setText('post-status', 'postMessage FAILED: ' + (e && e.message ? e.message : e));
+                      console.error('[GBP Popup] postMessage threw:', e);
+                    }
+                  } else {
+                    setText('post-status', 'Cannot send data because opener is null. Close this and try again — if it persists, the parent\\'s page security policy is blocking us.');
+                  }
+
+                  // Auto-close after 4s if everything looks fine, longer if opener is null so user can read the warning
+                  var delay = hasOpener ? 4000 : 12000;
+                  setTimeout(function() { window.close(); }, delay);
+                })();
               </script>
             </body>
           </html>

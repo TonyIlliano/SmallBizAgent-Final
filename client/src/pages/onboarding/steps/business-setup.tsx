@@ -157,24 +157,11 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
             });
           }, 90_000);
 
-          // Faster signal: poll for popup close.
-          const pollClosed = setInterval(() => {
-            if (popup.closed) {
-              clearInterval(pollClosed);
-              setTimeout(() => {
-                setGbpConnecting(prev => {
-                  if (prev) {
-                    setShowManualEntry(true);
-                    if (watchdogRef.current) {
-                      clearTimeout(watchdogRef.current);
-                      watchdogRef.current = null;
-                    }
-                  }
-                  return false;
-                });
-              }, 1000);
-            }
-          }, 500);
+          // NOTE: We intentionally do NOT poll popup.closed here. Reading
+          // that property while the popup is on a cross-origin URL (Google's
+          // OAuth pages) triggers Cross-Origin-Opener-Policy violations in
+          // the console. Watchdog + popup's own auto-close + postMessage
+          // listener handle every flow without crossing COOP.
         }
       } else {
         throw new Error('No OAuth URL returned');
