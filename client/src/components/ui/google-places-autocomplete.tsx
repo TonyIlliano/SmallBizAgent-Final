@@ -2,7 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Search, Loader2, AlertCircle } from "lucide-react";
 
-const GOOGLE_PLACES_API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+// Try the build-time Vite env var first. Fall back to a runtime fetch from
+// /api/config/public if Railway didn't expose VITE_GOOGLE_PLACES_API_KEY to
+// the build phase. resolveApiKey() is awaited at component mount.
+const BUILD_TIME_KEY: string | undefined = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+
+let runtimeKeyPromise: Promise<string | null> | null = null;
+async function resolveApiKey(): Promise<string | null> {
+  if (BUILD_TIME_KEY) return BUILD_TIME_KEY;
+  if (runtimeKeyPromise) return runtimeKeyPromise;
+  runtimeKeyPromise = (async () => {
+    try {
+      const res = await fetch('/api/config/public', { credentials: 'include' });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json?.googlePlacesApiKey || null;
+    } catch (err) {
+      console.error('[GooglePlaces] runtime key fetch failed:', err);
+      return null;
+    }
+  })();
+  return runtimeKeyPromise;
+}
 
 export interface PlaceDetails {
   name: string;
@@ -27,7 +48,7 @@ interface GooglePlacesAutocompleteProps {
 let googleMapsLoaded = false;
 let googleMapsLoadPromise: Promise<void> | null = null;
 
-function loadGoogleMaps(): Promise<void> {
+function loadGoogleMaps(apiKey: string): Promise<void> {
   if (googleMapsLoaded) return Promise.resolve();
   if (googleMapsLoadPromise) return googleMapsLoadPromise;
 
@@ -43,7 +64,7 @@ function loadGoogleMaps(): Promise<void> {
     }
 
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_PLACES_API_KEY}&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
@@ -73,31 +94,45 @@ export default function GooglePlacesAutocomplete({
 }: GooglePlacesAutocompleteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // start in loading state while resolving the key
   const [ready, setReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [resolvedKey, setResolvedKey] = useState<string | null>(null);
 
+  // Resolve the API key (build-time first, runtime fallback) then load the script.
   useEffect(() => {
-    if (!GOOGLE_PLACES_API_KEY) {
-      const reason = 'Google Places API key not configured (VITE_GOOGLE_PLACES_API_KEY missing at build time)';
-      console.warn('[GooglePlaces]', reason);
-      onUnavailable?.(reason);
-      return;
-    }
+    let cancelled = false;
+    (async () => {
+      const key = await resolveApiKey();
+      if (cancelled) return;
 
-    setLoading(true);
-    loadGoogleMaps()
-      .then(() => {
+      if (!key) {
+        const reason = 'Google Places API key not configured (neither VITE_GOOGLE_PLACES_API_KEY at build time nor /api/config/public at runtime)';
+        console.warn('[GooglePlaces]', reason);
         setLoading(false);
-        setReady(true);
-      })
-      .catch((err: Error) => {
-        const reason = err.message || 'Unknown Google Maps load error';
-        console.error('[GooglePlaces]', reason);
-        setLoading(false);
-        setErrorMessage(reason);
         onUnavailable?.(reason);
-      });
+        return;
+      }
+
+      setResolvedKey(key);
+      loadGoogleMaps(key)
+        .then(() => {
+          if (cancelled) return;
+          setLoading(false);
+          setReady(true);
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          const reason = err.message || 'Unknown Google Maps load error';
+          console.error('[GooglePlaces]', reason);
+          setLoading(false);
+          setErrorMessage(reason);
+          onUnavailable?.(reason);
+        });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [onUnavailable]);
 
   useEffect(() => {
@@ -163,8 +198,11 @@ export default function GooglePlacesAutocomplete({
     }
   }, [ready, onPlaceSelected, onUnavailable]);
 
-  // No API key → render nothing (parent handles the fallback via onUnavailable)
-  if (!GOOGLE_PLACES_API_KEY) {
+  // No API key resolved (build-time and runtime both empty) → render nothing.
+  // The parent's onUnavailable callback already fired and is showing the
+  // manual entry form. Don't render an error banner here because it
+  // duplicates the message.
+  if (!loading && !resolvedKey) {
     return null;
   }
 

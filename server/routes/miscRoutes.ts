@@ -8,6 +8,21 @@ import { sql } from "drizzle-orm";
 
 const router = Router();
 
+// ── Public Frontend Config (no auth required) ──
+// Returns safe-to-share runtime config the frontend may need but couldn't get
+// at build time. Currently used as a fallback for VITE_* vars when Railway
+// doesn't expose them to the build phase. Only includes values that are
+// PUBLIC by design (e.g. Google Maps API keys are restricted by HTTP referrer
+// on Google's end, so leaking them client-side is expected and safe).
+router.get("/config/public", (_req: Request, res: Response) => {
+  res.json({
+    googlePlacesApiKey:
+      process.env.VITE_GOOGLE_PLACES_API_KEY ||
+      process.env.GOOGLE_PLACES_API_KEY ||
+      null,
+  });
+});
+
 // ── Public Health Check (no auth required) ──
 router.get("/health", async (_req: Request, res: Response) => {
   try {

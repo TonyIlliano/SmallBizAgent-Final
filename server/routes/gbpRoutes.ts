@@ -168,7 +168,7 @@ router.get('/google/callback', async (req, res) => {
                       console.error('[GBP Popup] postMessage threw:', e);
                     }
                   } else {
-                    setText('post-status', 'Cannot send data because opener is null. Close this and try again — if it persists, the parent\\'s page security policy is blocking us.');
+                    setText('post-status', 'Cannot send data because opener is null. Close this and try again — if it persists, the parent page security policy is blocking us.');
                   }
 
                   // Auto-close after 4s if everything looks fine, longer if opener is null so user can read the warning
