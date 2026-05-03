@@ -64,7 +64,11 @@ function loadGoogleMaps(apiKey: string): Promise<void> {
     }
 
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    // Use loading=async query param (Google's recommended pattern) in addition
+    // to the script.async attribute. Silences the 'loaded directly without
+    // loading=async' performance warning and matches Google's best-practice
+    // loading guidance.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
