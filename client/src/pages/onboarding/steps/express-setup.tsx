@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Loader2, Zap, CheckCircle2, Phone, Building2, MapPin } from 'lucide-react';
-import { Separator } from '@/components/ui/separator';
+import GooglePlacesAutocomplete, { PlaceDetails } from '@/components/ui/google-places-autocomplete';
 
 const INDUSTRIES = [
   'Barber/Salon',
@@ -203,6 +203,21 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
     };
   }, [form, toast, userEmail]);
 
+  // Google Places auto-fill — primary signup path (covers any business listed
+  // on Google Maps, not just claimed Business Profiles).
+  const handlePlaceSelected = (place: PlaceDetails) => {
+    if (place.name) form.setValue('name', place.name);
+    if (place.address) form.setValue('address', place.address);
+    if (place.city) form.setValue('city', place.city);
+    if (place.state) form.setValue('state', place.state);
+    if (place.zipCode) form.setValue('zipCode', place.zipCode);
+    if (place.phone) form.setValue('phone', place.phone);
+    toast({
+      title: 'Business found!',
+      description: `Auto-filled details for "${place.name}". Review and continue.`,
+    });
+  };
+
   const handleConnectGbp = async () => {
     setIsConnectingGbp(true);
     try {
@@ -335,33 +350,36 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Connect Google Business button */}
+          {/* Find Your Business — Places autocomplete is the primary input.
+              GBP is offered as a smaller secondary option for richer data
+              (hours + category) when the user has a claimed profile. */}
           {!gbpConnected && (
-            <div className="mb-6">
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full py-6 border-2 border-dashed hover:border-blue-500 hover:bg-blue-50/5 transition-all"
-                onClick={handleConnectGbp}
-                disabled={isConnectingGbp}
-              >
-                {isConnectingGbp ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Connecting to Google...
-                  </>
-                ) : (
-                  <>
-                    <MapPin className="mr-2 h-5 w-5 text-blue-500" />
-                    Connect Google Business Profile
-                    <span className="ml-2 text-xs text-muted-foreground">(auto-fills everything)</span>
-                  </>
-                )}
-              </Button>
-              <div className="flex items-center gap-3 my-4">
-                <Separator className="flex-1" />
-                <span className="text-xs text-muted-foreground">or fill in manually</span>
-                <Separator className="flex-1" />
+            <div className="mb-6 space-y-3">
+              <GooglePlacesAutocomplete
+                onPlaceSelected={handlePlaceSelected}
+                placeholder="Search for your business..."
+              />
+              <div className="flex items-center gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={handleConnectGbp}
+                  disabled={isConnectingGbp}
+                  className="inline-flex items-center gap-1.5 text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                  data-testid="connect-gbp-link"
+                >
+                  {isConnectingGbp ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Connecting to Google...
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="h-3.5 w-3.5" />
+                      Or connect your Google Business Profile
+                    </>
+                  )}
+                </button>
+                <span className="text-xs text-muted-foreground">(also imports hours + category)</span>
               </div>
             </div>
           )}

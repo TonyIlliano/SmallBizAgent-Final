@@ -12,8 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import { Loader2, Search, Building2, MapPin, CheckCircle2 } from 'lucide-react';
+import { Loader2, Building2, MapPin, CheckCircle2 } from 'lucide-react';
 import GooglePlacesAutocomplete, { PlaceDetails } from '@/components/ui/google-places-autocomplete';
 
 interface BusinessSetupProps {
@@ -298,17 +297,20 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
   
   return (
     <div className="space-y-6">
-      {/* Find Your Business — GBP first (works today), Places fallback */}
+      {/* Find Your Business — Places autocomplete is primary, GBP is a
+          smaller "richer data" link below for users who want hours/category
+          imported. If Places is unavailable for any reason, GBP and manual
+          entry remain available. */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Building2 className="h-5 w-5 text-primary" />
           <h3 className="text-lg font-medium">Find Your Business</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          Connect your Google Business Profile to auto-fill everything, or enter your details manually.
+          Search for your business to auto-fill your details, or enter them manually.
         </p>
 
-        {/* GBP success state */}
+        {/* GBP success banner — only shown when GBP was used */}
         {gbpConnected && (
           <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
             <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
@@ -318,41 +320,44 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
           </div>
         )}
 
-        {/* GBP Connect button */}
-        {!gbpConnected && (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full py-6 border-2 border-dashed hover:border-blue-500 hover:bg-blue-50/5 transition-all"
-            onClick={handleConnectGbp}
-            disabled={gbpConnecting}
-            data-testid="connect-gbp-button"
-          >
-            {gbpConnecting ? (
-              <>
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                Connecting to Google...
-              </>
-            ) : (
-              <>
-                <MapPin className="mr-2 h-5 w-5 text-blue-500" />
-                Connect Google Business Profile
-                <span className="ml-2 text-xs text-muted-foreground">(auto-fills everything)</span>
-              </>
-            )}
-          </Button>
-        )}
-
-        {/* Optional Places Autocomplete fallback (renders only when API key is configured) */}
+        {/* Primary: Google Places Autocomplete */}
         {!gbpConnected && (
           <GooglePlacesAutocomplete
             onPlaceSelected={handlePlaceSelected}
             onUnavailable={() => {
-              // Places key isn't set — that's fine, GBP button above is the primary path.
-              // No need to surface anything to the user.
+              // Places key missing or script failed — auto-show the manual
+              // form so the user is never stuck on a blank section. The GBP
+              // link below is still available as another option.
+              setShowManualEntry(true);
             }}
-            placeholder="Or search by business name..."
+            placeholder="Type your business name..."
           />
+        )}
+
+        {/* Secondary: GBP Connect link (smaller, richer data option) */}
+        {!gbpConnected && (
+          <div className="flex items-center gap-2 text-sm">
+            <button
+              type="button"
+              onClick={handleConnectGbp}
+              disabled={gbpConnecting}
+              data-testid="connect-gbp-link"
+              className="inline-flex items-center gap-1.5 text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {gbpConnecting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Connecting to Google...
+                </>
+              ) : (
+                <>
+                  <MapPin className="h-3.5 w-3.5" />
+                  Or connect your Google Business Profile
+                </>
+              )}
+            </button>
+            <span className="text-xs text-muted-foreground">(also imports hours + category)</span>
+          </div>
         )}
 
         {!showManualEntry && (
@@ -361,7 +366,7 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
             onClick={() => setShowManualEntry(true)}
             className="text-sm text-primary hover:underline"
           >
-            Or enter your details manually
+            Can't find your business? Enter details manually
           </button>
         )}
       </div>
