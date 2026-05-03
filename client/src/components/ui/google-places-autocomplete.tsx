@@ -64,11 +64,15 @@ function loadGoogleMaps(apiKey: string): Promise<void> {
     }
 
     const script = document.createElement("script");
-    // Use loading=async query param (Google's recommended pattern) in addition
-    // to the script.async attribute. Silences the 'loaded directly without
-    // loading=async' performance warning and matches Google's best-practice
-    // loading guidance.
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
+    // NOTE: We deliberately do NOT use ?loading=async in the URL. Google's
+    // loading=async parameter is intended for their bootstrap-loader pattern
+    // (a separate <script>importLibrary(...)</script> flow), and adding it
+    // to a plain <script src=...> tag with script.async=true caused Maps to
+    // fail to expose google.maps.places — the user got 'Business search
+    // unavailable' even with a valid key. Just use script.async like before;
+    // the 'loaded directly without loading=async' console warning is purely
+    // cosmetic and does not affect functionality.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
