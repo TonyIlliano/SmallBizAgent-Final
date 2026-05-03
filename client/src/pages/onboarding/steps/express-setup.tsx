@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -148,11 +148,23 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
     },
   });
 
-  // Listen for GBP onboarding data from OAuth popup
-  useState(() => {
+  // Watchdog: clear the connecting spinner if the popup never posts back
+  // (popup blocked silently, opener lost, postMessage dropped, etc).
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Listen for GBP onboarding data from OAuth popup. Previously this used
+  // `useState(() => ...)` which is misuse — the initializer's return value
+  // is never called as cleanup. In production builds this could leave the
+  // listener unregistered and leave the spinner stuck on "Connecting...".
+  useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === 'gbp-onboarding-data' && event.data.data) {
         const d = event.data.data;
+        // Clear watchdog — postMessage arrived
+        if (watchdogRef.current) {
+          clearTimeout(watchdogRef.current);
+          watchdogRef.current = null;
+        }
         setGbpConnected(true);
         setIsConnectingGbp(false);
 
@@ -169,15 +181,27 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
         // Store tokens to pass along with express setup
         if (d.gbpTokens) setGbpTokens(d.gbpTokens);
 
-        toast({
-          title: 'Business info imported!',
-          description: `Found "${d.name}" on Google. Review the details and continue.`,
-        });
+        // Don't show "found nothing" as a success — the callback still posts
+        // a message even when the user has no GBP listing.
+        if (d.name) {
+          toast({
+            title: 'Business info imported!',
+            description: `Found "${d.name}" on Google. Review the details and continue.`,
+          });
+        } else {
+          toast({
+            title: 'Connected to Google',
+            description: 'No business listing found on this account. Fill in your details below.',
+          });
+        }
       }
     };
     window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  });
+    return () => {
+      window.removeEventListener('message', handler);
+      if (watchdogRef.current) clearTimeout(watchdogRef.current);
+    };
+  }, [form, toast, userEmail]);
 
   const handleConnectGbp = async () => {
     setIsConnectingGbp(true);
@@ -190,6 +214,39 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
         if (!popup) {
           toast({ title: 'Popup blocked', description: 'Please allow popups and try again.', variant: 'destructive' });
           setIsConnectingGbp(false);
+        } else {
+          // Start a watchdog: if no postMessage arrives within 90s, OR if the
+          // popup window closes without posting back, stop the spinner so the
+          // user can retry / fill in manually instead of being stuck.
+          if (watchdogRef.current) clearTimeout(watchdogRef.current);
+          watchdogRef.current = setTimeout(() => {
+            setIsConnectingGbp(false);
+            toast({
+              title: "Didn't hear back from Google",
+              description: 'You can try again or fill in your details manually below.',
+              variant: 'destructive',
+            });
+          }, 90_000);
+
+          // Also poll for popup close as a faster signal
+          const pollClosed = setInterval(() => {
+            if (popup.closed) {
+              clearInterval(pollClosed);
+              // Give postMessage one extra second in case it's racing
+              setTimeout(() => {
+                setIsConnectingGbp(prev => {
+                  if (prev) {
+                    // Still spinning means no message arrived
+                    if (watchdogRef.current) {
+                      clearTimeout(watchdogRef.current);
+                      watchdogRef.current = null;
+                    }
+                  }
+                  return false;
+                });
+              }, 1000);
+            }
+          }, 500);
         }
       } else {
         const serverError = data?.error || 'No OAuth URL returned by the server';

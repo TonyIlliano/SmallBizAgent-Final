@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -46,6 +46,8 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
   const [placeSelected, setPlaceSelected] = useState(false);
   const [gbpConnected, setGbpConnected] = useState(false);
   const [gbpConnecting, setGbpConnecting] = useState(false);
+  // Watchdog: clear the connecting spinner if the popup never posts back.
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -90,6 +92,10 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === 'gbp-onboarding-data' && event.data.data) {
         const d = event.data.data;
+        if (watchdogRef.current) {
+          clearTimeout(watchdogRef.current);
+          watchdogRef.current = null;
+        }
         setGbpConnected(true);
         setGbpConnecting(false);
 
@@ -104,14 +110,24 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
         if (d.email) form.setValue('email', d.email, { shouldValidate: true });
 
         setShowManualEntry(true);
-        toast({
-          title: 'Business info imported!',
-          description: `Found "${d.name}" on Google. Review the details and continue.`,
-        });
+        if (d.name) {
+          toast({
+            title: 'Business info imported!',
+            description: `Found "${d.name}" on Google. Review the details and continue.`,
+          });
+        } else {
+          toast({
+            title: 'Connected to Google',
+            description: 'No business listing found on this account. Fill in your details below.',
+          });
+        }
       }
     };
     window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
+    return () => {
+      window.removeEventListener('message', handler);
+      if (watchdogRef.current) clearTimeout(watchdogRef.current);
+    };
   }, [form, toast]);
 
   const handleConnectGbp = async () => {
@@ -129,6 +145,37 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
           });
           setGbpConnecting(false);
           setShowManualEntry(true);
+        } else {
+          // Watchdog: 90s timeout in case postMessage never arrives.
+          if (watchdogRef.current) clearTimeout(watchdogRef.current);
+          watchdogRef.current = setTimeout(() => {
+            setGbpConnecting(false);
+            setShowManualEntry(true);
+            toast({
+              title: "Didn't hear back from Google",
+              description: 'Try again or fill in your details manually below.',
+              variant: 'destructive',
+            });
+          }, 90_000);
+
+          // Faster signal: poll for popup close.
+          const pollClosed = setInterval(() => {
+            if (popup.closed) {
+              clearInterval(pollClosed);
+              setTimeout(() => {
+                setGbpConnecting(prev => {
+                  if (prev) {
+                    setShowManualEntry(true);
+                    if (watchdogRef.current) {
+                      clearTimeout(watchdogRef.current);
+                      watchdogRef.current = null;
+                    }
+                  }
+                  return false;
+                });
+              }, 1000);
+            }
+          }, 500);
         }
       } else {
         throw new Error('No OAuth URL returned');

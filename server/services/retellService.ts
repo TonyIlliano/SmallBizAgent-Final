@@ -220,6 +220,51 @@ async function retellFetch<T = any>(
 }
 
 // ---------------------------------------------------------------------------
+// Phone Number Normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a phone number to E.164 format (e.g., +14155551234) for Retell.
+ *
+ * Retell's transfer_destination.number field strictly requires E.164. Many
+ * businesses store their transfer/contact phone as raw 10 digits, with
+ * formatting punctuation, or with various prefixes. This helper accepts:
+ *   - "+14155551234"          → "+14155551234" (already valid)
+ *   - "14155551234"           → "+14155551234"
+ *   - "(415) 555-1234"        → "+14155551234"
+ *   - "415-555-1234"          → "+14155551234"
+ *   - "4155551234"            → "+14155551234" (10-digit US default)
+ *   - anything shorter / non-numeric → null (skip the transfer tool)
+ *
+ * Returns null when the number can't be confidently normalized so the caller
+ * can omit the transfer tool entirely instead of crashing the whole LLM
+ * update with a Retell 400.
+ */
+export function normalizeToE164(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+
+  // Strip everything except digits and a leading +
+  const hasPlus = trimmed.startsWith('+');
+  const digits = trimmed.replace(/[^0-9]/g, '');
+
+  if (digits.length === 0) return null;
+
+  if (hasPlus) {
+    // Already E.164-ish: trust the digits we collected. Minimum 8 digits guard.
+    return digits.length >= 8 ? `+${digits}` : null;
+  }
+
+  // No leading + — assume US/Canada
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+
+  // Anything else is ambiguous — skip rather than send Retell a bad value.
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // First Message Builder
 // ---------------------------------------------------------------------------
 
@@ -711,11 +756,17 @@ export async function createLlmForBusiness(
   const isRestaurant = business.industry?.toLowerCase()?.includes('restaurant');
   const voicemailEnabled = receptionistConfig?.voicemailEnabled ?? true;
 
-  // Determine transfer number
+  // Determine transfer number, normalize to E.164 for Retell.
+  // If the stored number is unrecognizable, skip the transfer tool rather
+  // than send Retell a bad value (which would 400 the entire LLM update).
   const transferNumbers: string[] = Array.isArray(receptionistConfig?.transferPhoneNumbers)
     ? receptionistConfig!.transferPhoneNumbers as string[]
     : [];
-  const transferNumber = transferNumbers[0] || business.phone || null;
+  const rawTransferNumber = transferNumbers[0] || business.phone || null;
+  const transferNumber = normalizeToE164(rawTransferNumber);
+  if (rawTransferNumber && !transferNumber) {
+    console.warn(`[Retell] Skipping transfer_call tool for business ${business.id}: phone "${rawTransferNumber}" can't be normalized to E.164`);
+  }
 
   const tools = buildRetellTools(business.id, {
     isRestaurant,
