@@ -158,6 +158,13 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
   // listener unregistered and leave the spinner stuck on "Connecting...".
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // Debug: log ALL messages so we can see whether the popup's postMessage
+      // is even reaching this listener.
+      console.log('[GBP Listener express] received message:', {
+        origin: event.origin,
+        type: event.data?.type,
+        hasData: !!event.data?.data,
+      });
       if (event.data?.type === 'gbp-onboarding-data' && event.data.data) {
         const d = event.data.data;
         // Clear watchdog — postMessage arrived

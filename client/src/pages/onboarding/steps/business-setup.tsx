@@ -89,6 +89,14 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
   // postMessage from the OAuth popup and pre-fills form fields.
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // Debug: log ALL messages so we can see whether the popup's postMessage
+      // is even reaching this listener. If the GBP popup runs but parent
+      // sees nothing here, the issue is somewhere between the two windows.
+      console.log('[GBP Listener] received message:', {
+        origin: event.origin,
+        type: event.data?.type,
+        hasData: !!event.data?.data,
+      });
       if (event.data?.type === 'gbp-onboarding-data' && event.data.data) {
         const d = event.data.data;
         if (watchdogRef.current) {
