@@ -182,18 +182,28 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
   const handleConnectGbp = async () => {
     setIsConnectingGbp(true);
     try {
-      const res = await apiRequest('GET', '/api/gbp/onboarding/auth-url');
-      const { url } = await res.json();
+      // apiRequest from @/lib/api returns parsed JSON directly (not a Response).
+      const data: any = await apiRequest('GET', '/api/gbp/onboarding/auth-url');
+      const url = data?.url;
       if (url) {
         const popup = window.open(url, 'gbp-onboarding', 'width=600,height=700');
-        // If popup was blocked
         if (!popup) {
           toast({ title: 'Popup blocked', description: 'Please allow popups and try again.', variant: 'destructive' });
           setIsConnectingGbp(false);
         }
+      } else {
+        const serverError = data?.error || 'No OAuth URL returned by the server';
+        throw new Error(serverError);
       }
-    } catch {
-      toast({ title: 'Error', description: 'Could not connect to Google. Fill in your details manually.', variant: 'destructive' });
+    } catch (err: any) {
+      // Surface the actual server error so we can debug auth/config issues.
+      console.error('GBP connect error:', err);
+      const serverMsg = err?.message || 'Could not connect to Google.';
+      toast({
+        title: 'Could not connect to Google',
+        description: `${serverMsg} You can fill in your details manually.`,
+        variant: 'destructive',
+      });
       setIsConnectingGbp(false);
     }
   };

@@ -133,11 +133,14 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
       } else {
         throw new Error('No OAuth URL returned');
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Surface the actual server error message so we can debug auth/config issues
+      // instead of always showing the same generic "fill in manually" message.
       console.error('GBP connect error:', err);
+      const serverMsg = err?.message || 'Could not connect to Google.';
       toast({
         title: 'Could not connect to Google',
-        description: 'Fill in your business details manually below.',
+        description: `${serverMsg} You can fill in your business details manually below.`,
         variant: 'destructive',
       });
       setGbpConnecting(false);
