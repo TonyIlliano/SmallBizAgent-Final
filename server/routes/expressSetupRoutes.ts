@@ -393,6 +393,46 @@ export function registerExpressSetupRoutes(app: Express) {
         console.log("[ExpressSetup] Business hours created (Mon-Fri 9-5, Sat+Sun closed)");
 
         // -----------------------------------------------------------------
+        // 6.5. Persist GBP OAuth tokens from session if user connected during onboarding
+        //      Tokens were stashed in session by the GBP onboarding callback.
+        //      Now that the business exists, write them to calendar_integrations
+        //      via savePersistedTokens(). Failures don't block the rest of
+        //      onboarding — user can reconnect from Settings if it doesn't take.
+        // -----------------------------------------------------------------
+        const stash = (req.session as any)?.pendingGbp;
+        if (stash && stash.userId === userId && stash.tokens?.access_token) {
+          const ageMs = Date.now() - (stash.stashedAt || 0);
+          if (ageMs <= 30 * 60 * 1000) {
+            try {
+              const { GoogleBusinessProfileService } = await import('../services/googleBusinessProfileService');
+              const gbpService = new GoogleBusinessProfileService();
+              await gbpService.savePersistedTokens(
+                business.id,
+                stash.tokens,
+                stash.selectedAccount,
+                stash.selectedLocation
+              );
+              console.log(`[ExpressSetup] Persisted GBP tokens for business ${business.id}`);
+
+              // Fire-and-forget: kick off initial sync (business info + reviews)
+              gbpService.syncBusinessData(business.id).catch((err: any) => {
+                console.error(`[ExpressSetup] Post-onboarding GBP sync error:`, err?.message || err);
+              });
+              gbpService.syncReviews(business.id).catch((err: any) => {
+                console.error(`[ExpressSetup] Post-onboarding GBP review sync error:`, err?.message || err);
+              });
+            } catch (gbpErr: any) {
+              console.error(`[ExpressSetup] Failed to persist GBP tokens for business ${business.id}:`, gbpErr?.message || gbpErr);
+            }
+          } else {
+            console.log(`[ExpressSetup] GBP stash expired (age=${ageMs}ms), skipping`);
+          }
+          // Always clear the stash regardless of outcome
+          delete (req.session as any).pendingGbp;
+          await new Promise<void>((resolve) => req.session.save(() => resolve()));
+        }
+
+        // -----------------------------------------------------------------
         // 7. SYNCHRONOUSLY provision Twilio + Retell AI
         //    We wait for the result instead of fire-and-forget so the user
         //    sees the actual outcome — not a false "success" that masks a

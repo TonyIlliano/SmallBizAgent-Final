@@ -59,7 +59,11 @@ router.get('/google/callback', async (req, res) => {
     }
 
     // ── Onboarding flow: state starts with "onboarding_" ──
-    // Fetch business data directly from GBP and return via postMessage (no DB save)
+    // Fetch business data directly from GBP, stash tokens in session for the
+    // express-setup endpoint to persist after the business is created, and
+    // return businessData to the popup-opener via postMessage. The session
+    // stash is also queryable via /api/gbp/onboarding/pending as a COOP
+    // fallback when window.opener.postMessage is blocked.
     if (state.startsWith('onboarding_')) {
       console.log(`[GBP Onboarding] OAuth callback for user state=${state}`);
       try {
@@ -74,12 +78,15 @@ router.get('/google/callback', async (req, res) => {
         oauth2Client.setCredentials(tokens);
 
         let businessData: any = {};
+        let selectedAccount: any = null;
+        let selectedLocation: any = null;
         try {
           const accountsRes = await oauth2Client.request({ url: 'https://mybusinessaccountmanagement.googleapis.com/v1/accounts' });
           const accounts = (accountsRes.data as any)?.accounts || [];
 
           if (accounts.length > 0) {
             const accountName = accounts[0].name;
+            selectedAccount = accounts[0]; // remember for persistence step
             const mybusinessInfo = google.mybusinessbusinessinformation({ version: 'v1', auth: oauth2Client });
 
             let locations: any[] = [];
@@ -101,6 +108,7 @@ router.get('/google/callback', async (req, res) => {
 
             if (locations.length > 0) {
               const loc = locations[0];
+              selectedLocation = loc; // remember for persistence step
               const addr = loc.storefrontAddress;
               const primaryCategory = loc.categories?.primaryCategory?.displayName || '';
 
@@ -124,22 +132,45 @@ router.get('/google/callback', async (req, res) => {
           console.error('[GBP Onboarding] Error fetching business data:', fetchErr?.message);
         }
 
+        // ── Stash tokens + business data in session for the express-setup endpoint ──
+        // The express-setup mutation reads this AFTER the business is created
+        // and writes tokens to calendar_integrations via savePersistedTokens().
+        const userIdFromState = parseInt(state.replace('onboarding_', ''));
+        if (!isNaN(userIdFromState) && req.session) {
+          (req.session as any).pendingGbp = {
+            userId: userIdFromState,
+            tokens,
+            selectedAccount,
+            selectedLocation,
+            businessData,
+            stashedAt: Date.now(),
+          };
+          // Force session save so the data is durable before the popup closes
+          await new Promise<void>((resolve) => {
+            req.session.save(() => resolve());
+          });
+          console.log(`[GBP Onboarding] Stashed tokens + data in session for user ${userIdFromState}`);
+        }
+
         const safeData = JSON.stringify(businessData).replace(/'/g, "\\'").replace(/</g, '\\u003c');
         const dataKeys = Object.keys(businessData).filter(k => businessData[k] && businessData[k] !== '').join(', ') || '(empty)';
+        // Option C: tighten postMessage target origin from '*' to APP_URL when set
+        const targetOrigin = process.env.APP_URL || '*';
         return res.send(`
           <html>
             <body style="font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb;">
               <div style="text-align: center; padding: 40px; max-width: 500px;">
                 <div style="font-size: 48px; margin-bottom: 16px;">&#10004;&#65039;</div>
-                <h1 style="color: #333; margin-bottom: 8px;">${businessData.name ? 'Business Info Found!' : 'Connected!'}</h1>
-                <p style="color: #666;">${businessData.name ? 'Sending data to the signup form...' : 'Could not find business data. Fill in manually.'}</p>
+                <h1 style="color: #333; margin-bottom: 8px;">${businessData.name ? 'Connected!' : 'Authorized'}</h1>
+                <p style="color: #666;">${businessData.name ? 'Loading your business info...' : 'Continuing setup...'}</p>
                 <div id="status" style="color: #999; font-size: 13px; margin-top: 20px; padding: 12px; background: white; border-radius: 6px; border: 1px solid #e5e7eb; text-align: left;">
                   <div style="font-weight: 600; color: #374151; margin-bottom: 6px;">Diagnostic info:</div>
                   <div>Fields received: <code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;">${dataKeys}</code></div>
                   <div id="opener-status" style="margin-top: 4px;">Checking opener...</div>
                   <div id="post-status" style="margin-top: 4px;"></div>
+                  <div style="margin-top: 4px; color: #10b981;">Tokens saved to session — connection persists even if this message fails.</div>
                 </div>
-                <p style="color: #999; font-size: 12px; margin-top: 16px;" id="close-msg">This window will close in 4 seconds (longer for debugging)...</p>
+                <p style="color: #999; font-size: 12px; margin-top: 16px;" id="close-msg">This window will close in 3 seconds...</p>
               </div>
               <script>
                 (function() {
@@ -148,32 +179,21 @@ router.get('/google/callback', async (req, res) => {
                     var el = statusEl(id);
                     if (el) el.textContent = text;
                   };
-
-                  // Check opener availability
                   var hasOpener = !!window.opener;
-                  setText('opener-status', hasOpener
-                    ? 'window.opener: AVAILABLE'
-                    : 'window.opener: NULL (COOP/popup blocker — message cannot be sent)');
-                  console.log('[GBP Popup] window.opener =', hasOpener ? 'available' : 'null');
-
+                  setText('opener-status', hasOpener ? 'window.opener: AVAILABLE' : 'window.opener: NULL (COOP — fallback polling will pick up data)');
                   if (hasOpener) {
                     try {
                       var data = JSON.parse('${safeData}');
-                      console.log('[GBP Popup] Posting message to opener:', data);
-                      window.opener.postMessage({ type: 'gbp-onboarding-data', data: data }, '*');
-                      setText('post-status', 'postMessage: SENT to opener');
-                      console.log('[GBP Popup] postMessage call completed without throwing');
+                      // Option C: send to APP_URL origin instead of '*'
+                      window.opener.postMessage({ type: 'gbp-onboarding-data', data: data }, '${targetOrigin}');
+                      setText('post-status', 'postMessage: SENT');
                     } catch (e) {
-                      setText('post-status', 'postMessage FAILED: ' + (e && e.message ? e.message : e));
-                      console.error('[GBP Popup] postMessage threw:', e);
+                      setText('post-status', 'postMessage failed: ' + (e && e.message ? e.message : e));
                     }
                   } else {
-                    setText('post-status', 'Cannot send data because opener is null. Close this and try again — if it persists, the parent page security policy is blocking us.');
+                    setText('post-status', 'Form will pick up data via polling.');
                   }
-
-                  // Auto-close after 4s if everything looks fine, longer if opener is null so user can read the warning
-                  var delay = hasOpener ? 4000 : 12000;
-                  setTimeout(function() { window.close(); }, delay);
+                  setTimeout(function() { window.close(); }, hasOpener ? 3000 : 6000);
                 })();
               </script>
             </body>
@@ -249,6 +269,8 @@ router.get('/google/callback', async (req, res) => {
       })();
     }
 
+    // Option C: tighten settings-card postMessage target origin from '*' to APP_URL
+    const settingsTargetOrigin = process.env.APP_URL || '*';
     res.send(`
       <html>
         <body style="font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb;">
@@ -260,7 +282,7 @@ router.get('/google/callback', async (req, res) => {
           </div>
           <script>
             if (window.opener) {
-              window.opener.postMessage({ type: 'gbp-connected', provider: 'google-business-profile' }, '*');
+              window.opener.postMessage({ type: 'gbp-connected', provider: 'google-business-profile' }, '${settingsTargetOrigin}');
             }
             setTimeout(function() { window.close(); }, 2000);
           </script>
@@ -297,6 +319,39 @@ router.get('/onboarding/auth-url', isAuthenticated, async (req, res) => {
     }
     const onboardingUrl = url.replace('state=0', `state=onboarding_${userId}`);
     res.json({ url: onboardingUrl });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Onboarding GBP: Poll for stashed business data + connection status.
+// COOP fallback for the express-setup form when window.opener.postMessage is
+// blocked. Returns the businessData (for form pre-fill) and a flag indicating
+// tokens are stashed. Tokens themselves are NEVER exposed to the client.
+router.get('/onboarding/pending', isAuthenticated, async (req, res) => {
+  try {
+    const userId = (req.user as any)?.id;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const stash = (req.session as any)?.pendingGbp;
+    if (!stash || stash.userId !== userId) {
+      return res.json({ pending: false });
+    }
+
+    // 30-min TTL — discard stale stashes
+    const ageMs = Date.now() - (stash.stashedAt || 0);
+    if (ageMs > 30 * 60 * 1000) {
+      delete (req.session as any).pendingGbp;
+      await new Promise<void>((resolve) => req.session.save(() => resolve()));
+      return res.json({ pending: false, expired: true });
+    }
+
+    // Return businessData but NEVER expose tokens to the client
+    return res.json({
+      pending: true,
+      data: stash.businessData || {},
+      hasLocation: !!stash.selectedLocation,
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

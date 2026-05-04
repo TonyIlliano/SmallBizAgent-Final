@@ -74,7 +74,10 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
   const [provisioningStep, setProvisioningStep] = useState<string | null>(null);
   const [gbpConnected, setGbpConnected] = useState(false);
   const [isConnectingGbp, setIsConnectingGbp] = useState(false);
-  const [gbpTokens, setGbpTokens] = useState<any>(null);
+  // GBP tokens are now stashed server-side in the session by the OAuth
+  // callback. The express-setup endpoint reads them from the session after
+  // the business is created and persists them via savePersistedTokens().
+  // Nothing for the client to track or forward in the mutation payload.
 
   const form = useForm<ExpressSetupData>({
     resolver: zodResolver(expressSetupSchema),
@@ -151,64 +154,67 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
   // Watchdog: clear the connecting spinner if the popup never posts back
   // (popup blocked silently, opener lost, postMessage dropped, etc).
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // COOP fallback: poll /api/gbp/onboarding/pending in case window.opener
+  // postMessage is blocked by Cross-Origin-Opener-Policy in some browsers.
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Listen for GBP onboarding data from OAuth popup. Previously this used
-  // `useState(() => ...)` which is misuse — the initializer's return value
-  // is never called as cleanup. In production builds this could leave the
-  // listener unregistered and leave the spinner stuck on "Connecting...".
+  // Shared helper: apply GBP businessData to the form. Used by both the
+  // postMessage listener (fast path when window.opener works) and the
+  // polling fallback (when COOP severs window.opener).
+  const applyGbpData = (d: any) => {
+    setGbpConnected(true);
+    setIsConnectingGbp(false);
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (d?.name) form.setValue('name', d.name);
+    if (d?.phone) form.setValue('phone', d.phone);
+    if (d?.address) form.setValue('address', d.address);
+    if (d?.city) form.setValue('city', d.city);
+    if (d?.state) form.setValue('state', d.state);
+    if (d?.zipCode) form.setValue('zipCode', d.zipCode);
+    if (d?.industry) form.setValue('industry', d.industry);
+    if (d?.email || userEmail) form.setValue('email', d?.email || userEmail || '');
+    if (d?.name) {
+      toast({
+        title: 'Business info imported!',
+        description: `Found "${d.name}" on Google. Review the details and continue.`,
+      });
+    } else {
+      toast({
+        title: 'Connected to Google',
+        description: 'No business listing found on this account. Fill in your details below.',
+      });
+    }
+  };
+
+  // Listen for GBP onboarding data from OAuth popup. Origin-checked (Option C):
+  // only accept messages from our own origin so a malicious popup can't inject
+  // form data. The popup callback's postMessage targetOrigin is APP_URL, which
+  // matches window.location.origin in production.
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      // Debug: log ALL messages so we can see whether the popup's postMessage
-      // is even reaching this listener.
-      console.log('[GBP Listener express] received message:', {
-        origin: event.origin,
-        type: event.data?.type,
-        hasData: !!event.data?.data,
-      });
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'gbp-onboarding-data' && event.data.data) {
-        const d = event.data.data;
-        // Clear watchdog — postMessage arrived
-        if (watchdogRef.current) {
-          clearTimeout(watchdogRef.current);
-          watchdogRef.current = null;
-        }
-        setGbpConnected(true);
-        setIsConnectingGbp(false);
-
-        // Pre-fill form fields from GBP data
-        if (d.name) form.setValue('name', d.name);
-        if (d.phone) form.setValue('phone', d.phone);
-        if (d.address) form.setValue('address', d.address);
-        if (d.city) form.setValue('city', d.city);
-        if (d.state) form.setValue('state', d.state);
-        if (d.zipCode) form.setValue('zipCode', d.zipCode);
-        if (d.industry) form.setValue('industry', d.industry);
-        if (d.email || userEmail) form.setValue('email', d.email || userEmail || '');
-
-        // Store tokens to pass along with express setup
-        if (d.gbpTokens) setGbpTokens(d.gbpTokens);
-
-        // Don't show "found nothing" as a success — the callback still posts
-        // a message even when the user has no GBP listing.
-        if (d.name) {
-          toast({
-            title: 'Business info imported!',
-            description: `Found "${d.name}" on Google. Review the details and continue.`,
-          });
-        } else {
-          toast({
-            title: 'Connected to Google',
-            description: 'No business listing found on this account. Fill in your details below.',
-          });
-        }
+        applyGbpData(event.data.data);
       }
     };
     window.addEventListener('message', handler);
     return () => {
       window.removeEventListener('message', handler);
       if (watchdogRef.current) clearTimeout(watchdogRef.current);
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
-  }, [form, toast, userEmail]);
+    // applyGbpData closes over stable refs (form, toast, userEmail). Don't
+    // re-run this effect on render-by-render changes — it would tear down
+    // and re-mount the listener for no reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Google Places auto-fill — primary signup path (covers any business listed
   // on Google Maps, not just claimed Business Profiles).
@@ -237,11 +243,14 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
           toast({ title: 'Popup blocked', description: 'Please allow popups and try again.', variant: 'destructive' });
           setIsConnectingGbp(false);
         } else {
-          // Start a watchdog: if no postMessage arrives within 90s, OR if the
-          // popup window closes without posting back, stop the spinner so the
-          // user can retry / fill in manually instead of being stuck.
+          // Watchdog: if neither postMessage nor polling delivers data within
+          // 90s, give up and let the user retry or fill in manually.
           if (watchdogRef.current) clearTimeout(watchdogRef.current);
           watchdogRef.current = setTimeout(() => {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
             setIsConnectingGbp(false);
             toast({
               title: "Didn't hear back from Google",
@@ -250,12 +259,27 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
             });
           }, 90_000);
 
-          // NOTE: We intentionally do NOT poll popup.closed here. Reading
-          // that property while the popup is on a cross-origin URL (Google's
-          // OAuth pages) triggers Cross-Origin-Opener-Policy violations in
-          // the console. The watchdog timeout + the popup's own auto-close
-          // (server callback closes itself) + the postMessage listener
-          // cover every flow without crossing COOP.
+          // COOP fallback polling: every 2s, check /api/gbp/onboarding/pending.
+          // Whichever delivers first (postMessage or this poll) calls
+          // applyGbpData(), which sets gbpConnected=true so this poll's
+          // result-check effectively becomes a no-op.
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = setInterval(async () => {
+            try {
+              const res = await fetch('/api/gbp/onboarding/pending', { credentials: 'include' });
+              if (!res.ok) return;
+              const json = await res.json();
+              if (json?.pending && json.data && Object.keys(json.data).length > 0) {
+                if (pollIntervalRef.current) {
+                  clearInterval(pollIntervalRef.current);
+                  pollIntervalRef.current = null;
+                }
+                applyGbpData(json.data);
+              }
+            } catch {
+              // Network blip — keep polling
+            }
+          }, 2000);
         }
       } else {
         const serverError = data?.error || 'No OAuth URL returned by the server';
@@ -264,6 +288,14 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
     } catch (err: any) {
       // Surface the actual server error so we can debug auth/config issues.
       console.error('GBP connect error:', err);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      if (watchdogRef.current) {
+        clearTimeout(watchdogRef.current);
+        watchdogRef.current = null;
+      }
       const serverMsg = err?.message || 'Could not connect to Google.';
       toast({
         title: 'Could not connect to Google',
@@ -275,8 +307,8 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
   };
 
   const onSubmit = (data: ExpressSetupData) => {
-    // Pass GBP tokens along so they can be saved after business creation
-    setupMutation.mutate({ ...data, gbpTokens } as any);
+    // Tokens are picked up server-side from the session stash, not the payload.
+    setupMutation.mutate(data);
   };
 
   // Show provisioning progress

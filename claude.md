@@ -718,6 +718,37 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### GBP Onboarding Persistence + COOP Fallback (Option B + C)
+- **Goal**: Make the "Connect Google Business Profile" link in onboarding actually persist a GBP connection, instead of just pre-filling the form and leaving the user disconnected. Also fix COOP-blocked `window.opener.postMessage` failures, and tighten `postMessage` target origin from `'*'` to `APP_URL`.
+
+##### Backend Changes
+- `server/services/googleBusinessProfileService.ts` — Added `savePersistedTokens(businessId, tokens, account?, location?)`. Writes pre-exchanged OAuth tokens to `calendar_integrations` without redoing the OAuth code exchange. Used by the onboarding flow where tokens are exchanged before the business record exists.
+- `server/routes/gbpRoutes.ts` — Onboarding callback (state starts with `onboarding_`) now stashes `{ tokens, selectedAccount, selectedLocation, businessData, stashedAt }` in `req.session.pendingGbp` keyed by userId. Force-saves session before the popup closes. 30-min TTL.
+- `server/routes/gbpRoutes.ts` — **NEW endpoint**: `GET /api/gbp/onboarding/pending` — returns stashed `businessData` (NOT tokens) for COOP-fallback polling. Returns `{ pending: false }` if no stash, `{ pending: false, expired: true }` if older than 30 min.
+- `server/routes/gbpRoutes.ts` — `postMessage` target origin tightened from `'*'` to `process.env.APP_URL || '*'` in both onboarding popup and settings popup.
+- `server/routes/expressSetupRoutes.ts` — After business creation (step 6.5, before provisioning), reads `req.session.pendingGbp` and calls `gbpService.savePersistedTokens()` to write tokens to `calendar_integrations`. Fires `syncBusinessData` + `syncReviews` fire-and-forget. Always clears stash. Failures don't block onboarding (user can reconnect from settings).
+
+##### Frontend Changes
+- `client/src/pages/onboarding/steps/express-setup.tsx` — Added `event.origin !== window.location.origin` check on the postMessage listener (matches settings-card security posture).
+- `client/src/pages/onboarding/steps/express-setup.tsx` — Added COOP fallback polling: every 2s, fetches `/api/gbp/onboarding/pending`, applies businessData to form when it arrives. Whichever fires first (postMessage or polling) wins; the other is cancelled. 90s watchdog clears both. Extracted `applyGbpData()` helper so both code paths share the same form-fill logic.
+- `client/src/pages/onboarding/steps/express-setup.tsx` — Removed `gbpTokens` field from the express-setup mutation payload (it was always silently dropped by the server's Zod schema). Tokens now flow exclusively through the server-side session stash.
+
+##### Behavior
+- User clicks "Connect GBP" → popup opens, OAuth completes
+- Server callback exchanges code for tokens, fetches business info, stashes everything in session, replies with HTML that posts to opener AND closes
+- Form receives data via postMessage (fast path) OR polling (COOP fallback)
+- Form submits express setup → server creates business, then reads session stash, persists tokens to `calendar_integrations`, kicks off sync, clears stash
+- User lands on dashboard already connected. No reconnect step required.
+
+##### Files Changed
+- `server/services/googleBusinessProfileService.ts` — `savePersistedTokens()` method (~75 lines)
+- `server/routes/gbpRoutes.ts` — Onboarding callback rewrite + new `/onboarding/pending` endpoint + targetOrigin tightening (~50 lines net change)
+- `server/routes/expressSetupRoutes.ts` — Step 6.5 GBP persistence block (~40 lines)
+- `client/src/pages/onboarding/steps/express-setup.tsx` — Origin check, polling fallback, payload cleanup, applyGbpData helper (~60 lines net change)
+
+##### Verification
+- `npx tsc --noEmit` clean.
+
 #### Weekly Intelligence Refresh — Closes the AI Learning Loop on Retell
 - **Goal**: Without this, the Retell agent's system prompt only refreshes when an owner takes action (manual "Refresh Assistant", accepting an auto-refine suggestion, knowledge base / config edit). Meanwhile `call_intelligence` rows accumulate continuously — new objections, frequently requested services, sentiment trends, unanswered questions — and `buildIntelligenceHints()` is ready to inject them. A busy owner who never logs in was running on a stale prompt while fresh patterns sat unused. This closes the gap silently: every active business gets its agent prompt regenerated weekly with the latest patterns, no owner action required. Retell itself does *not* offer this — their post-call analysis is for human review only. This is a SmallBizAgent meta-layer differentiator.
 

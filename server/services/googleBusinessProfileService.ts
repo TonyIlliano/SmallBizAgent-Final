@@ -247,6 +247,80 @@ export class GoogleBusinessProfileService {
     }
   }
 
+  /**
+   * Persist already-exchanged GBP OAuth tokens for a business.
+   * Used by the onboarding flow where tokens were exchanged BEFORE the
+   * business record existed (the popup callback runs first, then the express
+   * setup mutation creates the business and calls this to persist).
+   *
+   * Skips the OAuth code-exchange step that handleCallback() does — assumes
+   * tokens were already obtained via oauth2Client.getToken(code) elsewhere.
+   *
+   * @param businessId - The newly-created business ID
+   * @param tokens - Tokens object from oauth2Client.getToken() (access_token, refresh_token, expiry_date, etc.)
+   * @param selectedAccount - Optional GBP account to pre-select (avoids the user having to pick later)
+   * @param selectedLocation - Optional GBP location to pre-select
+   */
+  async savePersistedTokens(
+    businessId: number,
+    tokens: any,
+    selectedAccount?: any,
+    selectedLocation?: any
+  ): Promise<void> {
+    if (!tokens || !tokens.access_token) {
+      throw new Error('Invalid tokens — missing access_token');
+    }
+
+    console.log(`[GBP] savePersistedTokens for business ${businessId}: hasAccessToken=${!!tokens.access_token}, hasRefreshToken=${!!tokens.refresh_token}, expiresIn=${tokens.expiry_date ? Math.round((tokens.expiry_date - Date.now()) / 1000) + 's' : 'unknown'}`);
+
+    // Build the token row the same way handleCallback() does (encrypted)
+    const existingIntegration = await db.select()
+      .from(calendarIntegrations)
+      .where(
+        and(
+          eq(calendarIntegrations.businessId, businessId),
+          eq(calendarIntegrations.provider, PROVIDER)
+        )
+      )
+      .limit(1);
+
+    const existingRefresh = existingIntegration[0]?.refreshToken
+      ? decryptField(existingIntegration[0].refreshToken)
+      : null;
+    const tokenData = {
+      accessToken: encryptField(tokens.access_token)!,
+      refreshToken: encryptField(tokens.refresh_token || existingRefresh),
+      expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : new Date(Date.now() + 3600 * 1000),
+      updatedAt: new Date(),
+    };
+
+    // Build the JSONB data column with optional selectedAccount/selectedLocation
+    const dataPayload: GBPStoredData = {};
+    if (selectedAccount) dataPayload.selectedAccount = selectedAccount;
+    if (selectedLocation) dataPayload.selectedLocation = selectedLocation;
+
+    if (existingIntegration.length > 0) {
+      // Merge with whatever's already there (don't clobber selectedLocation if it exists)
+      const existing = JSON.parse(existingIntegration[0].data || '{}');
+      const merged = { ...existing, ...dataPayload };
+      await db.update(calendarIntegrations)
+        .set({ ...tokenData, data: JSON.stringify(merged) })
+        .where(eq(calendarIntegrations.id, existingIntegration[0].id));
+    } else {
+      await db.insert(calendarIntegrations)
+        .values({
+          businessId,
+          provider: PROVIDER,
+          ...tokenData,
+          data: JSON.stringify(dataPayload),
+          createdAt: new Date(),
+        });
+    }
+
+    invalidateCache(businessId);
+    console.log(`[GBP] savePersistedTokens: SUCCESS for business ${businessId} — selectedAccount=${!!selectedAccount}, selectedLocation=${!!selectedLocation}`);
+  }
+
   async handleCallback(code: string, state: string): Promise<boolean> {
     try {
       const businessId = parseInt(state);
