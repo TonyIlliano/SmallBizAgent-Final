@@ -36,12 +36,9 @@ import {
 } from "@/components/ui/table";
 import {
   Loader2,
-  Plus,
   Pencil,
   Trash2,
   Phone,
-  PhoneCall,
-  Search,
   Star,
   RefreshCw,
 } from "lucide-react";
@@ -61,19 +58,6 @@ interface PhoneNumber {
   dateProvisioned: string | null;
 }
 
-interface AvailablePhoneNumber {
-  phoneNumber: string;
-  friendlyName: string;
-  locality: string;
-  region: string;
-  isoCountry: string;
-  capabilities: {
-    voice: boolean;
-    sms: boolean;
-    mms: boolean;
-  };
-}
-
 // ---------------------------------------------------------------------------
 // PhoneNumbersManager
 // ---------------------------------------------------------------------------
@@ -82,14 +66,12 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Dialog state
-  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  // Dialog state — provisioning lives on /receptionist now, so we only need
+  // edit-label and release dialogs here.
   const [editLabelDialogOpen, setEditLabelDialogOpen] = useState(false);
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
 
   // Form state
-  const [areaCode, setAreaCode] = useState("");
-  const [selectedNumber, setSelectedNumber] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [editingPhone, setEditingPhone] = useState<PhoneNumber | null>(null);
   const [releasingPhone, setReleasingPhone] = useState<PhoneNumber | null>(null);
@@ -113,62 +95,9 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
     enabled: !!businessId,
   });
 
-  const {
-    data: availableNumbers,
-    isLoading: isLoadingAvailable,
-    refetch: refetchAvailable,
-  } = useQuery<AvailablePhoneNumber[]>({
-    queryKey: [`/api/business/${businessId}/phone-numbers/available`, areaCode],
-    queryFn: async () => {
-      const res = await apiRequest(
-        "GET",
-        `/api/business/${businessId}/phone-numbers/available?areaCode=${areaCode}`,
-      );
-      const data = await res.json();
-      return data.phoneNumbers ?? data;
-    },
-    enabled: false, // Manual trigger only
-  });
-
   // -------------------------------------------------------------------------
   // Mutations
   // -------------------------------------------------------------------------
-
-  const provisionMutation = useMutation({
-    mutationFn: async ({
-      specificNumber,
-      areaCode: ac,
-      label,
-    }: {
-      specificNumber?: string;
-      areaCode?: string;
-      label?: string;
-    }) => {
-      const res = await apiRequest("POST", `/api/business/${businessId}/phone-numbers`, {
-        specificNumber,
-        areaCode: ac,
-        label,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Phone number provisioned",
-        description: "The new phone number has been added to your business.",
-      });
-      queryClient.invalidateQueries({
-        queryKey: [`/api/business/${businessId}/phone-numbers`],
-      });
-      resetAddDialog();
-    },
-    onError: (error) => {
-      toast({
-        title: "Failed to provision phone number",
-        description: error instanceof Error ? error.message : "An unknown error occurred",
-        variant: "destructive",
-      });
-    },
-  });
 
   const updateMutation = useMutation({
     mutationFn: async ({
@@ -236,74 +165,9 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
     },
   });
 
-  const connectRetellMutation = useMutation({
-    mutationFn: async (phoneId: number) => {
-      const res = await apiRequest(
-        "POST",
-        `/api/business/${businessId}/phone-numbers/${phoneId}/connect-retell`,
-      );
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Connected to AI Receptionist",
-        description: "The phone number is now connected to your AI receptionist.",
-      });
-      queryClient.invalidateQueries({
-        queryKey: [`/api/business/${businessId}/phone-numbers`],
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Failed to connect to AI Assistant",
-        description: error instanceof Error ? error.message : "An unknown error occurred",
-        variant: "destructive",
-      });
-    },
-  });
-
   // -------------------------------------------------------------------------
   // Handlers
   // -------------------------------------------------------------------------
-
-  function resetAddDialog() {
-    setAddDialogOpen(false);
-    setAreaCode("");
-    setSelectedNumber("");
-    setNewLabel("");
-  }
-
-  function handleAreaCodeSearch() {
-    if (!/^\d{3}$/.test(areaCode)) {
-      toast({
-        title: "Invalid area code",
-        description: "Please enter a valid 3-digit area code.",
-        variant: "destructive",
-      });
-      return;
-    }
-    refetchAvailable();
-  }
-
-  function handleSelectAvailableNumber(phoneNumber: string) {
-    setSelectedNumber(phoneNumber);
-  }
-
-  function handleProvision() {
-    if (!selectedNumber) {
-      toast({
-        title: "No number selected",
-        description: "Please search for and select a phone number to provision.",
-        variant: "destructive",
-      });
-      return;
-    }
-    provisionMutation.mutate({
-      specificNumber: selectedNumber,
-      areaCode: areaCode || undefined,
-      label: newLabel || undefined,
-    });
-  }
 
   function handleOpenEditLabel(phone: PhoneNumber) {
     setEditingPhone(phone);
@@ -334,10 +198,6 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
   function handleConfirmRelease() {
     if (!releasingPhone) return;
     releaseMutation.mutate(releasingPhone.id);
-  }
-
-  function handleConnectRetell(phone: PhoneNumber) {
-    connectRetellMutation.mutate(phone.id);
   }
 
   // -------------------------------------------------------------------------
@@ -384,17 +244,14 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
                 Phone Numbers
               </CardTitle>
               <CardDescription>
-                Manage phone numbers for your business. Add new numbers, edit labels, and connect to your AI assistant.
+                Manage labels, set the primary line, or release numbers. To provision a new
+                number, head to the <span className="font-medium">Receptionist</span> page.
               </CardDescription>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
                 Refresh
-              </Button>
-              <Button size="sm" onClick={() => setAddDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Number
               </Button>
             </div>
           </div>
@@ -412,7 +269,7 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
             <div className="text-center py-8 text-muted-foreground">
               <Phone className="h-10 w-10 mx-auto mb-3 opacity-50" />
               <p className="text-sm">No phone numbers provisioned yet.</p>
-              <p className="text-xs mt-1">Click "Add Number" to provision your first phone number.</p>
+              <p className="text-xs mt-1">Provision a number from the Receptionist page to get started.</p>
             </div>
           ) : (
             <Table>
@@ -480,22 +337,8 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
                           </Button>
                         )}
 
-                        {/* Connect to AI Receptionist */}
-                        {!phone.vapiConnected && !phone.retellConnected && phone.status === "active" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleConnectRetell(phone)}
-                            disabled={connectRetellMutation.isPending}
-                            title="Connect to AI Assistant"
-                          >
-                            {connectRetellMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <PhoneCall className="h-4 w-4" />
-                            )}
-                          </Button>
-                        )}
+                        {/* AI Connected indicator (read-only). Actual connection happens
+                            during provisioning on the Receptionist page. */}
                         {(phone.vapiConnected || phone.retellConnected) && (
                           <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
                             AI Connected
@@ -522,134 +365,6 @@ export function PhoneNumbersManager({ businessId }: { businessId: number }) {
           )}
         </CardContent>
       </Card>
-
-      {/* ----------------------------------------------------------------- */}
-      {/* Add Phone Number Dialog                                           */}
-      {/* ----------------------------------------------------------------- */}
-      <Dialog open={addDialogOpen} onOpenChange={(open) => !open && resetAddDialog()}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add Phone Number</DialogTitle>
-            <DialogDescription>
-              Search for available phone numbers by area code, then select one to provision.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Area code search */}
-            <div className="flex items-end gap-2">
-              <div className="grid flex-1 gap-2">
-                <Label htmlFor="search-area-code">Area Code</Label>
-                <Input
-                  id="search-area-code"
-                  placeholder="e.g. 212"
-                  value={areaCode}
-                  onChange={(e) => setAreaCode(e.target.value)}
-                  maxLength={3}
-                />
-              </div>
-              <Button
-                type="button"
-                onClick={handleAreaCodeSearch}
-                disabled={isLoadingAvailable}
-              >
-                {isLoadingAvailable ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Search className="h-4 w-4 mr-2" />
-                )}
-                Search
-              </Button>
-            </div>
-
-            {/* Available numbers list */}
-            {availableNumbers && availableNumbers.length > 0 && (
-              <div className="max-h-60 overflow-y-auto border rounded-md">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Phone Number</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {availableNumbers.map((num) => (
-                      <TableRow
-                        key={num.phoneNumber}
-                        className={
-                          selectedNumber === num.phoneNumber
-                            ? "bg-primary/10"
-                            : ""
-                        }
-                      >
-                        <TableCell className="font-mono text-sm">
-                          {num.friendlyName || num.phoneNumber}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {num.locality ? `${num.locality}, ${num.region}` : num.region}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant={selectedNumber === num.phoneNumber ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => handleSelectAvailableNumber(num.phoneNumber)}
-                          >
-                            {selectedNumber === num.phoneNumber ? "Selected" : "Select"}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-
-            {availableNumbers && availableNumbers.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No phone numbers available for this area code. Try a different one.
-              </p>
-            )}
-
-            {/* Selected number display */}
-            {selectedNumber && (
-              <div className="rounded-md border p-3 bg-muted/50">
-                <p className="text-sm font-medium">
-                  Selected: <span className="font-mono">{selectedNumber}</span>
-                </p>
-              </div>
-            )}
-
-            {/* Optional label */}
-            <div className="grid gap-2">
-              <Label htmlFor="provision-label">Label (optional)</Label>
-              <Input
-                id="provision-label"
-                placeholder="e.g. Main line, Support, Sales"
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={resetAddDialog}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleProvision}
-              disabled={!selectedNumber || provisionMutation.isPending}
-            >
-              {provisionMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Phone className="h-4 w-4 mr-2" />
-              )}
-              Provision Number
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* ----------------------------------------------------------------- */}
       {/* Edit Label Dialog                                                 */}

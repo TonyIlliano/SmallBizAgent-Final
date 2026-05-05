@@ -64,7 +64,9 @@ import {
 // Lazy-loaded extracted components (self-contained with own data fetching)
 const BookingPageBranding = lazy(() => import("@/components/settings/BookingPageBranding"));
 const TeamManagementCard = lazy(() => import("@/components/settings/TeamManagementCard"));
-const PhoneProvisioningCard = lazy(() => import("@/components/settings/PhoneProvisioningCard"));
+// NOTE: PhoneProvisioningCard now lives on the Receptionist page (/receptionist) — that's
+// the natural home for AI receptionist phone setup. It used to render here, but provisioning
+// from two places caused confusion and bugs.
 
 function LazyFallback() {
   return (
@@ -698,10 +700,6 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
         </CardContent>
       </Card>
 
-      {/* Phone Provisioning Card (lazy-loaded, self-contained) */}
-      <Suspense fallback={<LazyFallback />}>
-        <PhoneProvisioningCard />
-      </Suspense>
     </div>
   );
 }

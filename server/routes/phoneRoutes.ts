@@ -52,7 +52,25 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const businessId = parseInt(req.params.id);
-      const phoneNumbers = await storage.getPhoneNumbersByBusiness(businessId);
+      const rows = await storage.getPhoneNumbersByBusiness(businessId);
+      // Project DB rows into the shape the UI expects.
+      // The DB column is twilio_phone_number → drizzle field twilioPhoneNumber,
+      // but the frontend reads `phoneNumber` (matching adminRoutes.ts:152). Without
+      // this mapping, the UI sees `phoneNumber: undefined` and renders blank cells.
+      const phoneNumbers = rows.map((row) => ({
+        id: row.id,
+        businessId: row.businessId,
+        phoneNumber: row.twilioPhoneNumber,
+        phoneNumberSid: row.twilioPhoneNumberSid,
+        retellPhoneNumberId: row.retellPhoneNumberId ?? null,
+        retellConnected: !!row.retellPhoneNumberId,
+        label: row.label,
+        status: row.status,
+        isPrimary: row.isPrimary,
+        dateProvisioned: row.dateProvisioned,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }));
       res.json({ phoneNumbers });
     } catch (error: any) {
       console.error("[Phone] Error listing phone numbers:", error);

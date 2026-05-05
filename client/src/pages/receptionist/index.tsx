@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { ReceptionistConfig } from "@/components/receptionist/ReceptionistConfig";
@@ -10,11 +10,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles, ChevronDown, ChevronUp, Zap } from "lucide-react";
+import { Phone, Settings, MessageSquare, Info, Brain, PhoneForwarded, Sparkles, ChevronDown, ChevronUp, Zap, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 import { FeatureTip } from "@/components/ui/feature-tip";
 import { SectionErrorBoundary } from "@/components/ui/section-error-boundary";
+
+// Phone provisioning lives here (used to live in Settings → Business). This is the
+// natural home: it controls the AI receptionist's phone number, deprovisioning, and
+// the receptionist on/off toggle.
+const PhoneProvisioningCard = lazy(() => import("@/components/settings/PhoneProvisioningCard"));
 
 
 // Recording disclosure keywords (must match server-side check)
@@ -210,6 +215,18 @@ export default function Receptionist() {
             </CardContent>
           )}
         </Card>
+
+        {/* Phone provisioning card — controls the AI receptionist phone number,
+            on/off toggle, deprovisioning, and call-forwarding setup. */}
+        <SectionErrorBoundary fallbackTitle="Phone provisioning">
+          <Suspense fallback={
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          }>
+            <PhoneProvisioningCard />
+          </Suspense>
+        </SectionErrorBoundary>
 
         <Tabs defaultValue="calls" value={activeTab || "calls"} onValueChange={setActiveTab}>
           <TabsList className="flex w-full overflow-x-auto sm:grid sm:w-full sm:grid-cols-4 mb-6">

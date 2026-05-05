@@ -2385,6 +2385,9 @@ async function runMigrations() {
     // Production readiness: webhook idempotency, invoice sequences, password token hashing
     await addProductionReadinessTables();
 
+    // Phone number primary-uniqueness: demote stale duplicates + enforce via partial index
+    await enforcePhoneNumberPrimaryUniqueness();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3118,6 +3121,70 @@ async function addProductionReadinessTables() {
     console.log('Production readiness tables created successfully');
   } catch (error) {
     console.error('Error creating production readiness tables:', error);
+  }
+}
+
+/**
+ * Phone number primary-uniqueness enforcement.
+ *
+ * Background: failed/partial Twilio provisioning runs and pre-fix code paths
+ * could leave a business with multiple rows in business_phone_numbers where
+ * is_primary = true. The storage layer now demotes siblings in a transaction,
+ * but historical data needs cleanup, and the database itself should refuse to
+ * accept two primaries for the same business going forward.
+ *
+ * Strategy:
+ *   1. For each business with >1 primary row, keep the OLDEST (lowest id) and
+ *      demote the rest. We choose oldest because it's the row most likely to
+ *      already be referenced by the legacy businesses.twilio_phone_number column
+ *      and the active Retell agent.
+ *   2. Add a partial unique index on (business_id) WHERE is_primary = true.
+ *      Partial because we only want to constrain primary rows, not all rows.
+ *
+ * Idempotent: re-running the demote query is a no-op once duplicates are gone,
+ * and CREATE UNIQUE INDEX IF NOT EXISTS won't fail on subsequent runs.
+ */
+async function enforcePhoneNumberPrimaryUniqueness() {
+  console.log('Enforcing phone number primary-uniqueness...');
+  try {
+    // Step 1: Demote all-but-oldest primaries per business.
+    const demoteResult = await pool.query(`
+      UPDATE business_phone_numbers
+      SET is_primary = false,
+          updated_at = NOW()
+      WHERE id IN (
+        SELECT id
+        FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY business_id
+                   ORDER BY id ASC
+                 ) AS rn
+          FROM business_phone_numbers
+          WHERE is_primary = true
+        ) ranked
+        WHERE rn > 1
+      )
+    `);
+    if (demoteResult.rowCount && demoteResult.rowCount > 0) {
+      console.log(`Demoted ${demoteResult.rowCount} duplicate primary phone number row(s)`);
+    }
+
+    // Step 2: Add partial unique index. After step 1 the table is clean, so this
+    // will succeed. If it already exists, IF NOT EXISTS keeps it idempotent.
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS business_phone_numbers_one_primary_per_business
+      ON business_phone_numbers (business_id)
+      WHERE is_primary = true
+    `);
+
+    console.log('Phone number primary-uniqueness enforced');
+  } catch (error: any) {
+    // Don't crash the whole boot if this fails — log loudly and continue.
+    // A unique-violation here would mean step 1's cleanup didn't catch every
+    // duplicate, which warrants manual investigation but shouldn't block the
+    // app from starting.
+    console.error('Error enforcing phone number primary-uniqueness:', error.message || error);
   }
 }
 

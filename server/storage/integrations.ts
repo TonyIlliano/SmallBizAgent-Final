@@ -166,6 +166,26 @@ export async function getPhoneNumber(id: number): Promise<BusinessPhoneNumber | 
 }
 
 export async function createPhoneNumber(data: InsertBusinessPhoneNumber): Promise<BusinessPhoneNumber> {
+  // If this row claims to be primary, demote any other primary for the same business
+  // first (in the same transaction). This prevents two rows being primary simultaneously
+  // and complements the partial unique index on (business_id) WHERE is_primary = true.
+  if (data.isPrimary === true) {
+    return await db.transaction(async (tx) => {
+      await tx.update(businessPhoneNumbers)
+        .set({ isPrimary: false, updatedAt: new Date() })
+        .where(and(
+          eq(businessPhoneNumbers.businessId, data.businessId),
+          eq(businessPhoneNumbers.isPrimary, true),
+        ));
+      const [created] = await tx.insert(businessPhoneNumbers).values({
+        ...data,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }).returning();
+      return created;
+    });
+  }
+
   const [created] = await db.insert(businessPhoneNumbers).values({
     ...data,
     createdAt: new Date(),
@@ -175,6 +195,30 @@ export async function createPhoneNumber(data: InsertBusinessPhoneNumber): Promis
 }
 
 export async function updatePhoneNumber(id: number, data: Partial<BusinessPhoneNumber>): Promise<BusinessPhoneNumber> {
+  // If this update is promoting the row to primary, demote sibling primaries in the
+  // same transaction. We have to look up the row's businessId first because callers
+  // may not pass it in `data`.
+  if (data.isPrimary === true) {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(businessPhoneNumbers)
+        .where(eq(businessPhoneNumbers.id, id));
+      if (!existing) {
+        throw new Error(`Phone number ${id} not found`);
+      }
+      await tx.update(businessPhoneNumbers)
+        .set({ isPrimary: false, updatedAt: new Date() })
+        .where(and(
+          eq(businessPhoneNumbers.businessId, existing.businessId),
+          eq(businessPhoneNumbers.isPrimary, true),
+        ));
+      const [updated] = await tx.update(businessPhoneNumbers)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(businessPhoneNumbers.id, id))
+        .returning();
+      return updated;
+    });
+  }
+
   const [updated] = await db.update(businessPhoneNumbers)
     .set({ ...data, updatedAt: new Date() })
     .where(eq(businessPhoneNumbers.id, id))
