@@ -42,6 +42,26 @@ router.get("/book/:slug", async (req, res) => {
       return res.status(400).json({ error: "Online booking is not available for this business" });
     }
 
+    // Free tier gate — booking page is paid-only. Return 410 Gone with a clear
+    // message so any QR codes or shared links keep working but customers see
+    // "this business has paused online booking. Call them directly: [phone]"
+    // instead of getting a confusing error.
+    try {
+      const { isFreePlanSync } = await import("../services/usageService");
+      if (isFreePlanSync(business)) {
+        return res.status(410).json({
+          error: "Online booking is paused",
+          code: "BOOKING_PAUSED_FREE_PLAN",
+          message: "This business has paused online booking. Please call them directly.",
+          businessName: business.name,
+          businessPhone: business.phone || null,
+        });
+      }
+    } catch (planErr) {
+      // Fail open — don't break booking for paying customers due to a plan-check error
+      console.warn(`[Booking] Free plan check failed for business ${business.id}:`, planErr);
+    }
+
     // Get active services for this business
     const allServices = await storage.getServices(business.id);
     const activeServices = allServices.filter(s => s.active);
@@ -431,6 +451,20 @@ router.post("/book/:slug", async (req, res) => {
     const business = await storage.getBusinessByBookingSlug(slug);
     if (!business || !business.bookingEnabled) {
       return res.status(404).json({ error: "Business not found or booking not available" });
+    }
+
+    // Free tier gate — block submission. Mirrors the GET handler check above.
+    try {
+      const { isFreePlanSync } = await import("../services/usageService");
+      if (isFreePlanSync(business)) {
+        return res.status(410).json({
+          error: "Online booking is paused",
+          code: "BOOKING_PAUSED_FREE_PLAN",
+          message: "This business has paused online booking. Please call them directly.",
+        });
+      }
+    } catch (planErr) {
+      console.warn(`[Booking] Free plan check failed for business ${business.id}:`, planErr);
     }
 
     // Get service to determine duration

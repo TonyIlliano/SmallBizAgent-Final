@@ -96,6 +96,22 @@ export async function sendSms(to: string, body: string, from?: string, businessI
     return { sid: 'mock-sid', status: 'mock' };
   }
   try {
+    // ── Free tier gate ──
+    // Free businesses cannot send any outbound SMS (transactional or marketing).
+    // SMS costs us money per message via Twilio — gating it here is the single
+    // chokepoint that catches every send: agents, MIS, reminders, manual sends.
+    if (businessId) {
+      try {
+        const { isFreePlan } = await import('./usageService');
+        if (await isFreePlan(businessId)) {
+          console.log(`[SMS] BLOCKED: business ${businessId} is on Free plan (no SMS access)`);
+          return { sid: 'free_plan_blocked', status: 'free_plan_blocked' };
+        }
+      } catch (planErr) {
+        // Fail open — don't block a legit paying customer because of a plan-check error
+        console.warn(`[SMS] Free plan check failed for business ${businessId}:`, planErr);
+      }
+    }
     // ── TCPA: Check global suppression list before sending ──
     if (businessId) {
       try {

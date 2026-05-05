@@ -720,6 +720,65 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Free Tier — Auto-Downgrade After Cancel/Expiry (CRM-Only Soft Landing)
+- **Goal**: Replace the dead-end `expired` state with a **Free** tier so businesses don't get locked out when their trial ends or they cancel. Free = CRM only. They keep customers, jobs, invoices, quotes, manual scheduling, and Stripe Connect payments forever. Anything that costs us money per use (AI minutes via Retell, outbound SMS via Twilio, email reminders via SendGrid/Resend, public booking page, AI agents) is paid-only. Better retention, better reactivation funnel — they stay logged in, the data stays in our system, and they convert back to paid the moment they need an AI again.
+
+##### Schema + Migration
+- `server/migrations/runMigrations.ts` — Added `ensureFreePlan()` migration that inserts a `Free` row into `subscription_plans` if no `plan_tier='free'` row exists. $0/mo, 0 minutes, sort_order 0. Idempotent. No Stripe price/product needed (gating is enforced at the service layer, not via Stripe).
+- No new columns. `businesses.subscription_status` already accepts arbitrary strings; we just introduce `'free'` as a new valid value alongside `active`/`trialing`/`grace_period`/`canceled`/`expired`/`suspended`.
+
+##### Server Helpers + Middleware
+- `server/services/usageService.ts` — Added `'free'` branch to `getUsageInfo()` returning `planName: 'Free (CRM Only)'`, `planTier: 'free'`, `minutesIncluded: 0`. Added two exported helpers: `isFreePlan(businessIdOrBusiness)` (async, fetches if id passed) and `isFreePlanSync(business)` (sync, expects pre-loaded row). Founder accounts are explicitly NOT free — they always get unlimited paid access.
+- `server/middleware/planGate.ts` — **NEW**: `requirePaidPlan` middleware. 402 with `code: 'PAID_PLAN_REQUIRED'` and `upgradeUrl: '/settings?tab=subscription'` when called by a free-tier business. Admins always pass. Fail-open on DB errors so paying customers aren't blocked by transient issues. Use after `isAuthenticated`.
+
+##### Auto-Downgrade Wiring
+- `server/services/schedulerService.ts` — `runTrialExpirationCheck()` Phase 2 (30+ days past trial) now sets `subscription_status = 'free'` instead of `'expired'`. The phone number is still released and Retell agent deleted via `deprovisionBusiness()` — only the status changes.
+- `server/services/subscriptionService.ts` — `handleSubscriptionCanceled()` (Stripe `customer.subscription.deleted` webhook) now sets `subscription_status = 'free'` instead of `'canceled'`. Still clears `stripeSubscriptionId` so resubscription works cleanly. `handleInvoicePaymentSucceeded()` reactivation list expanded to include `'free'` — when a Free user pays, they get re-provisioned automatically (new Twilio number, new Retell agent).
+
+##### SMS Gate (Single Chokepoint)
+- `server/services/twilioService.ts` — `sendSms()` now checks `isFreePlan(businessId)` before any Twilio API call. Returns `{ sid: 'free_plan_blocked', status: 'free_plan_blocked' }` for free businesses. Catches every send path: agent SMS, MIS, reminders, manual sends, Vapi/Retell webhook replies. Gate runs **before** the suppression-list check so we don't waste a DB query on blocked sends.
+
+##### Email Reminder Gate (14 Customer-Facing Notifications)
+- `server/services/notificationService.ts` — Added `isFreeBusiness(businessId)` helper. Wired short-circuit early-return into all 14 customer-facing notification entrypoints: `sendAppointmentConfirmation`, `sendAppointmentReminder`, `sendInvoiceCreatedNotification`, `sendInvoiceReminderNotification`, `sendPaymentConfirmation`, `sendJobCompletedNotification`, `sendJobInProgressNotification`, `sendJobWaitingPartsNotification`, `sendJobResumedNotification`, `sendQuoteSentNotification`, `sendInvoiceSentNotification`, `sendQuoteConvertedNotification`, `sendQuoteFollowUpNotification`, `sendReservationConfirmation`. Done via `replace_all` against the common `getNotificationSettings(businessId)` opening line + 3 manual edits for the entrypoints with different opening idioms. SMS path is doubly-protected (here AND at Twilio chokepoint); email path has no other gate so this is the only line of defense. Fail-open on plan-check errors.
+
+##### Public Booking Page Gate
+- `server/routes/bookingRoutes.ts` — `GET /book/:slug` and `POST /book/:slug` both check `isFreePlanSync(business)` after the standard slug + bookingEnabled checks. Returns 410 Gone with `code: 'BOOKING_PAUSED_FREE_PLAN'`, `businessName`, `businessPhone`, and a customer-friendly message: "This business has paused online booking. Please call them directly." QR codes / shared links keep working but the form is disabled.
+
+##### AI Agent Scheduler Gate
+- `server/services/agentUtils.ts` — `forEachEnabledBusiness()` (used by all 5 SMS agents: follow-up, no-show, rebooking, estimate-follow-up, invoice-collection) now skips businesses where `isFreePlanSync(business) === true` before calling `isAgentEnabled()`. Silently skipped (no log spam).
+
+##### Frontend
+- `client/src/components/global-trial-banner.tsx` — Extended to handle `subscription_status === 'free'`. New low-key slate banner: "You're on the Free plan. Your CRM is still fully usable. Upgrade to bring back the AI receptionist, SMS, and online booking." Dismissible per-day via the same localStorage key as the trial banner. Renders below grace-period (non-dismissible) and above trial (which only shows in last 7 days). Stacks below impersonation banner if active.
+- `client/src/pages/landing.tsx` — Two trial blurbs updated: "14-day free trial. No credit card required. Cancel anytime — your free CRM stays."
+- `client/src/pages/pricing.tsx` — Hero + CTA blurbs add "Cancel anytime — your CRM stays free forever." The dynamic plan card grid (driven by `/api/subscription/plans`) automatically picks up the new Free row from the migration; no hardcoded card edits needed.
+
+##### What Free Includes
+- ✅ CRM (customers, tags, search, history) · ✅ Manual appointments · ✅ Manual jobs · ✅ Manual invoices + Stripe Connect payments · ✅ Quotes · ✅ Light analytics
+- ❌ AI receptionist · ❌ All outbound SMS · ❌ All customer-facing email reminders · ❌ Public booking page · ❌ AI agents · ❌ Mem0/AI content/GBP/advanced analytics/multi-location/API/custom domains (already paid-tier)
+
+##### Resubscription
+- When a Free user adds a payment method and a Stripe invoice succeeds, `handleInvoicePaymentSucceeded()` detects `prevStatus === 'free'` (newly added to the eligible list) and triggers `provisionBusiness()` to set up a fresh Twilio number + Retell agent. They get a new phone number (the old one was released) but their CRM data is unchanged.
+
+##### Risk Items Deferred
+- **Twilio A2P 10DLC brand registration** — costs ~$4/mo per registered brand. Free users still have brand registered. Future cleanup task.
+
+##### Files Changed
+- `server/migrations/runMigrations.ts` — `ensureFreePlan()` migration (~40 lines)
+- `server/services/usageService.ts` — Free branch + `isFreePlan` + `isFreePlanSync` (~40 lines)
+- `server/middleware/planGate.ts` — **NEW** (~50 lines)
+- `server/services/schedulerService.ts` — Status `'expired'` → `'free'` in phase 2
+- `server/services/subscriptionService.ts` — Status `'canceled'` → `'free'` + reactivation list
+- `server/services/twilioService.ts` — Free gate at top of `sendSms()` (~15 lines)
+- `server/services/notificationService.ts` — `isFreeBusiness()` + 14 short-circuits (~30 lines)
+- `server/routes/bookingRoutes.ts` — GET + POST gates (~40 lines)
+- `server/services/agentUtils.ts` — Skip in `forEachEnabledBusiness()` (~7 lines)
+- `client/src/components/global-trial-banner.tsx` — Free banner branch (~40 lines)
+- `client/src/pages/landing.tsx` — Copy (2 occurrences)
+- `client/src/pages/pricing.tsx` — Copy (2 places)
+
+##### Verification
+- `npx tsc --noEmit` clean.
+
 #### Phone Number Listing + Primary-Uniqueness + UI Consolidation
 - **Goal**: Fix three problems in one pass on the multi-line phone management surface — (1) the Settings → Phone Numbers card was rendering blank cells because the GET endpoint returned `twilioPhoneNumber` while the UI read `phoneNumber`, (2) the database could legitimately accumulate multiple `is_primary = true` rows for the same business from failed/partial provisioning since uniqueness was only enforced in one route handler (not at storage or DB level), and (3) provisioning controls existed in two places (Settings → Business AND Receptionist) creating user confusion and orphan-row risk.
 

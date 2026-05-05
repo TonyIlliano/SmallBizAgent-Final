@@ -152,6 +152,11 @@ export async function getUsageInfo(businessId: number): Promise<UsageInfo> {
     minutesIncluded = 0;
     planName = 'Grace Period (AI Paused)';
     planTier = 'grace_period';
+  } else if (subscriptionStatus === 'free') {
+    // Free tier: CRM-only, no AI, no SMS, no email reminders, no public booking
+    minutesIncluded = 0;
+    planName = 'Free (CRM Only)';
+    planTier = 'free';
   } else if (isTrialActive && !isSubscribed) {
     minutesIncluded = TRIAL_MINUTES;
     planName = 'Free Trial';
@@ -309,9 +314,40 @@ export async function getUsageProjection(businessId: number): Promise<UsageProje
   };
 }
 
+/**
+ * Is this business on the Free tier?
+ * Free tier = CRM only — no AI, no SMS, no email reminders, no public booking.
+ * Founder accounts are NEVER free (they get unlimited paid features).
+ *
+ * Caller can pass either a businessId (will fetch) or a pre-loaded business row.
+ */
+export async function isFreePlan(businessIdOrBusiness: number | { id: number; subscriptionStatus?: string | null; createdAt?: Date | string | null }): Promise<boolean> {
+  let business: any;
+  if (typeof businessIdOrBusiness === 'number') {
+    const [row] = await db.select().from(businesses).where(eq(businesses.id, businessIdOrBusiness));
+    business = row;
+  } else {
+    business = businessIdOrBusiness;
+  }
+  if (!business) return false;
+  if (isFounderAccount(business)) return false;
+  return business.subscriptionStatus === 'free';
+}
+
+/**
+ * Synchronous version when you already have the business row.
+ */
+export function isFreePlanSync(business: { subscriptionStatus?: string | null; createdAt?: Date | string | null }): boolean {
+  if (!business) return false;
+  if (isFounderAccount(business as any)) return false;
+  return business.subscriptionStatus === 'free';
+}
+
 export default {
   getMinutesUsedThisMonth,
   getUsageInfo,
   getUsageProjection,
   canBusinessAcceptCalls,
+  isFreePlan,
+  isFreePlanSync,
 };

@@ -20,6 +20,28 @@ import {
 } from "../emailService";
 import { toMoney } from "../utils/money";
 
+/**
+ * Free tier gate for customer-facing notifications.
+ *
+ * Returns true if the business is on the Free plan and outbound notifications
+ * (email reminders, confirmations, etc.) should be skipped. Each notification
+ * function calls this at the top and short-circuits if true. SMS is already
+ * gated at the Twilio chokepoint (twilioService.sendSms), so this only
+ * needs to handle the email path.
+ *
+ * Fail-open: errors here return false so a transient DB issue doesn't block
+ * legitimate paying customers' notifications.
+ */
+async function isFreeBusiness(businessId: number): Promise<boolean> {
+  try {
+    const { isFreePlan } = await import('./usageService');
+    return await isFreePlan(businessId);
+  } catch (err) {
+    console.warn(`[Notifications] Free plan check failed for business ${businessId}:`, err);
+    return false;
+  }
+}
+
 // TCPA compliance: Check if customer has opted in to SMS
 function canSendSms(customer: any, isMarketing: boolean = false): boolean {
   if (!customer?.phone) return false;
@@ -82,6 +104,8 @@ function formatTime(date: Date, timezone?: string): string {
  */
 export async function sendAppointmentConfirmation(appointmentId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     // Default to sending if no settings configured yet
     const sendEmail = settings?.appointmentConfirmationEmail !== false;
@@ -206,6 +230,8 @@ export async function sendAppointmentConfirmation(appointmentId: number, busines
  */
 export async function sendAppointmentReminder(appointmentId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     const sendEmailPref = settings?.appointmentReminderEmail !== false;
     const sendSmsPref = settings?.appointmentReminderSms !== false;
@@ -329,6 +355,8 @@ export async function sendAppointmentReminder(appointmentId: number, businessId:
  */
 export async function sendInvoiceCreatedNotification(invoiceId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     const sendEmailPref = settings?.invoiceCreatedEmail !== false;
     const sendSmsPref = settings?.invoiceCreatedSms === true; // default off for SMS
@@ -419,6 +447,8 @@ export async function sendInvoiceCreatedNotification(invoiceId: number, business
  */
 export async function sendInvoiceReminderNotification(invoiceId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     const sendEmailPref = settings?.invoiceReminderEmail !== false;
     const sendSmsPref = settings?.invoiceReminderSms !== false;
@@ -534,6 +564,8 @@ export async function sendInvoiceReminderNotification(invoiceId: number, busines
  */
 export async function sendPaymentConfirmation(invoiceId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     const sendEmailPref = settings?.invoicePaymentConfirmationEmail !== false;
 
@@ -582,6 +614,8 @@ export async function sendPaymentConfirmation(invoiceId: number, businessId: num
  */
 export async function sendJobCompletedNotification(jobId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     const sendEmailPref = settings?.jobCompletedEmail !== false;
     const sendSmsPref = settings?.jobCompletedSms !== false;
@@ -661,6 +695,8 @@ export async function sendJobCompletedNotification(jobId: number, businessId: nu
 
 export async function sendJobInProgressNotification(jobId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     if (settings?.jobInProgressSms === false) return;
 
@@ -690,6 +726,8 @@ export async function sendJobInProgressNotification(jobId: number, businessId: n
 
 export async function sendJobWaitingPartsNotification(jobId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     if (settings?.jobWaitingPartsSms === false) return;
 
@@ -713,6 +751,8 @@ export async function sendJobWaitingPartsNotification(jobId: number, businessId:
 
 export async function sendJobResumedNotification(jobId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     if (settings?.jobResumedSms === false) return;
 
@@ -743,6 +783,8 @@ export async function sendQuoteSentNotification(
   quoteUrl: string
 ) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const quote = await storage.getQuoteById(quoteId, businessId);
     if (!quote || !quote.customer) return;
 
@@ -831,6 +873,8 @@ export async function sendInvoiceSentNotification(
   invoiceUrl: string
 ) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) return;
 
@@ -917,6 +961,8 @@ export async function sendQuoteConvertedNotification(
   businessId: number
 ) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) return;
 
@@ -1061,6 +1107,8 @@ export async function sendQuoteFollowUpNotification(quoteId: number, businessId:
  */
 export async function sendReservationConfirmation(reservationId: number, businessId: number) {
   try {
+    // Free tier gate — short-circuit all customer-facing notifications
+    if (await isFreeBusiness(businessId)) return;
     const settings = await storage.getNotificationSettings(businessId);
     // Default to sending if no settings configured yet (reuse appointment setting for now)
     const sendEmail = settings?.appointmentConfirmationEmail !== false;

@@ -504,16 +504,19 @@ export class SubscriptionService {
         return;
       }
 
-      // Update subscription details — clear stripeSubscriptionId so resubscription works cleanly
+      // Downgrade to Free tier (CRM only) — soft-landing instead of locking the
+      // user out. They keep their account + customers + invoice history but lose
+      // AI/SMS/booking until they re-subscribe. Clear stripeSubscriptionId so
+      // resubscription works cleanly.
       await db.update(businesses)
         .set({
-          subscriptionStatus: 'canceled',
+          subscriptionStatus: 'free',
           stripeSubscriptionId: null,
           updatedAt: new Date()
         })
         .where(eq(businesses.id, business[0].id));
 
-      console.log(`Marked subscription as canceled for business ${business[0].id} (cleared stripeSubscriptionId)`);
+      console.log(`Downgraded business ${business[0].id} to Free tier after subscription cancellation`);
 
       // Deprovision resources (Twilio number, Vapi assistant)
       // This also triggers call forwarding deactivation notifications if applicable
@@ -591,7 +594,7 @@ export class SubscriptionService {
           }
           // Case 2: Fully deprovisioned business — needs new phone number + Vapi assistant
           else if (!business.twilioPhoneNumberSid) {
-            if (prevStatus === 'canceled' || prevStatus === 'expired' || prevStatus === 'suspended' || prevStatus === 'past_due' || prevStatus === 'grace_period') {
+            if (prevStatus === 'canceled' || prevStatus === 'expired' || prevStatus === 'suspended' || prevStatus === 'past_due' || prevStatus === 'grace_period' || prevStatus === 'free') {
               try {
                 const { provisionBusiness } = await import('./businessProvisioningService.js');
                 console.log(`[Reactivation] Auto-provisioning business ${business.id} (was ${prevStatus}, now paying)`);

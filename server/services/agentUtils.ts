@@ -30,8 +30,15 @@ export async function forEachEnabledBusiness(
   let processed = 0;
   let errors = 0;
 
+  // Lazy-import the free-plan check so this module stays cheap to load.
+  const { isFreePlanSync } = await import('./usageService');
+
   for (const business of businesses) {
     try {
+      // Free tier gate — agents are paid-only. Skip silently rather than logging
+      // every cycle, since this can fire many times per day.
+      if (isFreePlanSync(business)) continue;
+
       const enabled = await isAgentEnabled(business.id, agentType);
       if (!enabled) continue;
 

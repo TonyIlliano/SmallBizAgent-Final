@@ -46,15 +46,18 @@ export function GlobalTrialBanner() {
 
   const isImpersonating = !!user.impersonating;
   const isGracePeriod = user.subscriptionStatus === 'grace_period';
+  const isFreePlan = user.subscriptionStatus === 'free';
   const days = daysLeft(user.trialEndsAt);
 
   // Show grace-period banner unconditionally (until merchant resubscribes).
+  // Show free-plan banner persistently but dismissible per-day (low-stakes nudge).
   // Show trial banner only when 7 or fewer days remain and trial is still active.
   const showGrace = isGracePeriod;
-  const showTrial = !showGrace && user.isTrialActive && days !== null && days <= 7 && days >= 0;
+  const showFree = !showGrace && isFreePlan;
+  const showTrial = !showGrace && !showFree && user.isTrialActive && days !== null && days <= 7 && days >= 0;
 
-  if (!showGrace && !showTrial) return null;
-  if (!showGrace && dismissedToday) return null; // grace is non-dismissible
+  if (!showGrace && !showFree && !showTrial) return null;
+  if (!showGrace && dismissedToday) return null; // grace is non-dismissible; free + trial are dismissible
 
   const handleDismiss = () => {
     try {
@@ -89,6 +92,38 @@ export function GlobalTrialBanner() {
           data-testid="button-trial-add-payment"
         >
           Add Payment
+        </button>
+      </div>
+    );
+  }
+
+  // Free-plan banner: low-key friendly slate. CRM is still fully usable;
+  // upgrade unlocks AI receptionist, SMS, email reminders, and the booking page.
+  if (showFree) {
+    return (
+      <div
+        role="status"
+        className={`fixed ${topClass} left-0 right-0 z-[99] bg-slate-700 text-white px-4 py-2 flex items-center justify-center gap-3 text-sm font-medium shadow-md`}
+        data-testid="banner-free-plan"
+      >
+        <span>
+          You're on the Free plan. Your CRM is still fully usable. Upgrade to bring back
+          the AI receptionist, SMS, and online booking.
+        </span>
+        <button
+          onClick={handleAddPayment}
+          className="bg-white text-slate-800 px-3 py-0.5 rounded text-xs font-semibold hover:bg-slate-100 transition-colors"
+          data-testid="button-free-upgrade"
+        >
+          Upgrade
+        </button>
+        <button
+          onClick={handleDismiss}
+          className="opacity-70 hover:opacity-100 transition-opacity"
+          aria-label="Dismiss for today"
+          data-testid="button-free-dismiss"
+        >
+          <X className="h-4 w-4" />
         </button>
       </div>
     );

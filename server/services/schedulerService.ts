@@ -754,14 +754,16 @@ async function runTrialExpirationCheck(): Promise<void> {
           continue;
         }
 
-        // Phase 2: Grace period expired (30+ days past trial) — NOW deprovision
-        // Update status to 'expired' if in grace_period
+        // Phase 2: Grace period expired (30+ days past trial) — NOW deprovision and
+        // downgrade to Free tier (CRM only). Free is the soft-landing — the user
+        // keeps their account + CRM data but loses AI/SMS/booking until they
+        // subscribe. Better retention + reactivation funnel than 'expired'.
         if (status === 'grace_period' || status === 'trialing' || status === 'expired') {
           try {
-            await storage.updateBusiness(business.id, { subscriptionStatus: 'expired' });
-            console.log(`[TrialExpiration] Updated business ${business.id} status to 'expired' (grace period ended)`);
+            await storage.updateBusiness(business.id, { subscriptionStatus: 'free' });
+            console.log(`[TrialExpiration] Downgraded business ${business.id} to Free tier (grace period ended)`);
           } catch (err) {
-            console.error(`[TrialExpiration] Failed to update status for business ${business.id}:`, err);
+            console.error(`[TrialExpiration] Failed to downgrade status for business ${business.id}:`, err);
           }
         }
 

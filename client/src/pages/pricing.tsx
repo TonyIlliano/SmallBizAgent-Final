@@ -149,8 +149,11 @@ export default function PricingPage() {
         <p className="text-neutral-400 text-lg mb-2 max-w-2xl mx-auto">
           One platform. One price. No per-message fees, no hidden charges.
         </p>
-        <p className="text-green-400 font-medium mb-8">
+        <p className="text-green-400 font-medium mb-2">
           14-day free trial. No credit card required.
+        </p>
+        <p className="text-neutral-400 text-sm mb-8">
+          Cancel anytime — your CRM stays free forever.
         </p>
 
         {/* Billing toggle */}
@@ -287,7 +290,7 @@ export default function PricingPage() {
       {/* CTA */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 text-center border-t border-neutral-800">
         <h2 className="text-3xl font-bold mb-4">Ready to never miss a call again?</h2>
-        <p className="text-neutral-400 mb-8">Start your 14-day free trial. No credit card required.</p>
+        <p className="text-neutral-400 mb-8">Start your 14-day free trial. No credit card required. Your CRM stays free forever.</p>
         <Link href="/auth">
           <Button size="lg" className="bg-white text-black hover:bg-neutral-200 px-8">
             Start Free Trial <ArrowRight className="ml-2 h-5 w-5" />

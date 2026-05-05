@@ -2388,6 +2388,9 @@ async function runMigrations() {
     // Phone number primary-uniqueness: demote stale duplicates + enforce via partial index
     await enforcePhoneNumberPrimaryUniqueness();
 
+    // Insert the Free plan row if it doesn't exist (CRM-only fallback for canceled/expired users)
+    await ensureFreePlan();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3185,6 +3188,49 @@ async function enforcePhoneNumberPrimaryUniqueness() {
     // duplicate, which warrants manual investigation but shouldn't block the
     // app from starting.
     console.error('Error enforcing phone number primary-uniqueness:', error.message || error);
+  }
+}
+
+/**
+ * Ensure a "Free" plan row exists in subscription_plans.
+ *
+ * Free is the CRM-only fallback that businesses are downgraded to when their trial
+ * grace period ends or when their paid subscription is canceled. It costs $0 and
+ * has no AI minutes. Gating for SMS, email reminders, public booking, and AI
+ * agents is enforced at the service layer (not via Stripe), so there's no
+ * stripe_product_id / stripe_price_id needed.
+ *
+ * Idempotent: only inserts if no plan with plan_tier='free' exists.
+ */
+async function ensureFreePlan() {
+  console.log('Ensuring Free plan exists...');
+  try {
+    const existing = await pool.query(
+      `SELECT id FROM subscription_plans WHERE plan_tier = 'free' LIMIT 1`
+    );
+    if (existing.rows.length > 0) {
+      console.log('Free plan already exists');
+      return;
+    }
+    await pool.query(`
+      INSERT INTO subscription_plans (name, description, plan_tier, price, interval, features, max_call_minutes, overage_rate_per_minute, max_staff, active, sort_order)
+      VALUES (
+        'Free',
+        'CRM only — track customers, send invoices, get paid',
+        'free',
+        0,
+        'monthly',
+        '["Unlimited customers", "Manual appointment scheduling", "Invoicing & Stripe Connect payments", "Quotes", "Light analytics"]',
+        0,
+        0,
+        1,
+        true,
+        0
+      )
+    `);
+    console.log('Free plan inserted');
+  } catch (error: any) {
+    console.error('Error ensuring Free plan:', error.message || error);
   }
 }
 

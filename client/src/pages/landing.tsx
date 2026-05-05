@@ -496,7 +496,7 @@ function PricingSection() {
             Simple, transparent pricing
           </h2>
           <p className="text-neutral-400 text-lg mb-8">
-            14-day free trial. No credit card required. Cancel anytime.
+            14-day free trial. No credit card required. Cancel anytime — your free CRM stays.
           </p>
           <div className="inline-flex items-center gap-3 bg-neutral-900 border border-neutral-800 rounded-full p-1">
             <button
@@ -681,7 +681,7 @@ export default function LandingPage() {
               </a>
             </div>
             <p className="mt-6 text-sm text-neutral-500">
-              14-day free trial. No credit card required. Cancel anytime.
+              14-day free trial. No credit card required. Cancel anytime — your free CRM stays.
             </p>
           </div>
 
