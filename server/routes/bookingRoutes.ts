@@ -201,6 +201,20 @@ router.get("/book/:slug/slots", async (req, res) => {
       return res.status(404).json({ error: "Business not found or booking not available" });
     }
 
+    // Free tier gate — short-circuit slot lookup so the picker never populates
+    try {
+      const { isFreePlanSync } = await import("../services/usageService");
+      if (isFreePlanSync(business)) {
+        return res.status(410).json({
+          error: "Online booking is paused",
+          code: "BOOKING_PAUSED_FREE_PLAN",
+          slots: [],
+        });
+      }
+    } catch (planErr) {
+      console.warn(`[Booking] Free plan check failed for business ${business.id}:`, planErr);
+    }
+
     const requestedDate = new Date(date as string);
     const now = new Date();
     const businessTimezone = business.timezone || 'America/New_York';
@@ -951,6 +965,20 @@ router.get("/book/:slug/reservation-slots", async (req, res) => {
       return res.status(400).json({ error: "Reservations are not enabled for this business" });
     }
 
+    // Free tier gate
+    try {
+      const { isFreePlanSync } = await import("../services/usageService");
+      if (isFreePlanSync(business)) {
+        return res.status(410).json({
+          error: "Online reservations are paused",
+          code: "BOOKING_PAUSED_FREE_PLAN",
+          slots: [],
+        });
+      }
+    } catch (planErr) {
+      console.warn(`[Reservations] Free plan check failed for business ${business.id}:`, planErr);
+    }
+
     const maxPartySize = business.reservationMaxPartySize || 10;
     if (partySizeNum > maxPartySize) {
       return res.status(400).json({ error: `Maximum party size is ${maxPartySize}. For larger parties, please call us.` });
@@ -1071,6 +1099,20 @@ router.post("/book/:slug/reserve", async (req, res) => {
 
     if (!business.reservationEnabled) {
       return res.status(400).json({ error: "Reservations are not enabled for this business" });
+    }
+
+    // Free tier gate — block reservation submission
+    try {
+      const { isFreePlanSync } = await import("../services/usageService");
+      if (isFreePlanSync(business)) {
+        return res.status(410).json({
+          error: "Online reservations are paused",
+          code: "BOOKING_PAUSED_FREE_PLAN",
+          message: "This restaurant has paused online reservations. Please call them directly.",
+        });
+      }
+    } catch (planErr) {
+      console.warn(`[Reservations] Free plan check failed for business ${business.id}:`, planErr);
     }
 
     const maxPartySize = business.reservationMaxPartySize || 10;
