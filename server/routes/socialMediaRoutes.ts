@@ -8,7 +8,7 @@
 import { Router, Request, Response } from "express";
 import { isAdmin } from "../middleware/auth";
 import { db } from "../db";
-import { socialMediaPosts, videoBriefs, videoClips } from "../../shared/schema";
+import { socialMediaPosts, videoBriefs, videoClips, smartAgentRuns } from "../../shared/schema";
 import { eq, desc, sql, and, asc } from "drizzle-orm";
 import multer from "multer";
 
@@ -1253,18 +1253,18 @@ router.get('/pipeline-status', isAdmin, async (_req: Request, res: Response) => 
 });
 
 /**
- * POST /run-smart-agent
+ * POST /run-smart-agent  (async)
  *
- * On-demand invocation of the Claude Managed Agent ("Social Media Brain").
- * Runs a single autonomous session: agent reads platform stats + winner posts
- * + recent content, then drafts coordinated content via tool calls. Drafts
- * land in the same approval queue as the legacy agent.
+ * Kicks off a Claude Managed Agent session in the background and returns
+ * immediately with a runId. Sessions can take 30-180 seconds, longer than
+ * Cloudflare's 100s edge timeout, so we deliberately do NOT block on the
+ * agent here. The frontend polls GET /run-smart-agent/:runId until the
+ * status flips to 'completed' or 'failed'.
  *
- * Cost: ~$0.05–0.10 per run depending on prompt complexity. Visible in the
- * response. Admin-only. No scheduler — purely manual trigger.
+ * Cost: ~$0.05–0.10 per run. Admin-only.
  *
  * Body: { prompt: string }
- * Returns: { text, toolCallsExecuted, usage, estimatedCost }
+ * Returns: 202 { runId, status: 'running' }
  */
 router.post('/run-smart-agent', isAdmin, async (req: Request, res: Response) => {
   try {
@@ -1283,32 +1283,115 @@ router.post('/run-smart-agent', isAdmin, async (req: Request, res: Response) => 
       });
     }
 
-    const { runAgentSession } = await import('../services/managedAgents/sessionRunner');
-    const { socialMediaToolHandlers } = await import('../services/managedAgents/socialMediaAgent');
-
-    console.log(`[SmartAgent] Admin ${(req.user as any)?.id} invoked smart agent. Prompt: "${prompt.substring(0, 100)}..."`);
-
-    const result = await runAgentSession(
-      agentId,
+    // 1. Create the run row immediately so the frontend has an ID to poll.
+    const userId = (req.user as any)?.id ?? null;
+    const [run] = await db.insert(smartAgentRuns).values({
+      agentType: 'social_media',
+      invokedByUserId: userId,
       prompt,
-      socialMediaToolHandlers,
-      { timeoutMs: 5 * 60 * 1000 } // 5 min hard cap
-    );
+      status: 'running',
+    }).returning();
 
-    // Cost estimate using Claude Sonnet 4.6 pricing: $3/M input, $15/M output
-    const inputTokens = result.usage?.inputTokens ?? 0;
-    const outputTokens = result.usage?.outputTokens ?? 0;
-    const estimatedCost = (inputTokens / 1_000_000) * 3 + (outputTokens / 1_000_000) * 15;
+    console.log(`[SmartAgent] Run ${run.id} started by admin ${userId}. Prompt: "${prompt.substring(0, 100)}..."`);
+
+    // 2. Return the runId immediately. Cloudflare's 100s timeout is no longer
+    //    a concern because the HTTP request is closing right now.
+    res.status(202).json({ runId: run.id, status: 'running' });
+
+    // 3. Run the agent in the background. We deliberately don't await this —
+    //    Express has already responded. Errors are caught and written to the
+    //    run row so the frontend can show them when it polls.
+    (async () => {
+      try {
+        const { runAgentSession } = await import('../services/managedAgents/sessionRunner');
+        const { socialMediaToolHandlers } = await import('../services/managedAgents/socialMediaAgent');
+
+        const result = await runAgentSession(
+          agentId,
+          prompt,
+          socialMediaToolHandlers,
+          { timeoutMs: 5 * 60 * 1000 } // 5 min hard cap
+        );
+
+        const inputTokens = result.usage?.inputTokens ?? 0;
+        const outputTokens = result.usage?.outputTokens ?? 0;
+        const estimatedCost = (inputTokens / 1_000_000) * 3 + (outputTokens / 1_000_000) * 15;
+
+        await db.update(smartAgentRuns)
+          .set({
+            status: 'completed',
+            resultText: result.text,
+            toolCallsExecuted: result.toolCallsExecuted,
+            inputTokens,
+            outputTokens,
+            estimatedCost: Number(estimatedCost.toFixed(4)),
+            finishedAt: new Date(),
+          })
+          .where(eq(smartAgentRuns.id, run.id));
+
+        console.log(`[SmartAgent] Run ${run.id} completed: ${result.toolCallsExecuted} tool calls, $${estimatedCost.toFixed(4)}`);
+      } catch (err: any) {
+        console.error(`[SmartAgent] Run ${run.id} failed:`, err);
+        try {
+          await db.update(smartAgentRuns)
+            .set({
+              status: 'failed',
+              errorMessage: err?.message || 'Smart agent run failed',
+              finishedAt: new Date(),
+            })
+            .where(eq(smartAgentRuns.id, run.id));
+        } catch (writeErr) {
+          console.error(`[SmartAgent] Failed to write error state for run ${run.id}:`, writeErr);
+        }
+      }
+    })();
+  } catch (error: any) {
+    console.error('[SmartAgent] Error in run-smart-agent dispatcher:', error);
+    res.status(500).json({ error: error.message || 'Failed to start smart agent run' });
+  }
+});
+
+/**
+ * GET /run-smart-agent/:runId
+ *
+ * Status polling endpoint. Returns the current state of a run: running,
+ * completed, or failed. Frontend polls this every 3-5 seconds while
+ * status='running'.
+ */
+router.get('/run-smart-agent/:runId', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const runId = parseInt(req.params.runId, 10);
+    if (isNaN(runId)) {
+      return res.status(400).json({ error: 'Invalid runId' });
+    }
+
+    const [run] = await db.select()
+      .from(smartAgentRuns)
+      .where(eq(smartAgentRuns.id, runId))
+      .limit(1);
+
+    if (!run) {
+      return res.status(404).json({ error: 'Run not found' });
+    }
 
     res.json({
-      text: result.text,
-      toolCallsExecuted: result.toolCallsExecuted,
-      usage: { inputTokens, outputTokens },
-      estimatedCost: Number(estimatedCost.toFixed(4)),
+      runId: run.id,
+      status: run.status,
+      prompt: run.prompt,
+      resultText: run.resultText,
+      toolCallsExecuted: run.toolCallsExecuted,
+      usage: {
+        inputTokens: run.inputTokens,
+        outputTokens: run.outputTokens,
+      },
+      estimatedCost: run.estimatedCost,
+      errorMessage: run.errorMessage,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
     });
   } catch (error: any) {
-    console.error('[SmartAgent] Error:', error);
-    res.status(500).json({ error: error.message || 'Smart agent run failed' });
+    console.error('[SmartAgent] Error fetching run status:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch run status' });
   }
 });
 

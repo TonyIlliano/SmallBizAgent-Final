@@ -2,29 +2,37 @@
  * SmartAgentSection — On-demand invocation of the Claude Managed Agent
  * ("Social Media Brain"). Manual trigger only — no scheduler.
  *
- * Press button → agent reads platform stats + winners + recent content,
- * then writes coordinated drafts via tool calls. Drafts land in the same
- * approval queue as the legacy daily agent. Cost is shown after each run.
+ * Flow: press button → POST /run-smart-agent returns 202 with a runId
+ * (the actual agent runs in the background server-side). Frontend polls
+ * GET /run-smart-agent/:runId every 3 seconds until status flips to
+ * 'completed' or 'failed'. This avoids Cloudflare's 100s edge timeout
+ * since the original HTTP request closes in ~50ms.
  */
 
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Sparkles, AlertCircle, Wrench, DollarSign } from "lucide-react";
+import { Loader2, Sparkles, AlertCircle, Wrench, DollarSign, XCircle } from "lucide-react";
 
-interface SmartAgentResponse {
-  text: string;
+interface RunStatusResponse {
+  runId: number;
+  status: "running" | "completed" | "failed";
+  prompt: string;
+  resultText: string | null;
   toolCallsExecuted: number;
   usage: {
     inputTokens: number;
     outputTokens: number;
   };
   estimatedCost: number;
+  errorMessage: string | null;
+  startedAt: string;
+  finishedAt: string | null;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -49,32 +57,71 @@ export default function SmartAgentSection() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
-  const [lastRun, setLastRun] = useState<SmartAgentResponse | null>(null);
+  const [activeRunId, setActiveRunId] = useState<number | null>(null);
 
-  const runMutation = useMutation({
+  // Start a new run. Returns immediately with a runId; the agent itself runs
+  // in the background on the server. We then poll the status endpoint.
+  const startMutation = useMutation({
     mutationFn: async (p: string) => {
       const res = await apiRequest("POST", "/api/social-media/run-smart-agent", { prompt: p });
-      return (await res.json()) as SmartAgentResponse;
+      return (await res.json()) as { runId: number; status: string };
     },
     onSuccess: (data) => {
-      setLastRun(data);
-      // Refresh the drafts queue so newly-created posts appear
+      setActiveRunId(data.runId);
+      toast({
+        title: "Smart agent started",
+        description: `Run #${data.runId} is now running in the background. This usually takes 15-90 seconds.`,
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Couldn't start smart agent",
+        description: err?.message || "Run failed to start. Check server logs.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Poll the run status while a run is active. Stops as soon as status is
+  // not 'running' (i.e. completed or failed).
+  const { data: runStatus } = useQuery<RunStatusResponse>({
+    queryKey: ["/api/social-media/run-smart-agent", activeRunId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/social-media/run-smart-agent/${activeRunId}`);
+      return (await res.json()) as RunStatusResponse;
+    },
+    enabled: activeRunId !== null,
+    refetchInterval: (query) => {
+      const data = query.state.data as RunStatusResponse | undefined;
+      if (!data) return 3000; // first poll after 3s
+      return data.status === "running" ? 3000 : false; // stop polling on terminal state
+    },
+    refetchIntervalInBackground: true,
+  });
+
+  // When the run flips to a terminal state, refresh draft queues so
+  // newly-created content shows up below, and notify the user once.
+  // Effect, not a render-time side effect — guards against polling loops.
+  useEffect(() => {
+    if (!runStatus) return;
+    if (runStatus.status === "completed") {
       queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/blog-posts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/social-media/video-briefs"] });
       toast({
         title: "Smart agent finished",
-        description: `${data.toolCallsExecuted} tool call${data.toolCallsExecuted === 1 ? "" : "s"} • ~$${data.estimatedCost.toFixed(4)}`,
+        description: `${runStatus.toolCallsExecuted} tool call${runStatus.toolCallsExecuted === 1 ? "" : "s"} • ~$${runStatus.estimatedCost.toFixed(4)}`,
       });
-    },
-    onError: (err: any) => {
+    } else if (runStatus.status === "failed") {
       toast({
         title: "Smart agent failed",
-        description: err?.message || "Run failed. Check server logs.",
+        description: runStatus.errorMessage || "Run failed. Check server logs.",
         variant: "destructive",
       });
-    },
-  });
+    }
+    // Only re-run when the run id or terminal status changes — not on every poll
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runStatus?.runId, runStatus?.status]);
 
   const handleRun = () => {
     if (!prompt.trim()) {
@@ -85,13 +132,28 @@ export default function SmartAgentSection() {
       });
       return;
     }
-    setLastRun(null);
-    runMutation.mutate(prompt);
+    setActiveRunId(null);
+    startMutation.mutate(prompt);
   };
 
   const handleUseExample = (p: string) => {
     setPrompt(p);
   };
+
+  const handleClear = () => {
+    setActiveRunId(null);
+  };
+
+  // Derived render state
+  const isStarting = startMutation.isPending;
+  const isRunning = runStatus?.status === "running";
+  const hasResult = runStatus?.status === "completed" || runStatus?.status === "failed";
+  const inFlight = isStarting || isRunning;
+
+  // Elapsed time during a running session
+  const elapsedSeconds = runStatus?.startedAt
+    ? Math.max(0, Math.floor((Date.now() - new Date(runStatus.startedAt).getTime()) / 1000))
+    : 0;
 
   return (
     <Card>
@@ -118,7 +180,7 @@ export default function SmartAgentSection() {
               variant="outline"
               size="sm"
               onClick={() => handleUseExample(ex.prompt)}
-              disabled={runMutation.isPending}
+              disabled={inFlight}
               type="button"
             >
               {ex.label}
@@ -133,7 +195,7 @@ export default function SmartAgentSection() {
           placeholder="Tell the agent what to generate. e.g. 'Generate 5 LinkedIn posts for HVAC business owners. Mix content types. Skip recent topics.'"
           rows={5}
           className="font-mono text-sm"
-          disabled={runMutation.isPending}
+          disabled={inFlight}
           maxLength={4000}
           data-testid="smart-agent-prompt"
         />
@@ -143,10 +205,15 @@ export default function SmartAgentSection() {
           </span>
           <Button
             onClick={handleRun}
-            disabled={runMutation.isPending || !prompt.trim()}
+            disabled={inFlight || !prompt.trim()}
             data-testid="smart-agent-run"
           >
-            {runMutation.isPending ? (
+            {isStarting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Starting…
+              </>
+            ) : isRunning ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Working…
@@ -160,43 +227,49 @@ export default function SmartAgentSection() {
           </Button>
         </div>
 
-        {/* Loading hint */}
-        {runMutation.isPending && (
+        {/* Running state with elapsed time */}
+        {isRunning && (
           <div className="rounded-md border border-purple-200 bg-purple-50 dark:bg-purple-950/20 dark:border-purple-900 p-3 text-sm">
             <div className="flex items-start gap-2">
               <Loader2 className="h-4 w-4 animate-spin mt-0.5 text-purple-600 flex-shrink-0" />
-              <div>
-                <p className="font-medium">Agent is reasoning across your data…</p>
+              <div className="flex-1">
+                <p className="font-medium">
+                  Agent is reasoning across your data… ({elapsedSeconds}s)
+                </p>
                 <p className="text-muted-foreground mt-1">
-                  This can take 15-90 seconds. The agent is calling tools (winner posts, platform
-                  stats, recent content), drafting, and writing to your DB.
+                  Run #{runStatus?.runId}. Calling tools (winner posts, platform stats, recent
+                  content), drafting, writing to your DB. You can leave this page — the run keeps
+                  going on the server. Drafts will appear in the queue below when finished.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Last run result */}
-        {lastRun && !runMutation.isPending && (
+        {/* Completed result */}
+        {hasResult && runStatus?.status === "completed" && (
           <div className="rounded-md border bg-muted/30 p-4 space-y-3" data-testid="smart-agent-result">
             <div className="flex items-center justify-between">
               <h4 className="font-semibold flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-purple-500" />
-                Last run summary
+                Run #{runStatus.runId} complete
               </h4>
               <div className="flex gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Wrench className="h-3 w-3" />
-                  {lastRun.toolCallsExecuted} tool call{lastRun.toolCallsExecuted === 1 ? "" : "s"}
+                  {runStatus.toolCallsExecuted} tool call
+                  {runStatus.toolCallsExecuted === 1 ? "" : "s"}
                 </span>
                 <span className="flex items-center gap-1">
-                  <DollarSign className="h-3 w-3" />${lastRun.estimatedCost.toFixed(4)}
+                  <DollarSign className="h-3 w-3" />${runStatus.estimatedCost.toFixed(4)}
                 </span>
               </div>
             </div>
 
-            {lastRun.text ? (
-              <div className="text-sm whitespace-pre-wrap leading-relaxed">{lastRun.text}</div>
+            {runStatus.resultText ? (
+              <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                {runStatus.resultText}
+              </div>
             ) : (
               <div className="flex items-start gap-2 text-sm text-muted-foreground">
                 <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -207,10 +280,36 @@ export default function SmartAgentSection() {
               </div>
             )}
 
-            <div className="text-xs text-muted-foreground border-t pt-2">
-              Tokens: {lastRun.usage.inputTokens.toLocaleString()} in /{" "}
-              {lastRun.usage.outputTokens.toLocaleString()} out
+            <div className="flex justify-between items-center text-xs text-muted-foreground border-t pt-2">
+              <span>
+                Tokens: {runStatus.usage.inputTokens.toLocaleString()} in /{" "}
+                {runStatus.usage.outputTokens.toLocaleString()} out
+              </span>
+              <Button variant="ghost" size="sm" onClick={handleClear}>
+                Clear
+              </Button>
             </div>
+          </div>
+        )}
+
+        {/* Failed state */}
+        {hasResult && runStatus?.status === "failed" && (
+          <div
+            className="rounded-md border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900 p-4 space-y-2"
+            data-testid="smart-agent-failed"
+          >
+            <div className="flex items-center gap-2">
+              <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+              <h4 className="font-semibold text-red-700 dark:text-red-400">
+                Run #{runStatus.runId} failed
+              </h4>
+            </div>
+            <p className="text-sm text-red-700 dark:text-red-400">
+              {runStatus.errorMessage || "The agent run failed. Check server logs for details."}
+            </p>
+            <Button variant="ghost" size="sm" onClick={handleClear}>
+              Clear
+            </Button>
           </div>
         )}
       </CardContent>

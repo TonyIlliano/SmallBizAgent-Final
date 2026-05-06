@@ -720,6 +720,30 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Smart Agent — Async Pattern (Eliminates Cloudflare 524 Timeouts)
+- **Goal**: First production run hit Cloudflare 524 ("origin web server timed out") after 100s. Cloudflare's edge timeout on this plan is 100s and not adjustable. Anthropic Managed Agent sessions can legitimately take 30-180s, so the synchronous request shape was structurally wrong. Refactored to start-then-poll: POST returns 202 in ~50ms with a runId, agent runs in the background, frontend polls a status endpoint every 3s until done. The first failed run still completed server-side (5 drafts appeared in the queue) — only the HTTP response was lost.
+
+##### Schema + Migration
+- `shared/schema.ts` — Added `smartAgentRuns` table: id, agentType, invokedByUserId, prompt, status (running/completed/failed), resultText, toolCallsExecuted, inputTokens, outputTokens, estimatedCost, errorMessage, startedAt, finishedAt. Added `insertSmartAgentRunSchema` and `SmartAgentRun` / `InsertSmartAgentRun` types.
+- `server/migrations/runMigrations.ts` — `ensureSmartAgentRunsTable()` creates the table + index on `started_at DESC`. Idempotent. Registered after `ensureFreePlan()`.
+
+##### Async Endpoint
+- `server/routes/socialMediaRoutes.ts` — `POST /api/social-media/run-smart-agent` now (1) inserts a `smart_agent_runs` row with `status='running'` and returns `202 { runId, status: 'running' }` immediately, (2) kicks off `runAgentSession()` in a fire-and-forget IIFE, (3) updates the row to `completed` (with cost/tokens/text) or `failed` (with errorMessage) when terminal. 5-min agent-side timeout still applies; HTTP-side timeout is no longer in play.
+- `server/routes/socialMediaRoutes.ts` — **NEW**: `GET /api/social-media/run-smart-agent/:runId` (admin-only) returns the row state for status polling. 404 on unknown runId.
+
+##### Frontend Polling
+- `client/src/components/admin/social-media/SmartAgentSection.tsx` — Rewritten to start-then-poll. `startMutation` POSTs and stashes the returned runId. `useQuery` polls `/run-smart-agent/:runId` every 3s, stopping automatically on terminal state. `useEffect` handles terminal transition side effects (queue invalidation + toast) so they fire once, not on every poll. Surfaces: "Starting…" / "Working… (Ns)" with elapsed-time counter / "Run #N complete" with cost breakdown / "Run #N failed" with error string. Both terminal states have a Clear button. Copy explicitly tells users they can leave the page mid-run.
+
+##### Behavior Wins
+- No more 524 timeouts. HTTP request closes in ~50ms regardless of agent runtime.
+- User can navigate away — agent runs server-side independently of the browser tab.
+- Elapsed time visible — typical 15-90s, 3+ min suggests issues.
+- Failures graceful — errors land in `errorMessage` column and surface in red error card.
+- Audit trail — every run durably logged in `smart_agent_runs` for cost tracking + debugging.
+
+##### Verification
+- `npx tsc --noEmit` clean.
+
 #### Plug Booking-Race Holes — Public Web, SMS Conversational, Quote-Auto-Create
 - **Goal**: Audit found that 3 of 6 appointment-creation entry points were TOCTOU-vulnerable. Voice (Retell) + Admin/CRM + Job-detail booking were already using the transactional `createAppointmentSafely()` (SELECT…FOR UPDATE + same-tx insert). Public web booking, SMS conversational booking, and quote-to-appointment auto-create were doing manual pre-checks then plain `storage.createAppointment()` — meaning two concurrent bookings targeting the same slot via different channels could both succeed. Quote auto-create had **zero** conflict check at all (silent same-9 AM collisions on multi-quote conversion).
 - **Fix shape**: Identical pattern in all three places — replace the plain insert with `createAppointmentSafely()`, surface a 409/`{ success: false, error: 'conflict' }` to the caller. Pre-checks kept as fast UX hints; the safe path is the authoritative defense.

@@ -2391,6 +2391,9 @@ async function runMigrations() {
     // Insert the Free plan row if it doesn't exist (CRM-only fallback for canceled/expired users)
     await ensureFreePlan();
 
+    // Smart agent runs — async invocation log for managed-agent sessions
+    await ensureSmartAgentRunsTable();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3231,6 +3234,44 @@ async function ensureFreePlan() {
     console.log('Free plan inserted');
   } catch (error: any) {
     console.error('Error ensuring Free plan:', error.message || error);
+  }
+}
+
+/**
+ * Smart Agent Runs table.
+ *
+ * Tracks each invocation of a Claude Managed Agent (Social Media Brain, etc.).
+ * Sessions can take 30-180 seconds — longer than Cloudflare's 100s edge timeout —
+ * so the API runs them async. This table is the source of truth for status
+ * polling. Idempotent on re-run.
+ */
+async function ensureSmartAgentRunsTable() {
+  console.log('Ensuring smart_agent_runs table...');
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS smart_agent_runs (
+        id SERIAL PRIMARY KEY,
+        agent_type TEXT NOT NULL,
+        invoked_by_user_id INTEGER,
+        prompt TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        result_text TEXT,
+        tool_calls_executed INTEGER DEFAULT 0,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        estimated_cost REAL DEFAULT 0,
+        error_message TEXT,
+        started_at TIMESTAMP DEFAULT NOW(),
+        finished_at TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_smart_agent_runs_started_at
+      ON smart_agent_runs (started_at DESC)
+    `);
+    console.log('smart_agent_runs table ready');
+  } catch (error: any) {
+    console.error('Error ensuring smart_agent_runs table:', error.message || error);
   }
 }
 

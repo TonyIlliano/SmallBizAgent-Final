@@ -1019,6 +1019,27 @@ export const videoClips = pgTable("video_clips", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Smart Agent Runs - on-demand managed-agent invocations (Social Media Brain).
+// Sessions can take 30-180 seconds, longer than Cloudflare's 100s edge timeout,
+// so we run them async: POST inserts a row + kicks off background work, GET
+// polls the row by id. Status flips to 'completed' or 'failed' when the
+// session ends. Cost + tokens captured for observability.
+export const smartAgentRuns = pgTable("smart_agent_runs", {
+  id: serial("id").primaryKey(),
+  agentType: text("agent_type").notNull(), // 'social_media' for now; future: 'support', 'sms_intelligence'
+  invokedByUserId: integer("invoked_by_user_id"), // admin user who pressed the button
+  prompt: text("prompt").notNull(),
+  status: text("status").notNull().default("running"), // running, completed, failed
+  resultText: text("result_text"), // agent's final text response
+  toolCallsExecuted: integer("tool_calls_executed").default(0),
+  inputTokens: integer("input_tokens").default(0),
+  outputTokens: integer("output_tokens").default(0),
+  estimatedCost: real("estimated_cost").default(0), // dollars
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at").defaultNow(),
+  finishedAt: timestamp("finished_at"),
+});
+
 // Website Scrape Cache - cached results from business website scraping
 export const websiteScrapeCache = pgTable("website_scrape_cache", {
   id: serial("id").primaryKey(),
@@ -1259,6 +1280,7 @@ export const insertReviewResponseSchema = createInsertSchema(reviewResponses).om
 export const insertSocialMediaPostSchema = createInsertSchema(socialMediaPosts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertVideoBriefSchema = createInsertSchema(videoBriefs).omit({ id: true, createdAt: true });
 export const insertVideoClipSchema = createInsertSchema(videoClips).omit({ id: true, createdAt: true });
+export const insertSmartAgentRunSchema = createInsertSchema(smartAgentRuns).omit({ id: true, startedAt: true, finishedAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
@@ -1460,6 +1482,9 @@ export type InsertVideoBrief = z.infer<typeof insertVideoBriefSchema>;
 
 export type VideoClip = typeof videoClips.$inferSelect;
 export type InsertVideoClip = z.infer<typeof insertVideoClipSchema>;
+
+export type SmartAgentRun = typeof smartAgentRuns.$inferSelect;
+export type InsertSmartAgentRun = z.infer<typeof insertSmartAgentRunSchema>;
 
 export type SmsSuppression = typeof smsSuppressionList.$inferSelect;
 export type InsertSmsSuppression = z.infer<typeof insertSmsSuppressionSchema>;
