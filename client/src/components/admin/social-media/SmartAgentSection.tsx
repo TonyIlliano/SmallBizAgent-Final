@@ -24,12 +24,15 @@ interface RunStatusResponse {
   status: "running" | "completed" | "failed";
   prompt: string;
   resultText: string | null;
-  toolCallsExecuted: number;
+  // Numeric fields are nullable in the DB until the agent finishes — the
+  // `running` state has no cost/tokens yet. Always coalesce with `?? 0`
+  // before calling .toFixed/.toLocaleString on them.
+  toolCallsExecuted: number | null;
   usage: {
-    inputTokens: number;
-    outputTokens: number;
+    inputTokens: number | null;
+    outputTokens: number | null;
   };
-  estimatedCost: number;
+  estimatedCost: number | null;
   errorMessage: string | null;
   startedAt: string;
   finishedAt: string | null;
@@ -108,9 +111,11 @@ export default function SmartAgentSection() {
       queryClient.invalidateQueries({ queryKey: ["/api/social-media/posts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/blog-posts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/social-media/video-briefs"] });
+      const tc = runStatus.toolCallsExecuted ?? 0;
+      const cost = runStatus.estimatedCost ?? 0;
       toast({
         title: "Smart agent finished",
-        description: `${runStatus.toolCallsExecuted} tool call${runStatus.toolCallsExecuted === 1 ? "" : "s"} • ~$${runStatus.estimatedCost.toFixed(4)}`,
+        description: `${tc} tool call${tc === 1 ? "" : "s"} • ~$${cost.toFixed(4)}`,
       });
     } else if (runStatus.status === "failed") {
       toast({
@@ -257,11 +262,11 @@ export default function SmartAgentSection() {
               <div className="flex gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Wrench className="h-3 w-3" />
-                  {runStatus.toolCallsExecuted} tool call
-                  {runStatus.toolCallsExecuted === 1 ? "" : "s"}
+                  {runStatus.toolCallsExecuted ?? 0} tool call
+                  {(runStatus.toolCallsExecuted ?? 0) === 1 ? "" : "s"}
                 </span>
                 <span className="flex items-center gap-1">
-                  <DollarSign className="h-3 w-3" />${runStatus.estimatedCost.toFixed(4)}
+                  <DollarSign className="h-3 w-3" />${(runStatus.estimatedCost ?? 0).toFixed(4)}
                 </span>
               </div>
             </div>
@@ -282,8 +287,8 @@ export default function SmartAgentSection() {
 
             <div className="flex justify-between items-center text-xs text-muted-foreground border-t pt-2">
               <span>
-                Tokens: {runStatus.usage.inputTokens.toLocaleString()} in /{" "}
-                {runStatus.usage.outputTokens.toLocaleString()} out
+                Tokens: {(runStatus.usage.inputTokens ?? 0).toLocaleString()} in /{" "}
+                {(runStatus.usage.outputTokens ?? 0).toLocaleString()} out
               </span>
               <Button variant="ghost" size="sm" onClick={handleClear}>
                 Clear
