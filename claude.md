@@ -720,6 +720,24 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Plug Booking-Race Holes — Public Web, SMS Conversational, Quote-Auto-Create
+- **Goal**: Audit found that 3 of 6 appointment-creation entry points were TOCTOU-vulnerable. Voice (Retell) + Admin/CRM + Job-detail booking were already using the transactional `createAppointmentSafely()` (SELECT…FOR UPDATE + same-tx insert). Public web booking, SMS conversational booking, and quote-to-appointment auto-create were doing manual pre-checks then plain `storage.createAppointment()` — meaning two concurrent bookings targeting the same slot via different channels could both succeed. Quote auto-create had **zero** conflict check at all (silent same-9 AM collisions on multi-quote conversion).
+- **Fix shape**: Identical pattern in all three places — replace the plain insert with `createAppointmentSafely()`, surface a 409/`{ success: false, error: 'conflict' }` to the caller. Pre-checks kept as fast UX hints; the safe path is the authoritative defense.
+
+##### Files Changed
+- `server/routes/bookingRoutes.ts` — `POST /book/:slug` now calls `createAppointmentSafely()` and returns 409 with friendly message on conflict.
+- `server/services/conversationalBookingService.ts` — SMS multi-turn booking flow (`completeBooking` block) now calls `createAppointmentSafely()` and returns `{ success: false, error: 'conflict' }` on collision (matches pre-existing pre-check return shape).
+- `server/routes/quoteRoutes.ts` — Quote-to-job conversion's auto-appointment block now calls `createAppointmentSafely()` and surfaces `appointmentConflict: true` to the caller when the default 9 AM slot is taken. Job is still created; only the appointment is skipped, so the merchant can schedule manually from the job detail page.
+
+##### What's still race-safe (unchanged)
+- Voice (Retell): `callToolHandlers.ts:2142` (already correct)
+- Admin/CRM: `appointmentRoutes.ts:124` (already correct)
+- Job-detail scheduling: `jobRoutes.ts:157` (already correct)
+
+##### Verification
+- `npx tsc --noEmit` clean.
+- All five productive entry points now go through one transactional path.
+
 #### Smart Agent — On-Demand Manual Trigger UI for Claude Managed Social Media Brain
 - **Goal**: Wire up the existing Claude Managed Agent ("Social Media Brain") that was registered with Anthropic but never invoked. Cost-conscious design: manual trigger only, no scheduler. Cost visible after every run (~$0.05–0.10 per run).
 - **Audit finding**: The managed agent infrastructure (`server/services/managedAgents/`) was 80% built — Anthropic-side registration via `setupAgents.ts`, full session runner with SSE event handling, 8 tool handlers connected to live DB (winners, platform stats, recent content, drafts), `SOCIAL_MEDIA_AGENT_ID` and `MANAGED_AGENT_ENV_ID` env vars set on Railway. The missing 20% was a trigger — nothing in the running app called `runAgentSession()`. This change adds that trigger as a user-pressable button.

@@ -1077,9 +1077,12 @@ async function createBookingFromSms(
       if (hasConflict) return { success: false, error: 'conflict' };
     }
 
-    // Create appointment
+    // Create appointment with race-safe transactional double-booking prevention.
+    // The pre-check above is a fast UX path; createAppointmentSafely is the
+    // authoritative defense (SELECT...FOR UPDATE + same-tx insert).
     const appointmentNotes = extraNotes ? `Booked via SMS. ${extraNotes}` : 'Booked via SMS';
-    const appointment = await storage.createAppointment({
+    const { createAppointmentSafely } = await import('./appointmentService');
+    const safeResult = await createAppointmentSafely({
       businessId: business.id,
       customerId,
       staffId: staffId || null,
@@ -1089,6 +1092,10 @@ async function createBookingFromSms(
       status: 'scheduled',
       notes: appointmentNotes,
     });
+    if (!safeResult.success || !safeResult.appointment) {
+      return { success: false, error: 'conflict' };
+    }
+    const appointment = safeResult.appointment;
 
     // Set manage token
     const manageToken = crypto.randomBytes(24).toString('hex');

@@ -632,8 +632,12 @@ router.post("/book/:slug", async (req, res) => {
       }
     }
 
-    // Create the appointment (same pattern as VAPI/AI receptionist)
-    const appointment = await storage.createAppointment({
+    // Create the appointment with race-safe transactional double-booking prevention.
+    // The pre-check above is a fast-path UX win, but `createAppointmentSafely` is the
+    // authoritative defense — it locks conflicting rows via SELECT...FOR UPDATE and
+    // commits the insert in the same transaction, eliminating the TOCTOU window.
+    const { createAppointmentSafely } = await import("../services/appointmentService");
+    const safeResult = await createAppointmentSafely({
       businessId: business.id,
       customerId: customer.id,
       staffId: staffId || null,
@@ -645,6 +649,12 @@ router.post("/book/:slug", async (req, res) => {
         ? `Online booking: ${validatedData.notes}`
         : 'Online booking',
     });
+    if (!safeResult.success || !safeResult.appointment) {
+      return res.status(409).json({
+        error: safeResult.error || "Sorry, that time slot was just booked. Please select a different time.",
+      });
+    }
+    const appointment = safeResult.appointment;
 
     // Set manage token after creation (non-blocking, so appointment creation never fails)
     const manageToken = crypto.randomBytes(24).toString('hex');

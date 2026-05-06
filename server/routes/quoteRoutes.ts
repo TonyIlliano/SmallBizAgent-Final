@@ -417,15 +417,20 @@ router.post("/quotes/:id/convert-to-job", async (req, res) => {
     // Link the quote to the new job
     await storage.updateQuote(quoteId, { jobId: job.id });
 
-    // Auto-create appointment if scheduled date provided
+    // Auto-create appointment if scheduled date provided.
+    // Defaults to 9:00 AM with a 60-min duration. Uses createAppointmentSafely
+    // so concurrent quote-conversions targeting the same default 9 AM slot
+    // for the same staff don't collide.
     let appointmentId = null;
+    let appointmentConflict = false;
     if (scheduledDate) {
       try {
         const startDate = new Date(scheduledDate + 'T09:00:00');
         const endDate = new Date(startDate);
         endDate.setMinutes(endDate.getMinutes() + 60);
 
-        const appointment = await storage.createAppointment({
+        const { createAppointmentSafely } = await import("../services/appointmentService");
+        const safeResult = await createAppointmentSafely({
           businessId,
           customerId: existingQuote.customerId,
           staffId: req.body.staffId || null,
@@ -436,10 +441,17 @@ router.post("/quotes/:id/convert-to-job", async (req, res) => {
           notes: `Auto-created from Quote #${existingQuote.quoteNumber}`,
         });
 
-        // Link appointment to the job
-        await storage.updateJob(job.id, { appointmentId: appointment.id });
-        appointmentId = appointment.id;
-        console.log(`Auto-created appointment ${appointment.id} for job ${job.id} from quote ${quoteId}`);
+        if (safeResult.success && safeResult.appointment) {
+          // Link appointment to the job
+          await storage.updateJob(job.id, { appointmentId: safeResult.appointment.id });
+          appointmentId = safeResult.appointment.id;
+          console.log(`Auto-created appointment ${appointmentId} for job ${job.id} from quote ${quoteId}`);
+        } else {
+          appointmentConflict = true;
+          console.warn(
+            `Skipped auto-creating appointment for quote ${quoteId}: ${safeResult.error || 'time slot conflict'}`
+          );
+        }
       } catch (aptErr: any) {
         console.error('Failed to auto-create appointment for quote-to-job conversion:', aptErr.message);
       }
@@ -453,6 +465,7 @@ router.post("/quotes/:id/convert-to-job", async (req, res) => {
       success: true,
       jobId: job.id,
       appointmentId,
+      appointmentConflict,
     });
   } catch (error) {
     console.error("Error converting quote to job:", error);
