@@ -1252,4 +1252,64 @@ router.get('/pipeline-status', isAdmin, async (_req: Request, res: Response) => 
   }
 });
 
+/**
+ * POST /run-smart-agent
+ *
+ * On-demand invocation of the Claude Managed Agent ("Social Media Brain").
+ * Runs a single autonomous session: agent reads platform stats + winner posts
+ * + recent content, then drafts coordinated content via tool calls. Drafts
+ * land in the same approval queue as the legacy agent.
+ *
+ * Cost: ~$0.05–0.10 per run depending on prompt complexity. Visible in the
+ * response. Admin-only. No scheduler — purely manual trigger.
+ *
+ * Body: { prompt: string }
+ * Returns: { text, toolCallsExecuted, usage, estimatedCost }
+ */
+router.post('/run-smart-agent', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      return res.status(400).json({ error: 'prompt (string) is required' });
+    }
+    if (prompt.length > 4000) {
+      return res.status(400).json({ error: 'prompt is too long (max 4000 chars)' });
+    }
+
+    const agentId = process.env.SOCIAL_MEDIA_AGENT_ID;
+    if (!agentId) {
+      return res.status(503).json({
+        error: 'Smart agent not configured. SOCIAL_MEDIA_AGENT_ID env var is missing.',
+      });
+    }
+
+    const { runAgentSession } = await import('../services/managedAgents/sessionRunner');
+    const { socialMediaToolHandlers } = await import('../services/managedAgents/socialMediaAgent');
+
+    console.log(`[SmartAgent] Admin ${(req.user as any)?.id} invoked smart agent. Prompt: "${prompt.substring(0, 100)}..."`);
+
+    const result = await runAgentSession(
+      agentId,
+      prompt,
+      socialMediaToolHandlers,
+      { timeoutMs: 5 * 60 * 1000 } // 5 min hard cap
+    );
+
+    // Cost estimate using Claude Sonnet 4.6 pricing: $3/M input, $15/M output
+    const inputTokens = result.usage?.inputTokens ?? 0;
+    const outputTokens = result.usage?.outputTokens ?? 0;
+    const estimatedCost = (inputTokens / 1_000_000) * 3 + (outputTokens / 1_000_000) * 15;
+
+    res.json({
+      text: result.text,
+      toolCallsExecuted: result.toolCallsExecuted,
+      usage: { inputTokens, outputTokens },
+      estimatedCost: Number(estimatedCost.toFixed(4)),
+    });
+  } catch (error: any) {
+    console.error('[SmartAgent] Error:', error);
+    res.status(500).json({ error: error.message || 'Smart agent run failed' });
+  }
+});
+
 export default router;

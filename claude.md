@@ -720,6 +720,32 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Smart Agent — On-Demand Manual Trigger UI for Claude Managed Social Media Brain
+- **Goal**: Wire up the existing Claude Managed Agent ("Social Media Brain") that was registered with Anthropic but never invoked. Cost-conscious design: manual trigger only, no scheduler. Cost visible after every run (~$0.05–0.10 per run).
+- **Audit finding**: The managed agent infrastructure (`server/services/managedAgents/`) was 80% built — Anthropic-side registration via `setupAgents.ts`, full session runner with SSE event handling, 8 tool handlers connected to live DB (winners, platform stats, recent content, drafts), `SOCIAL_MEDIA_AGENT_ID` and `MANAGED_AGENT_ENV_ID` env vars set on Railway. The missing 20% was a trigger — nothing in the running app called `runAgentSession()`. This change adds that trigger as a user-pressable button.
+
+##### Backend Endpoint
+- `server/routes/socialMediaRoutes.ts` — **NEW**: `POST /api/social-media/run-smart-agent` (admin-only). Accepts `{ prompt }` (max 4000 chars). Validates `SOCIAL_MEDIA_AGENT_ID` env var present. Dynamically imports `runAgentSession` and `socialMediaToolHandlers`. 5-minute hard timeout. Returns `{ text, toolCallsExecuted, usage: { inputTokens, outputTokens }, estimatedCost }` — cost computed at Sonnet 4.6 pricing ($3/M in, $15/M out). Logs admin user ID + prompt prefix.
+
+##### Frontend UI
+- `client/src/components/admin/social-media/SmartAgentSection.tsx` — **NEW** (~190 lines). Card on the admin Social Media page with: 3 example-prompt chips ("5 LinkedIn posts mixed types," "Launch week 3 posts," "HVAC vertical push"), a 4000-char prompt textarea, "Run Smart Agent" button, in-flight loading state with explanatory text, post-run summary card showing tool-calls executed + estimated cost + token counts + agent's text response. After success, invalidates `/api/social-media/posts`, `/api/admin/blog-posts`, and `/api/social-media/video-briefs` query caches so newly-created drafts appear in the queue immediately. Uses `Textarea`, `Card`, `Button`, `Badge` from shadcn/ui. Test IDs: `smart-agent-prompt`, `smart-agent-run`, `smart-agent-result`.
+- `client/src/pages/admin/social-media.tsx` — Mounted `SmartAgentSection` at the top of the section list (above `ConnectedAccountsSection`). Lazy-loaded matching the page's pattern.
+
+##### Cost Discipline
+- **Manual trigger only.** No scheduler integration — owner must press the button.
+- **Cost shown per run.** Estimated dollar cost appears in toast + result card so cost intuition builds fast.
+- **Hard 5-min session timeout** to defend against runaway loops.
+- **4000-char prompt cap** to prevent abuse.
+- **Existing legacy agent unchanged** — `platformAgents/socialMediaAgent.ts` still runs daily on the scheduler as the predictable safety net. Smart agent is on-demand only.
+
+##### Files Changed
+- `server/routes/socialMediaRoutes.ts` — new POST `/run-smart-agent` endpoint (~70 lines)
+- `client/src/components/admin/social-media/SmartAgentSection.tsx` — **NEW** (~190 lines)
+- `client/src/pages/admin/social-media.tsx` — Lazy import + Suspense mount
+
+##### Verification
+- `npx tsc --noEmit` clean.
+
 #### Free Tier — Auto-Downgrade After Cancel/Expiry (CRM-Only Soft Landing)
 - **Goal**: Replace the dead-end `expired` state with a **Free** tier so businesses don't get locked out when their trial ends or they cancel. Free = CRM only. They keep customers, jobs, invoices, quotes, manual scheduling, and Stripe Connect payments forever. Anything that costs us money per use (AI minutes via Retell, outbound SMS via Twilio, email reminders via SendGrid/Resend, public booking page, AI agents) is paid-only. Better retention, better reactivation funnel — they stay logged in, the data stays in our system, and they convert back to paid the moment they need an AI again.
 

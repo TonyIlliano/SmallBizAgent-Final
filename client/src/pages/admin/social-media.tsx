@@ -19,6 +19,9 @@ import { Loader2, Shield, Share2 } from "lucide-react";
 
 // ── Lazy-loaded sections ────────────────────────────────────────────────
 
+const SmartAgentSection = lazy(
+  () => import("@/components/admin/social-media/SmartAgentSection")
+);
 const ConnectedAccountsSection = lazy(
   () => import("@/components/admin/social-media/ConnectedAccountsSection")
 );
@@ -76,6 +79,10 @@ export default function SocialMediaAdminPage() {
       </div>
 
       <div className="space-y-8">
+        <Suspense fallback={<SectionLoader />}>
+          <SmartAgentSection />
+        </Suspense>
+
         <Suspense fallback={<SectionLoader />}>
           <ConnectedAccountsSection />
         </Suspense>
