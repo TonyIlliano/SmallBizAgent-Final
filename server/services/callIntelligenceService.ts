@@ -203,7 +203,36 @@ Return valid JSON only. No markdown, no code blocks.`;
 
     // Score call quality against the rubric (fire-and-forget, paid-tier only).
     // Becomes the merchant-facing "AI Quality Score" — one of two visible
-    // artifacts of the agent platform (the other is Dreaming, post-launch).
+    // artifacts of the agent platform (the other is Dreaming, see below).
+    //
+    // ── TODO(dreaming): integrate Anthropic Dreaming when access is granted ──
+    // Dreaming went live in research preview May 2026 (beta header
+    // `dreaming-2026-04-21` on top of `managed-agents-2026-04-01`). It reviews
+    // accumulated agent sessions per-merchant to surface recurring patterns
+    // the single-call grader can't see (e.g., systemic workflow preferences,
+    // recurring caller objections across weeks).
+    //
+    // Preconditions for wiring it in:
+    //   1. Anthropic Dreaming access granted (request via Claude Console).
+    //   2. At least one merchant with 30+ days of call_intelligence + call_quality_scores data.
+    //      Single-merchant signal — Dreaming is per-tenant, NOT aggregated across the platform.
+    //   3. Add the managed-agent ID to env (similar to SOCIAL_MEDIA_AGENT_ID).
+    //
+    // Data substrate already in place (per-business, per-date-range queryable):
+    //   - `call_intelligence` (intent, sentiment, key facts, follow-ups)
+    //   - `call_quality_scores` (rubric scores, failure modes, flagged calls)
+    //   - `customer_insights` (LTV, preferences, risk)
+    //   - Mem0 memory (already wired)
+    //
+    // Integration site: this is the natural hook point — after intelligence.ready
+    // fires and quality scoring completes, push the new datapoint into the
+    // Dreaming-enabled managed agent's session/memory store per-business.
+    // Output would surface in the existing AI Insights tab (or a new "Patterns"
+    // sub-tab) alongside auto-refine suggestions.
+    //
+    // Cost guardrail: Dreaming is scheduled, not per-call. Budget for it once
+    // per merchant per week (matching auto-refine cadence), not per-call.
+    // ────────────────────────────────────────────────────────────────────────
     import('./callQualityService').then(({ scoreCall }) => {
       // Look up business industry/name once for the rubric
       storage.getBusiness(businessId)
