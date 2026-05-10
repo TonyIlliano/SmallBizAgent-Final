@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { formatDateTime, formatPhoneNumber } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { CallQualityBadge } from "./CallQualityBadge";
 import {
   Card,
   CardContent,
@@ -345,7 +346,7 @@ export function CallLog({ businessId }: { businessId?: number | null }) {
                     </div>
 
                     {/* Right side: badges + expand */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                       {getStatusBadge(call.status)}
                       <Badge
                         variant="outline"
@@ -353,6 +354,7 @@ export function CallLog({ businessId }: { businessId?: number | null }) {
                       >
                         {normalizeIntent(call.intentDetected)}
                       </Badge>
+                      <CallQualityBadge callLogId={call.id} />
                       {isExpanded ? (
                         <ChevronUp className="h-4 w-4 text-muted-foreground" />
                       ) : (

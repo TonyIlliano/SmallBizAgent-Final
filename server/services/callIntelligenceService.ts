@@ -201,6 +201,24 @@ Return valid JSON only. No markdown, no code blocks.`;
       }).catch(err => console.error('[Orchestrator] intelligence.ready dispatch error:', err));
     }).catch(err => console.error('[Orchestrator] Import error:', err));
 
+    // Score call quality against the rubric (fire-and-forget, paid-tier only).
+    // Becomes the merchant-facing "AI Quality Score" — one of two visible
+    // artifacts of the agent platform (the other is Dreaming, post-launch).
+    import('./callQualityService').then(({ scoreCall }) => {
+      // Look up business industry/name once for the rubric
+      storage.getBusiness(businessId)
+        .then((business) => {
+          return scoreCall({
+            businessId,
+            callLogId,
+            transcript,
+            industry: business?.industry,
+            businessName: business?.name,
+          });
+        })
+        .catch(err => console.error('[CallQuality] scoreCall error:', err));
+    }).catch(err => console.error('[CallQuality] Import error:', err));
+
   } catch (err) {
     console.error(`[CallIntelligence] Error analyzing call ${callLogId}:`, err);
     try {

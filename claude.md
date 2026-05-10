@@ -720,6 +720,68 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Card-Required 14-Day Trial + Cancel UX + 3-Day Reminder
+- **Goal**: Replace the "no credit card required" trial with card-on-file trials. Conversion rates for card-required trials run 40-60% vs 2-5% for no-card trials — but only if the cancel UX is genuinely one-click and FTC click-to-cancel compliant. Plus a 3-day pre-charge reminder email so the merchant has explicit warning before billing kicks in (chargeback defense).
+- **Backend was already 90% wired** — `subscriptionService.createSubscription()` already used `payment_behavior: 'default_incomplete'` + `trial_settings.missing_payment_method: 'cancel'` + `save_default_payment_method: 'on_subscription'`. The actual structural fix was: (1) Stripe doesn't put a PaymentIntent on a $0 trial invoice, so we now create a SetupIntent for trial subs and return its clientSecret with `intentType: 'setup'`; (2) frontend redirects to `/payment` IMMEDIATELY after business creation instead of letting users skip into the dashboard; (3) `setup_intent.succeeded` webhook attaches the saved PM as default on both customer AND subscription so day-14 charge succeeds.
+
+##### Server changes
+- `server/services/subscriptionService.ts` — `createSubscription()`: when there's no PaymentIntent on `latest_invoice` (always true for $0 trial invoices), creates a `SetupIntent` with `usage: 'off_session'` and metadata `{ businessId, subscriptionId, purpose: 'trial_payment_method' }`. Returns `{ clientSecret, intentType: 'payment' | 'setup', ... }`. Added re-entry guard at the top: if business already has a `stripeSubscriptionId` in `trialing` state without a payment method, returns a fresh SetupIntent on the SAME existing subscription instead of creating a duplicate on the same Stripe customer (handles browser-close-mid-flow).
+- `server/services/subscriptionService.ts` — Added `setup_intent.succeeded` case to `handleWebhookEvent` switch + new private `handleSetupIntentSucceeded()` method. Filters by `metadata.purpose === 'trial_payment_method' | 'trial_payment_method_resume'` to ignore Billing Portal SetupIntents. Calls `customers.update(invoice_settings.default_payment_method)` AND `subscriptions.update(default_payment_method)` so day-14 auto-charge has the right card. Idempotent + fail-soft.
+- `server/services/schedulerService.ts` — New `sendPreChargeReminder()` helper + check in the trial loop: 3 days before trial ends AND `status='trialing'` AND `stripeSubscriptionId IS NOT NULL` → fires the new email. Pulls plan name + price from `subscription_plans`. Deduped via `notification_log` with `type: 'pre_charge_reminder'`. Imports `sendPreChargeReminderEmail` from `../emailService`.
+- `server/emailService.ts` — New `sendPreChargeReminderEmail(ownerEmail, businessName, planName, amount, chargeDate)` template. Subject: "Heads up — your trial ends in 3 days ($X on Date)". Body: explicit "we'll charge $X on $Date" + "cancel anytime in Settings before then" + Manage Subscription button.
+- `server/routes/expressSetupRoutes.ts` — After Twilio/Retell provisioning, reads `req.session.onboarding.selectedPlanId` and calls `subscriptionService.createSubscription()` if a plan was picked. Returns `clientSecret` + `intentType` in response. Clears session selection. Failure to create subscription doesn't block setup (user can subscribe from Settings later).
+
+##### Frontend changes
+- `client/src/pages/onboarding/steps/business-setup.tsx` — Captures `clientSecret` + `intentType` from create-subscription response and redirects to `/payment?clientSecret=...&intentType=...&returnTo=/onboarding`. Step machine advances BEFORE redirect so user resumes at next step on return.
+- `client/src/pages/onboarding/steps/express-setup.tsx` — `onSuccess` now branches: if response includes `clientSecret`, shows "saving your payment method..." step message and redirects to `/payment` instead of dashboard.
+- `client/src/pages/payment.tsx` — Full rewrite. Branches between `confirmSetup` (trial) vs `confirmPayment` (immediate). Reads `intentType` + `returnTo` from query (with same-origin validation). Trial-aware copy: "You won't be charged today" + "We'll email you 3 days before billing starts." CTA copy adapts: "Save card & start trial" vs "Pay now."
+- `client/src/pages/subscription-success.tsx` — Detects `setup_intent` vs `payment_intent` in Stripe redirect query. Trial-aware copy: "Trial started! Your card is saved" vs "Subscription Successful!" Honors `returnTo` (default `/dashboard`, validated same-origin).
+- `client/src/components/subscription/SubscriptionPlans.tsx` — Cancel button wrapped in shadcn `AlertDialog` with FTC click-to-cancel-compliant confirmation. Two paths: trialing ("Cancel before your trial ends? You won't be charged.") vs active ("Cancel your subscription? You'll keep access until [periodEnd]"). Toast: "You won't be charged again. You'll keep access until the end of the current billing period."
+- `client/src/components/global-trial-banner.tsx` — Trial banner copy rewritten for card-on-file reality: "Your trial ends in N days — billing starts then unless you cancel." Button: "Manage" → `/settings?tab=subscription`. Grace-period and free-plan banners unchanged.
+- `client/src/pages/landing.tsx` — 4 copy locations updated: hero, CTA footer, value-props bullet, sticky-mobile CTA. "Card required to start — cancel anytime in Settings before day 14 and you won't be charged."
+- `client/src/pages/pricing.tsx` — 3 copy locations: FAQ, hero, bottom CTA.
+- `client/src/pages/onboarding/subscription.tsx` — Trust panel rewritten. Continue button → "Continue to payment".
+
+##### Deployment requirement
+- Stripe Dashboard → Developers → Webhooks → endpoint subscriptions: **must add `setup_intent.succeeded` event**. Without it, the webhook handler is dead code and we fall back to Stripe's automatic PM-attachment behavior (which usually works but isn't guaranteed for trial subs).
+
+##### Verification
+- `npx tsc --noEmit` clean.
+- 52/52 subscription-relevant tests pass (subscriptionService, usageService, e2e-payment-webhooks, e2e-usage-billing).
+- Manual end-to-end Stripe test mode verification was deferred to user (separate task).
+
+#### AI Quality Score — Merchant-Visible UI + Auto-Refine Feedback Loop
+- **Goal**: The call quality scoring service (`callQualityService.ts`) was already built — every Retell call gets graded against an industry-aware rubric, scores persisted, low scores flagged. But the merchant-visible artifacts were missing: no dashboard widget, no flagged-calls page, no trend chart. This change ships those, plus wires the quality scores back into the auto-refine pipeline so weekly suggestions get sharper based on which calls were actually bad. Becomes the sales wedge: a number + a trend + a self-improvement loop.
+
+##### Phase A — Merchant-visible UI for call quality
+- `client/src/components/dashboard/CallQualityCard.tsx` — **NEW** (~180 lines). Dashboard widget templated after `AiRoiCard`. Shows: big number (currentAvg/10), trend pill (delta vs prior 30 days), calls scored count, flagged count link, weakest-dimensions horizontal bar chart (top 4 dims sorted ascending). Self-hides when `callsScored === 0` (free tier or brand-new account) — no visual noise. Fetches `/api/call-quality/business/summary`. staleTime 5 min.
+- `client/src/components/receptionist/CallQualityTrendChart.tsx` — **NEW** (~160 lines). Recharts LineChart of last 6 months of monthly averages. Reference line at 6.0 (the flag threshold). Overall delta indicator. Empty state when fewer than 2 months of data ("a single dot doesn't show a trend"). Fetches `/api/call-quality/business/trend`.
+- `client/src/components/receptionist/FlaggedCalls.tsx` — **NEW** (~200 lines). List of flagged-and-not-yet-dismissed calls with score badge, top failure mode chip, weakest-dimension justification preview, and per-row "Reviewed" button calling `POST /api/call-quality/:id/dismiss-flag`. Reuses existing `CallQualityBadge` component for the per-dimension breakdown modal. Optimistic invalidation of summary + flagged + per-call queries on dismiss.
+- `client/src/pages/dashboard.tsx` — Imported and mounted `CallQualityCard` immediately below `AiRoiCard` inside its own `SectionErrorBoundary`.
+- `client/src/pages/receptionist/index.tsx` — Lazy-imported `CallQualityTrendChart` + `FlaggedCalls`. Added flagged-count query reusing the dashboard's summary endpoint (warm cache). Added 5th `<TabsTrigger value="quality">` between Call History and Knowledge Base, with destructive badge showing flagged count. Bumped `sm:grid-cols-4` → `sm:grid-cols-5`.
+
+##### Phase B — Quality scores feed into auto-refine
+- `server/services/autoRefineService.ts` — Added Drizzle imports for `callQualityScores`, `and`, `eq`, `gte`, `lte`. In `analyzeBusinessWeek`: pulls quality scores for the same week as the transcripts via `db.select().from(callQualityScores).where(...)` filtered by businessId + scoredAt range. Failure-safe: query failure logs a warning and falls through to legacy behavior. Builds a `Map<callLogId, { score, flagged, failureModes }>` and a `Map<failureMode, count>` (tallying ONLY from flagged calls — high-score calls with rare failure modes are noise).
+- `server/services/autoRefineService.ts` — Each transcript in the AI prompt now gets tagged inline: `[Call #123 | Status: completed | ... | Quality: 4.2/10 ⚠️ FLAGGED | Issues: didnt_book_when_should_have, sounded_robotic]`. The user prompt gains a "QUALITY SIGNAL THIS WEEK" section with: total scored count, flagged count, recurring failure-mode digest (modes appearing 2+ times in flagged calls, sorted by frequency, top 10).
+- `server/services/autoRefineService.ts` — System prompt extended with a "PRIORITIZATION SIGNAL" section: tells Claude to treat patterns from flagged calls as top priority and to include failure-mode names + occurrence counts in suggestion descriptions. Keeps the legacy behavior intact when no quality scores exist.
+
+##### Tests
+- `server/services/callQualityService.test.ts` — **NEW** (270 lines, 18 tests). Vitest suite with hoisted mocks for `claudeClient`, `db`, `usageService`. Covers: free-plan gate (silent skip + fail-open on isFreePlan errors), short-transcript skip (empty + < 100 chars), idempotency (already-scored skip), scoring math (totalScore = mean of dimensions), flag logic (totalScore < 6 OR criticalFailure = true even if score is high), industry snapshot, graceful failure (Claude rejects, malformed grader output, no dimensions returned), `dismissQualityFlag` ownership check (true on match, false on mismatch, false when no row updated), `getCallQualityScore` (returns row or null).
+
+##### How the loop closes (per business, runs continuously)
+1. Call happens → `callIntelligenceService` extracts intent/sentiment/summary
+2. `callQualityService` grades transcript against industry rubric → persists score + failure modes
+3. Score < 6 OR critical failure → flagged for merchant review
+4. Merchant sees per-call badge in Call History, dashboard widget, Receptionist → Quality tab (trend + flagged list)
+5. Weekly: `analyzeBusinessWeek` joins quality scores onto transcripts, tallies failure modes from flagged calls, sends sharper suggestions to Claude
+6. Merchant approves a suggestion → applied to their config/KB → Retell agent regenerated
+7. Next week's calls have fewer of those failures → quality scores rise → trend chart shows improvement
+
+##### Verification
+- `npx tsc --noEmit` clean.
+- 18/18 callQualityService tests pass.
+- Full suite: 802 pass / 9 fail (same 9 pre-existing failures from prior sessions, unrelated).
+
 #### Smart Agent — Async Pattern (Eliminates Cloudflare 524 Timeouts)
 - **Goal**: First production run hit Cloudflare 524 ("origin web server timed out") after 100s. Cloudflare's edge timeout on this plan is 100s and not adjustable. Anthropic Managed Agent sessions can legitimately take 30-180s, so the synchronous request shape was structurally wrong. Refactored to start-then-poll: POST returns 202 in ~50ms with a runId, agent runs in the background, frontend polls a status endpoint every 3s until done. The first failed run still completed server-side (5 drafts appeared in the queue) — only the HTTP response was lost.
 
@@ -2257,7 +2319,9 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: April 25, 2026. Complete pre-launch P0 cleanup — every blocker from the audit is resolved. Twilio webhook tenant hardening, Retell webhook idempotency, Stripe webhook idempotency tightening + 500/400 polish, SMS reschedule/cancel calendar sync (6 paths), past-date/out-of-hours booking validation (4 guards), express onboarding email verification, express onboarding synchronous provisioning + Twilio rollback, plan-tier marketing claim cleanup (QuickBooks + Social Media removed pending real availability), pricing v3 (tiered overages $0.20/$0.15/$0.10), pricing v4 (strip false marketing claims from prod). 793/793 tests passing.*
+*Last updated: May 10, 2026. Card-required 14-day trial flow (Stripe SetupIntent for $0 trial invoices, FTC click-to-cancel UX, 3-day pre-charge reminder email, setup_intent.succeeded webhook, abandonment re-entry guard). AI Quality Score merchant-visible UI (dashboard widget, trend chart, flagged-calls page) + auto-refine feedback loop (low-quality calls feed sharper weekly suggestions per business). 18 new callQualityService tests, 802/811 total tests passing (same 9 pre-existing failures unrelated to this work).*
+
+*Previous: April 25, 2026. Complete pre-launch P0 cleanup — every blocker from the audit is resolved. Twilio webhook tenant hardening, Retell webhook idempotency, Stripe webhook idempotency tightening + 500/400 polish, SMS reschedule/cancel calendar sync (6 paths), past-date/out-of-hours booking validation (4 guards), express onboarding email verification, express onboarding synchronous provisioning + Twilio rollback, plan-tier marketing claim cleanup (QuickBooks + Social Media removed pending real availability), pricing v3 (tiered overages $0.20/$0.15/$0.10), pricing v4 (strip false marketing claims from prod). 793/793 tests passing.*
 
 *Previous: April 20, 2026. Pre-launch audit fixes — dashboard N+1 elimination + website builder error-leak scrub.*
 

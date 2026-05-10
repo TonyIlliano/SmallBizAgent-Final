@@ -17,6 +17,7 @@ import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 
 import { Progress } from "@/components/ui/progress";
 import { AiRoiCard } from "@/components/dashboard/AiRoiCard";
+import { CallQualityCard } from "@/components/dashboard/CallQualityCard";
 import { SectionErrorBoundary } from "@/components/ui/section-error-boundary";
 
 import {
@@ -485,6 +486,12 @@ export default function Dashboard() {
         {/* AI ROI Card — the "money story" */}
         <SectionErrorBoundary fallbackTitle="AI insights">
         {usageData && businessId && <AiRoiCard businessId={businessId} />}
+        </SectionErrorBoundary>
+
+        {/* AI Quality Score Card — the "is the AI any good?" story.
+            Self-hides when callsScored === 0 (free tier, brand-new accounts). */}
+        <SectionErrorBoundary fallbackTitle="AI quality">
+        {businessId && <CallQualityCard businessId={businessId} />}
         </SectionErrorBoundary>
 
         {/* Needs Attention Section */}

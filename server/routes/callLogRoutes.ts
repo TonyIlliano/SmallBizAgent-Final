@@ -197,4 +197,198 @@ router.get("/customers/insights/high-risk", isAuthenticated, async (req: Request
   }
 });
 
+// =================== CALL QUALITY SCORES API ===================
+// Per-call quality scores from the rubric grader. Becomes the merchant-facing
+// "AI Quality Score" feature: per-call score, monthly trend, flagged calls.
+
+/** GET /api/call-quality/:callLogId — single call's score */
+router.get("/call-quality/:callLogId", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const callLogId = parseInt(req.params.callLogId, 10);
+    if (isNaN(callLogId)) return res.status(400).json({ error: "Invalid callLogId" });
+
+    const businessId = getBusinessId(req);
+    if (!businessId) return res.status(401).json({ error: "Not authenticated" });
+
+    const { db } = await import('../db');
+    const { callQualityScores } = await import('@shared/schema');
+    const { eq } = await import('drizzle-orm');
+
+    const [score] = await db.select().from(callQualityScores)
+      .where(eq(callQualityScores.callLogId, callLogId))
+      .limit(1);
+
+    if (!score) return res.status(404).json({ error: "No quality score for this call" });
+    if (score.businessId !== businessId && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    res.json(score);
+  } catch (error) {
+    console.error('Error fetching call quality score:', error);
+    res.status(500).json({ error: 'Failed to fetch call quality score' });
+  }
+});
+
+/** GET /api/call-quality/business/summary — monthly average + dimension breakdown */
+router.get("/call-quality/business/summary", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId) return res.status(401).json({ error: "Not authenticated" });
+
+    const { db } = await import('../db');
+    const { callQualityScores } = await import('@shared/schema');
+    const { and, eq, gte, sql } = await import('drizzle-orm');
+
+    // Last 30 days vs prior 30 days for trend
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+    // Current month
+    const [current] = await db.select({
+      avg: sql<number>`COALESCE(AVG(${callQualityScores.totalScore}), 0)`,
+      count: sql<number>`COUNT(*)`,
+      flagged: sql<number>`COUNT(*) FILTER (WHERE ${callQualityScores.flagged} = true AND ${callQualityScores.flagDismissed} = false)`,
+    })
+      .from(callQualityScores)
+      .where(and(
+        eq(callQualityScores.businessId, businessId),
+        gte(callQualityScores.scoredAt, thirtyDaysAgo),
+      ));
+
+    // Prior period (30-60 days ago) for trend arrow
+    const [prior] = await db.select({
+      avg: sql<number>`COALESCE(AVG(${callQualityScores.totalScore}), 0)`,
+    })
+      .from(callQualityScores)
+      .where(and(
+        eq(callQualityScores.businessId, businessId),
+        gte(callQualityScores.scoredAt, sixtyDaysAgo),
+        sql`${callQualityScores.scoredAt} < ${thirtyDaysAgo}`,
+      ));
+
+    // Dimension breakdown — pull all rows in current period and average each dimension
+    const recentRows = await db.select({
+      dimensions: callQualityScores.dimensions,
+    })
+      .from(callQualityScores)
+      .where(and(
+        eq(callQualityScores.businessId, businessId),
+        gte(callQualityScores.scoredAt, thirtyDaysAgo),
+      ))
+      .limit(500);
+
+    const dimensionTotals: Record<string, { sum: number; count: number }> = {};
+    for (const row of recentRows) {
+      const dims = row.dimensions as Record<string, { score: number; justification?: string }> | null;
+      if (!dims) continue;
+      for (const [key, val] of Object.entries(dims)) {
+        if (typeof val?.score !== 'number') continue;
+        if (!dimensionTotals[key]) dimensionTotals[key] = { sum: 0, count: 0 };
+        dimensionTotals[key].sum += val.score;
+        dimensionTotals[key].count += 1;
+      }
+    }
+    const dimensionBreakdown = Object.entries(dimensionTotals).map(([key, { sum, count }]) => ({
+      key,
+      avg: count > 0 ? Number((sum / count).toFixed(2)) : 0,
+      count,
+    })).sort((a, b) => a.avg - b.avg); // weakest first so the merchant sees what to improve
+
+    res.json({
+      currentAvg: Number((current?.avg ?? 0).toFixed(2)),
+      priorAvg: Number((prior?.avg ?? 0).toFixed(2)),
+      callsScored: Number(current?.count ?? 0),
+      flaggedCount: Number(current?.flagged ?? 0),
+      dimensionBreakdown,
+      windowDays: 30,
+    });
+  } catch (error) {
+    console.error('Error fetching call quality summary:', error);
+    res.status(500).json({ error: 'Failed to fetch call quality summary' });
+  }
+});
+
+/** GET /api/call-quality/business/trend — last 6 months of monthly averages */
+router.get("/call-quality/business/trend", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId) return res.status(401).json({ error: "Not authenticated" });
+
+    const { db } = await import('../db');
+    const { callQualityScores } = await import('@shared/schema');
+    const { eq, sql } = await import('drizzle-orm');
+
+    const rows = await db.select({
+      month: sql<string>`TO_CHAR(${callQualityScores.scoredAt}, 'YYYY-MM')`,
+      avg: sql<number>`AVG(${callQualityScores.totalScore})`,
+      count: sql<number>`COUNT(*)`,
+    })
+      .from(callQualityScores)
+      .where(eq(callQualityScores.businessId, businessId))
+      .groupBy(sql`TO_CHAR(${callQualityScores.scoredAt}, 'YYYY-MM')`)
+      .orderBy(sql`TO_CHAR(${callQualityScores.scoredAt}, 'YYYY-MM') DESC`)
+      .limit(6);
+
+    res.json({
+      months: rows.reverse().map(r => ({
+        month: r.month,
+        avg: Number(Number(r.avg).toFixed(2)),
+        count: Number(r.count),
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching call quality trend:', error);
+    res.status(500).json({ error: 'Failed to fetch call quality trend' });
+  }
+});
+
+/** GET /api/call-quality/business/flagged — flagged calls awaiting review */
+router.get("/call-quality/business/flagged", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId) return res.status(401).json({ error: "Not authenticated" });
+
+    const { db } = await import('../db');
+    const { callQualityScores } = await import('@shared/schema');
+    const { and, eq, desc } = await import('drizzle-orm');
+
+    const flagged = await db.select()
+      .from(callQualityScores)
+      .where(and(
+        eq(callQualityScores.businessId, businessId),
+        eq(callQualityScores.flagged, true),
+        eq(callQualityScores.flagDismissed, false),
+      ))
+      .orderBy(desc(callQualityScores.scoredAt))
+      .limit(50);
+
+    res.json({ flagged });
+  } catch (error) {
+    console.error('Error fetching flagged calls:', error);
+    res.status(500).json({ error: 'Failed to fetch flagged calls' });
+  }
+});
+
+/** POST /api/call-quality/:callLogId/dismiss-flag — merchant marks "I reviewed" */
+router.post("/call-quality/:callLogId/dismiss-flag", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const callLogId = parseInt(req.params.callLogId, 10);
+    if (isNaN(callLogId)) return res.status(400).json({ error: "Invalid callLogId" });
+
+    const businessId = getBusinessId(req);
+    if (!businessId) return res.status(401).json({ error: "Not authenticated" });
+
+    const { dismissQualityFlag } = await import('../services/callQualityService');
+    const ok = await dismissQualityFlag(callLogId, businessId);
+    if (!ok) return res.status(404).json({ error: "Score not found or access denied" });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error dismissing quality flag:', error);
+    res.status(500).json({ error: 'Failed to dismiss flag' });
+  }
+});
+
 export default router;

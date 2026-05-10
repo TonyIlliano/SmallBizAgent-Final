@@ -21,6 +21,10 @@ import { SectionErrorBoundary } from "@/components/ui/section-error-boundary";
 // the receptionist on/off toggle.
 const PhoneProvisioningCard = lazy(() => import("@/components/settings/PhoneProvisioningCard"));
 
+// AI Quality scoring — lazy so it only loads when the merchant clicks the tab.
+const CallQualityTrendChart = lazy(() => import("@/components/receptionist/CallQualityTrendChart"));
+const FlaggedCalls = lazy(() => import("@/components/receptionist/FlaggedCalls"));
+
 
 // Recording disclosure keywords (must match server-side check)
 const DISCLOSURE_KEYWORDS = ['recorded', 'recording', 'monitored', 'monitor'];
@@ -121,6 +125,16 @@ export default function Receptionist() {
     refetchInterval: 60000,
   });
   const suggestionCount = suggestionCountData?.count || 0;
+
+  // Fetch quality summary for the "flagged calls" badge on the Quality tab.
+  // Reuses the same endpoint the dashboard widget hits, so the React Query
+  // cache is warm if the user came from the dashboard.
+  const { data: qualitySummary } = useQuery<{ flaggedCount: number; callsScored: number }>({
+    queryKey: ["/api/call-quality/business/summary", businessId],
+    enabled: !!businessId,
+    staleTime: 60000,
+  });
+  const flaggedCount = qualitySummary?.flaggedCount || 0;
 
   // Fetch receptionist config to check aiInsightsEnabled + greeting disclosure
   const { data: receptionistConfig } = useQuery<any>({
@@ -229,8 +243,17 @@ export default function Receptionist() {
         </SectionErrorBoundary>
 
         <Tabs defaultValue="calls" value={activeTab || "calls"} onValueChange={setActiveTab}>
-          <TabsList className="flex w-full overflow-x-auto sm:grid sm:w-full sm:grid-cols-4 mb-6">
+          <TabsList className="flex w-full overflow-x-auto sm:grid sm:w-full sm:grid-cols-5 mb-6">
             <TabsTrigger value="calls">Call History</TabsTrigger>
+            <TabsTrigger value="quality" className="relative">
+              <Sparkles className="h-4 w-4 mr-1.5" />
+              Quality
+              {flaggedCount > 0 && (
+                <Badge variant="destructive" className="ml-1.5 h-5 min-w-[20px] rounded-full px-1.5 text-[10px]">
+                  {flaggedCount}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="knowledge" className="relative">
               <Brain className="h-4 w-4 mr-1.5" />
               Knowledge Base
@@ -255,6 +278,19 @@ export default function Receptionist() {
           <TabsContent value="calls" className="space-y-4">
             <SectionErrorBoundary fallbackTitle="Call history">
               <CallLog businessId={businessId} />
+            </SectionErrorBoundary>
+          </TabsContent>
+
+          <TabsContent value="quality" className="space-y-4">
+            <SectionErrorBoundary fallbackTitle="AI quality">
+              <Suspense fallback={
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              }>
+                <CallQualityTrendChart />
+                <FlaggedCalls />
+              </Suspense>
             </SectionErrorBoundary>
           </TabsContent>
 

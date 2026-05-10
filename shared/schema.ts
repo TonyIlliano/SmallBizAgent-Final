@@ -1040,6 +1040,34 @@ export const smartAgentRuns = pgTable("smart_agent_runs", {
   finishedAt: timestamp("finished_at"),
 });
 
+// Call Quality Scores — per-call quality grading via Claude rubric.
+// Runs after callIntelligenceService completes. Becomes the merchant-facing
+// "AI Quality Score" feature: per-call score, monthly trend, flagged-call queue.
+// Paid-tier only (free businesses don't have an AI receptionist anyway).
+//
+// Each row scores ONE call against an industry-aware rubric. Dimensions stored
+// as JSONB so we can evolve the rubric over time without schema changes —
+// `rubricVersion` lets us identify which rubric was used.
+export const callQualityScores = pgTable("call_quality_scores", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  callLogId: integer("call_log_id").notNull().unique(), // one score per call
+  industry: text("industry"), // snapshot at scoring time
+  // dimensions: { greeting: { score: 9, justification: "..." }, ... }
+  dimensions: jsonb("dimensions").notNull(),
+  totalScore: real("total_score").notNull(), // 0-10 average across dimensions
+  rubricVersion: text("rubric_version").notNull().default("v1"),
+  flagged: boolean("flagged").notNull().default(false), // true if total < 6 OR critical failure
+  flagDismissed: boolean("flag_dismissed").notNull().default(false), // merchant marked "I reviewed"
+  flagDismissedAt: timestamp("flag_dismissed_at"),
+  failureModes: jsonb("failure_modes"), // string[] e.g. ["misunderstood_service", "didnt_book"]
+  modelUsed: text("model_used"), // claude-sonnet-4-6, gpt-5-mini-fallback, etc.
+  inputTokens: integer("input_tokens").default(0),
+  outputTokens: integer("output_tokens").default(0),
+  estimatedCost: real("estimated_cost").default(0),
+  scoredAt: timestamp("scored_at").defaultNow(),
+});
+
 // Website Scrape Cache - cached results from business website scraping
 export const websiteScrapeCache = pgTable("website_scrape_cache", {
   id: serial("id").primaryKey(),
@@ -1281,6 +1309,7 @@ export const insertSocialMediaPostSchema = createInsertSchema(socialMediaPosts).
 export const insertVideoBriefSchema = createInsertSchema(videoBriefs).omit({ id: true, createdAt: true });
 export const insertVideoClipSchema = createInsertSchema(videoClips).omit({ id: true, createdAt: true });
 export const insertSmartAgentRunSchema = createInsertSchema(smartAgentRuns).omit({ id: true, startedAt: true, finishedAt: true });
+export const insertCallQualityScoreSchema = createInsertSchema(callQualityScores).omit({ id: true, scoredAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
@@ -1485,6 +1514,9 @@ export type InsertVideoClip = z.infer<typeof insertVideoClipSchema>;
 
 export type SmartAgentRun = typeof smartAgentRuns.$inferSelect;
 export type InsertSmartAgentRun = z.infer<typeof insertSmartAgentRunSchema>;
+
+export type CallQualityScore = typeof callQualityScores.$inferSelect;
+export type InsertCallQualityScore = z.infer<typeof insertCallQualityScoreSchema>;
 
 export type SmsSuppression = typeof smsSuppressionList.$inferSelect;
 export type InsertSmsSuppression = z.infer<typeof insertSmsSuppressionSchema>;

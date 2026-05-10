@@ -13,6 +13,9 @@
 import { claudeText } from './claudeClient';
 import { storage } from '../storage';
 import { debouncedUpdateRetellAgent } from './retellProvisioningService';
+import { db } from '../db';
+import { callQualityScores } from '../../shared/schema';
+import { and, eq, gte, lte } from 'drizzle-orm';
 
 // ── Greeting disclosure check ────────────────────────────────────────
 const DISCLOSURE_KEYWORDS = ['recorded', 'recording', 'monitored', 'monitor'];
@@ -62,7 +65,16 @@ Rules:
 - Do NOT suggest things already covered in the existing knowledge base
 - Do NOT duplicate pending unanswered questions unless you have a better, more complete answer
 - If the receptionist is performing well with no gaps, return an empty array: []
-- Return valid JSON array only, no markdown fences, no commentary`;
+- Return valid JSON array only, no markdown fences, no commentary
+
+PRIORITIZATION SIGNAL (when quality data is provided):
+Each transcript may be tagged with a quality score (0-10) and failure modes. Calls scoring under 6
+or with critical failures are FLAGGED. Treat patterns appearing across multiple FLAGGED calls as
+top-priority gaps to fix. If a failure mode (e.g., "didnt_book_when_should_have", "missed_address",
+"sounded_robotic") shows up 2+ times in flagged calls, propose a concrete config or knowledge-base
+fix that targets it. Include the failure-mode name and occurrence count in the description so the
+merchant can verify the pattern. Patterns from high-scoring calls (8+) generally don't need fixes
+unless they're systemic.`;
 
 // ── Main weekly runner ───────────────────────────────────────────────
 
@@ -139,13 +151,76 @@ export async function analyzeBusinessWeek(businessId: number): Promise<void> {
   const knowledge = await storage.getBusinessKnowledge(businessId, { isApproved: true });
   const pendingQuestions = await storage.getUnansweredQuestions(businessId, { status: 'pending' });
 
-  // Build transcript summaries (cap at 20, truncate each to 2000 chars)
+  // Pull quality scores for the same week so the analyzer can prioritize
+  // patterns from low-scoring calls. Failure-safe: if the table is missing
+  // or the query fails, fall through with no quality signal — the legacy
+  // (transcripts-only) prompt still works.
+  let qualityByCallId = new Map<number, { score: number; flagged: boolean; failureModes: string[] }>();
+  let failureModeCounts = new Map<string, number>();
+  let flaggedCount = 0;
+  try {
+    const qualityRows = await db
+      .select({
+        callLogId: callQualityScores.callLogId,
+        totalScore: callQualityScores.totalScore,
+        flagged: callQualityScores.flagged,
+        failureModes: callQualityScores.failureModes,
+      })
+      .from(callQualityScores)
+      .where(
+        and(
+          eq(callQualityScores.businessId, businessId),
+          gte(callQualityScores.scoredAt, weekStart),
+          lte(callQualityScores.scoredAt, now),
+        ),
+      );
+
+    for (const row of qualityRows) {
+      const modes = Array.isArray(row.failureModes) ? (row.failureModes as string[]) : [];
+      qualityByCallId.set(row.callLogId, {
+        score: Number(row.totalScore),
+        flagged: !!row.flagged,
+        failureModes: modes,
+      });
+      // Tally failure modes ONLY from flagged calls (high-score calls
+      // with rare failure modes are noise — we only want recurring pain).
+      if (row.flagged) {
+        flaggedCount++;
+        for (const mode of modes) {
+          failureModeCounts.set(mode, (failureModeCounts.get(mode) || 0) + 1);
+        }
+      }
+    }
+  } catch (qualityErr) {
+    console.warn(`[AutoRefine] Could not load quality scores for business ${businessId}:`, qualityErr);
+    // Fall through with empty quality maps — the analysis still runs without
+    // the quality signal, just less targeted.
+  }
+
+  // Build transcript summaries (cap at 20, truncate each to 2000 chars).
+  // Tag each call with its quality score + flag status when available so
+  // the analyzer can prioritize patterns from low-scoring calls.
   const transcriptSummaries = callsWithTranscripts
     .slice(0, 20)
-    .map(c =>
-      `[Call #${c.id} | Status: ${c.status} | Intent: ${c.intentDetected || 'unknown'} | Duration: ${c.callDuration || '?'}s]\n${(c.transcript || '').substring(0, 2000)}`
-    )
+    .map(c => {
+      const quality = qualityByCallId.get(c.id);
+      const qualityTag = quality
+        ? ` | Quality: ${quality.score.toFixed(1)}/10${quality.flagged ? ' ⚠️ FLAGGED' : ''}${quality.failureModes.length ? ` | Issues: ${quality.failureModes.join(', ')}` : ''}`
+        : '';
+      return `[Call #${c.id} | Status: ${c.status} | Intent: ${c.intentDetected || 'unknown'} | Duration: ${c.callDuration || '?'}s${qualityTag}]\n${(c.transcript || '').substring(0, 2000)}`;
+    })
     .join('\n---\n');
+
+  // Build a failure-mode digest for the prompt — a sorted list of recurring
+  // pain points across this week's flagged calls. Only include modes that
+  // appeared 2+ times (single occurrences are noise).
+  const recurringFailures = Array.from(failureModeCounts.entries())
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const failureModeDigest = recurringFailures.length > 0
+    ? recurringFailures.map(([mode, count]) => `  - ${mode} (${count}× in flagged calls)`).join('\n')
+    : '(no recurring failure patterns this week)';
 
   const currentKnowledge = knowledge
     .slice(0, 30)
@@ -173,10 +248,19 @@ ${currentKnowledge || '(empty)'}
 PENDING UNANSWERED QUESTIONS (${pendingQuestions.length}):
 ${pendingQuestionsText || '(none)'}
 
+QUALITY SIGNAL THIS WEEK:
+${qualityByCallId.size === 0
+  ? '(no quality scores available — score every call by enabling AI Insights or upgrading)'
+  : `- ${qualityByCallId.size} of ${callsWithTranscripts.length} calls scored
+- ${flaggedCount} calls flagged (score < 6 or critical failure)
+- Recurring failure modes in flagged calls:
+${failureModeDigest}`}
+
 THIS WEEK'S CALL TRANSCRIPTS (${callsWithTranscripts.length} calls):
 ${transcriptSummaries}
 
-Based on all of the above, identify gaps and suggest improvements. Return a JSON array.`;
+Based on all of the above, identify gaps and suggest improvements. Prioritize fixing patterns
+that show up in flagged (low-quality) calls. Return a JSON array.`;
 
   // Call Claude
   const content = await claudeText({

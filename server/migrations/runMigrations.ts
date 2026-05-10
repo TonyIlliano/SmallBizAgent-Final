@@ -2394,6 +2394,9 @@ async function runMigrations() {
     // Smart agent runs — async invocation log for managed-agent sessions
     await ensureSmartAgentRunsTable();
 
+    // Call quality scores — per-call grading via Claude rubric (paid-tier feature)
+    await ensureCallQualityScoresTable();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3272,6 +3275,58 @@ async function ensureSmartAgentRunsTable() {
     console.log('smart_agent_runs table ready');
   } catch (error: any) {
     console.error('Error ensuring smart_agent_runs table:', error.message || error);
+  }
+}
+
+/**
+ * Call Quality Scores table.
+ *
+ * Per-call quality grading via Claude rubric. Runs after callIntelligenceService
+ * completes. Becomes the merchant-facing "AI Quality Score" feature: per-call
+ * score, monthly trend dashboard, flagged-call queue. Paid-tier only.
+ *
+ * Indexes optimize the three common query patterns:
+ *   1. Single call lookup by call_log_id (unique constraint covers it)
+ *   2. Per-business monthly summary (business_id + scored_at)
+ *   3. Flagged-calls queue (business_id + flagged + scored_at)
+ *
+ * Idempotent on re-run.
+ */
+async function ensureCallQualityScoresTable() {
+  console.log('Ensuring call_quality_scores table...');
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS call_quality_scores (
+        id SERIAL PRIMARY KEY,
+        business_id INTEGER NOT NULL,
+        call_log_id INTEGER NOT NULL UNIQUE,
+        industry TEXT,
+        dimensions JSONB NOT NULL,
+        total_score REAL NOT NULL,
+        rubric_version TEXT NOT NULL DEFAULT 'v1',
+        flagged BOOLEAN NOT NULL DEFAULT false,
+        flag_dismissed BOOLEAN NOT NULL DEFAULT false,
+        flag_dismissed_at TIMESTAMP,
+        failure_modes JSONB,
+        model_used TEXT,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        estimated_cost REAL DEFAULT 0,
+        scored_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_call_quality_scores_business_scored
+      ON call_quality_scores (business_id, scored_at DESC)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_call_quality_scores_flagged
+      ON call_quality_scores (business_id, flagged, flag_dismissed, scored_at DESC)
+      WHERE flagged = true AND flag_dismissed = false
+    `);
+    console.log('call_quality_scores table ready');
+  } catch (error: any) {
+    console.error('Error ensuring call_quality_scores table:', error.message || error);
   }
 }
 
