@@ -209,18 +209,31 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
       return response.json();
     },
     onSuccess: async (business) => {
-      // Retrieve plan selection from server-side session and create subscription
+      // Retrieve plan selection from server-side session and create subscription.
+      // Card-required trial flow: createSubscription returns a clientSecret +
+      // intentType. We MUST collect a payment method before letting the user
+      // continue. intentType tells the payment page whether to call confirmSetup
+      // (trial — SetupIntent) or confirmPayment (immediate charge — PaymentIntent).
+      let clientSecret: string | null = null;
+      let intentType: 'payment' | 'setup' = 'setup';
       try {
         const selectionRes = await apiRequest('GET', '/api/onboarding/selection');
         const selection = await selectionRes.json();
 
         if (selection.selectedPlanId && business.id) {
           try {
-            await apiRequest('POST', '/api/subscription/create-subscription', {
+            const subRes = await apiRequest('POST', '/api/subscription/create-subscription', {
               businessId: business.id,
               planId: selection.selectedPlanId,
               promoCode: selection.promoCode || undefined,
             });
+            const subData = await subRes.json();
+            if (subData?.clientSecret) {
+              clientSecret = subData.clientSecret;
+              if (subData.intentType === 'payment' || subData.intentType === 'setup') {
+                intentType = subData.intentType;
+              }
+            }
           } catch (subError) {
             console.error('Error creating subscription:', subError);
             toast({
@@ -249,8 +262,21 @@ export default function BusinessSetup({ onComplete }: BusinessSetupProps) {
       // Small delay to ensure React state updates
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Move to next step (progress is tracked by the onboarding index)
+      // Mark this step complete + advance the step machine BEFORE the payment
+      // redirect, so when the user returns from /payment they resume at the
+      // next onboarding step (use-onboarding-progress persists to DB).
       onComplete();
+
+      // Card-required trial flow: redirect to /payment to collect the card.
+      // The payment page will redirect back to /onboarding via returnTo on success.
+      if (clientSecret) {
+        const params = new URLSearchParams({
+          clientSecret,
+          intentType,
+          returnTo: '/onboarding',
+        });
+        window.location.href = `/payment?${params.toString()}`;
+      }
     },
     onError: (error: any) => {
       console.error('Business profile save error:', error);

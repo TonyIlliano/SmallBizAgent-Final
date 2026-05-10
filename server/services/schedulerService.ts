@@ -7,7 +7,7 @@ import { sendQuoteFollowUpNotification, sendInvoiceReminderNotification } from "
 import { sendBirthdayCampaigns } from "./marketingService";
 import { deprovisionBusiness } from "./businessProvisioningService";
 import twilioService from "./twilioService";
-import { sendTrialExpirationWarningEmail } from "../emailService";
+import { sendTrialExpirationWarningEmail, sendPreChargeReminderEmail } from "../emailService";
 import { runDataRetention } from './dataRetentionService';
 import { pool } from '../db';
 
@@ -805,6 +805,29 @@ async function runTrialExpirationCheck(): Promise<void> {
         }
       }
 
+      // PRE-CHARGE REMINDER: 3 days before card on file is charged.
+      // Card-required trial flow — fires only when the business has an active
+      // Stripe subscription (which means a payment method is on file and Stripe
+      // will auto-charge at trial end). Separate from the generic trial warning
+      // above because the messaging is fundamentally different ("you're about to
+      // be charged $X" vs "your trial is ending"). Deduped via notification_log.
+      if (daysUntilExpiry === 3 && status === 'trialing' && business.stripeSubscriptionId) {
+        try {
+          const logs = await storage.getNotificationLogs(business.id, 50);
+          const alreadySent = logs.some(
+            (l: any) => l.type === 'pre_charge_reminder' &&
+                 l.sentAt && (now.getTime() - new Date(l.sentAt).getTime()) < 24 * 60 * 60 * 1000
+          );
+
+          if (!alreadySent) {
+            await sendPreChargeReminder(business, trialEnd);
+            warned++;
+          }
+        } catch (err) {
+          console.error(`[TrialExpiration] Error sending pre-charge reminder for business ${business.id}:`, err);
+        }
+      }
+
       await new Promise(r => setTimeout(r, 200));
     }
 
@@ -961,6 +984,64 @@ async function sendTrialExpirationWarnings(business: Business, daysRemaining: nu
     } catch (err) {
       console.error(`[TrialExpiration] Failed to send warning SMS for business ${business.id}:`, err);
     }
+  }
+}
+
+/**
+ * Send pre-charge reminder email — 3 days before the card on file is charged.
+ * Fires only for trialing businesses with an active Stripe subscription, meaning
+ * Stripe will auto-charge the saved payment method when the trial ends. Looks up
+ * the plan name and price for accurate "we'll charge $X on [date]" messaging.
+ */
+async function sendPreChargeReminder(business: Business, chargeDate: Date): Promise<void> {
+  if (!business.email) return;
+
+  try {
+    // Pull plan details for accurate amount + name in the email
+    let planName = 'your plan';
+    let amount = 0;
+    if (business.stripePlanId) {
+      try {
+        const { db } = await import('../db');
+        const { subscriptionPlans } = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        const [plan] = await db
+          .select()
+          .from(subscriptionPlans)
+          .where(eq(subscriptionPlans.id, business.stripePlanId));
+        if (plan) {
+          planName = plan.name;
+          // plan.price is NUMERIC in DB and may come back as string
+          // (NUMERIC can exceed JS Number precision). Coerce safely.
+          const rawPrice = plan.price as unknown;
+          const parsed = typeof rawPrice === 'number' ? rawPrice : Number(rawPrice);
+          if (Number.isFinite(parsed)) amount = parsed;
+        }
+      } catch (lookupErr) {
+        console.error(`[TrialExpiration] Could not look up plan ${business.stripePlanId} for pre-charge reminder:`, lookupErr);
+      }
+    }
+
+    await sendPreChargeReminderEmail(
+      business.email,
+      business.name,
+      planName,
+      amount,
+      chargeDate,
+    );
+    await storage.createNotificationLog({
+      businessId: business.id,
+      type: 'pre_charge_reminder',
+      channel: 'email',
+      recipient: business.email,
+      subject: `Heads up — your trial ends in 3 days`,
+      status: 'sent',
+      referenceType: 'business',
+      referenceId: 3,
+    });
+    console.log(`[TrialExpiration] Pre-charge reminder sent to business ${business.id} (plan ${planName}, $${amount.toFixed(2)})`);
+  } catch (err) {
+    console.error(`[TrialExpiration] Failed to send pre-charge reminder for business ${business.id}:`, err);
   }
 }
 

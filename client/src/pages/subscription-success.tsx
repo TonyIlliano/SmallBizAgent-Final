@@ -12,9 +12,17 @@ export default function SubscriptionSuccessPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const searchParams = new URLSearchParams(window.location.search);
+  // Stripe sets either payment_intent or setup_intent depending on which
+  // confirm method was used. Trial flow uses SetupIntent.
   const paymentIntent = searchParams.get('payment_intent');
-  const paymentIntentClientSecret = searchParams.get('payment_intent_client_secret');
+  const setupIntent = searchParams.get('setup_intent');
+  const isSetup = !!setupIntent && !paymentIntent;
   const redirectStatus = searchParams.get('redirect_status');
+  const returnToRaw = searchParams.get('returnTo');
+  // Same-origin only — defense against open-redirect.
+  const returnTo = returnToRaw && returnToRaw.startsWith('/') && !returnToRaw.startsWith('//')
+    ? returnToRaw
+    : '/dashboard';
 
   // Get business ID from authenticated user
   const businessId = user?.businessId;
@@ -28,11 +36,13 @@ export default function SubscriptionSuccessPage() {
   useEffect(() => {
     if (redirectStatus === 'succeeded') {
       toast({
-        title: 'Subscription successful!',
-        description: 'Your subscription has been activated.',
+        title: isSetup ? 'Card saved — trial started!' : 'Subscription successful!',
+        description: isSetup
+          ? "You won't be charged until your 14-day trial ends."
+          : 'Your subscription has been activated.',
       });
     }
-  }, [redirectStatus, toast]);
+  }, [redirectStatus, isSetup, toast]);
 
   return (
     <div className="container mx-auto py-16 px-4 max-w-3xl">
@@ -43,15 +53,23 @@ export default function SubscriptionSuccessPage() {
               <Check className="h-8 w-8" />
             </div>
           </div>
-          <CardTitle className="text-center text-2xl">Subscription Successful!</CardTitle>
+          <CardTitle className="text-center text-2xl">
+            {isSetup ? 'Trial started!' : 'Subscription Successful!'}
+          </CardTitle>
           <CardDescription className="text-center">
-            Thank you for subscribing to SmallBizAgent.
+            {isSetup
+              ? "Your card is saved and your 14-day free trial is active."
+              : 'Thank you for subscribing to SmallBizAgent.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           <div className="space-y-4">
             <div className="text-center">
-              <p>Your subscription has been activated and is now ready to use.</p>
+              <p>
+                {isSetup
+                  ? "You won't be charged today. Billing starts automatically when your trial ends — cancel anytime in Settings."
+                  : 'Your subscription has been activated and is now ready to use.'}
+              </p>
               <p className="mt-2 text-muted-foreground">
                 You'll receive a confirmation email with all the details shortly.
               </p>
@@ -81,8 +99,8 @@ export default function SubscriptionSuccessPage() {
           </div>
         </CardContent>
         <CardFooter className="flex justify-center">
-          <Button onClick={() => navigate('/dashboard')} size="lg">
-            Go to Dashboard
+          <Button onClick={() => navigate(returnTo)} size="lg" data-testid="continue-after-payment">
+            {returnTo === '/onboarding' ? 'Continue setup' : 'Go to Dashboard'}
           </Button>
         </CardFooter>
       </Card>

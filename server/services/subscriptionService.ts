@@ -211,6 +211,84 @@ export class SubscriptionService {
         throw new Error(`Failed to create customer record for subscription: ${stripeError?.message || 'Unknown error'}`);
       }
       
+      // Re-entry guard: if the business already has a Stripe subscription and
+      // the user lands back here (e.g., abandoned the card-collection step,
+      // browser closed mid-flow, etc.), DON'T create a duplicate sub on the
+      // same Stripe customer. Inspect the existing one instead.
+      //
+      //   - status=trialing with no default_payment_method → return a fresh
+      //     SetupIntent so the user can finish saving their card on the
+      //     SAME existing subscription. No duplicate sub created.
+      //   - status=trialing with payment method already attached → no-op,
+      //     return the existing trial info.
+      //   - status=active/past_due/canceled/etc → caller wants to change plan,
+      //     route through change-plan endpoint instead. Return informative error.
+      if (businessRecord.stripeSubscriptionId) {
+        try {
+          const existing = await getStripe().subscriptions.retrieve(
+            businessRecord.stripeSubscriptionId,
+            { expand: ['default_payment_method'] }
+          );
+
+          if (existing.status === 'trialing') {
+            const trialEndDate = existing.trial_end
+              ? new Date(existing.trial_end * 1000)
+              : null;
+
+            if (!existing.default_payment_method) {
+              // Card-collection abandoned. Generate a fresh SetupIntent so the
+              // user can complete card collection on this existing subscription.
+              const setupIntent = await getStripe().setupIntents.create({
+                customer: stripeCustomer.id,
+                payment_method_types: ['card'],
+                usage: 'off_session',
+                metadata: {
+                  businessId: businessId.toString(),
+                  subscriptionId: existing.id,
+                  purpose: 'trial_payment_method_resume',
+                },
+              });
+              return {
+                subscriptionId: existing.id,
+                status: existing.status,
+                clientSecret: setupIntent.client_secret,
+                intentType: 'setup' as const,
+                trialEndsAt: trialEndDate?.toISOString() || null,
+                planName: planRecord.name,
+              };
+            }
+
+            // Card already on file, trial active — nothing to do.
+            return {
+              subscriptionId: existing.id,
+              status: existing.status,
+              clientSecret: null,
+              intentType: 'setup' as const,
+              trialEndsAt: trialEndDate?.toISOString() || null,
+              planName: planRecord.name,
+            };
+          }
+
+          // Non-trial existing sub — caller should use change-plan flow.
+          if (existing.status === 'active' || existing.status === 'past_due') {
+            throw new Error(
+              'You already have an active subscription. Use Change Plan in Settings to switch tiers.'
+            );
+          }
+          // Subscription is canceled / incomplete_expired / etc — fall through
+          // to create a new subscription below.
+        } catch (retrieveErr: any) {
+          // If Stripe says the sub doesn't exist (deleted), fall through and create fresh.
+          // Any other retrieve error → bubble up.
+          if (retrieveErr?.code !== 'resource_missing') {
+            throw retrieveErr;
+          }
+          console.warn(
+            `Stripe sub ${businessRecord.stripeSubscriptionId} missing in Stripe, creating fresh`
+          );
+        }
+      }
+
       // Determine if this should be a trial subscription
       // New businesses get a 14-day trial with card on file
       const isNewSubscription = !businessRecord.stripeSubscriptionId;
@@ -266,10 +344,54 @@ export class SubscriptionService {
 
         console.log(`Business ${businessId} subscribed to ${planRecord.name} (${subscription.status}${trialDays ? `, ${trialDays}-day trial` : ''})`);
 
+        // ── Resolve clientSecret for the frontend ───────────────────────
+        // Two cases:
+        //   1) Trial subscription — first invoice is $0, no PaymentIntent.
+        //      We must create a SetupIntent so the user can save a card now;
+        //      Stripe will charge it automatically when the trial ends.
+        //      Frontend uses stripe.confirmSetup() with this clientSecret.
+        //   2) Immediate-charge subscription — Stripe attaches a PaymentIntent
+        //      to the first invoice; frontend uses stripe.confirmPayment().
+        //
+        // We always tell the frontend which intent type it's dealing with so
+        // it can call the correct confirm method.
+        const paymentIntentSecret =
+          asExpandedInvoice(subscription.latest_invoice)?.payment_intent?.client_secret;
+
+        let clientSecret: string | null = paymentIntentSecret || null;
+        let intentType: 'payment' | 'setup' = 'payment';
+
+        if (!paymentIntentSecret && trialDays) {
+          // Card-required trial flow — create SetupIntent for the customer.
+          try {
+            const setupIntent = await getStripe().setupIntents.create({
+              customer: stripeCustomer.id,
+              payment_method_types: ['card'],
+              usage: 'off_session', // Allow Stripe to charge automatically post-trial
+              metadata: {
+                businessId: businessId.toString(),
+                subscriptionId: subscription.id,
+                purpose: 'trial_payment_method',
+              },
+            });
+            clientSecret = setupIntent.client_secret;
+            intentType = 'setup';
+          } catch (setupErr: any) {
+            console.error(
+              `Failed to create SetupIntent for trial subscription ${subscription.id}:`,
+              setupErr?.message || setupErr,
+            );
+            // Don't fail the whole subscription create — return without clientSecret.
+            // The frontend will surface this as "your business was saved but we
+            // couldn't collect a card; set it up from Settings."
+          }
+        }
+
         return {
           subscriptionId: subscription.id,
           status: subscription.status,
-          clientSecret: asExpandedInvoice(subscription.latest_invoice)?.payment_intent?.client_secret,
+          clientSecret,
+          intentType,
           trialEndsAt: trialEnd?.toISOString() || null,
           planName: planRecord.name,
         };
@@ -445,12 +567,107 @@ export class SubscriptionService {
           await this.handleSubscriptionCanceled(subscription);
           break;
         }
+
+        case 'setup_intent.succeeded': {
+          // Card-required trial flow: when the customer saves a card via the
+          // SetupIntent we generate at trial creation, attach the resulting
+          // payment method as the default on BOTH the customer and the
+          // trialing subscription so day-14 auto-charge has the right card.
+          //
+          // Without this handler, Stripe USUALLY links the PM to the sub on
+          // its own when it's the only PM on the customer — but "usually" is
+          // not "always". This guarantees correctness.
+          const setupIntent = event.data.object as Stripe.SetupIntent;
+          await this.handleSetupIntentSucceeded(setupIntent);
+          break;
+        }
       }
-      
+
       return { success: true };
     } catch (error) {
       console.error('Error handling webhook event:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Handle a successful SetupIntent — attach payment method to customer
+   * and to the trialing subscription as default_payment_method.
+   *
+   * Idempotent: if PM is already the default on customer or sub, the Stripe
+   * API calls are no-ops. Safe to retry.
+   *
+   * @private
+   */
+  private async handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
+    try {
+      // Only act on SetupIntents we created for the trial flow. Filter by
+      // the metadata we set in createSubscription/re-entry guard.
+      const purpose = setupIntent.metadata?.purpose;
+      if (purpose !== 'trial_payment_method' && purpose !== 'trial_payment_method_resume') {
+        // Not ours (e.g., a SetupIntent created by Billing Portal). Skip.
+        return;
+      }
+
+      const customerId = typeof setupIntent.customer === 'string'
+        ? setupIntent.customer
+        : setupIntent.customer?.id;
+      const paymentMethodId = typeof setupIntent.payment_method === 'string'
+        ? setupIntent.payment_method
+        : setupIntent.payment_method?.id;
+      const subscriptionId = setupIntent.metadata?.subscriptionId;
+
+      if (!customerId || !paymentMethodId) {
+        console.warn(
+          `[setup_intent.succeeded] Missing customer or payment_method on SetupIntent ${setupIntent.id}; skipping`
+        );
+        return;
+      }
+
+      const stripe = getStripe();
+
+      // 1. Set as default payment method on the customer.
+      try {
+        await stripe.customers.update(customerId, {
+          invoice_settings: { default_payment_method: paymentMethodId },
+        });
+        console.log(
+          `[setup_intent.succeeded] Set default PM on customer ${customerId}: ${paymentMethodId}`
+        );
+      } catch (custErr: any) {
+        console.error(
+          `[setup_intent.succeeded] Failed to set default PM on customer ${customerId}:`,
+          custErr?.message || custErr
+        );
+      }
+
+      // 2. Set as default payment method on the subscription (if known).
+      //    This is the critical bit — Stripe charges the SUBSCRIPTION's
+      //    default_payment_method at trial end, not the customer's.
+      if (subscriptionId) {
+        try {
+          await stripe.subscriptions.update(subscriptionId, {
+            default_payment_method: paymentMethodId,
+          });
+          console.log(
+            `[setup_intent.succeeded] Set default PM on subscription ${subscriptionId}: ${paymentMethodId}`
+          );
+        } catch (subErr: any) {
+          console.error(
+            `[setup_intent.succeeded] Failed to set default PM on subscription ${subscriptionId}:`,
+            subErr?.message || subErr
+          );
+        }
+      } else {
+        console.warn(
+          `[setup_intent.succeeded] No subscriptionId in SetupIntent ${setupIntent.id} metadata; ` +
+          `customer-level default PM is set but subscription-level may not be.`
+        );
+      }
+    } catch (error) {
+      console.error('Error handling setup_intent.succeeded:', error);
+      // Don't throw — Stripe will retry but this is best-effort. The customer
+      // can also re-add the card from Settings if day-14 charge fails.
     }
   }
 

@@ -496,7 +496,7 @@ function PricingSection() {
             Simple, transparent pricing
           </h2>
           <p className="text-neutral-400 text-lg mb-8">
-            14-day free trial. No credit card required. Cancel anytime — your free CRM stays.
+            14-day free trial. Card required to start — cancel anytime in Settings before day 14 and you won't be charged.
           </p>
           <div className="inline-flex items-center gap-3 bg-neutral-900 border border-neutral-800 rounded-full p-1">
             <button
@@ -681,7 +681,7 @@ export default function LandingPage() {
               </a>
             </div>
             <p className="mt-6 text-sm text-neutral-500">
-              14-day free trial. No credit card required. Cancel anytime — your free CRM stays.
+              14-day free trial. Card required to start — cancel anytime in Settings before day 14 and you won't be charged.
             </p>
           </div>
 
@@ -984,9 +984,9 @@ export default function LandingPage() {
               </p>
               <div className="space-y-4">
                 {[
-                  "14-day free trial, cancel anytime",
+                  "14-day free trial, cancel anytime in Settings",
                   "Set up in under 15 minutes",
-                  "Cancel anytime, no questions asked",
+                  "One-click cancellation — no charge if you cancel before day 14",
                   "AI receptionist minutes included in every plan"
                 ].map((item, i) => (
                   <div key={i} className="flex items-center gap-3 text-neutral-300">
@@ -1016,7 +1016,7 @@ export default function LandingPage() {
           </Button>
         </a>
         <p className="text-center text-xs text-neutral-500 mt-1.5">
-          No credit card required
+          Card required — cancel anytime, no charge before day 14
         </p>
       </div>
 

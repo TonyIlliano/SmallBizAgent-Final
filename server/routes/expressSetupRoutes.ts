@@ -457,6 +457,57 @@ export function registerExpressSetupRoutes(app: Express) {
         }
 
         // -----------------------------------------------------------------
+        // 7.5. Card-required trial flow: if the user picked a plan on the
+        //      preceding /onboarding/subscription page, create a Stripe
+        //      subscription with a SetupIntent so we can collect a card.
+        //      The frontend uses clientSecret + intentType to redirect to
+        //      /payment after this endpoint returns.
+        //
+        //      If subscription creation fails, we don't fail the whole setup
+        //      — the user has a working business and can pick a plan from
+        //      Settings later. They'll be on the no-card grace flow.
+        // -----------------------------------------------------------------
+        let subscriptionClientSecret: string | null = null;
+        let subscriptionIntentType: 'payment' | 'setup' = 'setup';
+        const selectedPlanId = (req.session as any)?.onboarding?.selectedPlanId;
+        const selectedPromoCode = (req.session as any)?.onboarding?.promoCode;
+        if (selectedPlanId && typeof selectedPlanId === 'number') {
+          try {
+            const { subscriptionService } = await import('../services/subscriptionService');
+            const subResult = await subscriptionService.createSubscription(
+              business.id,
+              selectedPlanId,
+              selectedPromoCode || undefined,
+            );
+            if (subResult.clientSecret) {
+              subscriptionClientSecret = subResult.clientSecret;
+              if (subResult.intentType === 'payment' || subResult.intentType === 'setup') {
+                subscriptionIntentType = subResult.intentType;
+              }
+            }
+            console.log(
+              `[ExpressSetup] Subscription created for business ${business.id}: ` +
+              `plan=${selectedPlanId} status=${subResult.status} ` +
+              `intent=${subscriptionIntentType} ${subscriptionClientSecret ? 'has-clientSecret' : 'no-clientSecret'}`,
+            );
+            // Clear the onboarding plan selection from session
+            if ((req.session as any).onboarding) {
+              delete (req.session as any).onboarding.selectedPlanId;
+              delete (req.session as any).onboarding.promoCode;
+              await new Promise<void>((resolve) => req.session.save(() => resolve()));
+            }
+          } catch (subErr: any) {
+            console.error(
+              `[ExpressSetup] Subscription create failed for business ${business.id}, plan ${selectedPlanId}:`,
+              subErr?.message || subErr,
+            );
+            // Don't block setup. User can subscribe from Settings later.
+          }
+        } else {
+          console.log(`[ExpressSetup] No plan selected for user ${userId}; skipping subscription create`);
+        }
+
+        // -----------------------------------------------------------------
         // 8. Mark onboarding complete
         //    Even if provisioning failed, the business + services + hours exist.
         //    Owner can retry provisioning from settings/admin without redoing onboarding.
@@ -469,6 +520,8 @@ export function registerExpressSetupRoutes(app: Express) {
         //    `provisioningSuccess` is the source of truth for the frontend —
         //    it triggers the "your number is ready" success path or the
         //    "we hit a snag, support has been notified" recovery path.
+        //    `clientSecret`/`intentType` (when present) tell the frontend to
+        //    redirect to /payment for card collection before landing on the dashboard.
         // -----------------------------------------------------------------
         const refreshedBusiness = await storage.getBusiness(business.id);
         return res.json({
@@ -478,6 +531,8 @@ export function registerExpressSetupRoutes(app: Express) {
           twilioPhoneNumber: refreshedBusiness?.twilioPhoneNumber || null,
           business: refreshedBusiness || business,
           servicesCreated,
+          clientSecret: subscriptionClientSecret,
+          intentType: subscriptionIntentType,
         });
       } catch (error: any) {
         console.error("[ExpressSetup] Unexpected error:", error);

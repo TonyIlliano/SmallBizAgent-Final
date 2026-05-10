@@ -72,6 +72,10 @@ export function GlobalTrialBanner() {
     setLocation('/settings?tab=subscription');
   };
 
+  const handleManageSubscription = () => {
+    setLocation('/settings?tab=subscription');
+  };
+
   // Stack below the impersonation banner if it's active (h-10 ≈ 40px).
   const topClass = isImpersonating ? 'top-10' : 'top-0';
 
@@ -139,10 +143,15 @@ export function GlobalTrialBanner() {
     : 'bg-amber-700 text-white hover:bg-amber-800';
 
   const dayWord = days === 1 ? 'day' : 'days';
+  // Card-required trial flow: at this point a card is on file (otherwise the
+  // user would be in grace_period or free, not trialing). The copy reflects
+  // that — billing will start automatically unless they cancel.
   const headline =
     days === 0
-      ? 'Your trial ends today.'
-      : `Your trial ends in ${days} ${dayWord}.`;
+      ? "Your trial ends today — billing starts tomorrow unless you cancel."
+      : days === 1
+        ? "Your trial ends tomorrow — billing starts in 1 day unless you cancel."
+        : `Your trial ends in ${days} days — billing starts then unless you cancel.`;
 
   return (
     <div
@@ -151,15 +160,13 @@ export function GlobalTrialBanner() {
       data-testid="banner-trial-warning"
     >
       <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-      <span>
-        {headline} Add a payment method to keep your AI receptionist active.
-      </span>
+      <span>{headline}</span>
       <button
-        onClick={handleAddPayment}
+        onClick={handleManageSubscription}
         className={`${buttonPalette} px-3 py-0.5 rounded text-xs font-semibold transition-colors`}
-        data-testid="button-trial-add-payment"
+        data-testid="button-trial-manage"
       >
-        Add Payment
+        Manage
       </button>
       <button
         onClick={handleDismiss}

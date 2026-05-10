@@ -120,7 +120,7 @@ export default function OnboardingSubscription() {
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white">Choose Your Plan</h1>
           <p className="mt-3 text-neutral-400 max-w-2xl mx-auto">
-            Select the subscription plan that works best for your business. All plans include a 14-day free trial.
+            Select the plan that works best for your business. All plans include a 14-day free trial. Card required to start — cancel in Settings before day 14 and you won't be charged.
           </p>
 
           {/* Billing interval toggle */}
@@ -205,10 +205,10 @@ export default function OnboardingSubscription() {
 
         <div className="flex flex-col items-center mt-10">
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 mb-6 text-center max-w-lg">
-            <p className="text-white font-medium mb-1">14-day free trial</p>
+            <p className="text-white font-medium mb-1">14-day free trial · Card required</p>
             <p className="text-neutral-400 text-sm">
-              Your card will be charged after the 14-day trial period ends.
-              Cancel anytime during the trial and you won't be charged.
+              You won't be charged today. After your 14-day free trial, billing starts automatically.
+              Cancel anytime in Settings before day 14 — one click, no charge.
             </p>
           </div>
 
@@ -225,7 +225,7 @@ export default function OnboardingSubscription() {
               </>
             ) : (
               <>
-                Continue <ArrowRight className="ml-2 h-5 w-5" />
+                Continue to payment <ArrowRight className="ml-2 h-5 w-5" />
               </>
             )}
           </Button>

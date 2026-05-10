@@ -808,6 +808,76 @@ export async function sendTrialExpirationWarningEmail(
 }
 
 /**
+ * Pre-charge reminder email — sent 3 days before the card on file is charged
+ * (i.e., 3 days before trial ends for businesses with an active subscription
+ * and a saved payment method). Card-required trial flow.
+ */
+export async function sendPreChargeReminderEmail(
+  ownerEmail: string,
+  businessName: string,
+  planName: string,
+  amount: number,
+  chargeDate: Date,
+): Promise<{ messageId: string; previewUrl?: string }> {
+  const formattedDate = chargeDate.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const formattedAmount = `$${amount.toFixed(2)}`;
+  const cancelUrl = `${process.env.APP_URL || 'https://www.smallbizagent.ai'}/settings?tab=subscription`;
+
+  const subject = `Heads up — your trial ends in 3 days (${formattedAmount} on ${chargeDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`;
+
+  const text =
+    `Hi,\n\n` +
+    `Your 14-day free trial for ${businessName} ends in 3 days. ` +
+    `On ${formattedDate}, we'll charge ${formattedAmount} for your ${planName} plan.\n\n` +
+    `Loving SmallBizAgent? You don't need to do anything — billing starts automatically and your AI receptionist keeps working.\n\n` +
+    `Need to cancel? One click in Settings → Subscription:\n${cancelUrl}\n\n` +
+    `If you cancel before ${formattedDate}, you won't be charged.\n\n` +
+    `- SmallBizAgent Team`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+        <h2 style="color: #1e40af; margin: 0 0 8px 0;">Your trial ends in 3 days</h2>
+        <p style="color: #1e3a8a; margin: 0;">We'll charge <strong>${formattedAmount}</strong> on <strong>${formattedDate}</strong> for your <strong>${planName}</strong> plan.</p>
+      </div>
+
+      <p>Hi,</p>
+      <p>Your 14-day free trial for <strong>${businessName}</strong> ends in 3 days.</p>
+
+      <p style="color: #374151;">
+        <strong>Want to keep going?</strong> You don't need to do anything. Billing starts automatically on
+        ${formattedDate} and your AI receptionist keeps working without interruption.
+      </p>
+
+      <p style="color: #374151;">
+        <strong>Need to cancel?</strong> It's one click in Settings. Cancel before
+        ${formattedDate} and you <strong>won't be charged</strong>.
+      </p>
+
+      <div style="margin: 24px 0; text-align: center;">
+        <a href="${cancelUrl}" style="display: inline-block; background: #f3f4f6; color: #111827; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; border: 1px solid #d1d5db;">
+          Manage Subscription
+        </a>
+      </div>
+
+      <p style="color: #6b7280; font-size: 14px;">
+        Questions? Reply to this email — we read every message.
+      </p>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">SmallBizAgent</p>
+    </div>
+  `;
+
+  return sendEmail({ to: ownerEmail, subject, text, html });
+}
+
+/**
  * Send payment failure notification to business owner
  */
 export async function sendPaymentFailedEmail(

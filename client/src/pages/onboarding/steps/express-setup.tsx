@@ -115,6 +115,27 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
       queryClient.invalidateQueries({ queryKey: ['/api/user'] });
       queryClient.invalidateQueries({ queryKey: ['/api/business'] });
 
+      // Card-required trial flow: if the server created a Stripe subscription
+      // and returned a clientSecret, redirect to /payment for card collection
+      // BEFORE landing on the dashboard. The success page then forwards to /.
+      if (data.clientSecret) {
+        setProvisioningStep('Almost done — saving your payment method...');
+        const params = new URLSearchParams({
+          clientSecret: data.clientSecret,
+          intentType: data.intentType || 'setup',
+          returnTo: '/',
+        });
+        // Brief delay so the user sees the step message before redirect.
+        setTimeout(() => {
+          window.location.href = `/payment?${params.toString()}`;
+        }, 600);
+        return;
+      }
+
+      // No clientSecret: either the user didn't pick a plan, or the
+      // subscription create failed silently. Fall back to the dashboard
+      // landing path. They can subscribe from Settings later.
+
       // Branch: did provisioning ACTUALLY succeed, or did setup-only succeed?
       if (data.provisioningSuccess) {
         setProvisioningStep('Done! Redirecting...');

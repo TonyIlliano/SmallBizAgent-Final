@@ -10,6 +10,17 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Check, Loader2, Tag, ExternalLink, Phone } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 // Define the plan type
 interface Plan {
@@ -107,8 +118,8 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
     },
     onSuccess: () => {
       toast({
-        title: 'Subscription canceled',
-        description: 'Your subscription will end at the end of the current billing period',
+        title: 'Subscription cancelled',
+        description: "You won't be charged again. You'll keep access until the end of the current billing period.",
       });
       queryClient.invalidateQueries({ queryKey: ['/api/subscription/status', businessId] });
     },
@@ -315,14 +326,65 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
               {billingPortalMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
               Manage Billing
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleCancel}
-              disabled={isPendingAction}
-            >
-              {cancelSubscriptionMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Cancel Subscription
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  disabled={isPendingAction}
+                  data-testid="cancel-subscription-button"
+                >
+                  {cancelSubscriptionMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Cancel Subscription
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {subscriptionStatus?.status === 'trialing'
+                      ? 'Cancel before your trial ends?'
+                      : 'Cancel your subscription?'}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {subscriptionStatus?.status === 'trialing' ? (
+                      <>
+                        <span className="block mb-2 font-medium text-foreground">
+                          You won't be charged.
+                        </span>
+                        Your trial ends on{' '}
+                        <span className="font-medium">
+                          {subscriptionStatus?.trialEndsAt
+                            ? new Date(subscriptionStatus.trialEndsAt).toLocaleDateString()
+                            : new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}
+                        </span>
+                        . You'll keep full access until then. After that, your AI receptionist and
+                        SMS will pause, but your CRM stays free forever.
+                      </>
+                    ) : (
+                      <>
+                        You'll keep access until{' '}
+                        <span className="font-medium">
+                          {new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}
+                        </span>
+                        . After that, your AI receptionist and SMS will pause, but your CRM stays
+                        free forever. You won't be charged again.
+                      </>
+                    )}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="cancel-subscription-keep">
+                    Keep subscription
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleCancel}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    data-testid="cancel-subscription-confirm"
+                  >
+                    Yes, cancel
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             {!showPromoInput && (
               <Button
                 variant="ghost"

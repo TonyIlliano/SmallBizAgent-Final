@@ -88,7 +88,7 @@ const faqs = [
   },
   {
     q: "What's included in the free trial?",
-    a: "Full access to your selected plan for 14 days. No credit card required. Your own dedicated AI phone number provisioned immediately.",
+    a: "Full access to your selected plan for 14 days. Card required to start — you won't be charged on day 0. Your own dedicated AI phone number is provisioned immediately. Cancel anytime in Settings before day 14 and you won't be charged.",
   },
   {
     q: "Do I keep my phone number if I cancel?",
@@ -150,10 +150,10 @@ export default function PricingPage() {
           One platform. One price. No per-message fees, no hidden charges.
         </p>
         <p className="text-green-400 font-medium mb-2">
-          14-day free trial. No credit card required.
+          14-day free trial. Card required to start.
         </p>
         <p className="text-neutral-400 text-sm mb-8">
-          Cancel anytime — your CRM stays free forever.
+          Cancel anytime in Settings — no charge if cancelled before day 14.
         </p>
 
         {/* Billing toggle */}
@@ -290,7 +290,7 @@ export default function PricingPage() {
       {/* CTA */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 text-center border-t border-neutral-800">
         <h2 className="text-3xl font-bold mb-4">Ready to never miss a call again?</h2>
-        <p className="text-neutral-400 mb-8">Start your 14-day free trial. No credit card required. Your CRM stays free forever.</p>
+        <p className="text-neutral-400 mb-8">Start your 14-day free trial. Card required — cancel anytime in Settings before day 14, no charge.</p>
         <Link href="/auth">
           <Button size="lg" className="bg-white text-black hover:bg-neutral-200 px-8">
             Start Free Trial <ArrowRight className="ml-2 h-5 w-5" />
