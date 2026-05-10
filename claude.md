@@ -720,6 +720,68 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Lead Discovery — Google Places Scanner + Self-Refining Rubric (Admin Only)
+- **Goal**: Admin-only feature for proactively finding ICP-matching small businesses to sell SmallBizAgent to. Scans Google Places by industry (HVAC / plumbing / electrical / salon / barbershop / spa) and region (Maryland / Northern VA / Delaware / SE PA / custom zips), filters aggressively with rule-based pre-filters BEFORE any LLM spend, then scores survivors with Claude using a rubric that gets sharper every week from user feedback. Manual-trigger only. Hard $20/month spend cap.
+- **The "agent gets better" loop**: each new lead is scored using the latest active rubric + 3-5 similar already-classified leads pulled in as few-shot examples. Weekly `runWeeklyRubricRefinement` job analyzes user feedback (qualified+converted vs dismissed leads), regenerates the rubric, demotes the prior version. Mirrors `autoRefineService` pattern.
+
+##### Schema (3 new tables)
+- `shared/schema.ts` — Added `leads` (one row per discovered business, 30 columns covering identity / contact / location / AI scoring / funnel status / bookkeeping), `leadDiscoveryRuns` (per-scan cost ledger with status='running'|'completed'|'failed'|'aborted_budget'), `leadScoringRubrics` (versioned rubrics with `is_active` partial-unique index — only one active at a time). Added insert schemas and types (`Lead`, `LeadDiscoveryRun`, `LeadScoringRubric`, plus `Insert*` variants).
+- `server/migrations/runMigrations.ts` — `ensureLeadsTables()` creates all 3 tables + indexes (composite `idx_leads_score`, `idx_leads_status`, `idx_leads_industry`, partial-unique `idx_rubric_active`, `idx_rubric_version`). Idempotently seeds the v1 rubric with the default scoring criteria. Registered after `ensureCallQualityScoresTable()`.
+
+##### Services (3 new + 1 scheduler hook)
+- `server/services/googlePlacesService.ts` — **NEW** (~250 lines). Thin wrapper around Google Places API New v1 (`searchText`, `getPlace`). API key resolution: tries `GOOGLE_PLACES_API_KEY` first (preferred server-side key), falls back to `VITE_GOOGLE_PLACES_API_KEY` with a logged warning. 200ms throttle between calls. Structured `GooglePlacesError` class. Field masks tuned to bill the basic tier (rating / userRatingCount / businessStatus / types in search; phone / website / hours / location only in details). Includes `pingApi()` helper for connectivity testing.
+- `server/services/leadDiscoveryService.ts` — **NEW** (~500 lines). Main orchestrator. Exports: `MONTHLY_BUDGET_USD = 20`, `REGION_PRESETS` (Maryland / Northern VA / Delaware / SE PA + extensible), `INDUSTRY_QUERIES` (6 industries), `VALID_INDUSTRIES`, `getCurrentMonthSpend()` (sums runs + rubric refinements), `getActiveRubric()` (5-min in-memory cache + `invalidateRubricCache()`), `applyRuleBasedFilters()` (Layer 2 — pure function: rejects on missing place_id, no name, non-OPERATIONAL status, review count <5 or >500, chain markers in name), `findSimilarLeads()` (few-shot retrieval — pulls 2-3 positives + 1-2 negatives in same industry, biased by closest review count), `scoreLeadWithClaude()` (single-lead scorer with rubric + similar-lead context, clamps dimensions to 0-10, computes `leadScore` 0-100 from mean of 3 dims), `rescoreLead(leadId)` (re-runs against current active rubric), `runScan()` (full orchestrator: budget check → for each industry × zip, calls Places → applies filters → calls Details → calls Claude → upserts to `leads` table → updates run row counters + cost). Dry-run mode skips all API calls and returns estimate only. Pre-flight budget check writes `aborted_budget` row when projected spend would exceed cap. Contains `TODO(managed-agent)` comment marking the future refactor path to Claude Managed Agents for Dreaming integration.
+- `server/services/leadRubricRefinementService.ts` — **NEW** (~280 lines). Weekly refinement engine. `runWeeklyRubricRefinement()` pulls positive signals (`qualified` + `converted` from past 30d), negative signals (`dismissed` from past 30d), and last 3 rubric versions for context. Skips if signals are below threshold (5 positive / 3 negative). Claude meta-prompt with guardrails: "do not drop dimensions, do not invent new ones, you may only adjust descriptions and guidance." Validates returned rubric has all 3 required dimensions before persisting. Uses `db.transaction()` to atomically demote current active + insert new version. Invalidates the in-memory rubric cache via `invalidateRubricCache()` so next scan picks up the new version immediately. Returns structured result for surfacing in admin UI. Never throws — failures captured in result object.
+- `server/services/schedulerService.ts` — Added `startLeadRubricRefinementScheduler()` (7-day interval, reentry-guard, no immediate run on startup). Respects `LEAD_DISCOVERY_ENABLED=false` kill switch. Registered in `startAllSchedulers()` after `startIntelligenceRefreshScheduler()`. Added to exports.
+
+##### Routes (10 endpoints under one router)
+- `server/routes/leadDiscoveryRoutes.ts` — **NEW** (~280 lines). Admin-only Express router. All endpoints wrapped in `killSwitchGate` middleware which returns 501 when `LEAD_DISCOVERY_ENABLED=false`. Endpoints:
+  - `POST /api/admin/leads/discover-run` — async start-then-poll scan. Validates industries, resolves zip codes (explicit > region preset > Maryland default). For dry-run: synchronous return. For real run: inserts `lead_discovery_runs` row, returns 202 with runId, fire-and-forget IIFE runs the actual `runScan()` work, updates row on completion. (Pattern mirrored from `socialMediaRoutes.ts` smart-agent.)
+  - `GET /api/admin/leads/discover-run/:runId` — poll run status
+  - `GET /api/admin/leads/runs` — recent 20 runs
+  - `GET /api/admin/leads/spend` — `{ currentMonthSpend, monthlyBudget, remaining }`
+  - `GET /api/admin/leads` — paginated lead list with status / industry / minScore / search filters
+  - `GET /api/admin/leads/:id` — single lead detail
+  - `PATCH /api/admin/leads/:id` — update status + contactedNotes (stamps `contactedAt` on first transition out of 'discovered')
+  - `POST /api/admin/leads/:id/rescore` — re-run Claude scoring on a single lead
+  - `GET /api/admin/leads/rubric/active` — current active rubric + provenance
+  - `GET /api/admin/leads/rubric/history` — last 10 rubric versions with refinement summaries
+  - `POST /api/admin/leads/rubric/refine-now` — force-run weekly refinement on demand
+- `server/routes.ts` — Imported and mounted `leadDiscoveryRoutes` at `/api` after `callLogRoutes`.
+
+##### Frontend (1 new tab + admin registration)
+- `client/src/pages/admin/tabs/LeadsTab.tsx` — **NEW** (~600 lines). 4-section admin UI:
+  - **Section A — Run controls**: region dropdown (4 presets + Custom), custom zip-code paste input, industries checkboxes (6 options), dry-run toggle, Start Scan button, live spend meter ("$X / $20"), active rubric chip ("Rubric v3 · refined from v2"), inline dry-run preview, in-flight scan status pill with live counters polled every 3s.
+  - **Section B — Leads table**: filters (status, industry, minScore, search), shadcn `Table` with 8 columns (Business / Industry / Location / Score / Rating / Phone / Status / Actions). Score color-coded (green ≥75, amber 50-74, red <50). Phone is click-to-call. Status dropdown per row (changes funnel state). Per-row actions: website link, Re-score button. Pagination (30 per page).
+  - **Section C — Recent Scans** (collapsible): last 10 runs with run#, region, industries, status badge, lead count, cost.
+  - **Section D — Agent Learning / Rubric History** (collapsible): "Force Refine Now" button with AlertDialog confirmation explaining cost (~$0.02) and signal thresholds. Lists last 10 rubric versions with "Active" badge on current, refined-from-version, positive/negative signal counts, and Claude's refinement_summary quote. This is the visible artifact of the "agent gets better" loop.
+- `client/src/pages/admin/index.tsx` — Added `LeadsTab` lazy import, `Target` icon import, `{ value: "leads", label: "Leads", icon: Target }` to `TAB_CONFIG`, and `leads: LeadsTab` to `TAB_COMPONENTS` map.
+
+##### Cost discipline (the defining principle)
+- **Layer 1**: Google Places Text Search ($0.032/call, ~24 calls/scan)
+- **Layer 2**: Rule-based filters (free) — reject before any Details lookup
+- **Layer 3**: Google Places Details ($0.017/call, only on Layer 2 survivors)
+- **Layer 4**: Claude scoring with few-shot ($0.008/call, only on Layer 3 survivors)
+- **Layer 5**: Weekly rubric refinement ($0.02/week)
+- **Per scan total**: ~$5. Monthly cap: $20. Stays inside Google's $200/month free credit.
+
+##### Kill switch
+- `LEAD_DISCOVERY_ENABLED=false` env var → all routes return 501, scheduler skips. Existing data preserved. Or delete the route file + tab registration for a hard kill.
+
+##### Tests (22 new, all passing)
+- `server/services/leadDiscoveryService.test.ts` — **NEW** (15 tests). Hoisted mocks for `claudeClient`, `googlePlacesService`, `db`. Covers `applyRuleBasedFilters` (7 cases: valid, no name, no place_id, CLOSED_TEMPORARILY, review count too low/high, chain marker), `scoreLeadWithClaude` (6 cases: happy path, score clamping, invalid response, Claude rejection, no active rubric, rationale/summary truncation), `VALID_INDUSTRIES` sanity, `runScan` dry-run (returns estimate without API calls).
+- `server/services/leadRubricRefinementService.test.ts` — **NEW** (7 tests). Covers signal-threshold skips (positive < 5, negative < 3), successful refinement (demote + insert + cache invalidation), provenance fields (refinedFromVersion, signals counts, summary), 3 failure modes (Claude rejection, missing required dimension in returned rubric, no active rubric).
+
+##### Verification
+- `npx tsc --noEmit` clean.
+- 22/22 new tests pass.
+- Full suite: 824 pass / 9 fail (same 9 pre-existing failures from prior sessions, unrelated to this work).
+
+##### Deployment requirements
+- (Optional but recommended): provision a server-side `GOOGLE_PLACES_API_KEY` in Google Cloud Console (separate from the existing `VITE_GOOGLE_PLACES_API_KEY` so the autocomplete widget remains HTTP-referrer-restricted). Add to Railway env. Without it, the service falls back to `VITE_GOOGLE_PLACES_API_KEY` which needs its application restrictions relaxed to work from server calls.
+- No new tables required beyond what the migration creates.
+- `LEAD_DISCOVERY_ENABLED` env var defaults to enabled — set to `false` to disable.
+
 #### Card-Required 14-Day Trial + Cancel UX + 3-Day Reminder
 - **Goal**: Replace the "no credit card required" trial with card-on-file trials. Conversion rates for card-required trials run 40-60% vs 2-5% for no-card trials — but only if the cancel UX is genuinely one-click and FTC click-to-cancel compliant. Plus a 3-day pre-charge reminder email so the merchant has explicit warning before billing kicks in (chargeback defense).
 - **Backend was already 90% wired** — `subscriptionService.createSubscription()` already used `payment_behavior: 'default_incomplete'` + `trial_settings.missing_payment_method: 'cancel'` + `save_default_payment_method: 'on_subscription'`. The actual structural fix was: (1) Stripe doesn't put a PaymentIntent on a $0 trial invoice, so we now create a SetupIntent for trial subs and return its clientSecret with `intentType: 'setup'`; (2) frontend redirects to `/payment` IMMEDIATELY after business creation instead of letting users skip into the dashboard; (3) `setup_intent.succeeded` webhook attaches the saved PM as default on both customer AND subscription so day-14 charge succeeds.
@@ -2319,7 +2381,9 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: May 10, 2026. Card-required 14-day trial flow (Stripe SetupIntent for $0 trial invoices, FTC click-to-cancel UX, 3-day pre-charge reminder email, setup_intent.succeeded webhook, abandonment re-entry guard). AI Quality Score merchant-visible UI (dashboard widget, trend chart, flagged-calls page) + auto-refine feedback loop (low-quality calls feed sharper weekly suggestions per business). 18 new callQualityService tests, 802/811 total tests passing (same 9 pre-existing failures unrelated to this work).*
+*Last updated: May 10, 2026. Lead Discovery added — admin-only Google Places scanner for ICP-matching small businesses in Maryland / Northern VA / Delaware / SE PA (+ custom zips). Industry filtering (HVAC / plumbing / electrical / salon / barbershop / spa). Self-refining scoring rubric (3-dimension: ICP fit, pain signals, reach difficulty) with weekly Claude meta-refinement loop driven by user feedback (qualified+converted vs dismissed). Hard $20/month spend cap, LEAD_DISCOVERY_ENABLED kill switch, dry-run mode. 22 new tests, 824/833 total tests passing.*
+
+*Previous: May 10, 2026. Card-required 14-day trial flow (Stripe SetupIntent for $0 trial invoices, FTC click-to-cancel UX, 3-day pre-charge reminder email, setup_intent.succeeded webhook, abandonment re-entry guard). AI Quality Score merchant-visible UI (dashboard widget, trend chart, flagged-calls page) + auto-refine feedback loop (low-quality calls feed sharper weekly suggestions per business). 18 new callQualityService tests, 802/811 total tests passing (same 9 pre-existing failures unrelated to this work).*
 
 *Previous: April 25, 2026. Complete pre-launch P0 cleanup — every blocker from the audit is resolved. Twilio webhook tenant hardening, Retell webhook idempotency, Stripe webhook idempotency tightening + 500/400 polish, SMS reschedule/cancel calendar sync (6 paths), past-date/out-of-hours booking validation (4 guards), express onboarding email verification, express onboarding synchronous provisioning + Twilio rollback, plan-tier marketing claim cleanup (QuickBooks + Social Media removed pending real availability), pricing v3 (tiered overages $0.20/$0.15/$0.10), pricing v4 (strip false marketing claims from prod). 793/793 tests passing.*
 

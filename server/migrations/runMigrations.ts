@@ -2397,6 +2397,9 @@ async function runMigrations() {
     // Call quality scores — per-call grading via Claude rubric (paid-tier feature)
     await ensureCallQualityScoresTable();
 
+    // Lead discovery — admin-only Google Places scanning + self-refining rubric
+    await ensureLeadsTables();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3327,6 +3330,162 @@ async function ensureCallQualityScoresTable() {
     console.log('call_quality_scores table ready');
   } catch (error: any) {
     console.error('Error ensuring call_quality_scores table:', error.message || error);
+  }
+}
+
+// ─── Lead Discovery ─────────────────────────────────────────────────────────
+// Three tables: leads, lead_discovery_runs, lead_scoring_rubrics.
+// Also seeds the v1 rubric row idempotently so the scoring service always
+// has an active rubric to fall back to.
+async function ensureLeadsTables() {
+  console.log('Ensuring lead discovery tables...');
+  try {
+    // 1. leads
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS leads (
+        id SERIAL PRIMARY KEY,
+        source TEXT NOT NULL DEFAULT 'google_places',
+        google_place_id TEXT UNIQUE,
+        business_name TEXT NOT NULL,
+        industry TEXT NOT NULL,
+        phone TEXT,
+        website TEXT,
+        address TEXT,
+        city TEXT,
+        state TEXT NOT NULL DEFAULT 'MD',
+        zip_code TEXT,
+        latitude REAL,
+        longitude REAL,
+        rating REAL,
+        review_count INTEGER,
+        business_hours JSONB,
+        lead_score INTEGER,
+        icp_fit INTEGER,
+        pain_signals INTEGER,
+        reach_difficulty INTEGER,
+        scoring_rationale TEXT,
+        pain_summary TEXT,
+        rubric_version_id INTEGER,
+        similar_lead_ids JSONB,
+        model_used TEXT DEFAULT 'claude-sonnet-4-6',
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        estimated_cost REAL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'discovered',
+        contacted_at TIMESTAMP,
+        contacted_notes TEXT,
+        converted_business_id INTEGER,
+        discovered_at TIMESTAMP DEFAULT NOW(),
+        last_rescored_at TIMESTAMP,
+        rescore_count INTEGER DEFAULT 0
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_score ON leads (lead_score DESC NULLS LAST, status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_status ON leads (status, discovered_at DESC)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_industry ON leads (industry, state)`);
+
+    // 2. lead_discovery_runs
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lead_discovery_runs (
+        id SERIAL PRIMARY KEY,
+        invoked_by_user_id INTEGER NOT NULL,
+        region TEXT,
+        industries JSONB NOT NULL,
+        zip_codes JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        places_search_count INTEGER DEFAULT 0,
+        places_details_count INTEGER DEFAULT 0,
+        claude_scoring_count INTEGER DEFAULT 0,
+        leads_discovered INTEGER DEFAULT 0,
+        leads_rescored INTEGER DEFAULT 0,
+        places_cost REAL DEFAULT 0,
+        claude_cost REAL DEFAULT 0,
+        total_cost REAL DEFAULT 0,
+        started_at TIMESTAMP DEFAULT NOW(),
+        finished_at TIMESTAMP,
+        error_message TEXT
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_lead_discovery_runs_started ON lead_discovery_runs (started_at DESC)`);
+
+    // 3. lead_scoring_rubrics
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lead_scoring_rubrics (
+        id SERIAL PRIMARY KEY,
+        version INTEGER NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT false,
+        rubric JSONB NOT NULL,
+        refined_from_version INTEGER,
+        positive_signals_count INTEGER DEFAULT 0,
+        negative_signals_count INTEGER DEFAULT 0,
+        refinement_summary TEXT,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        estimated_cost REAL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        activated_at TIMESTAMP DEFAULT NOW(),
+        deactivated_at TIMESTAMP
+      )
+    `);
+    // Partial unique index: only one row may be active at a time.
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rubric_active
+      ON lead_scoring_rubrics (is_active)
+      WHERE is_active = true
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_rubric_version ON lead_scoring_rubrics (version DESC)`);
+
+    // Seed v1 rubric idempotently — only insert if no rows exist yet.
+    const existing = await pool.query(`SELECT COUNT(*)::int AS c FROM lead_scoring_rubrics`);
+    if (existing.rows[0]?.c === 0) {
+      const seedRubric = {
+        systemPrompt:
+          'You are a B2B SaaS lead scoring analyst evaluating small service businesses ' +
+          'for SmallBizAgent — an AI receptionist + CRM platform. Score this business as a ' +
+          'sales prospect on three dimensions (0-10 each).',
+        dimensions: [
+          {
+            key: 'icp_fit',
+            label: 'ICP Fit',
+            description:
+              'Industry match (HVAC/plumbing/electrical/salon/barber/spa = strong), ' +
+              'size signals (review count 5-200 = sweet spot — small enough to need help, ' +
+              'big enough to afford it), location strength.',
+          },
+          {
+            key: 'pain_signals',
+            label: 'Pain Signals',
+            description:
+              'Evidence of operational pain: rating 3.0-4.2 (good business, frustrated ' +
+              'customers, often missed calls), no website (legacy ops), no recent reviews ' +
+              '(slow growth), inconsistent hours, reviewers mention "no answer" or "voicemail".',
+          },
+          {
+            key: 'reach_difficulty',
+            label: 'Reach Difficulty (inverse — 10 = easy to reach, 0 = hard)',
+            description:
+              'Has phone number, has website, has clear business hours, address is ' +
+              'specific (not a P.O. box). Single owner-operated businesses are easier ' +
+              'to reach than franchises.',
+          },
+        ],
+        guidance:
+          'Return JSON: { "icpFit": number, "painSignals": number, "reachDifficulty": number, ' +
+          '"scoringRationale": "1-2 sentence explanation", "painSummary": "specific reason this ' +
+          'business needs SmallBizAgent" }. Be honest and conservative. Most leads are ' +
+          'mediocre; reserve scores above 8 for genuinely strong fits.',
+      };
+      await pool.query(
+        `INSERT INTO lead_scoring_rubrics (version, is_active, rubric, refinement_summary)
+         VALUES (1, true, $1::jsonb, 'Initial seed rubric — version 1.')`,
+        [JSON.stringify(seedRubric)],
+      );
+      console.log('Seeded v1 lead scoring rubric');
+    }
+
+    console.log('lead discovery tables ready');
+  } catch (error: any) {
+    console.error('Error ensuring lead discovery tables:', error.message || error);
   }
 }
 

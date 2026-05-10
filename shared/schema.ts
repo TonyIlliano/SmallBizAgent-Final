@@ -1068,6 +1068,119 @@ export const callQualityScores = pgTable("call_quality_scores", {
   scoredAt: timestamp("scored_at").defaultNow(),
 });
 
+// ─── Lead Discovery ─────────────────────────────────────────────────────────
+// Admin-only feature. Scans Google Places for ICP-matching small businesses
+// in curated regions (Maryland, Northern VA, Delaware, SE PA, or custom zip
+// lists). Filters aggressively with rule-based pre-filters before any LLM
+// spend, then scores survivors with Claude using a self-refining rubric.
+//
+// Three tables:
+//   leads                 — one row per discovered business + funnel status
+//   leadDiscoveryRuns     — one row per scan invocation; cost ledger
+//   leadScoringRubrics    — versioned scoring rubrics; weekly refinement loop
+
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+
+  // Source / identity
+  source: text("source").notNull().default("google_places"), // 'google_places' | 'manual' | 'csv'
+  googlePlaceId: text("google_place_id").unique(),            // dedup key
+  businessName: text("business_name").notNull(),
+  industry: text("industry").notNull(),                       // 'hvac' | 'plumbing' | 'electrical' | 'salon' | 'barbershop' | 'spa'
+
+  // Contact + location
+  phone: text("phone"),
+  website: text("website"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state").notNull().default("MD"),
+  zipCode: text("zip_code"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+
+  // Public signals (snapshot at discovery time)
+  rating: real("rating"),                                      // 1.0-5.0
+  reviewCount: integer("review_count"),
+  businessHours: jsonb("business_hours"),                      // raw opening_hours from Places
+
+  // AI scoring
+  leadScore: integer("lead_score"),                            // 0-100
+  icpFit: integer("icp_fit"),                                  // 0-10
+  painSignals: integer("pain_signals"),                        // 0-10
+  reachDifficulty: integer("reach_difficulty"),                // 0-10
+  scoringRationale: text("scoring_rationale"),                 // 1-2 sentences from Claude
+  painSummary: text("pain_summary"),                            // "Why this is a good lead"
+  rubricVersionId: integer("rubric_version_id"),               // FK to leadScoringRubrics.id
+  similarLeadIds: jsonb("similar_lead_ids"),                    // few-shot example lead IDs used during scoring
+  modelUsed: text("model_used").default("claude-sonnet-4-6"),
+  inputTokens: integer("input_tokens").default(0),
+  outputTokens: integer("output_tokens").default(0),
+  estimatedCost: real("estimated_cost").default(0),
+
+  // Funnel status
+  status: text("status").notNull().default("discovered"),       // 'discovered' | 'contacted' | 'qualified' | 'converted' | 'dismissed'
+  contactedAt: timestamp("contacted_at"),
+  contactedNotes: text("contacted_notes"),
+  convertedBusinessId: integer("converted_business_id"),        // FK if they sign up
+
+  // Bookkeeping
+  discoveredAt: timestamp("discovered_at").defaultNow(),
+  lastRescoredAt: timestamp("last_rescored_at"),
+  rescoreCount: integer("rescore_count").default(0),
+});
+
+export const leadDiscoveryRuns = pgTable("lead_discovery_runs", {
+  id: serial("id").primaryKey(),
+  invokedByUserId: integer("invoked_by_user_id").notNull(),
+  region: text("region"),                                       // 'maryland' | 'northern_va' | 'delaware' | 'se_pa' | 'custom'
+  industries: jsonb("industries").notNull(),                     // ['hvac', 'plumbing']
+  zipCodes: jsonb("zip_codes").notNull(),                        // ['21201', '21401', ...]
+  status: text("status").notNull().default("running"),           // 'running' | 'completed' | 'failed' | 'aborted_budget'
+
+  // Counters
+  placesSearchCount: integer("places_search_count").default(0),
+  placesDetailsCount: integer("places_details_count").default(0),
+  claudeScoringCount: integer("claude_scoring_count").default(0),
+  leadsDiscovered: integer("leads_discovered").default(0),       // net new rows
+  leadsRescored: integer("leads_rescored").default(0),            // existing rows updated
+
+  // Cost
+  placesCost: real("places_cost").default(0),
+  claudeCost: real("claude_cost").default(0),
+  totalCost: real("total_cost").default(0),
+
+  // Lifecycle
+  startedAt: timestamp("started_at").defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  errorMessage: text("error_message"),
+});
+
+// Lead Scoring Rubrics — versioned scoring rubrics that evolve weekly
+// based on user feedback (qualified/converted vs dismissed leads).
+// The "agent gets better" backbone. Only one row may be is_active=true.
+export const leadScoringRubrics = pgTable("lead_scoring_rubrics", {
+  id: serial("id").primaryKey(),
+  version: integer("version").notNull(),                          // 1, 2, 3, ... monotonic
+  isActive: boolean("is_active").notNull().default(false),         // only one row true at a time
+  rubric: jsonb("rubric").notNull(),                                // { systemPrompt, dimensions, guidance }
+
+  // Provenance — what this version learned from
+  refinedFromVersion: integer("refined_from_version"),             // previous version (NULL for seed v1)
+  positiveSignalsCount: integer("positive_signals_count").default(0),
+  negativeSignalsCount: integer("negative_signals_count").default(0),
+  refinementSummary: text("refinement_summary"),                    // Claude's "what I changed and why"
+
+  // Cost tracking
+  inputTokens: integer("input_tokens").default(0),
+  outputTokens: integer("output_tokens").default(0),
+  estimatedCost: real("estimated_cost").default(0),
+
+  // Lifecycle
+  createdAt: timestamp("created_at").defaultNow(),
+  activatedAt: timestamp("activated_at").defaultNow(),
+  deactivatedAt: timestamp("deactivated_at"),
+});
+
 // Website Scrape Cache - cached results from business website scraping
 export const websiteScrapeCache = pgTable("website_scrape_cache", {
   id: serial("id").primaryKey(),
@@ -1310,6 +1423,9 @@ export const insertVideoBriefSchema = createInsertSchema(videoBriefs).omit({ id:
 export const insertVideoClipSchema = createInsertSchema(videoClips).omit({ id: true, createdAt: true });
 export const insertSmartAgentRunSchema = createInsertSchema(smartAgentRuns).omit({ id: true, startedAt: true, finishedAt: true });
 export const insertCallQualityScoreSchema = createInsertSchema(callQualityScores).omit({ id: true, scoredAt: true });
+export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, discoveredAt: true });
+export const insertLeadDiscoveryRunSchema = createInsertSchema(leadDiscoveryRuns).omit({ id: true, startedAt: true, finishedAt: true });
+export const insertLeadScoringRubricSchema = createInsertSchema(leadScoringRubrics).omit({ id: true, createdAt: true, activatedAt: true, deactivatedAt: true });
 export const insertWebsiteScrapeCacheSchema = createInsertSchema(websiteScrapeCache).omit({ id: true, createdAt: true });
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
@@ -1517,6 +1633,13 @@ export type InsertSmartAgentRun = z.infer<typeof insertSmartAgentRunSchema>;
 
 export type CallQualityScore = typeof callQualityScores.$inferSelect;
 export type InsertCallQualityScore = z.infer<typeof insertCallQualityScoreSchema>;
+
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = z.infer<typeof insertLeadSchema>;
+export type LeadDiscoveryRun = typeof leadDiscoveryRuns.$inferSelect;
+export type InsertLeadDiscoveryRun = z.infer<typeof insertLeadDiscoveryRunSchema>;
+export type LeadScoringRubric = typeof leadScoringRubrics.$inferSelect;
+export type InsertLeadScoringRubric = z.infer<typeof insertLeadScoringRubricSchema>;
 
 export type SmsSuppression = typeof smsSuppressionList.$inferSelect;
 export type InsertSmsSuppression = z.infer<typeof insertSmsSuppressionSchema>;

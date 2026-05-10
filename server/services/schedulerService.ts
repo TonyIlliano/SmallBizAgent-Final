@@ -1217,6 +1217,43 @@ async function runAutoRefine(): Promise<void> {
   }
 }
 
+// ── Lead Rubric Refinement Scheduler (every 7 days) ──
+// Refines the lead-scoring rubric based on user feedback (qualified/converted
+// vs dismissed leads). Skips if signal volume is too low.
+// Admin-only feature; respects LEAD_DISCOVERY_ENABLED env flag.
+export function startLeadRubricRefinementScheduler(): void {
+  const jobKey = 'lead-rubric-refinement';
+
+  if (scheduledJobs.has(jobKey)) {
+    console.log('Lead rubric refinement scheduler already running');
+    return;
+  }
+
+  console.log('Starting lead rubric refinement scheduler (runs every 7 days)');
+
+  const intervalId = setInterval(() => {
+    withReentryGuard(jobKey, () => runLeadRubricRefinement());
+  }, 7 * 24 * 60 * 60 * 1000);
+
+  scheduledJobs.set(jobKey, intervalId);
+}
+
+async function runLeadRubricRefinement(): Promise<void> {
+  // Kill switch — entire lead discovery feature respects this flag.
+  if (process.env.LEAD_DISCOVERY_ENABLED === 'false') {
+    console.log('[LeadRubricRefinement] Skipped — LEAD_DISCOVERY_ENABLED=false');
+    return;
+  }
+  try {
+    console.log(`[LeadRubricRefinement] Running weekly refinement at ${new Date().toISOString()}`);
+    const { runWeeklyRubricRefinement } = await import('./leadRubricRefinementService');
+    const result = await runWeeklyRubricRefinement();
+    console.log('[LeadRubricRefinement] Result:', result);
+  } catch (error) {
+    console.error('[LeadRubricRefinement] Error:', error);
+  }
+}
+
 // ── Intelligence Refresh Scheduler (every 7 days) ──
 // Silently rebuilds each Retell agent's system prompt with fresh
 // call_intelligence patterns so dormant owners still get a smarter AI.
@@ -1883,6 +1920,9 @@ export async function startAllSchedulers(): Promise<void> {
     // prompts with fresh call patterns so dormant businesses still improve.
     startIntelligenceRefreshScheduler();
 
+    // Start weekly lead-scoring rubric refinement (admin feature, kill-switch respected)
+    startLeadRubricRefinementScheduler();
+
     // Start SMS automation agent schedulers
     startFollowUpAgentScheduler();
     startEstimateFollowUpAgentScheduler();
@@ -2155,6 +2195,7 @@ export default {
   startDunningDeprovisionScheduler,
   startDataRetentionScheduler,
   startAutoRefineScheduler,
+  startLeadRubricRefinementScheduler,
   startFollowUpAgentScheduler,
   startEstimateFollowUpAgentScheduler,
   startInvoiceCollectionAgentScheduler,

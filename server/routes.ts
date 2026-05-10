@@ -51,6 +51,7 @@ import knowledgeRoutes from './routes/knowledgeRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import receptionistConfigRoutes from './routes/receptionistConfigRoutes';
 import callLogRoutes from './routes/callLogRoutes';
+import leadDiscoveryRoutes from './routes/leadDiscoveryRoutes';
 import reviewRoutes from './routes/reviewRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import reservationRoutes from './routes/reservationRoutes';
@@ -204,6 +205,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Call Logs + Intelligence + Insights ──
   app.use('/api', callLogRoutes);
+
+  // ── Lead Discovery (admin-only Google Places scanner + self-refining rubric) ──
+  app.use('/api', leadDiscoveryRoutes);
 
   // ── Knowledge Base + Unanswered Questions ──
   app.use('/api', knowledgeRoutes);

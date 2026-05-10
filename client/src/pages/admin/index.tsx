@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import {
   BarChart3, Building, Users, DollarSign, Bot, MessageSquare,
-  FileText, PieChart, Server, ScrollText, Activity, Shield,
+  FileText, PieChart, Server, ScrollText, Activity, Shield, Target,
 } from "lucide-react";
 
 // ── Lazy-loaded tab components ──────────────────────────────────────────
@@ -23,6 +23,7 @@ const CostsTab = lazy(() => import("./tabs/CostsTab"));
 const SystemTab = lazy(() => import("./tabs/SystemTab"));
 const AuditLogTab = lazy(() => import("./tabs/AuditLogTab"));
 const MonitoringTab = lazy(() => import("./tabs/MonitoringTab"));
+const LeadsTab = lazy(() => import("./tabs/LeadsTab"));
 
 // ── Loading fallback ────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ const TAB_CONFIG = [
   { value: "system", label: "System", icon: Server },
   { value: "audit", label: "Audit Log", icon: ScrollText },
   { value: "monitoring", label: "Monitoring", icon: Activity },
+  { value: "leads", label: "Leads", icon: Target },
 ] as const;
 
 const TAB_COMPONENTS: Record<string, React.LazyExoticComponent<React.ComponentType>> = {
@@ -62,6 +64,7 @@ const TAB_COMPONENTS: Record<string, React.LazyExoticComponent<React.ComponentTy
   system: SystemTab,
   audit: AuditLogTab,
   monitoring: MonitoringTab,
+  leads: LeadsTab,
 };
 
 // ── Main Component ──────────────────────────────────────────────────────
