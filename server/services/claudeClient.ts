@@ -12,14 +12,30 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
-// Lazy OpenAI client — only instantiated on first fallback call
+// Lazy OpenAI client — only instantiated on first fallback call.
+// Uses ESM dynamic import() because require() is not supported in the
+// production ESM build (same class of bug fixed in commit 3d5a661 for crypto).
 let _openai: any = null;
-function getOpenAI() {
+async function getOpenAI() {
   if (!_openai) {
-    const OpenAI = require('openai').default || require('openai');
+    const mod: any = await import('openai');
+    const OpenAI = mod.default || mod;
     _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
   return _openai;
+}
+
+/**
+ * Strip markdown code fences (```json ... ``` or ``` ... ```) from a model
+ * response before JSON.parse. Claude sometimes wraps JSON in fences despite
+ * being asked not to; OpenAI rarely does. Belt-and-suspenders.
+ */
+function stripJsonFences(text: string): string {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
 }
 
 export default anthropic;
@@ -41,10 +57,10 @@ export async function claudeJson<T>(opts: {
       messages: [{ role: 'user', content: opts.prompt }],
     });
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
-    return JSON.parse(text);
+    return JSON.parse(stripJsonFences(text));
   } catch (err) {
     console.warn('[AI] Claude failed, falling back to OpenAI:', (err as Error).message);
-    const openai = getOpenAI();
+    const openai = await getOpenAI();
     const response = await openai.chat.completions.create({
       model: 'gpt-5.4-mini',
       max_completion_tokens: opts.maxTokens || 1024,
@@ -53,7 +69,7 @@ export async function claudeJson<T>(opts: {
         { role: 'user', content: opts.prompt },
       ],
     });
-    return JSON.parse(response.choices[0]?.message?.content || '');
+    return JSON.parse(stripJsonFences(response.choices[0]?.message?.content || ''));
   }
 }
 
@@ -76,7 +92,7 @@ export async function claudeText(opts: {
     return response.content[0].type === 'text' ? response.content[0].text : '';
   } catch (err) {
     console.warn('[AI] Claude failed, falling back to OpenAI:', (err as Error).message);
-    const openai = getOpenAI();
+    const openai = await getOpenAI();
     const response = await openai.chat.completions.create({
       model: 'gpt-5.4-mini',
       max_completion_tokens: opts.maxTokens || 1024,
@@ -112,7 +128,7 @@ export async function claudeWithTools(opts: {
     return { provider: 'claude', response };
   } catch (err) {
     console.warn('[AI] Claude failed, falling back to OpenAI:', (err as Error).message);
-    const openai = getOpenAI();
+    const openai = await getOpenAI();
     const response = await openai.chat.completions.create({
       model: 'gpt-5.4-mini',
       max_completion_tokens: opts.maxTokens || 1024,
