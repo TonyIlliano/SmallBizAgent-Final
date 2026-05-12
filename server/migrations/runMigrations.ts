@@ -2400,6 +2400,12 @@ async function runMigrations() {
     // Lead discovery — admin-only Google Places scanning + self-refining rubric
     await ensureLeadsTables();
 
+    // Backfill any missing columns on tables that were created from earlier
+    // commits without the latest schema (CREATE TABLE IF NOT EXISTS is a no-op
+    // when the table exists, even if columns are missing). Triggered by a live
+    // 500 on /api/call-quality/business/summary citing missing 'total_score'.
+    await backfillLeadAndQualityColumns();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3487,6 +3493,119 @@ async function ensureLeadsTables() {
   } catch (error: any) {
     console.error('Error ensuring lead discovery tables:', error.message || error);
   }
+}
+
+// ─── Backfill columns on tables that may already exist with stale schema ──
+// CREATE TABLE IF NOT EXISTS is a no-op when a table already exists, even if
+// the existing table is missing columns added in a later code revision. This
+// function explicitly ADDs each column IF NOT EXISTS so deploys to environments
+// where the table was created from an earlier commit pick up the new schema.
+//
+// Triggered by: live Railway log showing
+//   "Error fetching call quality summary: error: column 'total_score' does not exist"
+// — which means call_quality_scores existed on prod but was missing total_score.
+// Same defensive treatment applied to all 3 lead-discovery tables in case any
+// of them landed in production with a stale schema.
+async function backfillLeadAndQualityColumns() {
+  console.log('Backfilling lead-discovery and call-quality columns on existing tables...');
+
+  const addColumn = async (table: string, column: string, type: string) => {
+    try {
+      await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+    } catch (e: any) {
+      if (!String(e?.message ?? '').includes('does not exist') && !String(e?.message ?? '').includes('already exists')) {
+        console.log(`[Backfill] Could not add ${column} to ${table}: ${e?.message ?? e}`);
+      }
+    }
+  };
+
+  // call_quality_scores — observed missing total_score on production
+  await addColumn('call_quality_scores', 'business_id', 'INTEGER NOT NULL DEFAULT 0');
+  await addColumn('call_quality_scores', 'call_log_id', 'INTEGER');
+  await addColumn('call_quality_scores', 'industry', 'TEXT');
+  await addColumn('call_quality_scores', 'dimensions', 'JSONB');
+  await addColumn('call_quality_scores', 'total_score', 'REAL');
+  await addColumn('call_quality_scores', 'rubric_version', "TEXT DEFAULT 'v1'");
+  await addColumn('call_quality_scores', 'flagged', 'BOOLEAN DEFAULT false');
+  await addColumn('call_quality_scores', 'flag_dismissed', 'BOOLEAN DEFAULT false');
+  await addColumn('call_quality_scores', 'flag_dismissed_at', 'TIMESTAMP');
+  await addColumn('call_quality_scores', 'failure_modes', 'JSONB');
+  await addColumn('call_quality_scores', 'model_used', 'TEXT');
+  await addColumn('call_quality_scores', 'input_tokens', 'INTEGER DEFAULT 0');
+  await addColumn('call_quality_scores', 'output_tokens', 'INTEGER DEFAULT 0');
+  await addColumn('call_quality_scores', 'estimated_cost', 'REAL DEFAULT 0');
+  await addColumn('call_quality_scores', 'scored_at', 'TIMESTAMP DEFAULT NOW()');
+
+  // leads — protect against the same issue
+  await addColumn('leads', 'source', "TEXT DEFAULT 'google_places'");
+  await addColumn('leads', 'google_place_id', 'TEXT');
+  await addColumn('leads', 'business_name', 'TEXT');
+  await addColumn('leads', 'industry', 'TEXT');
+  await addColumn('leads', 'phone', 'TEXT');
+  await addColumn('leads', 'website', 'TEXT');
+  await addColumn('leads', 'address', 'TEXT');
+  await addColumn('leads', 'city', 'TEXT');
+  await addColumn('leads', 'state', "TEXT DEFAULT 'MD'");
+  await addColumn('leads', 'zip_code', 'TEXT');
+  await addColumn('leads', 'latitude', 'REAL');
+  await addColumn('leads', 'longitude', 'REAL');
+  await addColumn('leads', 'rating', 'REAL');
+  await addColumn('leads', 'review_count', 'INTEGER');
+  await addColumn('leads', 'business_hours', 'JSONB');
+  await addColumn('leads', 'lead_score', 'INTEGER');
+  await addColumn('leads', 'icp_fit', 'INTEGER');
+  await addColumn('leads', 'pain_signals', 'INTEGER');
+  await addColumn('leads', 'reach_difficulty', 'INTEGER');
+  await addColumn('leads', 'scoring_rationale', 'TEXT');
+  await addColumn('leads', 'pain_summary', 'TEXT');
+  await addColumn('leads', 'rubric_version_id', 'INTEGER');
+  await addColumn('leads', 'similar_lead_ids', 'JSONB');
+  await addColumn('leads', 'model_used', "TEXT DEFAULT 'claude-sonnet-4-6'");
+  await addColumn('leads', 'input_tokens', 'INTEGER DEFAULT 0');
+  await addColumn('leads', 'output_tokens', 'INTEGER DEFAULT 0');
+  await addColumn('leads', 'estimated_cost', 'REAL DEFAULT 0');
+  await addColumn('leads', 'status', "TEXT DEFAULT 'discovered'");
+  await addColumn('leads', 'contacted_at', 'TIMESTAMP');
+  await addColumn('leads', 'contacted_notes', 'TEXT');
+  await addColumn('leads', 'converted_business_id', 'INTEGER');
+  await addColumn('leads', 'discovered_at', 'TIMESTAMP DEFAULT NOW()');
+  await addColumn('leads', 'last_rescored_at', 'TIMESTAMP');
+  await addColumn('leads', 'rescore_count', 'INTEGER DEFAULT 0');
+
+  // lead_discovery_runs
+  await addColumn('lead_discovery_runs', 'invoked_by_user_id', 'INTEGER');
+  await addColumn('lead_discovery_runs', 'region', 'TEXT');
+  await addColumn('lead_discovery_runs', 'industries', 'JSONB');
+  await addColumn('lead_discovery_runs', 'zip_codes', 'JSONB');
+  await addColumn('lead_discovery_runs', 'status', "TEXT DEFAULT 'running'");
+  await addColumn('lead_discovery_runs', 'places_search_count', 'INTEGER DEFAULT 0');
+  await addColumn('lead_discovery_runs', 'places_details_count', 'INTEGER DEFAULT 0');
+  await addColumn('lead_discovery_runs', 'claude_scoring_count', 'INTEGER DEFAULT 0');
+  await addColumn('lead_discovery_runs', 'leads_discovered', 'INTEGER DEFAULT 0');
+  await addColumn('lead_discovery_runs', 'leads_rescored', 'INTEGER DEFAULT 0');
+  await addColumn('lead_discovery_runs', 'places_cost', 'REAL DEFAULT 0');
+  await addColumn('lead_discovery_runs', 'claude_cost', 'REAL DEFAULT 0');
+  await addColumn('lead_discovery_runs', 'total_cost', 'REAL DEFAULT 0');
+  await addColumn('lead_discovery_runs', 'started_at', 'TIMESTAMP DEFAULT NOW()');
+  await addColumn('lead_discovery_runs', 'finished_at', 'TIMESTAMP');
+  await addColumn('lead_discovery_runs', 'error_message', 'TEXT');
+
+  // lead_scoring_rubrics
+  await addColumn('lead_scoring_rubrics', 'version', 'INTEGER');
+  await addColumn('lead_scoring_rubrics', 'is_active', 'BOOLEAN DEFAULT false');
+  await addColumn('lead_scoring_rubrics', 'rubric', 'JSONB');
+  await addColumn('lead_scoring_rubrics', 'refined_from_version', 'INTEGER');
+  await addColumn('lead_scoring_rubrics', 'positive_signals_count', 'INTEGER DEFAULT 0');
+  await addColumn('lead_scoring_rubrics', 'negative_signals_count', 'INTEGER DEFAULT 0');
+  await addColumn('lead_scoring_rubrics', 'refinement_summary', 'TEXT');
+  await addColumn('lead_scoring_rubrics', 'input_tokens', 'INTEGER DEFAULT 0');
+  await addColumn('lead_scoring_rubrics', 'output_tokens', 'INTEGER DEFAULT 0');
+  await addColumn('lead_scoring_rubrics', 'estimated_cost', 'REAL DEFAULT 0');
+  await addColumn('lead_scoring_rubrics', 'created_at', 'TIMESTAMP DEFAULT NOW()');
+  await addColumn('lead_scoring_rubrics', 'activated_at', 'TIMESTAMP DEFAULT NOW()');
+  await addColumn('lead_scoring_rubrics', 'deactivated_at', 'TIMESTAMP');
+
+  console.log('Backfill complete');
 }
 
 // ES modules don't have a direct equivalent to require.main === module
