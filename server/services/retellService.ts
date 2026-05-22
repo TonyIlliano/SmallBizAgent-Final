@@ -846,7 +846,15 @@ export async function updateLlm(
   const transferNumbers: string[] = Array.isArray(receptionistConfig?.transferPhoneNumbers)
     ? receptionistConfig!.transferPhoneNumbers as string[]
     : [];
-  const transferNumber = transferNumbers[0] || business.phone || null;
+  // E.164 normalization: createRetellAgent does this (line ~766) but updateLlm
+  // was passing raw 10-digit numbers like "4102392358" directly to Retell,
+  // which rejected the LLM update with HTTP 400. Spammed every refresh tick.
+  // Normalize here so the create + update paths behave identically.
+  const rawTransferNumber = transferNumbers[0] || business.phone || null;
+  const transferNumber = normalizeToE164(rawTransferNumber);
+  if (rawTransferNumber && !transferNumber) {
+    console.warn(`[Retell] updateLlm: skipping transfer tool — phone "${rawTransferNumber}" could not be normalized to E.164 for business ${business.id}`);
+  }
 
   const tools = buildRetellTools(business.id, {
     isRestaurant,
