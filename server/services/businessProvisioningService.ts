@@ -8,7 +8,7 @@
 import { Business, businessPhoneNumbers } from '@shared/schema';
 import { storage } from '../storage';
 import { db } from '../db';
-import { eq } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import twilioProvisioningService from './twilioProvisioningService';
 import retellProvisioningService from './retellProvisioningService';
 import twilioService from './twilioService';
@@ -64,6 +64,7 @@ export async function provisionBusiness(
       results.twilioPhoneNumber = business.twilioPhoneNumber;
       results.twilioAlreadyProvisioned = true;
     } else if (!options?.skipTwilioProvisioning) {
+      let phoneNumber: { phoneNumber: string; phoneNumberSid: string } | null = null;
       try {
         // Check if Twilio has valid credentials
         if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
@@ -71,7 +72,24 @@ export async function provisionBusiness(
           results.twilioProvisioned = false;
           results.twilioProvisioningSkipped = true;
         } else {
-          let phoneNumber;
+          // Sweep any stale (non-active) business_phone_numbers rows for this business
+          // left behind by previous failed provisioning attempts. The partial unique
+          // index on (business_id) WHERE is_primary = true will block our new insert
+          // if a stale primary still exists. Best-effort: log + continue on failure.
+          try {
+            const deletedStale = await db.delete(businessPhoneNumbers).where(
+              and(
+                eq(businessPhoneNumbers.businessId, businessId),
+                ne(businessPhoneNumbers.status, 'active'),
+              ),
+            ).returning();
+            if (deletedStale.length > 0) {
+              console.log(`[Provisioning] Business ${businessId}: Swept ${deletedStale.length} stale business_phone_numbers row(s) before provisioning`);
+            }
+          } catch (sweepErr) {
+            console.error(`[Provisioning] Business ${businessId}: Failed to sweep stale phone number rows (continuing):`, sweepErr);
+          }
+
           if (options?.specificPhoneNumber) {
             // User selected a specific phone number
             console.log(`[Provisioning] Business ${businessId}: Provisioning SPECIFIC phone number ${options.specificPhoneNumber}...`);
@@ -97,8 +115,11 @@ export async function provisionBusiness(
             twilioDateProvisioned: new Date(),
           });
 
-          // Also insert into business_phone_numbers for multi-line support
-          await db.insert(businessPhoneNumbers).values({
+          // Also insert into business_phone_numbers for multi-line support. Use the
+          // storage helper (not a raw insert) — it wraps demote-then-insert in a
+          // transaction so the partial unique index on (business_id) WHERE is_primary=true
+          // is satisfied even if a sibling primary somehow still exists.
+          await storage.createPhoneNumber({
             businessId,
             twilioPhoneNumber: phoneNumber.phoneNumber,
             twilioPhoneNumberSid: phoneNumber.phoneNumberSid,
@@ -115,6 +136,30 @@ export async function provisionBusiness(
         console.error(`[Provisioning] Business ${businessId}: Error provisioning Twilio phone number:`, error);
         results.twilioProvisioned = false;
         results.twilioError = error instanceof Error ? error.message : String(error);
+
+        // Mid-flow failure rollback: if we already bought a Twilio number but a
+        // subsequent step (storage.updateBusiness, storage.createPhoneNumber, etc.)
+        // threw, we're left with a phone number rented from Twilio that has no
+        // owning DB row — $1/mo leak. Release it and scrub any partial rows.
+        if (phoneNumber?.phoneNumberSid) {
+          console.warn(`[Provisioning] Business ${businessId}: Twilio number ${phoneNumber.phoneNumber} was provisioned before failure — releasing to prevent leak`);
+          try {
+            await twilioProvisioningService.releasePhoneNumber(businessId);
+            await storage.updateBusiness(businessId, {
+              twilioPhoneNumber: null,
+              twilioPhoneNumberSid: null,
+              twilioPhoneNumberStatus: 'released',
+              twilioDateProvisioned: null,
+            });
+            await db.delete(businessPhoneNumbers).where(eq(businessPhoneNumbers.businessId, businessId));
+            results.twilioMidFailureRollback = true;
+            console.log(`[Provisioning] Business ${businessId}: Mid-flow Twilio rollback succeeded`);
+          } catch (rollbackErr) {
+            console.error(`[Provisioning] Business ${businessId}: MID-FLOW ROLLBACK FAILED — orphaned Twilio number ${phoneNumber.phoneNumber} left in place:`, rollbackErr);
+            results.twilioMidFailureRollbackFailed = true;
+            results.twilioMidFailureRollbackError = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+          }
+        }
       }
     } else {
       console.log(`[Provisioning] Business ${businessId}: Twilio provisioning skipped by option`);
