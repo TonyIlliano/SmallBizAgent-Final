@@ -23,6 +23,15 @@ export const users = pgTable("users", {
   onboardingProgress: jsonb("onboarding_progress"), // Persisted wizard step progress {currentStep, stepStatuses}
   setupChecklistDismissed: boolean("setup_checklist_dismissed").default(false),
   dismissedTips: text("dismissed_tips"), // JSON array of dismissed tip IDs
+  // Card-first onboarding (Phase 1 of the rewrite): Stripe Customer is created
+  // before Business so a payment method can be collected BEFORE any Twilio/Retell
+  // provisioning happens. paymentMethodGrandfathered is set to true for every
+  // user alive in the DB at migration time — they keep the old no-card flow forever.
+  // New users default to false and must satisfy the requirePaymentMethod gate
+  // before reaching express-setup. Free-plan signups also bypass the gate (handled
+  // in middleware via session plan tier check).
+  stripeCustomerId: text("stripe_customer_id"),
+  paymentMethodGrandfathered: boolean("payment_method_grandfathered").default(false).notNull(),
   lastLogin: timestamp("last_login"),
   // Legal acceptance (CAN-SPAM / TCPA / Stripe Connect / Twilio A2P 10DLC require documented consent)
   termsAcceptedAt: timestamp("terms_accepted_at"),

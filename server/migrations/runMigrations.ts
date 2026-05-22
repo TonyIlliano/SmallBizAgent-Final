@@ -30,6 +30,12 @@ async function fixExistingTables() {
   await addColumnIfNotExists('users', 'active', 'BOOLEAN DEFAULT true');
   await addColumnIfNotExists('users', 'last_login', 'TIMESTAMP');
   await addColumnIfNotExists('users', 'onboarding_progress', 'JSONB');
+  // Card-first onboarding: Stripe Customer is created BEFORE Business so a
+  // payment method can be collected before any provisioning happens. The
+  // grandfathering flag is backfilled to TRUE for every existing user by the
+  // ensureUserPaymentColumns() migration below, so they keep the no-card flow.
+  await addColumnIfNotExists('users', 'stripe_customer_id', 'TEXT');
+  await addColumnIfNotExists('users', 'payment_method_grandfathered', 'BOOLEAN DEFAULT false NOT NULL');
 
   // Fix businesses table
   await addColumnIfNotExists('businesses', 'website', 'TEXT');
@@ -2406,6 +2412,11 @@ async function runMigrations() {
     // 500 on /api/call-quality/business/summary citing missing 'total_score'.
     await backfillLeadAndQualityColumns();
 
+    // Card-first onboarding: grandfather every user alive in the DB so they
+    // keep the no-card flow. New users created after this point default to
+    // payment_method_grandfathered = false and must satisfy the gate.
+    await ensureGrandfatheredUsers();
+
     console.log('All migrations applied successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
@@ -3606,6 +3617,58 @@ async function backfillLeadAndQualityColumns() {
   await addColumn('lead_scoring_rubrics', 'deactivated_at', 'TIMESTAMP');
 
   console.log('Backfill complete');
+}
+
+/**
+ * Card-first onboarding — grandfather all existing users.
+ *
+ * Every user alive in the DB at the time this migration first runs is marked
+ * paymentMethodGrandfathered = true so they keep the old no-card flow forever.
+ * New users created after this migration runs default to false and must satisfy
+ * the requirePaymentMethod gate before reaching express-setup.
+ *
+ * Tracked in the `migrations` table by name so the backfill UPDATE only runs
+ * once. If a future migration needs to re-grandfather a specific cohort, do
+ * that with a separate named migration — do NOT touch this one.
+ */
+async function ensureGrandfatheredUsers() {
+  const MIGRATION_NAME = 'grandfather_existing_users_payment_method_v1';
+  console.log('Ensuring grandfathered users backfill...');
+  try {
+    const { rows: existing } = await pool.query(
+      'SELECT name FROM migrations WHERE name = $1 LIMIT 1',
+      [MIGRATION_NAME],
+    );
+    if (existing.length > 0) {
+      console.log('Grandfather backfill already applied, skipping');
+      return;
+    }
+
+    // Run inside a transaction so the UPDATE + tracker insert are atomic.
+    await pool.query('BEGIN');
+    try {
+      const updateResult = await pool.query(
+        `UPDATE users
+         SET payment_method_grandfathered = true
+         WHERE payment_method_grandfathered = false`,
+      );
+      await pool.query(
+        'INSERT INTO migrations (name) VALUES ($1)',
+        [MIGRATION_NAME],
+      );
+      await pool.query('COMMIT');
+      console.log(`Grandfathered ${updateResult.rowCount || 0} existing users (payment_method_grandfathered = true)`);
+    } catch (txErr) {
+      await pool.query('ROLLBACK');
+      throw txErr;
+    }
+  } catch (error: any) {
+    // Don't crash boot — log and continue. Worst case, the gate behaves as if
+    // no users are grandfathered, which would lock all existing users out of
+    // the dashboard. The middleware should fail OPEN on lookup errors to
+    // prevent that. (Verified in the requirePaymentMethod middleware logic.)
+    console.error('Error grandfathering existing users:', error?.message || error);
+  }
 }
 
 // ES modules don't have a direct equivalent to require.main === module
