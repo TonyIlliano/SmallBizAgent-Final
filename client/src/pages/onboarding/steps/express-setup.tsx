@@ -102,8 +102,12 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
       const stepTimer2 = setTimeout(() => setProvisioningStep('Setting up your AI receptionist...'), 12000);
       const stepTimer3 = setTimeout(() => setProvisioningStep('Almost there...'), 25000);
       try {
-        const res = await apiRequest('POST', '/api/onboarding/express-setup', data);
-        return res.json();
+        // apiRequest from @/lib/api returns parsed JSON directly (NOT a Response).
+        // The previous `res.json()` call here was crashing with
+        // "(intermediate value).json is not a function" once the new
+        // card-required gate let this code path actually run.
+        const data2 = await apiRequest('POST', '/api/onboarding/express-setup', data);
+        return data2;
       } finally {
         clearTimeout(stepTimer1);
         clearTimeout(stepTimer2);
