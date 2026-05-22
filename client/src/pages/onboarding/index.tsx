@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useOnboardingProgress, type OnboardingStep } from '@/hooks/use-onboarding-progress';
 
 import { useQuery } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 import Welcome from './steps/welcome';
 import ExpressSetup from './steps/express-setup';
 import BusinessSetup from './steps/business-setup';
@@ -176,8 +177,31 @@ export default function OnboardingPage() {
   // Calculate progress percentage
   const progressPercentage = ((currentStepIndex) / (steps.length - 1)) * 100;
 
-  // Handle welcome step completion — routes to express or detailed flow
-  const handleWelcomeComplete = (mode?: 'express' | 'detailed') => {
+  // Handle welcome step completion — routes to express or detailed flow.
+  // Card-required trial gate: BEFORE either path, confirm a plan has been
+  // selected in the server-side session. If not, redirect to /onboarding/subscription
+  // (the canonical pre-onboarding redirect at App.tsx:143 is supposed to catch
+  // this, but bookmarked URLs, stale sessions, and pre-card-required accounts
+  // can land users on /onboarding directly without ever picking a plan).
+  // Admins skip the gate.
+  const handleWelcomeComplete = async (mode?: 'express' | 'detailed') => {
+    try {
+      if (user?.role !== 'admin') {
+        const selectionRes = await apiRequest('GET', '/api/onboarding/selection');
+        const selection = await selectionRes.json();
+        if (!selection?.selectedPlanId) {
+          // No plan picked yet — send them through the picker first.
+          setLocation('/onboarding/subscription');
+          return;
+        }
+      }
+    } catch (selErr) {
+      // If the selection check fails, fall through to the existing flow.
+      // Server-side gate in expressSetupRoutes.ts will still block
+      // express-setup submission without a plan.
+      console.warn('[Onboarding] Selection check failed, continuing:', selErr);
+    }
+
     if (mode === 'express') {
       setSetupMode('express');
     } else {

@@ -164,6 +164,22 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
     },
     onError: (error: Error) => {
       setProvisioningStep(null);
+
+      // Card-required gate: server returns 402 with code: 'PLAN_REQUIRED' when
+      // the user lands on express-setup without picking a plan first. Redirect
+      // them to the picker instead of showing a generic "Setup failed" toast.
+      // throwIfResNotOk formats the message as `${status}: ${errorData.error}`,
+      // so we match on both the status prefix and the message body.
+      const msg = error.message || '';
+      if (msg.startsWith('402:') || msg.toLowerCase().includes('plan selection required')) {
+        toast({
+          title: 'Choose a plan first',
+          description: 'Please pick a subscription plan to start your 14-day free trial.',
+        });
+        setTimeout(() => navigate('/onboarding/subscription'), 800);
+        return;
+      }
+
       toast({
         title: 'Setup failed',
         description: error.message || 'Something went wrong. Please try again.',

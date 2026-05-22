@@ -322,6 +322,31 @@ export function registerExpressSetupRoutes(app: Express) {
         const { name, industry, phone, email, address, city, state, zipCode } = parsed.data;
 
         // -----------------------------------------------------------------
+        // 1.5. Plan-required gate (server-side defense in depth)
+        //      The card-required trial flow lives in step 7.5 below, but it
+        //      is only invoked when `req.session.onboarding.selectedPlanId`
+        //      is present. Without this gate, a client that skipped the
+        //      /onboarding/subscription picker (stale link, bookmarked URL,
+        //      pre-card-required-flow account, scripted client) would land
+        //      on the dashboard with a no-card trial — exactly the bug we
+        //      saw in production.
+        //
+        //      Admins and pre-launch founder accounts bypass — the launch
+        //      pricing model only applies to post-launch signups.
+        // -----------------------------------------------------------------
+        const selectedPlanIdGate = (req.session as any)?.onboarding?.selectedPlanId;
+        const isAdminUser = req.user!.role === 'admin';
+        if (!selectedPlanIdGate && !isAdminUser) {
+          console.warn(`[ExpressSetup] User ${userId} attempted express-setup without a plan selection — blocking`);
+          return res.status(402).json({
+            error: 'Plan selection required',
+            code: 'PLAN_REQUIRED',
+            redirectTo: '/onboarding/subscription',
+            message: 'Please choose a subscription plan before setting up your business.',
+          });
+        }
+
+        // -----------------------------------------------------------------
         // 2. Create business
         // -----------------------------------------------------------------
         const slug = slugify(name);

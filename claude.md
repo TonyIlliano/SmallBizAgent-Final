@@ -720,6 +720,27 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Card-Required Trial Gate — Make Plan Selection Unskippable
+- **Bug found in production**: A user completed the Quick Setup express-onboarding flow and landed on the dashboard with a no-card 14-day trial. The card-required flow shipped earlier (`Card-Required 14-Day Trial + Cancel UX + 3-Day Reminder` section above) had a structural gap: the express-setup endpoint only invoked Stripe subscription creation when `req.session.onboarding.selectedPlanId` was already populated. Nothing forced the user through `/onboarding/subscription` before reaching express-setup. Bookmarked URLs, stale sessions, or pre-card-required accounts all bypassed the gate silently.
+- **Fix shape**: Defense-in-depth across server + client. The server now refuses express-setup without a plan in session; the client now checks selection before showing the express form and redirects to the picker if missing; and the express-setup mutation's onError handler intercepts the new 402 response to redirect users to the picker instead of showing a generic "Setup failed" toast.
+
+##### Server gate
+- `server/routes/expressSetupRoutes.ts` — After Zod validation and BEFORE any business is created, reads `req.session.onboarding.selectedPlanId`. If absent and the user is not an admin, returns `402 { error: 'Plan selection required', code: 'PLAN_REQUIRED', redirectTo: '/onboarding/subscription' }`. Admins bypass (consistent with the rest of the launch-pricing gating throughout the codebase).
+
+##### Client welcome gate
+- `client/src/pages/onboarding/index.tsx` — `handleWelcomeComplete()` is now async. Before transitioning into express or detailed mode, it calls `GET /api/onboarding/selection` to verify a `selectedPlanId` exists. If absent and the user is not an admin, it `setLocation('/onboarding/subscription')` instead. Failure of the selection check itself falls through to the existing flow (server-side gate remains the last line of defense). Added `apiRequest` import.
+
+##### Client error-path redirect
+- `client/src/pages/onboarding/steps/express-setup.tsx` — `onError` handler in the express-setup mutation now matches on `'402:'` prefix OR `'plan selection required'` substring (matches the format produced by `throwIfResNotOk` in `client/src/lib/queryClient.ts`). On match, shows a friendly "Choose a plan first" toast and redirects to `/onboarding/subscription` after 800ms. All other errors still hit the legacy generic "Setup failed" destructive toast.
+
+##### Files changed
+- `server/routes/expressSetupRoutes.ts` — Server-side plan-required gate (~25 lines)
+- `client/src/pages/onboarding/index.tsx` — Welcome-handler plan check + apiRequest import (~25 lines)
+- `client/src/pages/onboarding/steps/express-setup.tsx` — 402 onError branch (~15 lines)
+
+##### Verification
+- `npx tsc --noEmit` clean.
+
 #### Business Provisioning — Plug Phone-Number Leak + Partial-Unique-Index Violation
 - **Goal**: Fix three bugs in `server/services/businessProvisioningService.ts` that caused (1) intermittent provisioning failures from `business_phone_numbers_one_primary_per_business` partial unique index violations and (2) leaked Twilio numbers ($1/mo each) when provisioning failed mid-flow after the number had already been purchased.
 - **Bug 1 — Raw insert bypassed the partial unique index**. Around line 101, the code did a raw `db.insert(businessPhoneNumbers).values({ isPrimary: true, ... })`. Whenever any other primary row already existed for the same business (e.g., from a previous partial attempt), the partial unique index `business_phone_numbers_one_primary_per_business ON business_phone_numbers (business_id) WHERE is_primary = true` rejected the insert. Replaced with `storage.createPhoneNumber({ ... isPrimary: true ... })` from `server/storage/integrations.ts`, which wraps demote-then-insert in `db.transaction()` exactly for this case.
