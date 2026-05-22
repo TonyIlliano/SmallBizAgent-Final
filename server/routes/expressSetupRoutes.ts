@@ -8,6 +8,7 @@
 
 import type { Express, Request, Response } from "express";
 import { isAuthenticated, requireEmailVerified } from "../middleware/auth";
+import { requirePaymentMethod } from "../middleware/paymentRequired";
 import { storage } from "../storage";
 import { z } from "zod";
 
@@ -278,6 +279,8 @@ export function registerExpressSetupRoutes(app: Express) {
     "/api/onboarding/express-setup",
     isAuthenticated,
     requireEmailVerified, // Block API-level bypass: spam farms / scripted clients can't provision Twilio+Retell without verified email
+    requirePaymentMethod,  // Card-first onboarding gate: 402 PAYMENT_METHOD_REQUIRED if no card on file
+                           // (admins, grandfathered users, and Free-plan signups all bypass)
     async (req: Request, res: Response) => {
       try {
         const userId = req.user!.id;
@@ -321,30 +324,11 @@ export function registerExpressSetupRoutes(app: Express) {
 
         const { name, industry, phone, email, address, city, state, zipCode } = parsed.data;
 
-        // -----------------------------------------------------------------
-        // 1.5. Plan-required gate (server-side defense in depth)
-        //      The card-required trial flow lives in step 7.5 below, but it
-        //      is only invoked when `req.session.onboarding.selectedPlanId`
-        //      is present. Without this gate, a client that skipped the
-        //      /onboarding/subscription picker (stale link, bookmarked URL,
-        //      pre-card-required-flow account, scripted client) would land
-        //      on the dashboard with a no-card trial — exactly the bug we
-        //      saw in production.
-        //
-        //      Admins and pre-launch founder accounts bypass — the launch
-        //      pricing model only applies to post-launch signups.
-        // -----------------------------------------------------------------
-        const selectedPlanIdGate = (req.session as any)?.onboarding?.selectedPlanId;
-        const isAdminUser = req.user!.role === 'admin';
-        if (!selectedPlanIdGate && !isAdminUser) {
-          console.warn(`[ExpressSetup] User ${userId} attempted express-setup without a plan selection — blocking`);
-          return res.status(402).json({
-            error: 'Plan selection required',
-            code: 'PLAN_REQUIRED',
-            redirectTo: '/onboarding/subscription',
-            message: 'Please choose a subscription plan before setting up your business.',
-          });
-        }
+        // Note: the old in-line "selectedPlanIdGate" check that lived here was
+        // replaced by the `requirePaymentMethod` middleware on this route. The
+        // middleware handles the full card-first matrix (admin / grandfathered
+        // / Free-plan / payment-method-on-file). If we get here, the gate
+        // already passed.
 
         // -----------------------------------------------------------------
         // 2. Create business
@@ -375,17 +359,29 @@ export function registerExpressSetupRoutes(app: Express) {
 
         // -----------------------------------------------------------------
         // 4. Set trial (14 days from now)
+        //    Also propagate the Stripe Customer ID from the user record onto
+        //    the business so step 7.5's subscriptionService.createSubscription
+        //    re-uses the customer we created during the card-first checkout
+        //    step. Without this, createSubscription would create a SECOND
+        //    Stripe Customer for the same email — duplicate-customer mess.
         // -----------------------------------------------------------------
         const now = new Date();
         const trialEnd = new Date(now);
         trialEnd.setDate(trialEnd.getDate() + 14);
 
+        // Read the user's stripeCustomerId (set during /onboarding/checkout).
+        // Grandfathered users won't have one, and that's fine — createSubscription
+        // will create one for them like it always has.
+        const userRow = await storage.getUser(userId);
+        const userStripeCustomerId = userRow?.stripeCustomerId || null;
+
         await storage.updateBusiness(business.id, {
           subscriptionStatus: "trialing",
           trialEndsAt: trialEnd,
           subscriptionStartDate: now,
+          ...(userStripeCustomerId ? { stripeCustomerId: userStripeCustomerId } : {}),
         });
-        console.log(`[ExpressSetup] Trial set: ends ${trialEnd.toISOString()}`);
+        console.log(`[ExpressSetup] Trial set: ends ${trialEnd.toISOString()}, stripeCustomerId=${userStripeCustomerId || 'none'}`);
 
         // -----------------------------------------------------------------
         // 5. Map industry → template and bulk-create services
@@ -492,6 +488,13 @@ export function registerExpressSetupRoutes(app: Express) {
         //      — the user has a working business and can pick a plan from
         //      Settings later. They'll be on the no-card grace flow.
         // -----------------------------------------------------------------
+        // In the card-first flow, the user already saved their card on the
+        // /onboarding/checkout page BEFORE we got here. So we DON'T want to
+        // return a clientSecret to the frontend — that would trigger an
+        // unwanted redirect to /payment for a card they've already given.
+        // We do still create the Stripe Subscription so billing tracking
+        // works; we just discard the clientSecret if a payment method is
+        // already attached to the customer.
         let subscriptionClientSecret: string | null = null;
         let subscriptionIntentType: 'payment' | 'setup' = 'setup';
         const selectedPlanId = (req.session as any)?.onboarding?.selectedPlanId;
@@ -504,7 +507,15 @@ export function registerExpressSetupRoutes(app: Express) {
               selectedPlanId,
               selectedPromoCode || undefined,
             );
-            if (subResult.clientSecret) {
+
+            // Card-first guard: if the user already has a payment method on
+            // file (set in the card-first checkout flow), discard the
+            // clientSecret so the frontend lands on the dashboard instead of
+            // bouncing to /payment for an already-given card.
+            const { hasPaymentMethodOnFile } = await import('../middleware/paymentRequired');
+            const cardAlreadyOnFile = await hasPaymentMethodOnFile(userStripeCustomerId);
+
+            if (subResult.clientSecret && !cardAlreadyOnFile) {
               subscriptionClientSecret = subResult.clientSecret;
               if (subResult.intentType === 'payment' || subResult.intentType === 'setup') {
                 subscriptionIntentType = subResult.intentType;
@@ -513,7 +524,8 @@ export function registerExpressSetupRoutes(app: Express) {
             console.log(
               `[ExpressSetup] Subscription created for business ${business.id}: ` +
               `plan=${selectedPlanId} status=${subResult.status} ` +
-              `intent=${subscriptionIntentType} ${subscriptionClientSecret ? 'has-clientSecret' : 'no-clientSecret'}`,
+              `cardAlreadyOnFile=${cardAlreadyOnFile} ` +
+              `intent=${subscriptionIntentType} ${subscriptionClientSecret ? 'has-clientSecret' : 'no-clientSecret-returned'}`,
             );
             // Clear the onboarding plan selection from session
             if ((req.session as any).onboarding) {

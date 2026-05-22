@@ -178,28 +178,38 @@ export default function OnboardingPage() {
   const progressPercentage = ((currentStepIndex) / (steps.length - 1)) * 100;
 
   // Handle welcome step completion — routes to express or detailed flow.
-  // Card-required trial gate: BEFORE either path, confirm a plan has been
-  // selected in the server-side session. If not, redirect to /onboarding/subscription
-  // (the canonical pre-onboarding redirect at App.tsx:143 is supposed to catch
-  // this, but bookmarked URLs, stale sessions, and pre-card-required accounts
-  // can land users on /onboarding directly without ever picking a plan).
-  // Admins skip the gate.
+  //
+  // Card-first onboarding gate: BEFORE either path, confirm a payment method
+  // is on file (or the user is grandfathered, on Free, or an admin). If not,
+  // route to /onboarding/checkout to collect a card. The canonical
+  // pre-onboarding redirect at App.tsx:143 catches MOST cases, but bookmarked
+  // URLs and resumed-from-abandonment flows can land users on /onboarding
+  // directly. The server-side `requirePaymentMethod` middleware on
+  // /api/onboarding/express-setup is the third line of defense.
   const handleWelcomeComplete = async (mode?: 'express' | 'detailed') => {
     try {
       if (user?.role !== 'admin') {
-        const selectionRes = await apiRequest('GET', '/api/onboarding/selection');
-        const selection = await selectionRes.json();
-        if (!selection?.selectedPlanId) {
-          // No plan picked yet — send them through the picker first.
-          setLocation('/onboarding/subscription');
+        const statusRes = await apiRequest('GET', '/api/onboarding/payment-status');
+        const status = await statusRes.json();
+        if (!status?.paymentMethodOnFile) {
+          // No card and not grandfathered — get plan, then route appropriately.
+          // checkout.tsx itself short-circuits to /onboarding if the selected
+          // plan is Free; if no plan in session, send to picker.
+          const selectionRes = await apiRequest('GET', '/api/onboarding/selection');
+          const selection = await selectionRes.json();
+          if (selection?.selectedPlanId) {
+            setLocation('/onboarding/checkout');
+          } else {
+            setLocation('/onboarding/subscription');
+          }
           return;
         }
       }
-    } catch (selErr) {
-      // If the selection check fails, fall through to the existing flow.
-      // Server-side gate in expressSetupRoutes.ts will still block
-      // express-setup submission without a plan.
-      console.warn('[Onboarding] Selection check failed, continuing:', selErr);
+    } catch (gateErr) {
+      // If the gate check fails, fall through. The server-side middleware on
+      // express-setup is the last line of defense and will return 402 with a
+      // redirectTo if needed.
+      console.warn('[Onboarding] Gate check failed, continuing:', gateErr);
     }
 
     if (mode === 'express') {

@@ -74,8 +74,10 @@ export default function OnboardingSubscription() {
         promoCode: promoCode.trim() || undefined,
       });
 
-      // Navigate to the main onboarding flow to create the business first
-      navigate('/onboarding');
+      // Card-first onboarding: send the user to /onboarding/checkout next.
+      // That page will short-circuit to /onboarding if the plan is Free or if
+      // the user already has a card on file (e.g., resumed after abandonment).
+      navigate('/onboarding/checkout');
     } catch (error) {
       console.error('Error selecting plan:', error);
     } finally {

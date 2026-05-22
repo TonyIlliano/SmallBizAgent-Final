@@ -65,6 +65,7 @@ const PrintQuote = lazyWithRetry(() => import("@/pages/quotes/[id]/print"));
 const Payment = lazyWithRetry(() => import("@/pages/payment"));
 const SubscriptionSuccess = lazyWithRetry(() => import("@/pages/subscription-success"));
 const OnboardingSubscription = lazyWithRetry(() => import("@/pages/onboarding/subscription"));
+const OnboardingCheckout = lazyWithRetry(() => import("@/pages/onboarding/checkout"));
 const OnboardingFlow = lazyWithRetry(() => import("@/pages/onboarding/index"));
 const Receptionist = lazyWithRetry(() => import("@/pages/receptionist/index"));
 const AnalyticsPage = lazyWithRetry(() => import("@/pages/analytics"));
@@ -177,6 +178,7 @@ function Router() {
         <ProtectedRoute path="/subscription-success" component={SubscriptionSuccess} />
         <ProtectedRoute path="/onboarding" component={OnboardingFlow} />
         <ProtectedRoute path="/onboarding/subscription" component={OnboardingSubscription} />
+        <ProtectedRoute path="/onboarding/checkout" component={OnboardingCheckout} />
         <ProtectedRoute path="/receptionist" component={Receptionist} />
         <ProtectedRoute path="/analytics" component={AnalyticsPage} />
         <ProtectedRoute path="/marketing" component={MarketingPage} />

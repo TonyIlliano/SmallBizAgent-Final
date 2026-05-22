@@ -720,6 +720,70 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Card-First Onboarding — Subscription Required Before Business Creation
+- **Goal**: Eliminate the entire class of "user got into the dashboard without a card" bugs by inverting the flow: collect the card BEFORE any business is created. No Stripe Customer + no payment method = no business row, no Twilio number, no Retell agent.
+- **Shipped in two phases for migration ordering safety**:
+  - **Phase 1 (commit `b975dc6`)**: Schema + grandfathering migration only, no behavior changes. Lets the backfill UPDATE run on the next deploy BEFORE any gate code is live, so existing users can never get locked out.
+  - **Phase 2 (this commit)**: Middleware + checkout page + router wiring. Activates the gate.
+
+##### Grandfathering rule
+- **Every user alive in the DB at Phase 1 deploy time** gets `paymentMethodGrandfathered = true` via a tracked one-shot migration (`grandfather_existing_users_payment_method_v1`). They keep the no-card flow forever.
+- New users default to `paymentMethodGrandfathered = false` and must satisfy the gate.
+- **Admin role** bypasses the gate.
+- **Free-plan signups** bypass the gate (no card required for $0/mo CRM-only tier).
+
+##### Schema (Phase 1)
+- `shared/schema.ts` — `users.stripeCustomerId TEXT` (nullable) + `users.paymentMethodGrandfathered BOOLEAN DEFAULT false NOT NULL`. Stripe Customer can now be created BEFORE the Business exists, so card collection happens during onboarding without needing a business record yet.
+- `server/migrations/runMigrations.ts` — `addColumnIfNotExists` for both new columns in `fixExistingTables()`. New `ensureGrandfatheredUsers()` function tracked via the migrations table — one-shot UPDATE wrapped in BEGIN/COMMIT/ROLLBACK with idempotency check on the tracker row.
+
+##### Server gate (Phase 2)
+- `server/middleware/paymentRequired.ts` — **NEW**. `requirePaymentMethod` middleware. Bypasses on (1) admin role, (2) `paymentMethodGrandfathered = true`, (3) Free plan selected in session, (4) Stripe Customer has a default_payment_method attached. Otherwise returns 402 with `code: 'PAYMENT_METHOD_REQUIRED'` and `redirectTo: '/onboarding/checkout'`. Fails OPEN on Stripe API errors (transient outages shouldn't lock paying customers out). Also exports `hasPaymentMethodOnFile(stripeCustomerId)` helper.
+- `server/routes/onboardingCheckoutRoutes.ts` — **NEW**. Two endpoints:
+  - `POST /api/onboarding/start-trial` — Idempotent. Creates or reuses a Stripe Customer for the user (writes id to `users.stripeCustomerId`), creates a fresh SetupIntent, returns `{ clientSecret, customerId, planName }`. Short-circuits with `{ skipCheckout: true }` for Free plan, `{ alreadyOnFile: true }` if Customer already has a default PM.
+  - `GET /api/onboarding/payment-status` — Poll endpoint. Returns `{ paymentMethodOnFile: boolean }`. Used by the checkout page after `stripe.confirmSetup()` and by the welcome gate.
+- `server/routes/expressSetupRoutes.ts` — Replaced the in-line `selectedPlanIdGate` check with the `requirePaymentMethod` middleware on the route chain. Step 4 now copies `users.stripeCustomerId` onto `businesses.stripeCustomerId` so `subscriptionService.createSubscription` reuses the existing customer (no duplicate Stripe customers). Step 7.5 discards the returned `clientSecret` when the user already has a payment method on file — prevents the frontend from bouncing to `/payment` for a card the user already gave.
+- `server/routes.ts` — Mounted `registerOnboardingCheckoutRoutes(app)` next to `registerExpressSetupRoutes(app)`.
+
+##### Client checkout page (Phase 2)
+- `client/src/pages/onboarding/checkout.tsx` — **NEW** (~250 lines). Stripe Elements page sitting between `/onboarding/subscription` and `/onboarding`. On mount, calls `POST /api/onboarding/start-trial` to get a SetupIntent clientSecret. Handles short-circuits: `skipCheckout` (Free plan) → `/onboarding`, `alreadyOnFile` → `/onboarding`. Submits via `stripe.confirmSetup({ confirmParams.return_url: '/subscription-success?returnTo=/onboarding' })`. Errors surfaced inline. Wrapped in `ErrorBoundary`.
+- `client/src/App.tsx` — Lazy-imported `OnboardingCheckout` and added `<ProtectedRoute path="/onboarding/checkout" component={OnboardingCheckout} />` between the existing onboarding routes.
+- `client/src/pages/onboarding/subscription.tsx` — Plan picker now navigates to `/onboarding/checkout` instead of `/onboarding`. The checkout page short-circuits to `/onboarding` for Free and grandfathered/already-on-file users.
+- `client/src/pages/onboarding/index.tsx` — Welcome handler now checks `GET /api/onboarding/payment-status` instead of `selectedPlanId`. If no card on file: if a plan is in session → `/onboarding/checkout`, else → `/onboarding/subscription`.
+- `client/src/pages/onboarding/steps/express-setup.tsx` — `onError` handler updated to detect both the new `PAYMENT_METHOD_REQUIRED` 402 and the legacy `PLAN_REQUIRED` 402, routing appropriately to `/onboarding/checkout` vs `/onboarding/subscription` with friendly toasts.
+
+##### Files added
+- `server/middleware/paymentRequired.ts` (~120 lines)
+- `server/routes/onboardingCheckoutRoutes.ts` (~190 lines)
+- `client/src/pages/onboarding/checkout.tsx` (~250 lines)
+
+##### Files changed
+- `shared/schema.ts` — 2 new columns on `users`
+- `server/migrations/runMigrations.ts` — column adds + `ensureGrandfatheredUsers()` backfill
+- `server/routes.ts` — mounted checkout routes
+- `server/routes/expressSetupRoutes.ts` — wired middleware + copy stripeCustomerId to business + discard duplicate clientSecret
+- `client/src/App.tsx` — registered `/onboarding/checkout` route
+- `client/src/pages/onboarding/subscription.tsx` — navigate to checkout instead of onboarding
+- `client/src/pages/onboarding/index.tsx` — welcome gate uses payment-status
+- `client/src/pages/onboarding/steps/express-setup.tsx` — 402 onError routes to checkout
+
+##### Flow (post-change)
+```
+Anonymous → /pricing → click plan
+[Registered] → verify email → (HomePage gate redirect) → /onboarding/subscription
+[Plan saved in session] → /onboarding/checkout (Stripe Elements)
+[Card saved via SetupIntent] → /subscription-success?returnTo=/onboarding → /onboarding
+[Welcome screen] → Quick Setup or Detailed Setup
+[Business info submitted] → express-setup gate passes (paymentMethodOnFile=true) → provisions Twilio+Retell+Stripe Subscription
+[Dashboard]
+```
+
+Free plan: subscription.tsx navigates to /onboarding/checkout, server short-circuits with `skipCheckout: true`, client navigates to /onboarding.
+
+Grandfathered/admin: welcome gate sees `paymentMethodOnFile: true` and skips checkout entirely.
+
+##### Verification
+- `npx tsc --noEmit` clean after both phases.
+
 #### Card-Required Trial Gate — Make Plan Selection Unskippable
 - **Bug found in production**: A user completed the Quick Setup express-onboarding flow and landed on the dashboard with a no-card 14-day trial. The card-required flow shipped earlier (`Card-Required 14-Day Trial + Cancel UX + 3-Day Reminder` section above) had a structural gap: the express-setup endpoint only invoked Stripe subscription creation when `req.session.onboarding.selectedPlanId` was already populated. Nothing forced the user through `/onboarding/subscription` before reaching express-setup. Bookmarked URLs, stale sessions, or pre-card-required accounts all bypassed the gate silently.
 - **Fix shape**: Defense-in-depth across server + client. The server now refuses express-setup without a plan in session; the client now checks selection before showing the express form and redirects to the picker if missing; and the express-setup mutation's onError handler intercepts the new 402 response to redirect users to the picker instead of showing a generic "Setup failed" toast.

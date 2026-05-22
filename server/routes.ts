@@ -68,6 +68,7 @@ import { registerZapierRoutes } from './routes/zapierRoutes';
 import { registerInventoryRoutes } from './routes/inventoryRoutes';
 import { registerAutomationRoutes } from './routes/automationRoutes';
 import { registerExpressSetupRoutes } from './routes/expressSetupRoutes';
+import { registerOnboardingCheckoutRoutes } from './routes/onboardingCheckoutRoutes';
 import { registerWebsiteBuilderRoutes } from './routes/websiteBuilderRoutes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -147,6 +148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerInventoryRoutes(app);
   registerAutomationRoutes(app);
   registerExpressSetupRoutes(app);
+  registerOnboardingCheckoutRoutes(app);
   registerWebsiteBuilderRoutes(app);
 
   // ── Admin dashboard routes ──

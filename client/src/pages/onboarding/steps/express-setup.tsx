@@ -169,18 +169,22 @@ export default function ExpressSetup({ userEmail }: ExpressSetupProps) {
     onError: (error: Error) => {
       setProvisioningStep(null);
 
-      // Card-required gate: server returns 402 with code: 'PLAN_REQUIRED' when
-      // the user lands on express-setup without picking a plan first. Redirect
-      // them to the picker instead of showing a generic "Setup failed" toast.
-      // throwIfResNotOk formats the message as `${status}: ${errorData.error}`,
-      // so we match on both the status prefix and the message body.
-      const msg = error.message || '';
-      if (msg.startsWith('402:') || msg.toLowerCase().includes('plan selection required')) {
+      // Card-first gate: server returns 402 PAYMENT_METHOD_REQUIRED if the user
+      // somehow reached express-setup without a card on file. Route them through
+      // the checkout page. (Also matches the legacy PLAN_REQUIRED 402 for
+      // backward compat with sessions in-flight at deploy time.)
+      const msg = (error.message || '').toLowerCase();
+      if (msg.startsWith('402:') || msg.includes('payment method required') || msg.includes('plan selection required')) {
+        // Determine which path: if it's a payment-method issue, go to checkout.
+        // If it's a plan-selection issue, go to the picker.
+        const needsPlan = msg.includes('plan');
         toast({
-          title: 'Choose a plan first',
-          description: 'Please pick a subscription plan to start your 14-day free trial.',
+          title: needsPlan ? 'Choose a plan first' : 'Add a payment method',
+          description: needsPlan
+            ? 'Please pick a subscription plan to start your 14-day free trial.'
+            : 'Please add a payment method to start your trial.',
         });
-        setTimeout(() => navigate('/onboarding/subscription'), 800);
+        setTimeout(() => navigate(needsPlan ? '/onboarding/subscription' : '/onboarding/checkout'), 800);
         return;
       }
 
