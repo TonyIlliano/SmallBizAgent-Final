@@ -29,6 +29,39 @@ function asLegacySubscription(sub: Stripe.Subscription): SubscriptionWithLegacyF
   return sub as unknown as SubscriptionWithLegacyFields;
 }
 
+/**
+ * Safely extract the current period end from a Stripe subscription, falling
+ * back across the API surface variants. Newer Stripe API versions moved
+ * `current_period_end` from the top-level subscription onto each subscription
+ * item. If neither field exists (or both are falsy), return null so callers
+ * can avoid crashing on `new Date(NaN).toISOString()` → "Invalid time value".
+ */
+function safeCurrentPeriodEnd(sub: Stripe.Subscription): Date | null {
+  // 1. Legacy top-level field (older API versions)
+  const topLevel = (sub as any).current_period_end;
+  if (typeof topLevel === 'number' && Number.isFinite(topLevel) && topLevel > 0) {
+    return new Date(topLevel * 1000);
+  }
+
+  // 2. Per-item field (newer API versions move it here)
+  const items = (sub as any).items?.data;
+  if (Array.isArray(items) && items.length > 0) {
+    const itemPeriodEnd = items[0]?.current_period_end;
+    if (typeof itemPeriodEnd === 'number' && Number.isFinite(itemPeriodEnd) && itemPeriodEnd > 0) {
+      return new Date(itemPeriodEnd * 1000);
+    }
+  }
+
+  // 3. Trial subscriptions before the first billing period — use trial_end as
+  //    the effective period end so the UI can still display something.
+  const trialEnd = (sub as any).trial_end;
+  if (typeof trialEnd === 'number' && Number.isFinite(trialEnd) && trialEnd > 0) {
+    return new Date(trialEnd * 1000);
+  }
+
+  return null;
+}
+
 function asLegacyInvoice(inv: Stripe.Invoice): InvoiceWithLegacyFields {
   return inv as unknown as InvoiceWithLegacyFields;
 }
@@ -106,7 +139,7 @@ export class SubscriptionService {
 
         // Check if subscription is active
         const isActive = subscription.status === 'active' || subscription.status === 'trialing';
-        const periodEnd = new Date(asLegacySubscription(subscription).current_period_end * 1000);
+        const periodEnd = safeCurrentPeriodEnd(subscription);
         
         // Get plan details
         const plan = await db.select()
@@ -336,7 +369,7 @@ export class SubscriptionService {
             stripePlanId: planId,
             subscriptionStatus: subscription.status, // 'trialing' or 'incomplete'
             subscriptionStartDate: new Date(),
-            subscriptionPeriodEnd: new Date(asLegacySubscription(subscription).current_period_end * 1000),
+            subscriptionPeriodEnd: safeCurrentPeriodEnd(subscription),
             ...(trialEnd ? { trialEndsAt: trialEnd } : {}),
             updatedAt: new Date()
           })
@@ -441,7 +474,7 @@ export class SubscriptionService {
       return {
         status: 'canceling',
         message: 'Subscription will be canceled at the end of the current billing period',
-        periodEnd: new Date(asLegacySubscription(subscription).current_period_end * 1000)
+        periodEnd: safeCurrentPeriodEnd(subscription)
       };
     } catch (error) {
       console.error('Error canceling subscription:', error);
@@ -698,7 +731,7 @@ export class SubscriptionService {
       await db.update(businesses)
         .set({
           subscriptionStatus: subscription.status,
-          subscriptionPeriodEnd: new Date(asLegacySubscription(subscription).current_period_end * 1000),
+          subscriptionPeriodEnd: safeCurrentPeriodEnd(subscription),
           updatedAt: new Date()
         })
         .where(eq(businesses.id, business[0].id));
@@ -1091,7 +1124,7 @@ export class SubscriptionService {
           subscriptionDetails = {
             id: subscription.id,
             status: subscription.status,
-            currentPeriodEnd: new Date(asLegacySubscription(subscription).current_period_end * 1000),
+            currentPeriodEnd: safeCurrentPeriodEnd(subscription),
             cancelAtPeriodEnd: subscription.cancel_at_period_end,
             quantity: subscription.items.data[0]?.quantity || 0,
             discount: (() => {
@@ -1309,7 +1342,7 @@ export class SubscriptionService {
         .set({
           stripePlanId: newPlanId,
           subscriptionStatus: updatedSubscription.status,
-          subscriptionPeriodEnd: new Date(asLegacySubscription(updatedSubscription).current_period_end * 1000),
+          subscriptionPeriodEnd: safeCurrentPeriodEnd(updatedSubscription),
           updatedAt: new Date(),
         })
         .where(eq(businesses.id, businessId));

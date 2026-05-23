@@ -64,9 +64,14 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
     enabled: !!user,
   });
 
-  // Fetch current subscription status
+  // Fetch current subscription status.
+  // The server route is /api/subscription/status/:businessId (path param,
+  // not query param), so the URL has to include businessId inline.
+  // The default queryFn uses queryKey[0] verbatim as the URL — passing the
+  // businessId only as queryKey[1] previously caused a 404 and made the
+  // "Subscription Plans" picker render instead of the "your current plan" panel.
   const { data: subscriptionStatus, isLoading: isLoadingStatus } = useQuery<any>({
-    queryKey: ['/api/subscription/status', businessId],
+    queryKey: [`/api/subscription/status/${businessId}`],
     enabled: !!businessId,
   });
 
