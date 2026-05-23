@@ -213,4 +213,162 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
       }
     },
   );
+
+  /**
+   * GET /api/onboarding/diagnose-subscription
+   *
+   * Self-serve diagnostic for the current user. Returns the user's Stripe
+   * customer's active subscriptions and the business row's stripeSubscriptionId,
+   * so the user (or an engineer looking at the output) can see if there are
+   * duplicates or a DB/Stripe mismatch.
+   *
+   * No state changes. Authenticated only — scoped to the requesting user.
+   */
+  app.get(
+    '/api/onboarding/diagnose-subscription',
+    isAuthenticated,
+    requireEmailVerified,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const { businesses } = await import('@shared/schema');
+        const { db } = await import('../db');
+        const { eq } = await import('drizzle-orm');
+
+        const [user] = await db.select().from(users).where(eq(users.id, userId));
+        if (!user) {
+          return res.status(401).json({ error: 'User not found' });
+        }
+
+        const [business] = user.businessId
+          ? await db.select().from(businesses).where(eq(businesses.id, user.businessId))
+          : [null];
+
+        let stripeSubs: any[] = [];
+        if (user.stripeCustomerId) {
+          try {
+            const list = await getStripe().subscriptions.list({
+              customer: user.stripeCustomerId,
+              status: 'all',
+              limit: 20,
+            });
+            stripeSubs = list.data.map((s) => ({
+              id: s.id,
+              status: s.status,
+              created: new Date(s.created * 1000).toISOString(),
+              trial_end: s.trial_end ? new Date(s.trial_end * 1000).toISOString() : null,
+              cancel_at_period_end: s.cancel_at_period_end,
+              items: s.items.data.map((i) => ({ price: i.price.id })),
+            }));
+          } catch (err: any) {
+            stripeSubs = [{ error: err?.message || String(err) }];
+          }
+        }
+
+        return res.json({
+          user: {
+            id: user.id,
+            email: user.email,
+            businessId: user.businessId,
+            stripeCustomerId: user.stripeCustomerId,
+            paymentMethodGrandfathered: user.paymentMethodGrandfathered,
+          },
+          business: business
+            ? {
+                id: business.id,
+                name: business.name,
+                subscriptionStatus: business.subscriptionStatus,
+                stripeCustomerId: business.stripeCustomerId,
+                stripeSubscriptionId: business.stripeSubscriptionId,
+                stripePlanId: business.stripePlanId,
+                trialEndsAt: business.trialEndsAt,
+              }
+            : null,
+          stripeSubscriptions: stripeSubs,
+          activeStripeSubs: stripeSubs.filter((s: any) => s.status === 'trialing' || s.status === 'active'),
+          duplicateDetected: stripeSubs.filter((s: any) => s.status === 'trialing' || s.status === 'active').length > 1,
+        });
+      } catch (err: any) {
+        console.error('[OnboardingCheckout] diagnose error:', err?.message || err);
+        return res.status(500).json({ error: 'Could not diagnose subscription state', details: err?.message });
+      }
+    },
+  );
+
+  /**
+   * POST /api/onboarding/repair-subscription
+   *
+   * Self-serve repair: if the current user has multiple active Stripe
+   * subscriptions (trialing or active) on the same customer, keep the OLDEST
+   * one and cancel the rest immediately. Then align the user's business row
+   * to point at the survivor.
+   *
+   * Idempotent. No-op if there's no duplicate.
+   */
+  app.post(
+    '/api/onboarding/repair-subscription',
+    isAuthenticated,
+    requireEmailVerified,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const { businesses } = await import('@shared/schema');
+        const { db } = await import('../db');
+        const { eq } = await import('drizzle-orm');
+
+        const [user] = await db.select().from(users).where(eq(users.id, userId));
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        if (!user.stripeCustomerId) return res.status(400).json({ error: 'No Stripe customer for this user' });
+        if (!user.businessId) return res.status(400).json({ error: 'No business linked to this user' });
+
+        const list = await getStripe().subscriptions.list({
+          customer: user.stripeCustomerId,
+          status: 'all',
+          limit: 20,
+        });
+        // Only consider trialing/active. Sort by created ASC so the OLDEST wins.
+        const live = list.data
+          .filter((s) => s.status === 'trialing' || s.status === 'active')
+          .sort((a, b) => a.created - b.created);
+
+        if (live.length === 0) {
+          return res.json({ action: 'noop', reason: 'No live subscriptions found', cancelledIds: [], survivorId: null });
+        }
+
+        const survivor = live[0];
+        const toCancel = live.slice(1);
+        const cancelledIds: string[] = [];
+        for (const sub of toCancel) {
+          try {
+            await getStripe().subscriptions.cancel(sub.id);
+            cancelledIds.push(sub.id);
+            console.log(`[RepairSubscription] Canceled duplicate ${sub.id} for user ${userId}`);
+          } catch (cancelErr: any) {
+            console.error(`[RepairSubscription] Failed to cancel ${sub.id}:`, cancelErr?.message || cancelErr);
+          }
+        }
+
+        // Align DB business row to point at the survivor
+        await db.update(businesses)
+          .set({
+            stripeSubscriptionId: survivor.id,
+            subscriptionStatus: survivor.status,
+            updatedAt: new Date(),
+          })
+          .where(eq(businesses.id, user.businessId));
+
+        return res.json({
+          action: 'repaired',
+          survivorId: survivor.id,
+          survivorStatus: survivor.status,
+          cancelledIds,
+          totalLiveBefore: live.length,
+          totalLiveAfter: 1,
+        });
+      } catch (err: any) {
+        console.error('[OnboardingCheckout] repair error:', err?.message || err);
+        return res.status(500).json({ error: 'Could not repair subscription state', details: err?.message });
+      }
+    },
+  );
 }

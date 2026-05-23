@@ -330,6 +330,33 @@ export class SubscriptionService {
         ? Math.max(1, Math.ceil((new Date(businessRecord.trialEndsAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
         : isNewSubscription ? 14 : undefined;
 
+      // Last-mile race protection: re-read the business row right before
+      // creating the subscription. The top-of-function re-entry guard
+      // (line ~259) only catches subscriptions that existed when this call
+      // started — but if two requests are in flight in parallel (express-setup
+      // submit double-click, network retry, React Query refetch), the SECOND
+      // request might pass the first guard, then the first request writes its
+      // stripe_subscription_id while the second is still running, leading to
+      // TWO Stripe subscriptions for the same business. We saw this in prod:
+      // two subs created 15s apart for the same customer.
+      const freshBusiness = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+      if (freshBusiness[0]?.stripeSubscriptionId && freshBusiness[0].stripeSubscriptionId !== businessRecord.stripeSubscriptionId) {
+        console.warn(
+          `[createSubscription] Race detected — business ${businessId} now has stripeSubscriptionId ` +
+          `${freshBusiness[0].stripeSubscriptionId} (different from start of this call). Aborting to prevent duplicate.`,
+        );
+        // Return a no-op response shaped like the success path so callers don't
+        // crash. The competing call already wrote the subscription.
+        return {
+          subscriptionId: freshBusiness[0].stripeSubscriptionId,
+          status: freshBusiness[0].subscriptionStatus || 'trialing',
+          clientSecret: null,
+          intentType: 'setup' as const,
+          trialEndsAt: freshBusiness[0].trialEndsAt?.toISOString() || null,
+          planName: planRecord.name,
+        };
+      }
+
       // Create a subscription (with trial if applicable)
       let subscription;
       try {
