@@ -299,9 +299,15 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
    * POST /api/onboarding/repair-subscription
    *
    * Self-serve repair: if the current user has multiple active Stripe
-   * subscriptions (trialing or active) on the same customer, keep the OLDEST
+   * subscriptions (trialing or active) on the same customer, keep the BEST
    * one and cancel the rest immediately. Then align the user's business row
    * to point at the survivor.
+   *
+   * Survivor selection (in order of preference):
+   *   1. Subscription with a discount/coupon attached (preserves any promo
+   *      the customer applied — keep-oldest would silently strip their discount)
+   *   2. If none has a discount, the OLDEST subscription (most likely the
+   *      "real" one, others are duplicates from retries/races)
    *
    * Idempotent. No-op if there's no duplicate.
    */
@@ -321,12 +327,13 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
         if (!user.stripeCustomerId) return res.status(400).json({ error: 'No Stripe customer for this user' });
         if (!user.businessId) return res.status(400).json({ error: 'No business linked to this user' });
 
+        // Need expanded `discounts` to see if a coupon is attached.
         const list = await getStripe().subscriptions.list({
           customer: user.stripeCustomerId,
           status: 'all',
           limit: 20,
+          expand: ['data.discounts'],
         });
-        // Only consider trialing/active. Sort by created ASC so the OLDEST wins.
         const live = list.data
           .filter((s) => s.status === 'trialing' || s.status === 'active')
           .sort((a, b) => a.created - b.created);
@@ -335,8 +342,23 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
           return res.json({ action: 'noop', reason: 'No live subscriptions found', cancelledIds: [], survivorId: null });
         }
 
-        const survivor = live[0];
-        const toCancel = live.slice(1);
+        // Smart survivor selection: prefer the sub with a discount/coupon.
+        // Stripe's `subscription.discounts` is the new API surface; older
+        // accounts may still have `subscription.discount` (singular). Check both.
+        const hasDiscount = (s: any): boolean => {
+          const discounts = s.discounts;
+          if (Array.isArray(discounts) && discounts.length > 0) return true;
+          if (s.discount) return true;
+          return false;
+        };
+
+        const discounted = live.filter(hasDiscount).sort((a, b) => a.created - b.created);
+        const survivor = discounted.length > 0 ? discounted[0] : live[0];
+        const survivorReason = discounted.length > 0
+          ? 'has-discount-attached'
+          : 'oldest-no-discount';
+
+        const toCancel = live.filter((s) => s.id !== survivor.id);
         const cancelledIds: string[] = [];
         for (const sub of toCancel) {
           try {
@@ -361,6 +383,7 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
           action: 'repaired',
           survivorId: survivor.id,
           survivorStatus: survivor.status,
+          survivorReason,
           cancelledIds,
           totalLiveBefore: live.length,
           totalLiveAfter: 1,
