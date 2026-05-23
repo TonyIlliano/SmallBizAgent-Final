@@ -44,10 +44,27 @@ function getStripe(): Stripe {
 export async function hasPaymentMethodOnFile(stripeCustomerId: string | null | undefined): Promise<boolean> {
   if (!stripeCustomerId) return false;
   try {
-    const customer = await getStripe().customers.retrieve(stripeCustomerId);
+    const stripe = getStripe();
+    const customer = await stripe.customers.retrieve(stripeCustomerId);
     if ('deleted' in customer && customer.deleted) return false;
+
+    // Primary check: customer.invoice_settings.default_payment_method.
+    // The setup_intent.succeeded webhook handler sets this AFTER a successful
+    // SetupIntent. If we get here while the webhook hasn't fired yet (Stripe
+    // can take a few seconds), fall through to the payment_methods list check.
     const defaultPm = (customer as Stripe.Customer).invoice_settings?.default_payment_method;
-    return !!defaultPm;
+    if (defaultPm) return true;
+
+    // Fallback: list any card payment_methods attached to the customer.
+    // This catches the "card was saved via SetupIntent but the webhook
+    // hasn't run yet" race AND the "webhook ran but skipped this purpose"
+    // bug we just fixed. Either way, if a card is attached we're good.
+    const paymentMethods = await stripe.paymentMethods.list({
+      customer: stripeCustomerId,
+      type: 'card',
+      limit: 1,
+    });
+    return paymentMethods.data.length > 0;
   } catch (err: any) {
     console.warn(`[paymentRequired] Stripe customer ${stripeCustomerId} lookup failed: ${err?.message || err}`);
     // Fail-open: if Stripe can't be reached, assume the user has a card.

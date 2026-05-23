@@ -604,8 +604,14 @@ export class SubscriptionService {
       // Only act on SetupIntents we created for the trial flow. Filter by
       // the metadata we set in createSubscription/re-entry guard.
       const purpose = setupIntent.metadata?.purpose;
-      if (purpose !== 'trial_payment_method' && purpose !== 'trial_payment_method_resume') {
+      if (
+        purpose !== 'trial_payment_method' &&
+        purpose !== 'trial_payment_method_resume' &&
+        purpose !== 'onboarding_trial_card'
+      ) {
         // Not ours (e.g., a SetupIntent created by Billing Portal). Skip.
+        // 'onboarding_trial_card' is created by the card-first checkout flow
+        // (POST /api/onboarding/start-trial) BEFORE the business exists.
         return;
       }
 
