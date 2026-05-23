@@ -34,6 +34,20 @@ import { ErrorBoundary } from '@/components/ui/error-boundary';
 // its inputs, leaving users staring at an empty form. We log loudly here so a
 // missing key is obvious in the browser console.
 const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLIC_KEY;
+
+// Aggressive build-time diagnostic. Prints to console on every page load so
+// we can see the exact state of the env var without any back-and-forth.
+// SAFE TO LOG: publishable keys are public by design (they ship in every
+// Stripe Elements page on the web).
+// eslint-disable-next-line no-console
+console.log(
+  '[OnboardingCheckout][DIAG]',
+  'keyPresent=', !!STRIPE_PUBLISHABLE_KEY,
+  'keyLength=', STRIPE_PUBLISHABLE_KEY?.length || 0,
+  'keyPrefix=', STRIPE_PUBLISHABLE_KEY ? STRIPE_PUBLISHABLE_KEY.slice(0, 8) : 'NONE',
+  'keyType=', typeof STRIPE_PUBLISHABLE_KEY,
+);
+
 if (!STRIPE_PUBLISHABLE_KEY) {
   console.error(
     '[OnboardingCheckout] VITE_STRIPE_PUBLIC_KEY is not set. Stripe Elements will not render. ' +
