@@ -16,7 +16,7 @@
  *     which forwards to /onboarding
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
@@ -141,6 +141,11 @@ export default function OnboardingCheckoutPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [planName, setPlanName] = useState<string>('your');
   const [loading, setLoading] = useState(true);
+  // Guard: start-trial must be called exactly once per page mount. Without
+  // this, React Query refetches (refetchOnWindowFocus etc) re-trigger the
+  // effect and race a second start-trial call while the first is in flight,
+  // and the second can land on a cleared session → 400 PLAN_REQUIRED → bounce.
+  const startTrialCalledRef = useRef(false);
 
   // Auth gates
   useEffect(() => {
@@ -163,6 +168,12 @@ export default function OnboardingCheckoutPage() {
   // Kick off start-trial as soon as we know the user is eligible
   useEffect(() => {
     if (isAuthLoading || !user || user.businessId || !user.emailVerified) return;
+    // Strict single-fire guard. Without this, React Query refetches can
+    // cause this effect to re-run and race a second start-trial call —
+    // which has been observed to silently bounce the user to /onboarding/subscription.
+    if (startTrialCalledRef.current) return;
+    startTrialCalledRef.current = true;
+
     let cancelled = false;
 
     (async () => {
@@ -194,6 +205,9 @@ export default function OnboardingCheckoutPage() {
       } catch (err: any) {
         if (cancelled) return;
         const msg = err?.message || '';
+        // Loud log so we can see exactly what caused a bounce.
+        // eslint-disable-next-line no-console
+        console.error('[OnboardingCheckout] start-trial failed:', msg, err);
         // 400 PLAN_REQUIRED — no plan in session → bounce to picker
         if (msg.includes('400:') || msg.toLowerCase().includes('plan')) {
           toast({
