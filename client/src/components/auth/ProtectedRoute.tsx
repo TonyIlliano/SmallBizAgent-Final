@@ -43,8 +43,16 @@ export function ProtectedRoute({
         // Managers use the regular dashboard with limited sidebar
         // No redirect needed for managers -- they access /dashboard normally
 
-        // Redirect users who haven't completed onboarding (skip for admin and onboarding routes)
-        const isOnboardingRoute = path.startsWith("/onboarding");
+        // Redirect users who haven't completed onboarding (skip for admin and
+        // any route that's part of the onboarding chain). Card-first onboarding
+        // sends users through /subscription-success and /payment as part of
+        // checkout — those redirects MUST be allowed through, otherwise the
+        // Stripe SetupIntent redirect bounces back to /onboarding/subscription
+        // before the success page can forward to /onboarding.
+        const isOnboardingRoute =
+          path.startsWith("/onboarding") ||
+          path === "/subscription-success" ||
+          path === "/payment";
         if (!isOnboardingRoute && user.role !== "admin" && !user.onboardingComplete && !user.businessId) {
           return <Redirect to="/onboarding/subscription" />;
         }

@@ -44,6 +44,17 @@ export default function SubscriptionSuccessPage() {
     }
   }, [redirectStatus, isSetup, toast]);
 
+  // Card-first onboarding: if the user came from /onboarding/checkout
+  // (returnTo === '/onboarding') and the SetupIntent succeeded, auto-forward
+  // to the next step so the user doesn't have to click "Continue setup".
+  // The success card is still visible for ~1.5s for confirmation.
+  useEffect(() => {
+    if (redirectStatus === 'succeeded' && returnTo === '/onboarding') {
+      const t = setTimeout(() => navigate(returnTo), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [redirectStatus, returnTo, navigate]);
+
   return (
     <div className="container mx-auto py-16 px-4 max-w-3xl">
       <Card className="border-2 border-green-500">
