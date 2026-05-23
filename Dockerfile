@@ -3,6 +3,29 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
+# Build-time arguments for Vite client bundle.
+# Vite reads these via import.meta.env.VITE_* at build time and bakes them
+# into the JS bundle. Railway environment variables are NOT automatically
+# available in docker build — they must be explicitly declared as ARG and
+# promoted to ENV before `npm run build` runs.
+#
+# To make Railway pass these through, you ALSO have to configure the build
+# args on the Railway service (Settings → Build → Build Args, or rely on
+# Railway's RAILPACK_* automation). The safer path is to declare them here
+# AND set them as service variables — the docker build will then receive
+# them automatically because Railway forwards service vars as build args
+# when an ARG with a matching name exists in the Dockerfile.
+ARG VITE_STRIPE_PUBLIC_KEY
+ARG VITE_GOOGLE_PLACES_API_KEY
+ARG VITE_SENTRY_DSN
+ARG VITE_TURNSTILE_SITE_KEY
+
+# Promote build args to env vars so Vite (which reads process.env) can see them.
+ENV VITE_STRIPE_PUBLIC_KEY=${VITE_STRIPE_PUBLIC_KEY}
+ENV VITE_GOOGLE_PLACES_API_KEY=${VITE_GOOGLE_PLACES_API_KEY}
+ENV VITE_SENTRY_DSN=${VITE_SENTRY_DSN}
+ENV VITE_TURNSTILE_SITE_KEY=${VITE_TURNSTILE_SITE_KEY}
+
 # Copy package files
 COPY package.json package-lock.json ./
 COPY .npmrc* ./
