@@ -256,6 +256,72 @@ export class SubscriptionService {
       //     return the existing trial info.
       //   - status=active/past_due/canceled/etc → caller wants to change plan,
       //     route through change-plan endpoint instead. Return informative error.
+      // ── Stripe-side dedup (defense in depth) ──────────────────────────
+      // The legacy re-entry guard below only fires when business.stripeSubscriptionId
+      // is populated. That misses the case where:
+      //   1. The DB row's stripeSubscriptionId is null (race, partial write,
+      //      manual cleanup) but Stripe DOES have a live sub for this customer.
+      //   2. A retry from a different code path created a sub that never
+      //      made it back to the DB.
+      // Without this check, calling createSubscription again would create a
+      // duplicate Stripe subscription and silently double-charge on day 14.
+      //
+      // We always look up Stripe directly. If ANY live (trialing/active) sub
+      // exists on this customer, return it instead of creating a new one.
+      try {
+        const liveList = await getStripe().subscriptions.list({
+          customer: stripeCustomer.id,
+          status: 'all',
+          limit: 5,
+          expand: ['data.default_payment_method', 'data.discounts'],
+        });
+        const liveSubs = liveList.data
+          .filter((s) => s.status === 'trialing' || s.status === 'active')
+          .sort((a, b) => a.created - b.created);
+        if (liveSubs.length > 0) {
+          // Prefer the discount-attached survivor (preserves applied promos)
+          const hasDiscount = (s: any): boolean =>
+            (Array.isArray(s.discounts) && s.discounts.length > 0) || !!s.discount;
+          const discounted = liveSubs.filter(hasDiscount);
+          const winner = discounted.length > 0 ? discounted[0] : liveSubs[0];
+
+          // Heal the DB row to point at the live winner so future calls take
+          // the legacy re-entry path correctly.
+          if (businessRecord.stripeSubscriptionId !== winner.id) {
+            await db.update(businesses)
+              .set({
+                stripeSubscriptionId: winner.id,
+                subscriptionStatus: winner.status,
+                updatedAt: new Date(),
+              })
+              .where(eq(businesses.id, businessId));
+            console.log(
+              `[createSubscription] Healed business ${businessId} DB row to point at live Stripe sub ${winner.id} ` +
+              `(was: ${businessRecord.stripeSubscriptionId || 'null'})`,
+            );
+          }
+
+          const trialEndDate = winner.trial_end ? new Date(winner.trial_end * 1000) : null;
+          return {
+            subscriptionId: winner.id,
+            status: winner.status,
+            clientSecret: null,
+            intentType: 'setup' as const,
+            trialEndsAt: trialEndDate?.toISOString() || null,
+            planName: planRecord.name,
+            dedup: true,
+          };
+        }
+      } catch (dedupErr: any) {
+        // If Stripe listing fails, fall through to the legacy guard rather
+        // than blocking subscription creation. The legacy guard + sweep job
+        // will catch any duplicates after the fact.
+        console.warn(
+          `[createSubscription] Stripe dedup lookup failed for customer ${stripeCustomer.id}, falling through:`,
+          dedupErr?.message || dedupErr,
+        );
+      }
+
       if (businessRecord.stripeSubscriptionId) {
         try {
           const existing = await getStripe().subscriptions.retrieve(

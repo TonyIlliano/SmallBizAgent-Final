@@ -1881,6 +1881,40 @@ export function startHealthCheckScheduler(): void {
   scheduledJobs.set(jobKey, intervalId);
 }
 
+/**
+ * Subscription dedup sweep — hourly cleanup of duplicate Stripe subscriptions.
+ *
+ * Catches edge cases where a business ends up with multiple live (trialing/active)
+ * Stripe subscriptions on the same customer. This happens when:
+ *   - A race condition fires two createSubscription calls before either commits
+ *   - A network retry from the client creates a second sub after the first
+ *   - The Billing Portal creates a sub instead of updating an existing one
+ *   - A manual operation in the Stripe Dashboard adds a duplicate
+ *
+ * Without auto-cleanup, the customer gets charged 2x (or more) on day 14.
+ * This scheduler runs every hour, walks all businesses with a stripeCustomerId,
+ * and consolidates duplicates using the same "prefer coupon-attached, else oldest"
+ * survivor logic as the manual repair endpoint.
+ */
+export function startSubscriptionDedupScheduler(): void {
+  const jobKey = 'subscription-dedup';
+  if (scheduledJobs.has(jobKey)) return;
+  console.log('[Scheduler] Starting subscription dedup sweep (every 1h)');
+
+  const run = () => withReentryGuard(jobKey, async () => {
+    await withAdvisoryLock(jobKey, async () => {
+      const { runSubscriptionDedupSweep } = await import('./subscriptionDedupService.js');
+      await runSubscriptionDedupSweep();
+    });
+  });
+
+  // Initial run on startup so any backlog from previous deploys gets cleaned up
+  setTimeout(() => { run(); }, 30_000);
+
+  const intervalId = setInterval(run, 60 * 60 * 1000); // hourly
+  scheduledJobs.set(jobKey, intervalId);
+}
+
 export async function startAllSchedulers(): Promise<void> {
   try {
     // Start global reminder scheduler (single timer for all businesses)
@@ -1967,6 +2001,10 @@ export async function startAllSchedulers(): Promise<void> {
 
     // Start health check monitor (pings Twilio, Retell, Stripe, OpenAI, DB every 5 min)
     startHealthCheckScheduler();
+
+    // Hourly sweep that auto-resolves duplicate Stripe subscriptions per
+    // business (prevents day-14 double-charges from race conditions).
+    startSubscriptionDedupScheduler();
 
     console.log('All schedulers started');
   } catch (error) {
