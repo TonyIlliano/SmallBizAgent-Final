@@ -28,7 +28,19 @@ import { Button } from '@/components/ui/button';
 import { Loader2, ShieldCheck, CreditCard, Lock } from 'lucide-react';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+// Load Stripe.js once at module scope. If VITE_STRIPE_PUBLIC_KEY is missing
+// at build time (Vite bakes env vars into the bundle), loadStripe(undefined)
+// returns a rejected promise — the Elements provider silently fails to render
+// its inputs, leaving users staring at an empty form. We log loudly here so a
+// missing key is obvious in the browser console.
+const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLIC_KEY;
+if (!STRIPE_PUBLISHABLE_KEY) {
+  console.error(
+    '[OnboardingCheckout] VITE_STRIPE_PUBLIC_KEY is not set. Stripe Elements will not render. ' +
+    'Add the env var to your build environment and redeploy.',
+  );
+}
+const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
 
 interface CheckoutFormProps {
   planName: string;
@@ -198,6 +210,31 @@ export default function OnboardingCheckoutPage() {
           <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Preparing your trial...</p>
         </div>
+      </div>
+    );
+  }
+
+  // Hard error state: Stripe.js can't load (missing publishable key, network
+  // blocked, etc). Without this branch the user would stare at a blank card
+  // form with a greyed-out button.
+  if (!stripePromise) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <CardTitle className="text-base">Payments unavailable</CardTitle>
+            <CardDescription>
+              We couldn&apos;t load our payment provider. This is on our end — please
+              try again, or contact support if the problem persists.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex justify-between gap-2">
+            <Button variant="outline" onClick={() => navigate('/onboarding/subscription')}>
+              Back to plans
+            </Button>
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+          </CardFooter>
+        </Card>
       </div>
     );
   }
