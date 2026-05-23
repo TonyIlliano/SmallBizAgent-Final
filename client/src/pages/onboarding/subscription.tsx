@@ -42,8 +42,14 @@ export default function OnboardingSubscription() {
   const [showPromoInput, setShowPromoInput] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [promoError, setPromoError] = useState<string | null>(null);
-  const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+  // Persistent "applied" state. When a promo is successfully validated we
+  // stash the canonical code + description here, hide the input, and show a
+  // green confirmation pill. The user can click "Remove" to clear it.
+  // Solves the "I clicked Apply once, hit Apply again, and now it says
+  // 'Invalid or expired'" confusion — many Stripe codes are first-use-only
+  // per customer, so the second validation legitimately fails.
+  const [appliedPromo, setAppliedPromo] = useState<{ code: string; description: string } | null>(null);
 
   // Redirect to dashboard if user is not authenticated
   useEffect(() => {
@@ -68,10 +74,14 @@ export default function OnboardingSubscription() {
     try {
       setIsCreatingSubscription(true);
 
-      // Store the selected plan in server-side session (not localStorage)
+      // Store the selected plan in server-side session (not localStorage).
+      // Prefer the already-applied promo code (validated against Stripe) over
+      // whatever's typed in the input — the input may be stale if the user
+      // typed a new code but didn't click Apply.
+      const effectivePromo = appliedPromo?.code || (promoCode.trim() || undefined);
       await apiRequest('POST', '/api/onboarding/save-selection', {
         selectedPlanId: selectedPlan,
-        promoCode: promoCode.trim() || undefined,
+        promoCode: effectivePromo,
       });
 
       // Card-first onboarding: send the user to /onboarding/checkout next.
@@ -86,15 +96,21 @@ export default function OnboardingSubscription() {
   };
 
   const handleApplyPromo = async () => {
-    if (!promoCode.trim()) return;
+    const code = promoCode.trim();
+    if (!code) return;
     setIsApplyingPromo(true);
     setPromoError(null);
-    setPromoSuccess(null);
     try {
-      const res = await apiRequest('POST', '/api/subscription/validate-promo', { code: promoCode.trim() });
+      const res = await apiRequest('POST', '/api/subscription/validate-promo', { code });
       const data = await res.json();
       if (data.valid) {
-        setPromoSuccess(data.message || `Promo applied! ${data.description}`);
+        // Promote to persistent "applied" state. The input gets hidden and
+        // replaced with a confirmation pill below.
+        setAppliedPromo({
+          code,
+          description: data.description || data.message || `${code} applied`,
+        });
+        setPromoError(null);
       } else {
         setPromoError(data.error || 'Invalid promo code');
       }
@@ -103,6 +119,13 @@ export default function OnboardingSubscription() {
     } finally {
       setIsApplyingPromo(false);
     }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null);
+    setPromoCode('');
+    setPromoError(null);
+    setShowPromoInput(true);
   };
 
   if (isLoadingPlans) {
@@ -239,9 +262,30 @@ export default function OnboardingSubscription() {
             Back to home
           </button>
 
-          {/* Promo code */}
+          {/* Promo code — three render modes:
+              1. Applied: green confirmation pill with Remove link
+              2. Showing input: text field + Apply button
+              3. Collapsed: "Have a promo code?" link */}
           <div className="mt-6">
-            {!showPromoInput ? (
+            {appliedPromo ? (
+              <div className="max-w-sm mx-auto bg-green-950/40 border border-green-700/40 rounded-lg px-4 py-3 flex items-start gap-3">
+                <div className="text-green-400 mt-0.5">✓</div>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-medium text-green-300">
+                    {appliedPromo.code} applied
+                  </p>
+                  <p className="text-xs text-green-400/80 mt-0.5">
+                    {appliedPromo.description}
+                  </p>
+                </div>
+                <button
+                  onClick={handleRemovePromo}
+                  className="text-xs text-neutral-400 hover:text-neutral-200 underline underline-offset-4"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : !showPromoInput ? (
               <button
                 onClick={() => setShowPromoInput(true)}
                 className="text-xs text-neutral-600 hover:text-neutral-400 underline underline-offset-4"
@@ -253,7 +297,7 @@ export default function OnboardingSubscription() {
                 <Input
                   placeholder="Enter promo code"
                   value={promoCode}
-                  onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoError(null); setPromoSuccess(null); }}
+                  onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoError(null); }}
                   className="bg-neutral-900 border-neutral-700 text-white text-sm h-9"
                   maxLength={20}
                 />
@@ -268,8 +312,9 @@ export default function OnboardingSubscription() {
                 </Button>
               </div>
             )}
-            {promoError && <p className="text-xs text-red-400 mt-2">{promoError}</p>}
-            {promoSuccess && <p className="text-xs text-green-400 mt-2">{promoSuccess}</p>}
+            {promoError && !appliedPromo && (
+              <p className="text-xs text-red-400 mt-2">{promoError}</p>
+            )}
           </div>
         </div>
       </div>

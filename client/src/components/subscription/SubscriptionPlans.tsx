@@ -55,7 +55,13 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly');
   const [promoCode, setPromoCode] = useState('');
   const [promoError, setPromoError] = useState<string | null>(null);
-  const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
+  // Persistent "applied" state. After a successful Apply, we keep the code +
+  // description visible so the user knows the discount is on the account.
+  // Customers were confused when a second Apply click returned 400 "Invalid
+  // or expired" — most Stripe promos are first-use-only per customer, so
+  // re-validation legitimately fails. Showing a green confirmation pill
+  // instead of a fresh input avoids the confusion.
+  const [appliedPromo, setAppliedPromo] = useState<{ code: string; description: string } | null>(null);
   const [showPromoInput, setShowPromoInput] = useState(false);
 
   // Fetch all available plans
@@ -168,7 +174,12 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
       return data;
     },
     onSuccess: (data) => {
-      setPromoSuccess(data.description || 'Promo code applied!');
+      // Promote to persistent applied state so the user sees the confirmation
+      // pill instead of an empty input asking them to re-enter the code.
+      setAppliedPromo({
+        code: promoCode.trim(),
+        description: data.description || 'Promo code applied!',
+      });
       setPromoError(null);
       setPromoCode('');
       toast({
@@ -179,7 +190,6 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
     },
     onError: (error: Error) => {
       setPromoError(error.message);
-      setPromoSuccess(null);
     },
   });
 
@@ -234,7 +244,6 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
   const handleApplyPromo = () => {
     if (!promoCode.trim()) return;
     setPromoError(null);
-    setPromoSuccess(null);
     applyPromoMutation.mutate(promoCode.trim());
   };
 
@@ -390,7 +399,7 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-            {!showPromoInput && (
+            {!appliedPromo && !showPromoInput && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -401,7 +410,32 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
               </Button>
             )}
           </div>
-          {showPromoInput && (
+          {appliedPromo && (
+            <div className="mt-4 p-3 rounded-lg border border-green-500/40 bg-green-50 dark:bg-green-950/40 flex items-start gap-3">
+              <Tag className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-green-700 dark:text-green-300">
+                  {appliedPromo.code} applied
+                </p>
+                <p className="text-xs text-green-600/80 dark:text-green-400/80 mt-0.5">
+                  {appliedPromo.description}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setAppliedPromo(null);
+                  setPromoCode('');
+                  setPromoError(null);
+                }}
+                className="h-7 text-xs"
+              >
+                Remove
+              </Button>
+            </div>
+          )}
+          {!appliedPromo && showPromoInput && (
             <div className="mt-4 p-3 rounded-lg border bg-background">
               <p className="text-sm font-medium mb-2">Enter promo code</p>
               <div className="flex gap-2">
@@ -411,7 +445,6 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
                   onChange={(e) => {
                     setPromoCode(e.target.value.toUpperCase());
                     setPromoError(null);
-                    setPromoSuccess(null);
                   }}
                   onKeyDown={(e) => e.key === 'Enter' && handleApplyPromo()}
                   className="flex-1"
@@ -434,7 +467,6 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
                     setShowPromoInput(false);
                     setPromoCode('');
                     setPromoError(null);
-                    setPromoSuccess(null);
                   }}
                 >
                   Cancel
@@ -442,9 +474,6 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
               </div>
               {promoError && (
                 <p className="text-sm text-red-600 mt-2">{promoError}</p>
-              )}
-              {promoSuccess && (
-                <p className="text-sm text-green-600 mt-2">{promoSuccess}</p>
               )}
             </div>
           )}
