@@ -796,6 +796,132 @@ export class SubscriptionService {
           `customer-level default PM is set but subscription-level may not be.`
         );
       }
+
+      // 3. Send the welcome / trial-started email. Fire-and-forget — webhook
+      //    success should not depend on email deliverability. Idempotent via
+      //    notification_log dedup so Stripe retries don't double-send.
+      try {
+        const customer = await stripe.customers.retrieve(customerId);
+        if (customer && !('deleted' in customer && customer.deleted)) {
+          const customerObj = customer as Stripe.Customer;
+          const customerEmail = customerObj.email;
+          const customerName = customerObj.name || '';
+
+          if (customerEmail) {
+            const { storage } = await import('../storage');
+
+            // Look up business via stripeCustomerId
+            let businessRow: any = null;
+            try {
+              const [byCustomer] = await db
+                .select()
+                .from(businesses)
+                .where(eq(businesses.stripeCustomerId, customerId))
+                .limit(1);
+              businessRow = byCustomer;
+            } catch (bizLookupErr) {
+              console.warn('[setup_intent.succeeded] Business lookup failed:', bizLookupErr);
+            }
+
+            // Dedup: if we've already sent a welcome email for this business,
+            // don't send another. Stripe webhooks retry on 5xx and sometimes
+            // re-fire on success too.
+            let alreadySent = false;
+            if (businessRow?.id) {
+              try {
+                alreadySent = await storage.hasNotificationLogByType(
+                  businessRow.id,
+                  'trial_started',
+                  'sent',
+                );
+              } catch (dedupErr) {
+                console.warn('[setup_intent.succeeded] Dedup check failed (continuing):', dedupErr);
+              }
+            }
+
+            if (!alreadySent) {
+              // Resolve plan name + trial end date from the subscription
+              let planName = 'your plan';
+              let trialEndDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+              if (subscriptionId) {
+                try {
+                  const sub = await stripe.subscriptions.retrieve(subscriptionId);
+                  if (sub.trial_end) {
+                    trialEndDate = new Date(sub.trial_end * 1000);
+                  }
+                  const priceId = sub.items.data[0]?.price.id;
+                  if (priceId) {
+                    const { subscriptionPlans } = await import('@shared/schema');
+                    const [plan] = await db
+                      .select()
+                      .from(subscriptionPlans)
+                      .where(eq(subscriptionPlans.stripePriceId, priceId))
+                      .limit(1);
+                    if (plan?.name) planName = plan.name;
+                  }
+                } catch (subRetrieveErr) {
+                  console.warn(
+                    `[setup_intent.succeeded] Could not retrieve subscription ${subscriptionId} for welcome email:`,
+                    subRetrieveErr,
+                  );
+                }
+              }
+
+              // Get card last4 for the confirmation copy
+              let cardLast4: string | undefined = undefined;
+              try {
+                const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+                cardLast4 = pm.card?.last4;
+              } catch (pmErr) {
+                console.warn('[setup_intent.succeeded] Could not retrieve PM details:', pmErr);
+              }
+
+              const businessName = businessRow?.name || 'Your business';
+              const { sendTrialStartedEmail } = await import('../emailService');
+              const result = await sendTrialStartedEmail(
+                customerEmail,
+                customerName,
+                businessName,
+                planName,
+                trialEndDate,
+                cardLast4,
+              );
+
+              if (result) {
+                console.log(
+                  `[setup_intent.succeeded] Welcome email sent to ${customerEmail} (${result.messageId})`,
+                );
+                if (businessRow?.id) {
+                  try {
+                    await storage.createNotificationLog({
+                      businessId: businessRow.id,
+                      type: 'trial_started',
+                      channel: 'email',
+                      recipient: customerEmail,
+                      subject: `${businessName} is set up — your 14-day trial is live`,
+                      status: 'sent',
+                      referenceType: 'setup_intent',
+                      referenceId: null,
+                      error: null,
+                    } as any);
+                  } catch (logErr) {
+                    console.warn('[setup_intent.succeeded] Notification log write failed:', logErr);
+                  }
+                }
+              }
+            } else {
+              console.log(
+                `[setup_intent.succeeded] Welcome email already sent for business ${businessRow?.id}, skipping (dedup)`,
+              );
+            }
+          }
+        }
+      } catch (welcomeErr: any) {
+        console.error(
+          '[setup_intent.succeeded] Welcome email send failed (non-blocking):',
+          welcomeErr?.message || welcomeErr,
+        );
+      }
     } catch (error) {
       console.error('Error handling setup_intent.succeeded:', error);
       // Don't throw — Stripe will retry but this is best-effort. The customer
