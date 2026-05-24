@@ -405,6 +405,24 @@ export function registerExpressSetupRoutes(app: Express) {
         console.log(`[ExpressSetup] Created ${servicesCreated} services`);
 
         // -----------------------------------------------------------------
+        // 5.5. Seed vertical-specific knowledge base (HVAC for now)
+        // -----------------------------------------------------------------
+        // Fire-and-forget so KB seeding never blocks onboarding. Idempotent
+        // (skips if any hvac_template entries already exist for this business).
+        if (templateId === 'hvac') {
+          import('../services/hvacOnboardingService')
+            .then(m => m.seedHvacKnowledgeBase(business.id))
+            .then(result => {
+              if (!result.skipped) {
+                console.log(`[ExpressSetup] HVAC KB seeded: ${result.seeded} entries for business ${business.id}`);
+              }
+            })
+            .catch(err => {
+              console.error(`[ExpressSetup] HVAC KB seed failed for business ${business.id}:`, err);
+            });
+        }
+
+        // -----------------------------------------------------------------
         // 6. Create Mon-Fri 9am-5pm business hours (7 entries)
         // -----------------------------------------------------------------
         const hoursEntries = getDefaultHours(business.id);

@@ -168,6 +168,15 @@ export const businesses = pgTable("businesses", {
   brandName: text("brand_name"), // Custom brand name to replace "SmallBizAgent" in customer-facing content
   // Push notification tokens (mobile app)
   pushNotificationTokens: jsonb("push_notification_tokens"), // Array of { token, platform, registeredAt }
+  // ── Financing (HVAC + other high-ticket verticals) ──
+  // When enabled, generated quotes show a "Financing available — as low as
+  // $X/mo" CTA on the public quote portal with a link to the partner.
+  financingEnabled: boolean("financing_enabled").default(false),
+  financingPartnerName: text("financing_partner_name"), // e.g., "GreenSky", "Synchrony", "Wisetack"
+  financingApr: numeric("financing_apr", { precision: 5, scale: 2 }), // annual percentage rate, e.g., 9.99
+  financingTermMonths: integer("financing_term_months").default(60),
+  financingApplyUrl: text("financing_apply_url"), // partner application link
+  financingDisclaimer: text("financing_disclaimer"), // regulatory disclaimer text
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -321,10 +330,19 @@ export const jobs = pgTable("jobs", {
   title: text("title").notNull(),
   description: text("description"),
   scheduledDate: date("scheduled_date"),
-  status: text("status").default("pending"), // pending, in_progress, waiting_parts, completed, cancelled
+  status: text("status").default("pending"), // pending, en_route, in_progress, waiting_parts, completed, cancelled
   estimatedCompletion: timestamp("estimated_completion"),
   notes: text("notes"),
   photos: jsonb("photos"), // Array of { url, caption?, takenAt } for job site photos
+  // Tech dispatch / ETA — set when a technician marks themselves on the way.
+  // Customer receives an SMS "Mike is on the way, ETA 3:15 PM" via the
+  // sendJobEnRouteNotification path.
+  enRouteAt: timestamp("en_route_at"),
+  etaMinutes: integer("eta_minutes"), // technician-provided ETA in minutes
+  // Optional customer location (future map view). Populated by geocoding the
+  // customer's address; not yet user-facing.
+  customerLocationLat: real("customer_location_lat"),
+  customerLocationLng: real("customer_location_lng"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -693,6 +711,9 @@ export const notificationSettings = pgTable("notification_settings", {
   jobWaitingPartsEmail: boolean("job_waiting_parts_email").default(false),
   jobResumedSms: boolean("job_resumed_sms").default(true),
   jobResumedEmail: boolean("job_resumed_email").default(false),
+  // Tech "on the way" ETA SMS (HVAC, plumbing, electrical, etc.)
+  etaUpdateSms: boolean("eta_update_sms").default(true),
+  etaUpdateEmail: boolean("eta_update_email").default(false),
   // Weather alerts (field service businesses)
   weatherAlertsEnabled: boolean("weather_alerts_enabled").default(true),
   createdAt: timestamp("created_at").defaultNow(),

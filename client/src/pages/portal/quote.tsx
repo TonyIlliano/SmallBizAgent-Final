@@ -56,6 +56,13 @@ interface QuoteData {
     address: string;
     phone: string;
     email: string;
+    // Financing fields — present when the business has financing enabled.
+    financingEnabled?: boolean;
+    financingPartnerName?: string | null;
+    financingApr?: string | number | null;
+    financingTermMonths?: number | null;
+    financingApplyUrl?: string | null;
+    financingDisclaimer?: string | null;
   } | null;
   items: Array<{
     id: number;
@@ -64,6 +71,20 @@ interface QuoteData {
     unitPrice: number;
     amount: number;
   }>;
+}
+
+/**
+ * Standard amortization formula for a fixed-rate loan.
+ * Returns the monthly payment in dollars, rounded to the nearest dollar.
+ */
+function computeMonthlyPayment(principal: number, aprPercent: number, termMonths: number): number {
+  if (!principal || !termMonths) return 0;
+  if (!aprPercent || aprPercent <= 0) return Math.round(principal / termMonths);
+  const monthlyRate = aprPercent / 100 / 12;
+  const payment =
+    (principal * monthlyRate * Math.pow(1 + monthlyRate, termMonths)) /
+    (Math.pow(1 + monthlyRate, termMonths) - 1);
+  return Math.round(payment);
 }
 
 export default function PortalQuote() {
@@ -353,6 +374,59 @@ export default function PortalQuote() {
             </Table>
           </CardContent>
         </Card>
+
+        {/* Financing CTA — only when the business has enabled financing */}
+        {quote.business?.financingEnabled && quote.total > 0 && (() => {
+          const apr = quote.business.financingApr != null ? Number(quote.business.financingApr) : 0;
+          const term = quote.business.financingTermMonths || 60;
+          const monthly = computeMonthlyPayment(quote.total, apr, term);
+          const applyUrl = quote.business.financingApplyUrl;
+          // Validate the apply URL — only http/https links, never javascript: or other schemes.
+          const isSafeUrl = applyUrl && /^https?:\/\//i.test(applyUrl);
+          return (
+            <Card className="border-emerald-300 bg-emerald-50/40 dark:bg-emerald-950/20">
+              <CardHeader>
+                <CardTitle className="text-lg text-emerald-800 dark:text-emerald-200">
+                  Financing available
+                </CardTitle>
+                <CardDescription>
+                  Pay over time with a fixed monthly payment.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <p className="text-3xl font-bold text-emerald-800 dark:text-emerald-200">
+                      ${monthly.toLocaleString()}/mo
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Estimated payment for {term} months
+                      {apr > 0 ? ` at ${apr.toFixed(2)}% APR` : ''}
+                      {quote.business.financingPartnerName ? ` through ${quote.business.financingPartnerName}` : ''}
+                    </p>
+                  </div>
+                  {isSafeUrl && (
+                    <a
+                      href={applyUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="financing-apply-link"
+                    >
+                      <Button className="bg-emerald-600 hover:bg-emerald-700">
+                        Apply for Financing
+                      </Button>
+                    </a>
+                  )}
+                </div>
+                {quote.business.financingDisclaimer && (
+                  <p className="text-xs text-muted-foreground mt-4 leading-relaxed">
+                    {quote.business.financingDisclaimer}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Notes */}
         {quote.notes && (

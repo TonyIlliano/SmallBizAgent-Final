@@ -175,6 +175,13 @@ export const JOB_STATUS_COLORS: Record<
     border: "border-l-gray-400",
     dot: "bg-gray-400",
   },
+  en_route: {
+    // Amber/orange to signal motion — tech is on the way
+    bg: "bg-orange-50",
+    text: "text-orange-700",
+    border: "border-l-orange-500",
+    dot: "bg-orange-500",
+  },
   in_progress: {
     bg: "bg-blue-50",
     text: "text-blue-700",

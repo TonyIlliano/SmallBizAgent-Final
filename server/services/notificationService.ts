@@ -724,6 +724,80 @@ export async function sendJobInProgressNotification(jobId: number, businessId: n
   }
 }
 
+/**
+ * Send a "tech is on the way" SMS with ETA to the customer.
+ *
+ * Called when a technician transitions a job from `pending` to `en_route` via
+ * the "On My Way" button in the mobile/web app. Uses the job's
+ * `enRouteAt` + `etaMinutes` to compute the arrival time.
+ *
+ * Deduped 60 minutes by (jobId, type='job_en_route'). Free-plan businesses
+ * are gated upstream; this function additionally checks the per-business
+ * etaUpdateSms toggle.
+ */
+export async function sendJobEnRouteNotification(jobId: number, businessId: number) {
+  try {
+    if (await isFreeBusiness(businessId)) return;
+    const settings = await storage.getNotificationSettings(businessId);
+    if (settings?.etaUpdateSms === false) return;
+
+    const job = await storage.getJob(jobId);
+    if (!job) return;
+    const customer = await storage.getCustomer(job.customerId);
+    if (!customer || !canSendSms(customer)) return;
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+    const staff = job.staffId ? await storage.getStaffMember(job.staffId) : null;
+    const staffName = staff
+      ? `${staff.firstName}${staff.lastName ? ' ' + staff.lastName[0] + '.' : ''}`
+      : 'Our technician';
+
+    // 60-minute dedup so a tech tapping "On My Way" twice doesn't spam the customer
+    const recentLogs = await storage.getNotificationLogs(businessId, 100);
+    const alreadySent = recentLogs?.some((log: any) =>
+      log.type === 'job_en_route' &&
+      log.referenceId === jobId &&
+      log.channel === 'sms' &&
+      log.sentAt &&
+      (Date.now() - new Date(log.sentAt).getTime()) < 60 * 60 * 1000
+    );
+    if (alreadySent) return;
+
+    // Compute the arrival time string. Prefer enRouteAt + etaMinutes;
+    // fall back to "shortly" if either is missing.
+    const etaMinutes = job.etaMinutes && job.etaMinutes > 0 ? job.etaMinutes : 30;
+    const enRouteAt = job.enRouteAt ? new Date(job.enRouteAt) : new Date();
+    const arrival = new Date(enRouteAt.getTime() + etaMinutes * 60 * 1000);
+    const timezone = business.timezone || 'America/New_York';
+    const etaTime = arrival.toLocaleTimeString('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const message =
+      `Hi ${customer.firstName}! ${staffName} is on the way for your ${job.title}. ` +
+      `Estimated arrival: ${etaTime}. ` +
+      `Questions? Call ${getContactNumber(business)}. - ${business.name}`;
+
+    await twilioService.sendSms(customer.phone, message, undefined, businessId);
+    await storage.createNotificationLog({
+      businessId,
+      customerId: customer.id,
+      type: 'job_en_route',
+      channel: 'sms',
+      recipient: customer.phone,
+      message,
+      status: 'sent',
+      referenceType: 'job',
+      referenceId: jobId,
+    });
+  } catch (error) {
+    console.error(`Error in sendJobEnRouteNotification for job ${jobId}:`, error);
+  }
+}
+
 export async function sendJobWaitingPartsNotification(jobId: number, businessId: number) {
   try {
     // Free tier gate — short-circuit all customer-facing notifications

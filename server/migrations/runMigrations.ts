@@ -2892,6 +2892,36 @@ async function addMonitoringAndBrandingTables() {
     if (!e.message.includes('already exists')) console.log('Note: Could not add photos:', e.message);
   }
 
+  // Tech dispatch / ETA columns on jobs (HVAC, plumbing, etc.)
+  try {
+    await pool.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS en_route_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS eta_minutes INTEGER`);
+    await pool.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS customer_location_lat REAL`);
+    await pool.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS customer_location_lng REAL`);
+  } catch (e: any) {
+    console.log('Note: Could not add ETA/location columns to jobs:', e.message);
+  }
+
+  // ETA notification settings (per-business opt-in to "on the way" SMS)
+  try {
+    await pool.query(`ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS eta_update_sms BOOLEAN DEFAULT true`);
+    await pool.query(`ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS eta_update_email BOOLEAN DEFAULT false`);
+  } catch (e: any) {
+    console.log('Note: Could not add eta_update columns to notification_settings:', e.message);
+  }
+
+  // Financing fields on businesses (HVAC + other high-ticket verticals)
+  try {
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_enabled BOOLEAN DEFAULT false`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_partner_name TEXT`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_apr NUMERIC(5,2)`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_term_months INTEGER DEFAULT 60`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_apply_url TEXT`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_disclaimer TEXT`);
+  } catch (e: any) {
+    console.log('Note: Could not add financing columns to businesses:', e.message);
+  }
+
   console.log('Monitoring and branding tables created successfully');
 }
 

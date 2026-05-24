@@ -53,6 +53,7 @@ import {
   sendJobInProgressNotification,
   sendJobWaitingPartsNotification,
   sendJobResumedNotification,
+  sendJobEnRouteNotification,
   sendSmsOptInWelcome,
   sendInvoiceCreatedNotification,
   sendReservationConfirmation,
@@ -508,6 +509,122 @@ describe('notificationService', () => {
       await sendJobInProgressNotification(200, 1);
 
       expect(mockTwilioSendSms).not.toHaveBeenCalled();
+    });
+  });
+
+  // ──────────────────────────────────────────────────────
+  // sendJobEnRouteNotification
+  // ──────────────────────────────────────────────────────
+
+  describe('sendJobEnRouteNotification', () => {
+    const EN_ROUTE_JOB = {
+      ...JOB,
+      status: 'en_route',
+      enRouteAt: new Date('2025-06-15T14:00:00Z'),
+      etaMinutes: 30,
+    };
+
+    it('sends an ETA SMS with the tech name and estimated arrival', async () => {
+      mockStorage.getNotificationSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, etaUpdateSms: true });
+      mockStorage.getJob.mockResolvedValue(EN_ROUTE_JOB);
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getStaffMember.mockResolvedValue(STAFF);
+      mockStorage.getNotificationLogs.mockResolvedValue([]);
+
+      await sendJobEnRouteNotification(200, 1);
+
+      expect(mockTwilioSendSms).toHaveBeenCalledOnce();
+      const sent = mockTwilioSendSms.mock.calls[0][1] as string;
+      expect(sent).toContain('Mike J.');
+      expect(sent).toContain('on the way');
+      expect(sent).toContain('AC Repair');
+      expect(sent).toMatch(/\d+:\d{2} (AM|PM)/); // Has a time
+    });
+
+    it('falls back to "Our technician" when no staff is assigned', async () => {
+      mockStorage.getNotificationSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, etaUpdateSms: true });
+      mockStorage.getJob.mockResolvedValue({ ...EN_ROUTE_JOB, staffId: null });
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getNotificationLogs.mockResolvedValue([]);
+
+      await sendJobEnRouteNotification(200, 1);
+
+      const sent = mockTwilioSendSms.mock.calls[0][1] as string;
+      expect(sent).toContain('Our technician');
+    });
+
+    it('uses default 30-min ETA when etaMinutes is missing', async () => {
+      mockStorage.getNotificationSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, etaUpdateSms: true });
+      mockStorage.getJob.mockResolvedValue({ ...EN_ROUTE_JOB, etaMinutes: null });
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getStaffMember.mockResolvedValue(STAFF);
+      mockStorage.getNotificationLogs.mockResolvedValue([]);
+
+      await sendJobEnRouteNotification(200, 1);
+
+      expect(mockTwilioSendSms).toHaveBeenCalledOnce();
+    });
+
+    it('skips when etaUpdateSms setting is disabled', async () => {
+      mockStorage.getNotificationSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, etaUpdateSms: false });
+
+      await sendJobEnRouteNotification(200, 1);
+
+      expect(mockStorage.getJob).not.toHaveBeenCalled();
+      expect(mockTwilioSendSms).not.toHaveBeenCalled();
+    });
+
+    it('skips when customer is not opted in to SMS', async () => {
+      mockStorage.getNotificationSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, etaUpdateSms: true });
+      mockStorage.getJob.mockResolvedValue(EN_ROUTE_JOB);
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER_NO_SMS);
+
+      await sendJobEnRouteNotification(200, 1);
+
+      expect(mockTwilioSendSms).not.toHaveBeenCalled();
+    });
+
+    it('respects 60-min dedup window', async () => {
+      mockStorage.getNotificationSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, etaUpdateSms: true });
+      mockStorage.getJob.mockResolvedValue(EN_ROUTE_JOB);
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getStaffMember.mockResolvedValue(STAFF);
+      mockStorage.getNotificationLogs.mockResolvedValue([
+        {
+          type: 'job_en_route',
+          referenceId: 200,
+          channel: 'sms',
+          sentAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 min ago
+        },
+      ]);
+
+      await sendJobEnRouteNotification(200, 1);
+
+      expect(mockTwilioSendSms).not.toHaveBeenCalled();
+    });
+
+    it('logs a notification_log row of type job_en_route on success', async () => {
+      mockStorage.getNotificationSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, etaUpdateSms: true });
+      mockStorage.getJob.mockResolvedValue(EN_ROUTE_JOB);
+      mockStorage.getCustomer.mockResolvedValue(CUSTOMER);
+      mockStorage.getBusiness.mockResolvedValue(BUSINESS);
+      mockStorage.getStaffMember.mockResolvedValue(STAFF);
+      mockStorage.getNotificationLogs.mockResolvedValue([]);
+
+      await sendJobEnRouteNotification(200, 1);
+
+      expect(mockStorage.createNotificationLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'job_en_route',
+          channel: 'sms',
+          referenceType: 'job',
+          referenceId: 200,
+        })
+      );
     });
   });
 

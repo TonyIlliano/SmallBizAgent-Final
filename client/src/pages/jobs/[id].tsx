@@ -6,6 +6,8 @@ import PageTitle from "@/components/PageTitle";
 import { JobForm } from "@/components/jobs/JobForm";
 import { JobLineItems } from "@/components/jobs/JobLineItems";
 import { JobProgressTimeline } from "@/components/jobs/JobProgressTimeline";
+import { JobPhotoUploader } from "@/components/jobs/JobPhotoUploader";
+import { OnMyWayCard } from "@/components/jobs/OnMyWayCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -827,15 +829,26 @@ export default function JobDetail() {
           {/* AI Briefing Card */}
           <AiBriefingCard jobId={numericJobId} />
 
+          {/* "On My Way" dispatch card — pending → en_route → in_progress */}
+          {numericJobId && (
+            <OnMyWayCard
+              jobId={numericJobId}
+              status={job?.status}
+              enRouteAt={job?.enRouteAt}
+              etaMinutes={job?.etaMinutes}
+            />
+          )}
+
           {/* Job Timer — only when in_progress or waiting_parts */}
           {showTimer && <JobTimer />}
 
-          {/* Tabs: Details, Line Items, Timeline, Voice Notes */}
+          {/* Tabs: Details, Line Items, Timeline, Photos, Voice Notes */}
           <Tabs defaultValue="details">
             <TabsList>
               <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="line-items">Line Items</TabsTrigger>
               <TabsTrigger value="timeline">Timeline</TabsTrigger>
+              <TabsTrigger value="photos">Photos</TabsTrigger>
               <TabsTrigger value="voice-notes">Voice Notes</TabsTrigger>
             </TabsList>
 
@@ -854,6 +867,15 @@ export default function JobDetail() {
 
             <TabsContent value="timeline" className="mt-4">
               {job && <JobProgressTimeline job={job} />}
+            </TabsContent>
+
+            <TabsContent value="photos" className="mt-4">
+              {numericJobId && (
+                <JobPhotoUploader
+                  jobId={numericJobId}
+                  photos={Array.isArray(job?.photos) ? (job.photos as string[]) : []}
+                />
+              )}
             </TabsContent>
 
             <TabsContent value="voice-notes" className="mt-4">

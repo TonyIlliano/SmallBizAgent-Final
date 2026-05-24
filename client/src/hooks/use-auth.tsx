@@ -174,6 +174,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
+      // Best-effort: unregister the native push token BEFORE clearing the
+      // session so the unregister request still authenticates. No-op on web.
+      try {
+        const mod = await import('../lib/capacitor-push');
+        await mod.unregisterPushNotifications();
+      } catch {
+        // Push unregister is best-effort. Never block logout on it.
+      }
+
       try {
         // Read CSRF token from cookie
         const csrfToken = document.cookie.match(/(?:^|; )csrf-token=([^;]*)/)?.[1];

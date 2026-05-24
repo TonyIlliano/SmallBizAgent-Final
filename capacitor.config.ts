@@ -34,6 +34,10 @@ const config: CapacitorConfig = {
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
+    Camera: {
+      // Camera + photo library used for job site photos
+      permissions: ['camera', 'photos'],
+    },
   },
   ios: {
     contentInset: 'automatic',

@@ -46,30 +46,63 @@ router.get("/health", async (_req: Request, res: Response) => {
 });
 
 // ── Push Notification Token Registration ──
+// Stores a device push token (APNs for iOS, FCM for Android) on the business
+// record. Tokens are deduplicated by value; we keep the 10 most recent so a
+// business's techs can install on multiple devices without losing earlier ones.
 router.post("/push/register", isAuthenticated, async (req: Request, res: Response) => {
   try {
     const businessId = (req.user as any)?.businessId;
     if (!businessId) return res.status(400).json({ error: "No business associated" });
     const { token, platform } = req.body;
-    if (!token || !platform) return res.status(400).json({ error: "Missing token or platform" });
+    if (!token || typeof token !== "string") return res.status(400).json({ error: "Missing token" });
+    if (platform !== "ios" && platform !== "android") {
+      return res.status(400).json({ error: "Platform must be 'ios' or 'android'" });
+    }
 
-    // Store token in business record (append to existing tokens array)
+    const [business] = await db.select({ pushNotificationTokens: sql`push_notification_tokens` })
+      .from(sql`businesses`)
+      .where(sql`id = ${businessId}`);
+    const existing: Array<{ token: string; platform: string; registeredAt: string; userId?: number }> =
+      (business?.pushNotificationTokens as any) || [];
+    const filtered = existing.filter((t: any) => t.token !== token);
+    filtered.push({
+      token,
+      platform,
+      registeredAt: new Date().toISOString(),
+      userId: (req.user as any)?.id,
+    });
+    const trimmed = filtered.slice(-10);
+    await db.execute(sql`UPDATE businesses SET push_notification_tokens = ${JSON.stringify(trimmed)}::jsonb WHERE id = ${businessId}`);
+    res.json({ success: true, tokenCount: trimmed.length });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[Push] Token registration error:", message);
+    res.status(500).json({ error: "Failed to register push token" });
+  }
+});
+
+// ── Push Notification Token Unregister ──
+// Removes a token (called on logout, app uninstall via registrationError, or
+// when a previously valid token becomes invalid per APNs/FCM feedback).
+router.post("/push/unregister", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const businessId = (req.user as any)?.businessId;
+    if (!businessId) return res.status(400).json({ error: "No business associated" });
+    const { token } = req.body;
+    if (!token || typeof token !== "string") return res.status(400).json({ error: "Missing token" });
+
     const [business] = await db.select({ pushNotificationTokens: sql`push_notification_tokens` })
       .from(sql`businesses`)
       .where(sql`id = ${businessId}`);
     const existing: Array<{ token: string; platform: string; registeredAt: string }> =
       (business?.pushNotificationTokens as any) || [];
-    // Deduplicate by token
     const filtered = existing.filter((t: any) => t.token !== token);
-    filtered.push({ token, platform, registeredAt: new Date().toISOString() });
-    // Keep last 10 tokens
-    const trimmed = filtered.slice(-10);
-    await db.execute(sql`UPDATE businesses SET push_notification_tokens = ${JSON.stringify(trimmed)}::jsonb WHERE id = ${businessId}`);
-    res.json({ success: true });
+    await db.execute(sql`UPDATE businesses SET push_notification_tokens = ${JSON.stringify(filtered)}::jsonb WHERE id = ${businessId}`);
+    res.json({ success: true, tokenCount: filtered.length });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[Push] Token registration error:", message);
-    res.status(500).json({ error: message });
+    console.error("[Push] Token unregister error:", message);
+    res.status(500).json({ error: "Failed to unregister push token" });
   }
 });
 

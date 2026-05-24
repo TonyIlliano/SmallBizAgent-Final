@@ -9,6 +9,107 @@ import { randomBytes } from "crypto";
 
 const router = Router();
 
+// ── Quote templates (vertical-specific) ──
+// GET /api/quotes/templates?industry=hvac → list of pre-built templates
+// MUST be registered BEFORE /quotes/:id to avoid Express treating "templates"
+// as an :id parameter.
+router.get("/quotes/templates", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const industry = (req.query.industry as string | undefined)?.toLowerCase() || '';
+    if (industry.includes('hvac') || industry.includes('heating') || industry.includes('cooling')) {
+      const { HVAC_QUOTE_TEMPLATES, templateSubtotal } = await import('../data/hvacQuoteTemplates');
+      const out = HVAC_QUOTE_TEMPLATES.map(t => ({
+        ...t,
+        estimatedSubtotal: templateSubtotal(t),
+      }));
+      return res.json(out);
+    }
+    // Other verticals: return empty list for now. Adding plumbing/electrical
+    // templates later is just a new data file + a new branch here.
+    res.json([]);
+  } catch (err: any) {
+    console.error('[Quotes] Templates error:', err);
+    res.status(500).json({ error: 'Failed to load templates' });
+  }
+});
+
+// POST /api/quotes/from-template — create a quote pre-filled from a template.
+// Body: { templateId, customerId, jobId?, validUntil?, notes?, taxRate? }
+// Caller can then PATCH the created quote to fine-tune line items / prices.
+router.post("/quotes/from-template", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = (req.user as any).businessId;
+    if (!businessId) return res.status(400).json({ error: "No business associated with user" });
+
+    const schema = z.object({
+      templateId: z.string().min(1),
+      customerId: z.number().int().positive(),
+      jobId: z.number().int().positive().nullable().optional(),
+      validUntil: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      taxRate: z.number().min(0).max(1).optional(), // e.g., 0.08 for 8%
+    });
+    const body = schema.parse(req.body);
+
+    const { getHvacTemplate } = await import('../data/hvacQuoteTemplates');
+    const template = getHvacTemplate(body.templateId);
+    if (!template) return res.status(404).json({ error: 'Template not found' });
+
+    // Compute totals from the template's line items.
+    const subtotal = template.lineItems.reduce(
+      (sum, item) => sum + item.quantity * item.unitPrice,
+      0
+    );
+    const taxRate = body.taxRate ?? 0;
+    const tax = Math.round(subtotal * taxRate * 100) / 100;
+    const total = Math.round((subtotal + tax) * 100) / 100;
+
+    // Quote number — same convention as job-completion auto-invoices.
+    const now = new Date();
+    const quoteNumber = `Q-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 10000)}`;
+
+    const newQuote = await storage.createQuote({
+      businessId,
+      customerId: body.customerId,
+      jobId: body.jobId ?? null,
+      quoteNumber,
+      amount: String(subtotal),
+      tax: String(tax),
+      total: String(total),
+      validUntil: body.validUntil ?? null,
+      notes: body.notes ?? `Generated from template: ${template.name}`,
+    });
+
+    for (const item of template.lineItems) {
+      await storage.createQuoteItem({
+        quoteId: newQuote.id,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: String(item.unitPrice),
+        amount: String(item.quantity * item.unitPrice),
+      });
+    }
+
+    const completeQuote = await storage.getQuoteById(newQuote.id, businessId);
+    fireEvent(businessId, 'quote.created', { quote: completeQuote, templateId: template.id })
+      .catch(err => console.error('Webhook fire error:', err));
+
+    res.status(201).json(completeQuote);
+  } catch (error: any) {
+    if (error?.name === 'ZodError') {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    console.error('[Quotes] from-template error:', error);
+    res.status(500).json({ error: 'Failed to create quote from template' });
+  }
+});
+
 // Get all quotes for the current business
 router.get("/quotes", async (req, res) => {
   try {
@@ -601,6 +702,14 @@ router.get("/portal/quote/:token", async (req, res) => {
         address: business.address,
         phone: business.phone,
         email: business.email,
+        // Financing info — exposed only when the business has enabled it.
+        // Customer-facing CTA on the portal renders from these fields.
+        financingEnabled: business.financingEnabled === true,
+        financingPartnerName: business.financingEnabled ? business.financingPartnerName : null,
+        financingApr: business.financingEnabled ? business.financingApr : null,
+        financingTermMonths: business.financingEnabled ? business.financingTermMonths : null,
+        financingApplyUrl: business.financingEnabled ? business.financingApplyUrl : null,
+        financingDisclaimer: business.financingEnabled ? business.financingDisclaimer : null,
       } : null,
       items: items.map(item => ({
         id: item.id,

@@ -126,6 +126,8 @@ const JOB_HANDLERS: Record<string, (data: any) => Promise<void>> = {
       await mod.sendJobWaitingPartsNotification(data.jobId, data.businessId);
     } else if (data.statusType === 'resumed') {
       await mod.sendJobResumedNotification(data.jobId, data.businessId);
+    } else if (data.statusType === 'en_route') {
+      await mod.sendJobEnRouteNotification(data.jobId, data.businessId);
     }
   },
 

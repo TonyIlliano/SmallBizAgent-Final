@@ -882,6 +882,40 @@ router.post("/api/admin/businesses/:id/provision", isAdmin, async (req: Request,
 });
 
 /**
+ * POST /api/admin/businesses/:id/seed-hvac-kb — Manually seed HVAC FAQs into
+ * a business's knowledge base. Useful for businesses created before the HVAC
+ * seeder shipped, or to re-attempt a seed that failed silently. Idempotent —
+ * if any hvac_template entries already exist, the seeder is a no-op.
+ */
+router.post("/api/admin/businesses/:id/seed-hvac-kb", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.id);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: "Business not found" });
+
+    const { seedHvacKnowledgeBase } = await import("../services/hvacOnboardingService");
+    const result = await seedHvacKnowledgeBase(businessId);
+
+    logAudit({
+      userId: (req.user as any).id,
+      businessId,
+      action: 'admin_change_subscription', // Reusing a generic audit action; no schema change needed.
+      resource: 'business',
+      resourceId: businessId,
+      details: { hvacKbSeed: result, businessName: business.name },
+      ...getRequestContext(req),
+    });
+
+    res.json({ ...result, businessName: business.name });
+  } catch (error: any) {
+    console.error("[Admin] HVAC KB seed error:", error);
+    res.status(500).json({ error: "Failed to seed HVAC knowledge base" });
+  }
+});
+
+/**
  * POST /api/admin/businesses/:id/deprovision — Deprovision a business (release Twilio + delete Vapi)
  */
 router.post("/api/admin/businesses/:id/deprovision", isAdmin, async (req: Request, res: Response) => {

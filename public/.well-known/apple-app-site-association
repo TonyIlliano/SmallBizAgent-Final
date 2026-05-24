@@ -1,0 +1,21 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.ai.smallbizagent.app"],
+        "components": [
+          { "/": "/book/*", "comment": "Public booking links" },
+          { "/": "/appointments/*", "comment": "Appointment detail" },
+          { "/": "/jobs/*", "comment": "Job detail (techs)" },
+          { "/": "/invoices/*", "comment": "Invoice detail" },
+          { "/": "/quotes/*", "comment": "Quote detail" },
+          { "/": "/customers/*", "comment": "Customer detail" },
+          { "/": "/portal/*", "comment": "Public portal pages" }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["TEAMID.ai.smallbizagent.app"]
+  }
+}

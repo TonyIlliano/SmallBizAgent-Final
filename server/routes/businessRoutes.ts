@@ -210,7 +210,29 @@ router.put("/business/:id", isAuthenticated, async (req: Request, res: Response)
     console.log(`Business update request for id ${id}:`, JSON.stringify(body));
     const validatedData = insertBusinessSchema.partial().parse(body);
     console.log(`Business update validated data for id ${id}:`, JSON.stringify(validatedData));
+
+    // Capture previous industry so we can detect "industry was changed to HVAC"
+    const previousBusiness = validatedData.industry !== undefined
+      ? await storage.getBusiness(id)
+      : null;
+
     const business = await storage.updateBusiness(id, validatedData);
+
+    // If industry just became HVAC, seed the KB (idempotent — safe to call repeatedly).
+    if (validatedData.industry !== undefined && previousBusiness) {
+      try {
+        const { isHvacIndustry, seedHvacKnowledgeBase } = await import('../services/hvacOnboardingService');
+        const wasHvac = isHvacIndustry(previousBusiness.industry);
+        const isHvacNow = isHvacIndustry(validatedData.industry);
+        if (isHvacNow && !wasHvac) {
+          seedHvacKnowledgeBase(id).catch(err =>
+            console.error(`[Business] HVAC KB seed failed for ${id}:`, err)
+          );
+        }
+      } catch (err) {
+        console.error(`[Business] HVAC seeding hook failed for ${id}:`, err);
+      }
+    }
 
     // Update Retell agent if any business info that affects the AI prompt changed (debounced)
     if (validatedData.name || validatedData.industry || validatedData.businessHours ||

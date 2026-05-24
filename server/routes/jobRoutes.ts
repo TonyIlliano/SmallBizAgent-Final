@@ -205,10 +205,21 @@ router.put("/:id", isAuthenticated, async (req: Request, res: Response) => {
         return res.status(404).json({ message: "Job not found" });
       }
       const validatedData = insertJobSchema.partial().parse(req.body);
+
+      // If the tech is marking the job as en_route, stamp enRouteAt = now
+      // server-side so the customer SMS uses an authoritative timestamp.
+      // The client may also pass etaMinutes (15/30/45/60).
+      if (validatedData.status === 'en_route' && existing.status !== 'en_route') {
+        (validatedData as any).enRouteAt = new Date();
+      }
+
       const job = await storage.updateJob(id, validatedData);
 
       // Queue job status SMS notifications (reliable retry via pg-boss)
       const { enqueue } = await import('../services/jobQueue');
+      if (validatedData.status === 'en_route' && existing.status !== 'en_route') {
+        await enqueue('send-job-status-notification', { jobId: job.id, businessId: existing.businessId, statusType: 'en_route' });
+      }
       if (validatedData.status === 'in_progress' && existing.status !== 'in_progress') {
         await enqueue('send-job-status-notification', { jobId: job.id, businessId: existing.businessId, statusType: 'in_progress' });
       }

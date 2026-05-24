@@ -720,6 +720,90 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Capacitor App-Store Ship + HVAC Vertical Hardening (this session)
+- **Goal**: Two parallel tracks. Track A: production-ready Capacitor iOS + Android apps for App Store + Play Store submission. Track B: ship the three highest-leverage HVAC features (pre-seeded knowledge base, tech dispatch + ETA SMS, quote templates + financing CTA).
+
+##### Track A — Capacitor App-Store Ship
+- `server/routes/miscRoutes.ts` — Tightened `POST /api/push/register` validation (platform must be 'ios' or 'android', friendly error, captures userId alongside token). Added `POST /api/push/unregister` — removes a token from the business record; called from the logout flow.
+- `client/src/lib/capacitor-push.ts` — Switched from raw `fetch()` to `apiRequest()` (now sends CSRF token). Persists the registered token in `localStorage` (`sba-push-token`) so the unregister call can target the right device. Added new push-notification action routes: `job/:id` and `quote/:id`. Added safe same-origin fallback for arbitrary `url` payloads. Exports new `unregisterPushNotifications()`.
+- `client/src/hooks/use-auth.tsx` — `logoutMutation` now calls `unregisterPushNotifications()` BEFORE clearing the session (so the unregister request still authenticates). Best-effort; never blocks logout.
+- `ios/App/App/Info.plist` — Added `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`, `NSPhotoLibraryAddUsageDescription`, `NSMicrophoneUsageDescription`. Added `UIBackgroundModes` with `remote-notification`. Added `CFBundleURLTypes` for the `smallbizagent://` custom scheme. Set `ITSAppUsesNonExemptEncryption = false` (uses standard HTTPS — encryption export compliance).
+- `ios/App/App/App.entitlements` — **NEW**: `aps-environment = production` for APNs push, plus `com.apple.developer.associated-domains` for `applinks:smallbizagent.ai` and `applinks:www.smallbizagent.ai`. Xcode capability enablement is documented in `DEPLOYMENT_MOBILE.md`.
+- `android/app/src/main/AndroidManifest.xml` — Added permissions: `POST_NOTIFICATIONS` (Android 13+), `CAMERA`, `READ_MEDIA_IMAGES`, legacy `READ_EXTERNAL_STORAGE` with `maxSdkVersion=32`, `RECORD_AUDIO`, `ACCESS_NETWORK_STATE`. Added optional `<uses-feature>` for camera, autofocus, microphone (not required, so install isn't blocked on devices without them). Added two new `<intent-filter>` blocks on MainActivity: (1) custom-scheme `smallbizagent://*`, (2) HTTPS App Links for `smallbizagent.ai` and `www.smallbizagent.ai` covering `/book/`, `/appointments/`, `/jobs/`, `/invoices/`, `/quotes/`, `/customers/`, `/portal/` with `android:autoVerify="true"`.
+- `android/app/build.gradle` — Bumped `versionCode 1 → 2`, `versionName "1.0" → "1.0.1"`. Enabled `minifyEnabled true` + `shrinkResources true` on release builds with `proguard-android-optimize.txt`. Debug builds keep minification off.
+- `android/app/proguard-rules.pro` — **NEW**: R8 keep rules for Capacitor core + plugins (reflection bridges), Cordova compatibility, WebView `@JavascriptInterface` methods, Firebase / FCM (needed once `google-services.json` is added), AndroidX, Kotlin metadata. Strips `Log.v/d` calls in release for smaller APK + faster startup.
+- `public/.well-known/apple-app-site-association` — **NEW**: Universal Links manifest. Allowlists `/book/*`, `/appointments/*`, `/jobs/*`, `/invoices/*`, `/quotes/*`, `/customers/*`, `/portal/*`. Includes `webcredentials` for SSO / autofill. **Requires manual `TEAMID` substitution before submission.**
+- `public/.well-known/assetlinks.json` — **NEW**: Android App Links manifest. **Requires manual replacement of `REPLACE_WITH_PLAY_APP_SIGNING_SHA256` with the Play Console app-signing fingerprint after first upload.**
+- `server/index.ts` — Added top-level `import path from "path"` + `import fs from "fs"`. New explicit `GET /.well-known/apple-app-site-association` and `GET /.well-known/assetlinks.json` routes mounted BEFORE `registerRoutes` and Vite middleware so they bypass the SPA catch-all. Both serve files from `public/.well-known/` with `Content-Type: application/json` and a 1-hour cache header.
+- `capacitor.config.ts` — Added `Camera` plugin config with `permissions: ['camera', 'photos']`.
+- `package.json` — Installed `@capacitor/camera@^8.0.0`.
+- `client/src/lib/capacitor-camera.ts` — **NEW**: `takeJobPhoto()` helper. On native: opens `Camera.getPhoto({ source: CameraSource.Prompt, quality: 80, resultType: Base64, width: 1600, saveToGallery: false, correctOrientation: true })`. On web: hidden `<input type="file" accept="image/*" capture="environment">` fallback. Returns `{ blob, filename, mimeType }` or `null` if user cancels. Cancel detection works on both platforms.
+- `client/src/components/jobs/JobPhotoUploader.tsx` — **NEW**: Field-tech UI for capturing and uploading job site photos. "Add Photo" button with loading state, optimistic UI invalidation of the job query. Photo grid with click-to-enlarge dialog. POSTs `multipart/form-data` to the existing `/api/jobs/:id/photos` endpoint (using raw fetch because `apiRequest()` JSON-serializes the body). Includes CSRF token. Test IDs: `job-photo-add`, `job-photo-thumb-{i}`.
+- `client/src/pages/jobs/[id].tsx` — Added a "Photos" tab between Timeline and Voice Notes. Mounts `JobPhotoUploader` with the job's existing `photos` array. Mounts `OnMyWayCard` between AiBriefingCard and JobTimer (see Track B below).
+- `client/src/lib/capacitor-deeplinks.ts` — Hardened to use an allowlist. New exported `parseDeepLink(rawUrl: string): string | null` function — pure, unit-testable. Allowed prefixes: `/book/`, `/appointments/`, `/invoices/`, `/jobs/`, `/quotes/`, `/customers/`, `/portal/`. Allowed exact paths: `/dashboard`, `/settings`, `/receptionist`, `/analytics`, `/ai-agents`, `/marketing`, `/sms-campaigns`. Unknown paths fail safe to `/dashboard` (prevents attacker-crafted deep links from opening arbitrary URLs). Preserves query strings on allowlisted routes.
+- `client/src/lib/capacitor-deeplinks.test.ts` — **NEW** (13 tests): validates `parseDeepLink` behavior for malformed URLs, allowlisted prefixes, exact-match paths, query-string preservation, unknown-path fallback, and the bare root path. All 13 pass.
+- `DEPLOYMENT_MOBILE.md` — **NEW**: Comprehensive deployment checklist documenting: Xcode capability enablement (Push + Associated Domains), APNs `.p8` key setup, Firebase project + `google-services.json`, FCM service account, Android upload keystore, Play App Signing fingerprint retrieval, build commands (`npm run cap:build:ios`/`cap:build:android`), and verification checklists for both platforms.
+
+##### Track B — HVAC Vertical Hardening
+
+**B1. Pre-seeded HVAC Knowledge Base**
+- `server/data/hvacKnowledgeBase.ts` — **NEW**: `HVAC_KB_SEED` array of 21 FAQ entries spanning emergency (priority 20), equipment/refrigerant/brands (priority 15), maintenance/IAQ (priority 10-15), warranty/financing/licensing (priority 15), pricing (priority 10), and scheduling (priority 10). Answers use `{businessName}`, `{businessPhone}`, `{businessHours}` placeholders.
+- `server/services/hvacOnboardingService.ts` — **NEW**: `seedHvacKnowledgeBase(businessId)` — bulk-populates the business KB. Idempotent (skips if any `source='hvac_template'` row exists). Substitutes placeholders from the business record. Fire-and-forget refresh of the Retell agent via `debouncedUpdateRetellAgent`. Also exports `isHvacIndustry(industry)` — single source of truth for HVAC detection (matches 'hvac', 'heating', 'cooling', 'air condition').
+- `server/routes/expressSetupRoutes.ts` — After services bulk-create, fire-and-forget calls `seedHvacKnowledgeBase(business.id)` when `templateId === 'hvac'`. Never blocks onboarding.
+- `server/routes/businessRoutes.ts` — `PUT /business/:id` now detects when industry transitions to HVAC (was non-HVAC, becomes HVAC) and fires the seeder. Idempotency check inside the seeder prevents double-seeding.
+- `server/routes/adminRoutes.ts` — New endpoint `POST /api/admin/businesses/:id/seed-hvac-kb` for manual admin trigger (re-seed businesses created before this feature shipped, or retry failed seeds). Audit-logged.
+- `server/services/hvacOnboardingService.test.ts` — **NEW** (10 tests): `isHvacIndustry` matching, idempotency check, business-not-found guard, full-seed happy path, placeholder substitution, `source='hvac_template'` + `isApproved=true` invariants, partial-failure resilience (one insert fails, others continue), idempotency-check error tolerance.
+
+**B2. Tech Dispatch + ETA SMS**
+- `shared/schema.ts` — `jobs` table: added `enRouteAt: timestamp`, `etaMinutes: integer`, `customerLocationLat: real`, `customerLocationLng: real`. `notificationSettings` table: added `etaUpdateSms: boolean default(true)`, `etaUpdateEmail: boolean default(false)`. Status comment updated to include `en_route`.
+- `server/migrations/runMigrations.ts` — `addColumnIfNotExists` for all 6 new columns.
+- `server/services/notificationService.ts` — **NEW** `sendJobEnRouteNotification(jobId, businessId)`. Free-plan gate, `etaUpdateSms` setting check, customer SMS opt-in check, 60-min dedup against `notification_log` (type='job_en_route'). Computes ETA from `enRouteAt + etaMinutes` (defaults to 30 min if missing). Formats arrival time in business timezone. Transactional SMS (no STOP footer). Logs notification_log row on success.
+- `server/services/jobQueue.ts` — Extended `send-job-status-notification` handler with `statusType: 'en_route'` branch → calls `sendJobEnRouteNotification`. Reliable retry via pg-boss (30s/60s/120s exponential backoff).
+- `server/routes/jobRoutes.ts` — `PUT /jobs/:id`: when transitioning to `en_route`, server stamps `enRouteAt = new Date()` (authoritative timestamp). Enqueues `send-job-status-notification` with `statusType: 'en_route'`. Existing `in_progress` / `waiting_parts` / `resumed` transitions unchanged.
+- `client/src/lib/scheduling-utils.ts` — `JOB_STATUS_COLORS` now includes `en_route` (orange/amber to signal motion).
+- `client/src/components/jobs/OnMyWayCard.tsx` — **NEW**: Dispatch UI for techs. Shows "On My Way 🚗" button when job is `pending` → opens dialog with ETA picker (15/30/45/60 min). On submit: `PUT /api/jobs/:id { status: 'en_route', etaMinutes }`. When status is `en_route`, shows ETA summary + "I've Arrived" button that transitions to `in_progress`. Hidden for any other status. Toast messages confirm customer notification. Test IDs: `job-on-my-way`, `eta-15`/`30`/`45`/`60`, `job-arrived`.
+- `client/src/pages/jobs/[id].tsx` — Mounted `OnMyWayCard` between AiBriefingCard and JobTimer.
+- `server/services/notificationService.test.ts` — Added 7 new `sendJobEnRouteNotification` tests covering: happy path with staff name, fallback to "Our technician", default 30-min ETA, `etaUpdateSms=false` gate, customer-not-opted-in gate, 60-min dedup, `notification_log` row creation.
+
+**B3. HVAC Quote Templates + Financing CTA**
+- `shared/schema.ts` — `businesses` table: added 6 financing columns — `financingEnabled: boolean default(false)`, `financingPartnerName: text`, `financingApr: numeric(5,2)`, `financingTermMonths: integer default(60)`, `financingApplyUrl: text`, `financingDisclaimer: text`.
+- `server/migrations/runMigrations.ts` — `addColumnIfNotExists` for all 6 financing columns.
+- `server/data/hvacQuoteTemplates.ts` — **NEW**: `HVAC_QUOTE_TEMPLATES` array of 8 templates: Compressor Replacement, Full System Install, Furnace Replacement, Heat Pump Install, Mini-Split Single Zone, Ductwork Repair, Annual Maintenance Plan, Indoor Air Quality Package. Each has id, name, description, category (repair/install/maintenance/iaq), and pre-built line items with starting prices. Also exports `getHvacTemplate(id)` and `templateSubtotal(t)`.
+- `server/routes/quoteRoutes.ts` — Two new endpoints: `GET /api/quotes/templates?industry=hvac` returns templates with `estimatedSubtotal` for the UI picker; `POST /api/quotes/from-template` accepts `{ templateId, customerId, jobId?, validUntil?, notes?, taxRate? }` and creates a quote + line items atomically using template defaults. Owner can PATCH afterward to fine-tune. Fires `quote.created` webhook with template id metadata.
+- `server/routes/quoteRoutes.ts` — Public `GET /portal/quote/:token` endpoint now exposes financing fields on the `business` payload (only when `financingEnabled === true`; otherwise null).
+- `client/src/pages/portal/quote.tsx` — Public quote portal now renders a financing CTA card when `quote.business.financingEnabled === true`. Computes monthly payment via standard amortization formula (`principal × monthlyRate × (1+r)^n / ((1+r)^n - 1)`). Validates the partner apply URL is `https://` or `http://` (rejects `javascript:` and other schemes). "Apply for Financing" button opens partner URL in `target="_blank" rel="noopener noreferrer"`. Includes disclaimer text below the CTA.
+
+##### Verification
+- `npx tsc --noEmit` — clean.
+- Server tests: 841/850 pass (added 17 new tests: 10 HVAC + 7 ETA; 9 pre-existing failures unrelated to this work — same `e2e-booking-flow` + `stripe-webhooks` failures documented in earlier sessions).
+- Client tests: 22/22 pass (added 13 new `parseDeepLink` tests).
+- No new dependencies beyond `@capacitor/camera`.
+
+##### Files added (net new)
+- `server/routes/` — no new files (changes are in existing route files)
+- `server/data/hvacKnowledgeBase.ts` (21 FAQ entries with placeholders)
+- `server/data/hvacQuoteTemplates.ts` (8 templates with line items)
+- `server/services/hvacOnboardingService.ts` (~170 lines)
+- `server/services/hvacOnboardingService.test.ts` (10 tests)
+- `ios/App/App/App.entitlements`
+- `android/app/proguard-rules.pro` (rewrote from stub)
+- `public/.well-known/apple-app-site-association`
+- `public/.well-known/assetlinks.json`
+- `client/src/lib/capacitor-camera.ts`
+- `client/src/lib/capacitor-deeplinks.test.ts` (13 tests)
+- `client/src/components/jobs/JobPhotoUploader.tsx`
+- `client/src/components/jobs/OnMyWayCard.tsx`
+- `DEPLOYMENT_MOBILE.md`
+
+##### Manual setup required for store submission (documented in DEPLOYMENT_MOBILE.md)
+- ⏳ Firebase project + drop `google-services.json` at `android/app/`
+- ⏳ APNs `.p8` auth key (for server-side push delivery — separate task)
+- ⏳ Replace `TEAMID` in `apple-app-site-association` with real Apple Team ID
+- ⏳ Replace `REPLACE_WITH_PLAY_APP_SIGNING_SHA256` in `assetlinks.json` after first Play Console upload
+- ⏳ Xcode: enable Push Notifications + Associated Domains capabilities (entitlements file already in repo)
+- ⏳ Generate Android upload keystore + add signing config to `android/app/build.gradle`
+- ⏳ Server-side APNs + FCM HTTP v1 senders (separate task — schema and registration are ready)
+
 #### Card-First Onboarding — Subscription Required Before Business Creation
 - **Goal**: Eliminate the entire class of "user got into the dashboard without a card" bugs by inverting the flow: collect the card BEFORE any business is created. No Stripe Customer + no payment method = no business row, no Twilio number, no Retell agent.
 - **Shipped in two phases for migration ordering safety**:

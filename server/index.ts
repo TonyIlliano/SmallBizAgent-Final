@@ -28,6 +28,8 @@ process.on("uncaughtException", (error: Error) => {
 
 import "express-async-errors"; // Patches Express to catch async route errors automatically
 import express, { type Request, Response, NextFunction } from "express";
+import path from "path";
+import fs from "fs";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { seed } from "./seed";
@@ -215,6 +217,39 @@ app.use('/sites', (_req, res, next) => {
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https: http://localhost:*");
   next();
 });
+
+// ── .well-known endpoints for App Links + Universal Links ──
+// Apple expects /.well-known/apple-app-site-association (no extension, JSON
+// content-type, served from the apex AND www domains). Google expects
+// /.well-known/assetlinks.json (JSON). These files must be reachable in BOTH
+// development and production, served before Vite's SPA catch-all middleware.
+{
+  const wellKnownDir = path.resolve(process.cwd(), 'public', '.well-known');
+  app.get('/.well-known/apple-app-site-association', (_req: Request, res: Response) => {
+    try {
+      const file = path.join(wellKnownDir, 'apple-app-site-association');
+      if (!fs.existsSync(file)) return res.status(404).end();
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      fs.createReadStream(file).pipe(res);
+    } catch (err) {
+      console.error('[.well-known] apple-app-site-association error:', err);
+      res.status(500).end();
+    }
+  });
+  app.get('/.well-known/assetlinks.json', (_req: Request, res: Response) => {
+    try {
+      const file = path.join(wellKnownDir, 'assetlinks.json');
+      if (!fs.existsSync(file)) return res.status(404).end();
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      fs.createReadStream(file).pipe(res);
+    } catch (err) {
+      console.error('[.well-known] assetlinks.json error:', err);
+      res.status(500).end();
+    }
+  });
+}
 
 // CORS - Configure allowed origins
 // In production, BASE_URL / APP_URL should be set to your Railway custom domain
