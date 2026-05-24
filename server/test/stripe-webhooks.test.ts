@@ -439,7 +439,7 @@ describe('SubscriptionService.handleWebhookEvent()', () => {
   // 6. customer.subscription.deleted
   // ──────────────────────────────────────────────
   describe('customer.subscription.deleted', () => {
-    it('marks business as canceled, clears subscription ID, and triggers deprovisioning', async () => {
+    it('downgrades business to free tier, clears subscription ID, and triggers deprovisioning', async () => {
       const business = buildBusiness({
         subscriptionStatus: 'active',
         twilioPhoneNumberSid: 'PN_active_123',
@@ -454,9 +454,11 @@ describe('SubscriptionService.handleWebhookEvent()', () => {
       const result = await service.handleWebhookEvent(event);
 
       expect(result).toEqual({ success: true });
+      // Free-tier auto-downgrade: keep CRM, lose AI/SMS/booking until resubscribe.
+      // See subscriptionService.handleSubscriptionCanceled().
       expect(mockDbSet).toHaveBeenCalledWith(
         expect.objectContaining({
-          subscriptionStatus: 'canceled',
+          subscriptionStatus: 'free',
           stripeSubscriptionId: null,
         }),
       );
@@ -480,7 +482,7 @@ describe('SubscriptionService.handleWebhookEvent()', () => {
       expect(result).toEqual({ success: true });
       expect(mockDbSet).toHaveBeenCalledWith(
         expect.objectContaining({
-          subscriptionStatus: 'canceled',
+          subscriptionStatus: 'free',
           stripeSubscriptionId: null,
         }),
       );

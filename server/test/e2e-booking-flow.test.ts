@@ -6,7 +6,7 @@ import supertest from 'supertest';
 // Module mocks — must be declared before any app imports
 // ────────────────────────────────────────────────────────
 
-const { mockStorage } = vi.hoisted(() => {
+const { mockStorage, mockCreateAppointmentSafely, mockUpdateAppointmentSafely } = vi.hoisted(() => {
   return {
     mockStorage: {
       getBusinessByBookingSlug: vi.fn(),
@@ -39,10 +39,22 @@ const { mockStorage } = vi.hoisted(() => {
       updateRestaurantReservation: vi.fn(),
       getReservationSlotCapacity: vi.fn(),
     },
+    // The booking route was migrated to use the race-safe transactional
+    // appointmentService.createAppointmentSafely() instead of storage.createAppointment().
+    // We mock the service directly so tests don't need to simulate db.transaction().
+    // The default impl delegates to mockStorage.createAppointment so existing
+    // per-test mockResolvedValue calls on createAppointment still work.
+    mockCreateAppointmentSafely: vi.fn(),
+    mockUpdateAppointmentSafely: vi.fn(),
   };
 });
 
 vi.mock('../storage', () => ({ storage: mockStorage }));
+
+vi.mock('../services/appointmentService', () => ({
+  createAppointmentSafely: mockCreateAppointmentSafely,
+  updateAppointmentSafely: mockUpdateAppointmentSafely,
+}));
 
 vi.mock('../db', () => ({
   db: {
@@ -254,6 +266,18 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default impl: delegate to mockStorage.createAppointment so the existing
+  // per-test `mockStorage.createAppointment.mockResolvedValue(...)` setup still
+  // controls what the booking route ends up with. Individual tests can
+  // override mockCreateAppointmentSafely directly to simulate conflicts.
+  mockCreateAppointmentSafely.mockImplementation(async (data: any) => {
+    const appointment = await mockStorage.createAppointment(data);
+    return { success: true, appointment };
+  });
+  mockUpdateAppointmentSafely.mockImplementation(async (id: number, _businessId: number, _start: Date, _end: Date, _staffId: any, extra: any) => {
+    const appointment = await mockStorage.updateAppointment(id, extra || {});
+    return { success: true, appointment };
+  });
 });
 
 // ════════════════════════════════════════════════════════
