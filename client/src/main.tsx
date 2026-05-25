@@ -4,6 +4,7 @@ import App from "./App";
 import "./index.css";
 import { ThemeProvider } from "next-themes";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { initPostHog } from "./lib/posthog";
 
 // Initialize Sentry for client-side error tracking
 if (import.meta.env.VITE_SENTRY_DSN) {
@@ -15,6 +16,9 @@ if (import.meta.env.VITE_SENTRY_DSN) {
     replaysOnErrorSampleRate: import.meta.env.PROD ? 1.0 : 0,
   });
 }
+
+// Initialize PostHog product analytics + session replay (optional — no-op if VITE_POSTHOG_KEY missing)
+initPostHog();
 
 // Register service worker and manifest for PWA functionality (mobile only)
 const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);

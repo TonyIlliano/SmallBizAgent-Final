@@ -4692,6 +4692,55 @@ export async function processEndOfCall(data: EndOfCallData): Promise<void> {
         fireEvent(businessId, 'call.completed', { callLog })
           .catch(err => console.error('Webhook fire error:', err));
       }
+
+      // PostHog: call_received event. Tag whether this was the business's
+      // first-ever call so we can build a "signup → first call" funnel
+      // (the moment the product actually starts producing value).
+      void (async () => {
+        try {
+          const { capture, groupIdentify } = await import('./posthogService');
+          const { users } = await import('@shared/schema');
+          const { db } = await import('../db');
+          const { eq, sql } = await import('drizzle-orm');
+          const { callLogs } = await import('@shared/schema');
+
+          // Count prior call logs to detect first-ever call. Single COUNT
+          // query — fast even on businesses with many calls.
+          const [{ count }] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(callLogs)
+            .where(eq(callLogs.businessId, businessId));
+          const isFirstCall = count <= 1; // includes the one we just inserted
+
+          const [u] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.businessId, businessId))
+            .limit(1);
+          if (u?.id) {
+            capture(String(u.id), 'call_received', {
+              business_id: businessId,
+              duration_seconds: callDurationSeconds,
+              is_first_call: isFirstCall,
+              ended_reason: endedReason || null,
+              has_transcript: !!transcript,
+              has_recording: !!recordingUrl,
+              caller_recognized: !!callerName,
+            }, { business: String(businessId) });
+            if (isFirstCall) {
+              capture(String(u.id), 'first_call_received', {
+                business_id: businessId,
+                duration_seconds: callDurationSeconds,
+              }, { business: String(businessId) });
+              groupIdentify(businessId, {
+                first_call_at: new Date().toISOString(),
+              });
+            }
+          }
+        } catch (err) {
+          console.error('[PostHog] call_received capture failed:', err);
+        }
+      })();
     } catch (error) {
       console.error('Error logging call:', error);
     }

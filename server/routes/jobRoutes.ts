@@ -666,6 +666,46 @@ Return valid JSON only. No markdown, no code fences.`,
 });
 
 /**
+ * POST /api/jobs/:id/send-tracking-link — Send opt-in tracking link SMS to customer.
+ *
+ * Triggered explicitly by the tech tapping "Send tracking link to customer" on
+ * the OnMyWayCard. Sends a SEPARATE transactional SMS — does NOT modify the
+ * existing en_route SMS. Customer-share toggle (business.gpsCustomerShareEnabled)
+ * checked at link-creation time in /api/gps/links; this endpoint trusts that.
+ */
+router.post("/:id/send-tracking-link", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    if (isNaN(jobId)) return res.status(400).json({ error: "Invalid job ID" });
+
+    const businessId = getBusinessId(req);
+    if (!businessId) return res.status(401).json({ error: "Not authenticated" });
+
+    const job = await storage.getJob(jobId);
+    if (!verifyBusinessOwnership(job, req)) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    const { trackingUrl } = req.body as { trackingUrl?: string };
+    if (!trackingUrl || typeof trackingUrl !== 'string') {
+      return res.status(400).json({ error: "trackingUrl is required" });
+    }
+
+    // Validate URL is on our domain so techs can't trick the system into sending arbitrary URLs
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    if (!trackingUrl.startsWith(appUrl) && !trackingUrl.startsWith('https://smallbizagent.ai') && !trackingUrl.startsWith('https://www.smallbizagent.ai')) {
+      return res.status(400).json({ error: "trackingUrl must be a SmallBizAgent tracking link" });
+    }
+
+    await notificationService.sendJobTrackingLinkNotification(jobId, businessId, trackingUrl);
+    res.json({ ok: true });
+  } catch (error: any) {
+    console.error("[GPS] send-tracking-link error:", error);
+    res.status(500).json({ error: "Failed to send tracking link" });
+  }
+});
+
+/**
  * POST /api/jobs/:id/photos — Upload a photo to a job (mobile app camera)
  */
 router.post("/api/jobs/:id/photos", isAuthenticated, photoUpload.single("photo"), async (req: Request, res: Response) => {

@@ -13,6 +13,7 @@ const ALLOWED_PREFIXES = [
   '/quotes/',
   '/customers/',
   '/portal/',
+  '/track/',
 ];
 
 /**

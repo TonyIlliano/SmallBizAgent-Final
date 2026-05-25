@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import BookingSettings from "@/components/settings/BookingSettings";
 import { StaffScheduleManager } from "@/components/settings/StaffScheduleManager";
+import GpsTrackingSettings from "@/components/settings/GpsTrackingSettings";
 import {
   Dialog,
   DialogContent,
@@ -519,6 +520,14 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
         <Suspense fallback={<LazyFallback />}>
           <BookingPageBranding />
         </Suspense>
+      </div>
+    );
+  }
+
+  if (activeTab === "dispatch") {
+    return (
+      <div className="space-y-4">
+        <GpsTrackingSettings />
       </div>
     );
   }

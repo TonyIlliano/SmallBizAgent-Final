@@ -15,7 +15,13 @@ export type AuditAction =
   | 'admin_disable_user' | 'admin_enable_user'
   | 'admin_reset_password' | 'admin_change_role'
   | 'admin_change_subscription' | 'admin_extend_trial'
-  | 'admin_impersonate' | 'admin_stop_impersonation';
+  | 'admin_impersonate' | 'admin_stop_impersonation'
+  // GPS Live Dispatch
+  | 'gps_session_started' | 'gps_session_ended' | 'gps_session_paused'
+  | 'gps_disclosure_updated' | 'gps_retention_changed' | 'gps_tracking_toggled'
+  | 'gps_link_created' | 'gps_link_revoked' | 'gps_export_downloaded'
+  | 'gps_consent_accepted' | 'gps_consent_expired_reprompt' | 'gps_consent_revoked_by_owner'
+  | 'gps_beta_approval_changed';
 
 export async function logAudit(params: {
   userId?: number | null;

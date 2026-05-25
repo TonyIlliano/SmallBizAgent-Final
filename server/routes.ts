@@ -70,6 +70,7 @@ import { registerAutomationRoutes } from './routes/automationRoutes';
 import { registerExpressSetupRoutes } from './routes/expressSetupRoutes';
 import { registerOnboardingCheckoutRoutes } from './routes/onboardingCheckoutRoutes';
 import { registerWebsiteBuilderRoutes } from './routes/websiteBuilderRoutes';
+import { registerGpsTrackingRoutes } from './routes/gpsTrackingRoutes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication first
@@ -150,6 +151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerExpressSetupRoutes(app);
   registerOnboardingCheckoutRoutes(app);
   registerWebsiteBuilderRoutes(app);
+  registerGpsTrackingRoutes(app);
 
   // ── Admin dashboard routes ──
   app.use(adminRoutes);

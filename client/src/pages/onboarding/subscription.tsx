@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Check, ArrowRight, Loader2, Phone } from 'lucide-react';
+import { captureEvent } from '@/lib/posthog';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 
 interface Plan {
@@ -82,6 +83,19 @@ export default function OnboardingSubscription() {
       await apiRequest('POST', '/api/onboarding/save-selection', {
         selectedPlanId: selectedPlan,
         promoCode: effectivePromo,
+      });
+
+      // PostHog: plan_selected. We want to see which plan gets picked most often
+      // AND which plans abandon at checkout (compare to card_saved drop-off).
+      const plan = plans.find((p) => p.id === selectedPlan);
+      captureEvent('plan_selected', {
+        plan_id: selectedPlan,
+        plan_name: plan?.name ?? null,
+        plan_tier: plan?.planTier ?? null,
+        billing_interval: billingInterval,
+        price_usd: plan?.price ? Number(plan.price) : null,
+        has_promo_code: !!effectivePromo,
+        promo_code: effectivePromo ?? null,
       });
 
       // Card-first onboarding: send the user to /onboarding/checkout next.

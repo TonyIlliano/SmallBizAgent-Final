@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { SkeletonForm } from "@/components/ui/skeleton-loader";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { buildSettingsSections, type SettingsSection } from "./constants";
+import { isJobCategory as isJobCategoryHelper } from "@shared/industry-categories";
 
 // Lazy-loaded section components
 const BusinessSection = lazy(() => import("./BusinessSection"));
@@ -245,7 +246,12 @@ export default function Settings() {
   );
   const isAdmin = user?.role === 'admin' || user?.role === 'owner';
 
-  const sections = buildSettingsSections({ isRestaurant, hasPOS, isAdmin: !!isAdmin });
+  const sections = buildSettingsSections({
+    isRestaurant,
+    hasPOS,
+    isAdmin: !!isAdmin,
+    isJobCategory: isJobCategoryHelper(business?.industry),
+  });
 
   // Show skeleton while auth or business data is loading
   const isPageLoading = isAuthLoading || isLoadingBusiness || (!business && !!businessId);

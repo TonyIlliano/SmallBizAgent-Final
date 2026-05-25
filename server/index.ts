@@ -410,6 +410,7 @@ app.use((req, res, next) => {
     '/api/docs',
     '/api/auth/mobile-login',
     '/api/auth/mobile-refresh',
+    '/api/gps/public/track/',
     '/health',
   ];
 
@@ -485,6 +486,14 @@ app.use((req, res, next) => {
       initMem0();
     } catch (err) {
       console.warn('[Mem0] Init failed (non-fatal):', err);
+    }
+
+    // Initialize PostHog product analytics (optional — graceful if POSTHOG_PROJECT_KEY not set)
+    try {
+      const { initPostHog } = await import('./services/posthogService');
+      initPostHog();
+    } catch (err) {
+      console.warn('[PostHog] Init failed (non-fatal):', err);
     }
 
     // [LangGraph REMOVED] — Orchestration now uses direct switch/case dispatcher
@@ -744,6 +753,13 @@ app.use((req, res, next) => {
           resolve();
         });
       });
+
+      try {
+        const { shutdownPostHog } = await import('./services/posthogService');
+        await shutdownPostHog();
+      } catch (err) {
+        console.error('Error flushing PostHog:', err);
+      }
 
       try {
         await pool.end();

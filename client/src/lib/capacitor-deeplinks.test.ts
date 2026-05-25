@@ -60,4 +60,22 @@ describe('parseDeepLink', () => {
   it('returns /dashboard for the bare root path', () => {
     expect(parseDeepLink('https://smallbizagent.ai/')).toBe('/dashboard');
   });
+
+  it('routes /track/:token paths (GPS Live Dispatch customer page)', () => {
+    expect(parseDeepLink('https://smallbizagent.ai/track/abc123def456'))
+      .toBe('/track/abc123def456');
+    expect(parseDeepLink('https://www.smallbizagent.ai/track/longtokenstring'))
+      .toBe('/track/longtokenstring');
+  });
+
+  it('preserves query strings on /track/ paths', () => {
+    expect(parseDeepLink('https://smallbizagent.ai/track/abc?ref=sms'))
+      .toBe('/track/abc?ref=sms');
+  });
+
+  it('falls back to /dashboard for /track without a token', () => {
+    // /track/ with trailing slash but no token is technically allowed (the
+    // route page itself decides how to handle the empty :token segment)
+    expect(parseDeepLink('https://smallbizagent.ai/track/')).toBe('/track/');
+  });
 });

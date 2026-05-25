@@ -76,8 +76,22 @@
     <!-- Microphone for voice-to-notes dictation -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- GPS Live Dispatch (field-service tech tracking).
+         Only requested when a tech starts a tracking session. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Android 10+ requires this for background location (foreground service) -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Foreground service for the background-geolocation watcher -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ requires a typed foreground service permission -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Required for the plugin's foreground service notification when traveling -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- Optional features (don't block install on devices without them) -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>

@@ -21,6 +21,7 @@ import {
   Globe,
   MapPin,
   HelpCircle,
+  Truck,
 } from "lucide-react";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -43,6 +44,7 @@ const allNavItems = [
   { path: "/marketing", label: "Marketing", icon: Megaphone, hideForRoles: ['staff', 'manager'] as string[] },
   { path: "/ai-agents", label: "AI Agents", icon: Zap, hideForRoles: ['staff', 'manager'] as string[] },
   { path: "/website", label: "Website", icon: Globe, hideForRoles: ['staff', 'manager'] as string[] },
+  { path: "/dispatch", label: "Dispatch", icon: Truck, showOnlyForJobCategory: true, hideForRoles: ['staff'] as string[] },
   { path: "/google-business-profile", label: "Google", icon: MapPin, hideForRoles: ['staff', 'manager'] as string[] },
   { path: "/settings", label: "Settings", icon: Settings, hideForRoles: ['staff', 'manager'] as string[] },
   { path: "/staff/dashboard", label: "My Schedule", icon: Calendar, showForRoles: ['staff'] as string[] },
@@ -103,6 +105,10 @@ export function Sidebar() {
   const navItems = allNavItems.filter(item => {
     // Hide Appointments tab for job-category businesses (HVAC, plumbing, electrical, etc.)
     if ((item as any).hideForJobCategory && isJobBiz) {
+      return false;
+    }
+    // Show ONLY for job-category businesses (Live Dispatch — field-service only)
+    if ((item as any).showOnlyForJobCategory && !isJobBiz) {
       return false;
     }
     if (item.hideForIndustries && item.hideForIndustries.some(ind => businessIndustry.includes(ind))) {

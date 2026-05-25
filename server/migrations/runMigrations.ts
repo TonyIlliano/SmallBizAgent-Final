@@ -2406,6 +2406,9 @@ async function runMigrations() {
     // Lead discovery — admin-only Google Places scanning + self-refining rubric
     await ensureLeadsTables();
 
+    // GPS Live Dispatch — field-service vertical tech tracking (Growth+ paywall)
+    await ensureGpsTrackingTables();
+
     // Backfill any missing columns on tables that were created from earlier
     // commits without the latest schema (CREATE TABLE IF NOT EXISTS is a no-op
     // when the table exists, even if columns are missing). Triggered by a live
@@ -2920,6 +2923,29 @@ async function addMonitoringAndBrandingTables() {
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_disclaimer TEXT`);
   } catch (e: any) {
     console.log('Note: Could not add financing columns to businesses:', e.message);
+  }
+
+  // GPS Live Dispatch settings on businesses (field-service verticals only)
+  try {
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_tracking_enabled BOOLEAN DEFAULT false NOT NULL`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_retention_hours INTEGER DEFAULT 24 NOT NULL`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_disclosure_copy TEXT`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_disclosure_version TEXT`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_customer_share_enabled BOOLEAN DEFAULT true NOT NULL`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_customer_share_default_minutes INTEGER DEFAULT 240 NOT NULL`);
+    // Phased-rollout gate: defaults to false. Admin opt-ins per business.
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_beta_approved BOOLEAN DEFAULT false NOT NULL`);
+  } catch (e: any) {
+    console.log('Note: Could not add GPS columns to businesses:', e.message);
+  }
+
+  // GPS Live Dispatch consent + pause flag on staff
+  try {
+    await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS gps_consent_accepted_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS gps_consent_version TEXT`);
+    await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS gps_tracking_paused BOOLEAN DEFAULT false NOT NULL`);
+  } catch (e: any) {
+    console.log('Note: Could not add GPS columns to staff:', e.message);
   }
 
   console.log('Monitoring and branding tables created successfully');
@@ -3698,6 +3724,117 @@ async function ensureGrandfatheredUsers() {
     // the dashboard. The middleware should fail OPEN on lookup errors to
     // prevent that. (Verified in the requirePaymentMethod middleware logic.)
     console.error('Error grandfathering existing users:', error?.message || error);
+  }
+}
+
+/**
+ * GPS Live Dispatch tables.
+ *
+ * Three tables for the field-service GPS tracking feature:
+ *   1. tech_location_pings    — append-only breadcrumb log (one row per GPS ping)
+ *   2. tech_tracking_sessions — active session per tech (partial unique on staff_id WHERE status='active')
+ *   3. customer_tracking_links — public share tokens for "where's my tech" view
+ *
+ * Idempotent on re-run. Tracked in migrations table.
+ *
+ * Partial unique index requires raw SQL (drizzle-kit can't express partial uniques cleanly).
+ * Checked via pg_indexes before CREATE UNIQUE INDEX to support older PG versions.
+ */
+async function ensureGpsTrackingTables() {
+  const MIGRATION_NAME = 'gps_tracking_tables_v1';
+  try {
+    const exists = await pool.query(`SELECT 1 FROM migrations WHERE name = $1 LIMIT 1`, [MIGRATION_NAME]);
+    if (exists.rows.length > 0) {
+      console.log('GPS tracking tables already created');
+      return;
+    }
+    console.log('Creating GPS tracking tables...');
+
+    await pool.query('BEGIN');
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS tech_location_pings (
+          id SERIAL PRIMARY KEY,
+          business_id INTEGER NOT NULL,
+          staff_id INTEGER NOT NULL,
+          job_id INTEGER,
+          lat NUMERIC(10, 7) NOT NULL,
+          lng NUMERIC(10, 7) NOT NULL,
+          accuracy_meters REAL,
+          speed_mps REAL,
+          heading_degrees REAL,
+          altitude_meters REAL,
+          battery_level REAL,
+          is_moving BOOLEAN DEFAULT false,
+          source TEXT DEFAULT 'background',
+          recorded_at TIMESTAMP NOT NULL,
+          received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_pings_business_staff_time ON tech_location_pings (business_id, staff_id, recorded_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_pings_job_time ON tech_location_pings (job_id, recorded_at DESC) WHERE job_id IS NOT NULL`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_pings_business_received ON tech_location_pings (business_id, received_at DESC)`);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS tech_tracking_sessions (
+          id SERIAL PRIMARY KEY,
+          business_id INTEGER NOT NULL,
+          staff_id INTEGER NOT NULL,
+          job_id INTEGER,
+          status TEXT NOT NULL,
+          started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+          ended_at TIMESTAMP,
+          end_reason TEXT,
+          disclosure_accepted_at TIMESTAMP,
+          disclosure_version TEXT,
+          last_ping_at TIMESTAMP,
+          ping_count INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessions_business_active ON tech_tracking_sessions (business_id, status)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessions_staff_active ON tech_tracking_sessions (staff_id, status)`);
+
+      // Partial unique index — one active session per staff
+      const indexCheck = await pool.query(`
+        SELECT 1 FROM pg_indexes
+        WHERE indexname = 'uniq_one_active_session_per_staff'
+        LIMIT 1
+      `);
+      if (indexCheck.rows.length === 0) {
+        await pool.query(`
+          CREATE UNIQUE INDEX uniq_one_active_session_per_staff
+          ON tech_tracking_sessions (staff_id) WHERE status = 'active'
+        `);
+      }
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS customer_tracking_links (
+          id SERIAL PRIMARY KEY,
+          business_id INTEGER NOT NULL,
+          job_id INTEGER NOT NULL,
+          session_id INTEGER,
+          customer_id INTEGER,
+          token TEXT NOT NULL UNIQUE,
+          expires_at TIMESTAMP NOT NULL,
+          view_count INTEGER DEFAULT 0,
+          last_viewed_at TIMESTAMP,
+          revoked_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_tracking_links_job ON customer_tracking_links (job_id, created_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_tracking_links_expires ON customer_tracking_links (expires_at) WHERE revoked_at IS NULL`);
+
+      await pool.query('INSERT INTO migrations (name) VALUES ($1)', [MIGRATION_NAME]);
+      await pool.query('COMMIT');
+      console.log('GPS tracking tables created');
+    } catch (txErr) {
+      await pool.query('ROLLBACK');
+      throw txErr;
+    }
+  } catch (error: any) {
+    console.error('Error creating GPS tracking tables:', error?.message || error);
   }
 }
 

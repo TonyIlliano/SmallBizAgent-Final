@@ -87,6 +87,8 @@ const PortalQuote = lazyWithRetry(() => import("@/pages/portal/quote"));
 const PublicBooking = lazyWithRetry(() => import("@/pages/book/[slug]"));
 const ManageAppointment = lazyWithRetry(() => import("@/pages/book/manage"));
 const ManageReservation = lazyWithRetry(() => import("@/pages/book/manage-reservation"));
+const CustomerTrackPage = lazyWithRetry(() => import("@/pages/track/[token]"));
+const DispatchPage = lazyWithRetry(() => import("@/pages/dispatch/index"));
 // Admin pages
 const AdminDashboard = lazyWithRetry(() => import("@/pages/admin/index"));
 const PhoneManagement = lazyWithRetry(() => import("@/pages/admin/phone-management"));
@@ -186,6 +188,7 @@ function Router() {
         <ProtectedRoute path="/recurring" component={RecurringSchedules} />
         <ProtectedRoute path="/website" component={WebsiteBuilder} />
         <ProtectedRoute path="/google-business-profile" component={GoogleBusinessProfilePage} />
+        <ProtectedRoute path="/dispatch" component={DispatchPage} />
         <ProtectedRoute path="/sms-campaigns" component={SmsCampaigns} />
         <ProtectedRoute path="/settings" component={Settings} />
         <ProtectedRoute path="/settings/calendar" component={CalendarSettings} />
@@ -210,6 +213,7 @@ function Router() {
         <Route path="/portal/quote/:token" component={PortalQuote} />
         <Route path="/book/:slug/manage-reservation/:token" component={ManageReservation} />
         <Route path="/book/:slug/manage/:token" component={ManageAppointment} />
+        <Route path="/track/:token" component={CustomerTrackPage} />
         <Route path="/book/:slug" component={PublicBooking} />
         <Route path="/pricing" component={PricingPage} />
         {/* Vertical landing pages */}

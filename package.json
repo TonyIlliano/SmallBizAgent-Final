@@ -141,6 +141,8 @@
     "passport-local": "^1.0.0",
     "pg": "^8.18.0",
     "pg-boss": "^10.4.2",
+    "posthog-js": "^1.376.0",
+    "posthog-node": "^5.21.2",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",

@@ -177,6 +177,31 @@ export const businesses = pgTable("businesses", {
   financingTermMonths: integer("financing_term_months").default(60),
   financingApplyUrl: text("financing_apply_url"), // partner application link
   financingDisclaimer: text("financing_disclaimer"), // regulatory disclaimer text
+  // ── GPS Live Dispatch (field-service verticals only — see isJobCategory) ──
+  // Master toggle. When false: dispatcher tab hidden, mobile won't ask to start
+  // a session, customer share buttons hidden. Existing sessions are force-ended
+  // on the next retention sweep.
+  gpsTrackingEnabled: boolean("gps_tracking_enabled").default(false).notNull(),
+  // Retention in hours. 24h default. Growth tier max 24h; Pro tier max 168h (7d).
+  // Sweeper deletes pings where received_at < now() - gps_retention_hours.
+  gpsRetentionHours: integer("gps_retention_hours").default(24).notNull(),
+  // Owner-customizable disclosure text shown to techs before tracking starts.
+  // Null = use DEFAULT_DISCLOSURE_COPY from gpsDisclosureService.
+  gpsDisclosureCopy: text("gps_disclosure_copy"),
+  // ISO date string version (e.g. '2026-05-24'). Bumped when copy changes OR
+  // 90d expiry hits. Used to detect when techs need to re-accept.
+  gpsDisclosureVersion: text("gps_disclosure_version"),
+  // Master toggle for customer-facing tracking share links. When false, the
+  // "Send tracking link" button on OnMyWayCard is hidden entirely. Default true
+  // so techs CAN share but must do so per-job (never auto-attached).
+  gpsCustomerShareEnabled: boolean("gps_customer_share_enabled").default(true).notNull(),
+  // Default TTL (minutes) for new tracking share links. Default 240 = 4 hours.
+  gpsCustomerShareDefaultMinutes: integer("gps_customer_share_default_minutes").default(240).notNull(),
+  // Phased-rollout gate. Platform admin sets this to true to allow a business
+  // to see + use Live Dispatch. Defaults to false so we can roll out one
+  // customer at a time during beta. Once GA, we can flip the migration default
+  // to true OR backfill all rows. Admin role bypasses this gate entirely.
+  gpsBetaApproved: boolean("gps_beta_approved").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -257,6 +282,16 @@ export const staff = pgTable("staff", {
   bio: text("bio"), // Short description for customers
   photoUrl: text("photo_url"), // Staff photo URL for booking page
   active: boolean("active").default(true),
+  // ── GPS Live Dispatch consent (see gpsDisclosureService) ──
+  // When this tech last accepted the disclosure. Null = never accepted.
+  // Re-prompted on (a) version mismatch, (b) >90 days since acceptance, or (c) owner revoke.
+  gpsConsentAcceptedAt: timestamp("gps_consent_accepted_at"),
+  // The disclosure version the tech accepted. Compared against business.gpsDisclosureVersion.
+  gpsConsentVersion: text("gps_consent_version"),
+  // Tech can pause tracking from their device (lunch break, doctor, etc.). When
+  // paused: watcher stays registered but pings are dropped client AND server-side.
+  // Resume sets back to false without ending the session.
+  gpsTrackingPaused: boolean("gps_tracking_paused").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -2091,3 +2126,93 @@ export const invoiceSequences = pgTable("invoice_sequences", {
 }, (table) => ({
   businessIdIdx: unique("invoice_sequences_business_id_idx").on(table.businessId),
 }));
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GPS Live Dispatch
+// ═══════════════════════════════════════════════════════════════════════════
+// Field-service-only feature: real-time tech location tracking for dispatch
+// coordination + customer-facing "where's my tech" view. Gated behind:
+//   - Growth+ plan tier (requireGpsPlan middleware)
+//   - Field-service industry (isJobCategory check)
+//   - business.gpsTrackingEnabled toggle
+//   - Per-tech disclosure acceptance (gpsDisclosureService)
+// All tables are businessId-scoped. Retention sweeper enforces gpsRetentionHours
+// (24h default, max 168h on Pro). Customer share links are nanoid tokens.
+
+// Append-only GPS breadcrumb log. One row per location ping from a tech's device.
+export const techLocationPings = pgTable("tech_location_pings", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  staffId: integer("staff_id").notNull(),
+  jobId: integer("job_id"), // nullable — pings outside an active job still recorded
+  // NUMERIC(10,7) gives ~1cm precision. Returned as string by pg; parseFloat() in app code.
+  lat: numeric("lat", { precision: 10, scale: 7 }).notNull(),
+  lng: numeric("lng", { precision: 10, scale: 7 }).notNull(),
+  accuracyMeters: real("accuracy_meters"),
+  speedMps: real("speed_mps"), // meters/sec
+  headingDegrees: real("heading_degrees"), // 0-360
+  altitudeMeters: real("altitude_meters"),
+  batteryLevel: real("battery_level"), // 0-1
+  isMoving: boolean("is_moving").default(false),
+  source: text("source").default("background"), // 'background' | 'foreground' | 'manual'
+  recordedAt: timestamp("recorded_at").notNull(),  // device clock
+  receivedAt: timestamp("received_at").defaultNow().notNull(),  // server clock (clock-skew defense)
+}, (table) => ({
+  idxBusinessStaffTime: index("idx_pings_business_staff_time").on(table.businessId, table.staffId, table.recordedAt),
+  idxJobTime: index("idx_pings_job_time").on(table.jobId, table.recordedAt),
+  idxBusinessReceived: index("idx_pings_business_received").on(table.businessId, table.receivedAt),
+}));
+
+// Active tracking session for a tech. Lifecycle: active → paused (optional) → ended.
+// Partial unique index `uniq_one_active_session_per_staff` enforces at most one
+// active session per staff member (created via raw SQL in migration).
+export const techTrackingSessions = pgTable("tech_tracking_sessions", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  staffId: integer("staff_id").notNull(),
+  jobId: integer("job_id"),
+  status: text("status").notNull(), // 'active' | 'paused' | 'ended'
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  endReason: text("end_reason"), // 'manual' | 'job_completed' | 'shift_end' | 'auto_timeout' | 'permissions_revoked'
+  disclosureAcceptedAt: timestamp("disclosure_accepted_at"),
+  disclosureVersion: text("disclosure_version"),
+  lastPingAt: timestamp("last_ping_at"), // denormalized for dashboard "X seconds ago" badge
+  pingCount: integer("ping_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  idxBusinessActive: index("idx_sessions_business_active").on(table.businessId, table.status),
+  idxStaffActive: index("idx_sessions_staff_active").on(table.staffId, table.status),
+}));
+
+// Public share tokens for the customer-facing "where's my tech" view.
+// Token IS the secret (32-char nanoid, ~190 bits entropy, never enumerable).
+// Public endpoint /api/gps/public/track/:token is auth-exempt + rate-limited.
+export const customerTrackingLinks = pgTable("customer_tracking_links", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  jobId: integer("job_id").notNull(),
+  sessionId: integer("session_id"), // nullable so session ending doesn't break link
+  customerId: integer("customer_id"),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  viewCount: integer("view_count").default(0),
+  lastViewedAt: timestamp("last_viewed_at"),
+  revokedAt: timestamp("revoked_at"), // soft-revoke
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  idxJob: index("idx_tracking_links_job").on(table.jobId, table.createdAt),
+  idxExpires: index("idx_tracking_links_expires").on(table.expiresAt),
+}));
+
+// Insert schemas + types
+export const insertTechLocationPingSchema = createInsertSchema(techLocationPings).omit({ id: true, receivedAt: true });
+export const insertTechTrackingSessionSchema = createInsertSchema(techTrackingSessions).omit({ id: true, startedAt: true, createdAt: true });
+export const insertCustomerTrackingLinkSchema = createInsertSchema(customerTrackingLinks).omit({ id: true, createdAt: true, viewCount: true, lastViewedAt: true });
+
+export type TechLocationPing = typeof techLocationPings.$inferSelect;
+export type InsertTechLocationPing = z.infer<typeof insertTechLocationPingSchema>;
+export type TechTrackingSession = typeof techTrackingSessions.$inferSelect;
+export type InsertTechTrackingSession = z.infer<typeof insertTechTrackingSessionSchema>;
+export type CustomerTrackingLink = typeof customerTrackingLinks.$inferSelect;
+export type InsertCustomerTrackingLink = z.infer<typeof insertCustomerTrackingLinkSchema>;

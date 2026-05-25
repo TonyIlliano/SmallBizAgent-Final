@@ -8,6 +8,7 @@ import { JobLineItems } from "@/components/jobs/JobLineItems";
 import { JobProgressTimeline } from "@/components/jobs/JobProgressTimeline";
 import { JobPhotoUploader } from "@/components/jobs/JobPhotoUploader";
 import { OnMyWayCard } from "@/components/jobs/OnMyWayCard";
+import { GpsSessionPanel } from "@/components/gps/GpsSessionPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -836,6 +837,16 @@ export default function JobDetail() {
               status={job?.status}
               enRouteAt={job?.enRouteAt}
               etaMinutes={job?.etaMinutes}
+            />
+          )}
+
+          {/* GPS Live Dispatch — only renders if business is field-service + Growth+ + gpsTrackingEnabled */}
+          {numericJobId && (
+            <GpsSessionPanel
+              jobId={numericJobId}
+              jobStatus={job?.status}
+              staffId={job?.staffId ?? null}
+              customerId={job?.customerId ?? null}
             />
           )}
 

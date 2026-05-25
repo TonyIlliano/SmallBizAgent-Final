@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext } from "react";
+import { createContext, ReactNode, useContext, useEffect } from "react";
 import {
   useQuery,
   useMutation,
@@ -8,6 +8,38 @@ import { User } from "@shared/schema";
 import { queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getUtmParams, clearUtmParams } from "@/lib/utm";
+import { identifyUser, identifyBusiness, captureEvent, resetPostHog } from "@/lib/posthog";
+
+/**
+ * Send identify + group calls to PostHog for an authenticated user.
+ * Called on initial /api/user load and after login/register.
+ * Safe to call repeatedly — PostHog merges properties on the same distinctId.
+ */
+function syncToPostHog(user: AuthUser): void {
+  if (!user?.id) return;
+  // Use the IMPERSONATED business when an admin is viewing as a tenant,
+  // so the admin's PostHog events get attributed to the right business.
+  const businessId = user.impersonating?.businessId ?? user.businessId;
+
+  identifyUser(user.id, {
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    effective_role: user.effectiveRole,
+    business_id: businessId,
+    subscription_status: user.subscriptionStatus ?? null,
+    is_trial_active: user.isTrialActive ?? false,
+    is_founder: user.isFounder ?? false,
+    is_impersonating: !!user.impersonating,
+  });
+
+  if (businessId) {
+    identifyBusiness(businessId, {
+      subscription_status: user.subscriptionStatus ?? null,
+      is_trial_active: user.isTrialActive ?? false,
+    });
+  }
+}
 
 // Extended user type that includes role/permission fields from GET /api/user
 export type AuthUser = User & {
@@ -81,6 +113,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  // Sync authenticated user to PostHog on every /api/user response change.
+  // Covers: initial page load with existing session, login, register, plan upgrade, impersonation switch.
+  useEffect(() => {
+    if (user?.id) {
+      syncToPostHog(user);
+    }
+  }, [user?.id, user?.businessId, user?.subscriptionStatus, user?.impersonating?.businessId]);
+
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
       // Read CSRF token from cookie
@@ -111,6 +151,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/user"], user);
+      syncToPostHog(user);
+      captureEvent("user_logged_in", { method: "password" });
       toast({
         title: "Login successful",
         description: `Welcome back, ${user.username}!`,
@@ -163,6 +205,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/user"], user);
+      syncToPostHog(user);
+      // Capture the signup event with attribution properties so we can
+      // build channel-level conversion funnels in PostHog.
+      const utmParams = getUtmParams();
+      captureEvent("user_signed_up", {
+        ...utmParams,
+        has_attribution: Object.keys(utmParams).length > 0,
+      });
       clearUtmParams(); // Attribution captured — clear so it doesn't re-send
       toast({
         title: "Registration successful",
@@ -206,6 +256,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);
       queryClient.clear(); // Clear all cached data on logout
+      captureEvent("user_logged_out");
+      resetPostHog(); // Start a fresh anonymous session so next login isn't merged
       toast({
         title: "Logged out",
         description: "You have been successfully logged out.",
@@ -217,6 +269,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Even on error, clear local auth state and redirect
       queryClient.setQueryData(["/api/user"], null);
       queryClient.clear();
+      resetPostHog();
       toast({
         title: "Logged out",
         description: "You have been logged out.",

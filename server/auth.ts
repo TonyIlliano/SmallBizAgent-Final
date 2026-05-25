@@ -383,6 +383,25 @@ export function setupAuth(app: Express) {
 
       const user = await storage.createUser(userData);
 
+      // Fire-and-forget PostHog capture so we have a server-side record of
+      // every signup even if the client crashes before its own capture fires.
+      void (async () => {
+        try {
+          const { capture, identify } = await import('./services/posthogService');
+          identify(String(user.id), {
+            username: user.username,
+            email: user.email,
+            role: user.role,
+          });
+          capture(String(user.id), 'user_signed_up', {
+            method: 'password',
+            email_verified: false,
+          });
+        } catch (err) {
+          console.error('[PostHog] user_signed_up capture failed:', err);
+        }
+      })();
+
       // Generate 6-digit verification code
       const verificationCode = randomInt(100000, 999999).toString();
       const verificationExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes (gives time for spam folder checks)
@@ -504,6 +523,23 @@ export function setupAuth(app: Express) {
         emailVerificationCode: null,
         emailVerificationExpiry: null,
       });
+
+      // Time-to-verify is a key conversion metric. Capture how long it took
+      // between signup and verification so we can spot rising friction.
+      void (async () => {
+        try {
+          const { capture, identify } = await import('./services/posthogService');
+          identify(String(user.id), { email_verified: true });
+          const minutesSinceSignup = user.createdAt
+            ? Math.round((Date.now() - new Date(user.createdAt).getTime()) / 60000)
+            : null;
+          capture(String(user.id), 'email_verified', {
+            minutes_since_signup: minutesSinceSignup,
+          });
+        } catch (err) {
+          console.error('[PostHog] email_verified capture failed:', err);
+        }
+      })();
 
       return res.json({ success: true, message: "Email verified successfully" });
     } catch (error) {

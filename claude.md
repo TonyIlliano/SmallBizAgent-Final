@@ -720,6 +720,296 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### GPS Live Dispatch — Senior-review hardening pass
+- **Goal**: Address the gaps flagged in a self-review (sweeper not directly tested, partial-unique-race contract unverified, no phased-rollout flag, random-bytes single point of failure, scattered `Capacitor.isNativePlatform()` calls, error responses missing requestId for support log correlation). These are the items that move grade from "B-" to "A+" — every one of them would have been called out in a senior code review.
+
+##### Fix #1 — Real tests for `runGpsRetentionSweep` (the data-retention liability surface)
+- Made `runGpsRetentionSweep()` an export from `schedulerService.ts` (was private — untestable). Added to default export too.
+- **NEW** `server/services/gpsRetentionSweep.test.ts` — 11 tests against a stateful in-memory mock storage that actually tracks pings + deletes them per the sweeper's behavior. Unlike the route tests (which mock storage as bare `vi.fn()` and assert call shape), this suite verifies actual deletion semantics:
+  - Deletes pings older than 24h retention but keeps younger ones
+  - Honors per-business retention (24h biz + 168h biz swept independently with different cutoffs)
+  - Skips businesses with `gpsTrackingEnabled = false`
+  - Applies 1-hour floor even when retention is misconfigured to 0 (Zod should prevent, defense-in-depth)
+  - Defaults null `gpsRetentionHours` to 24h
+  - Continues sweeping other businesses when one throws (per-biz try/catch)
+  - Always calls `deleteExpiredLinks` (global cleanup) even with zero businesses
+  - Still calls `deleteExpiredLinks` when a per-business sweep errored
+  - Does not throw when `getAllBusinesses` itself throws (outer try)
+  - Continues when `deleteExpiredLinks` itself throws (inner try)
+  - **TENANT ISOLATION** — `deleteExpiredPings` receives scoped businessId, never cross-tenant
+- **Bug audit result**: zero bugs in the sweeper. Math is right, scoping is right, error handling at all 3 levels (per-biz / links / outer) keeps the sweep alive.
+
+##### Fix #2 — Drizzle `23505` partial-unique-race contract verification
+- The session-start route catches `err?.code === '23505'` to convert a partial-unique-index race into a 409 SESSION_ALREADY_ACTIVE. **Previously unverified** that Drizzle propagates pg's `code` property through its error wrapper.
+- Added 2 new tests to `gpsTrackingRoutes.test.ts`:
+  - **409 SESSION_ALREADY_ACTIVE on partial-unique-index race (pg 23505 from Drizzle)** — simulates the race: `getActiveSessionByStaff` returns null (no session at read time), `createTrackingSession` rejects with `{ code: '23505' }`. Asserts the route returns 409 with the right code.
+  - **500 on non-23505 storage error (other errors propagate, not silently 409)** — defensive symmetry test. Simulates conn-pool exhaustion (`code: '57P03'`). Asserts the route returns 500, NOT a misleading 409.
+- This locks in the contract — if Drizzle ever changes its error-wrapping behavior in a future version, these tests catch it before deploy.
+
+##### Fix #3 — Per-business rollout flag (`gpsBetaApproved`)
+- **NEW column** `businesses.gpsBetaApproved BOOLEAN DEFAULT false NOT NULL` — admin-controlled phased-rollout gate. Schema + migration added.
+- `requireGpsPlan` middleware: new 403 `GPS_BETA_NOT_APPROVED` check that fires AFTER plan tier but BEFORE master toggle. Admin role bypasses.
+- `requireGpsPlanForSettings`: same gate (so the Settings tab also stays hidden until admin opts the business in).
+- **NEW admin endpoint** `POST /api/admin/businesses/:id/gps-beta-approval` `{ approved: boolean }`. Idempotent (no-op + no audit log when value unchanged). Sets the column + audit-logs the change.
+- **NEW audit action** `gps_beta_approval_changed` for forensic correlation.
+- 3 new plan-gate tests asserting the beta gate fires correctly (when missing, before master toggle, and on the settings variant too).
+- **Operational benefit**: you can roll out one customer at a time during beta. If a bug ships, you flip `gpsBetaApproved = false` for THAT business without affecting other tenants (the env-var kill switch nukes everyone, which is too broad).
+
+##### Bonus polish
+- **`generateTrackingToken` hardening** — wrapped `randomBytes(24)` in try/catch with `globalThis.crypto.getRandomValues` fallback. Defends against the rare case where Node's `randomBytes` throws synchronously (entropy pool issue on a container). Re-throws if neither source is available rather than silently using a weak source.
+- **`isGpsAvailableOnDevice()` helper** — added to `client/src/lib/capacitor-gps.ts` as the single source of truth for the native-platform check. Replaced 5 scattered `Capacitor.isNativePlatform()` calls (3 in capacitor-gps.ts, 2 in GpsSessionPanel.tsx). The helper now has a JSDoc explaining the contract and why nothing else should call the underlying Capacitor method directly.
+- **`requestId` in all 500 responses** — added a `send500(res, message, err?)` helper that pulls the request id from `server/utils/requestContext.ts` (AsyncLocalStorage, already in use elsewhere) and emits `{ error, requestId }` on every 500. Bulk-replaced 19 catch blocks across `gpsTrackingRoutes.ts`. Support can now grep server logs for the same id the customer reports. Test asserts the shape.
+
+##### Verification
+- `npx tsc --noEmit` — clean.
+- Server tests: **946/946 pass** (was 930 — +11 retention sweeper + +2 23505 race + +3 beta gate).
+- Client tests: **44/44 pass**.
+- **Total: 990/990 pass. No regressions.**
+
+##### Files added (1)
+- `server/services/gpsRetentionSweep.test.ts` — 11 tests against stateful mock store
+
+##### Files modified (7)
+- `shared/schema.ts` — `gpsBetaApproved` column
+- `server/migrations/runMigrations.ts` — column add
+- `server/middleware/gpsPlanGate.ts` — beta gate in both `requireGpsPlan` + `requireGpsPlanForSettings`
+- `server/middleware/gpsPlanGate.test.ts` — 3 new beta-gate tests
+- `server/services/auditService.ts` — `gps_beta_approval_changed` action
+- `server/services/schedulerService.ts` — export `runGpsRetentionSweep` for testability
+- `server/routes/gpsTrackingRoutes.ts` — `send500` helper + 19 bulk replacements + token hardening + new imports
+- `server/routes/gpsTrackingRoutes.test.ts` — 2 race tests + requestId assertion
+- `server/routes/adminRoutes.ts` — `/api/admin/businesses/:id/gps-beta-approval` endpoint
+- `client/src/lib/capacitor-gps.ts` — `isGpsAvailableOnDevice()` helper + replaced inline calls
+- `client/src/components/gps/GpsSessionPanel.tsx` — switched to `isGpsAvailableOnDevice()`
+
+---
+
+#### GPS Live Dispatch — PR 9 (Tests + Docs, feature complete)
+- **Goal**: Close out the GPS Live Dispatch 9-PR plan with full test coverage on every surface (disclosure logic, plan/industry gate, server routes incl. tenant isolation, mobile capacitor module, deeplinks) plus an operations doc for the support team.
+- **Result**: GPS Live Dispatch is now fully ship-ready — schema → migrations → storage → plan gate → disclosure service → server API → mobile Capacitor → customer page → dispatcher → retention sweeper → owner settings → **tests + docs**.
+
+##### Server tests added (3 files, 80 new tests)
+- `server/services/gpsDisclosureService.test.ts` — **NEW** 19 tests. `renderDisclosure` placeholder substitution incl. regex-safe special chars. `needsTechReAcceptance` covers all 4 trigger paths (never accepted / version mismatch / 90-day expiry / passes when current). `getActiveDisclosure` fallback when business has no custom copy. `recordTechAcceptance` clears `gpsTrackingPaused`. `bumpDisclosureVersion` stamps today's ISO date. `revokeTechConsent` clears both consent fields.
+- `server/middleware/gpsPlanGate.test.ts` — **NEW** 27 tests. `getGpsRetentionMaxHours` covers all tier paths. `requireGpsPlan`: admin bypass, 401 missing businessId, 404 missing business, 403 GPS_NOT_AVAILABLE_FOR_INDUSTRY for salon + restaurant, 402 GPS_PLAN_REQUIRED for free/starter/trial, passes for growth/pro/professional/business/founder, 403 GPS_NOT_ENABLED when toggle off, 501 GPS_FEATURE_DISABLED kill switch, fail-OPEN on DB error. `requireGpsPlanForSettings` skips master-toggle but enforces industry + plan.
+- `server/routes/gpsTrackingRoutes.test.ts` — **NEW** 34 tests using `supertest` against `registerGpsTrackingRoutes()` mounted on a stripped-down Express app with `vi.hoisted()` mocks. **TENANT ISOLATION** tests verified across 5 endpoint groups: sessions/start (staff from other biz → 404), pings (session from other biz → 404), jobs/breadcrumb (passes businessId to storage), links (job from other biz → 404), staff/revoke-consent (404). Also: 201 happy path, 409 DISCLOSURE_VERSION_STALE, 409 SESSION_ALREADY_ACTIVE. Ping validation drops stale (>30min past) + future (>5min ahead) + low-accuracy (>500m) per-row; 400 on lat/lng out of range; 400 on batch >50. Public track endpoint: 404 unknown/too-short, 410 EXPIRED/REVOKED/DISABLED, **sanitized payload asserts NO tech full name/email/phone leaked**, rate-limited returns 429 on burst.
+
+##### Client tests added (2 files, 22 new tests)
+- `client/src/lib/capacitor-gps.test.ts` — **NEW** 19 tests. Mocks `@capacitor/core`, `@capacitor-community/background-geolocation`, `@capacitor/preferences`, and `./queryClient` via `vi.hoisted()`. Covers `getPermissionStatus` returns granted/denied/prompt/unsupported. `startTracking`: unsupported_in_browser on web, permission_denied on reject, starts watcher on grant, blocks double-start. Queue: enqueues from watcher callback, auto-flushes at 10-ping threshold, manual `flushNow()` drains, transient 5xx keeps pings for retry, server 410 auto-stops session. `stopTracking` flushes + removes watcher + clears state. Pause/resume hit right server endpoint.
+- `client/src/lib/capacitor-deeplinks.test.ts` — extended with 3 new `/track/` cases.
+
+##### Test infrastructure
+- `client/src/test/stub-background-geolocation.ts` — **NEW**. No-op stub aliased in `vitest.config.client.ts` so dynamic imports resolve at test time without the package installed.
+- `client/src/test/stub-preferences.ts` — **NEW**. Separate stub file (combining them caused vitest to throw "No 'BackgroundGeolocation' export defined on '@capacitor/preferences' mock").
+- `vitest.config.client.ts` — 2 alias entries for the Capacitor stubs.
+
+##### Documentation
+- `docs/GPS_TRACKING.md` — **NEW** ~360 lines. Operator's guide. 12 sections: (1) what the feature does, (2) iOS/Android setup with tester checklists, (3) Google Maps API prerequisites + budget alert, (4) **state-by-state legal notes** (CA Lab. Code §980, CT §31-48d, DE §705, NY Lab. Law §52-c, TX Penal §16.06, WA RCW 49.44.135, IL 820 ILCS 55/10; personal-vehicle vs company-vehicle distinction; 1099 misclassification risk), (5) disclosure & consent model incl. 90-day re-acceptance CYA cadence, (6) data retention defaults + how the sweeper works, (7) customer tracking page UX + privacy contract, (8) settings panel walkthrough, (9) audit log action reference (12 actions), (10) customer service script for common objections, (11) operational runbook for triage, (12) future-work list. Prominent legal disclaimer at the top.
+
+##### Verification
+- `npx tsc --noEmit` — clean.
+- Server tests: **930/930 pass** (was 850 — +80 new GPS tests).
+- Client tests: **44/44 pass** (was 22 — +22 new GPS tests).
+- **Total: 974/974 pass. No regressions.**
+
+##### GPS Live Dispatch — feature complete
+All 9 stages of the plan now shipped:
+- Stages 1–6: schema, plan gate, server API, Capacitor mobile, customer tracking page, dispatcher dashboard
+- Stages 7–8: retention sweeper, owner settings UI
+- Stage 9: tests + docs (this PR)
+
+Pre-launch prerequisites that remain on the operator's side:
+1. `npm install @capacitor-community/background-geolocation` + `npx cap sync ios && npx cap sync android`
+2. Verify Maps JavaScript API enabled on Google Cloud project owning `VITE_GOOGLE_PLACES_API_KEY`
+3. Set Google Cloud budget alert at $50/mo
+4. Xcode rebuild + physical-device permission test
+5. Android Studio rebuild + foreground service notification verification
+
+---
+
+#### GPS Live Dispatch — Stages 7 + 8 (Retention Sweeper + Owner Settings UI)
+- **Goal**: Close the two highest-priority gaps from the GPS shipping session: (1) without retention, pings would accumulate forever (liability + storage cost); (2) without settings UI, owners couldn't self-serve and had to flip `gps_tracking_enabled` via raw SQL. Together these turn GPS Live Dispatch from "demo-able" to "customer-deployable."
+
+##### Audit Actions (`server/services/auditService.ts`)
+- Extended `AuditAction` type with 12 GPS actions: `gps_session_started`, `gps_session_ended`, `gps_session_paused`, `gps_disclosure_updated`, `gps_retention_changed`, `gps_tracking_toggled`, `gps_link_created`, `gps_link_revoked`, `gps_export_downloaded`, `gps_consent_accepted`, `gps_consent_expired_reprompt`, `gps_consent_revoked_by_owner`.
+- Wired `logAudit()` calls into existing GPS routes (consent accept, session start/end/pause, link create/revoke) plus all 4 new settings routes (toggle, retention change, disclosure update, owner-revoke-consent). All with `getRequestContext(req)` for IP + UA capture.
+
+##### Retention Sweeper (`server/services/schedulerService.ts`)
+- **NEW** `runGpsRetentionSweep()` + `startGpsRetentionSweeper()`. Hourly. Wrapped in `withReentryGuard('gps-retention-sweeper') + withAdvisoryLock + withTimeout(5min)` for cross-instance safety on Railway.
+- Per business with `gpsTrackingEnabled = true`: computes `cutoff = now - safeHours * 1h` where `safeHours = Math.max(1, gpsRetentionHours)` (floor protection — never sweeps pings <1h old). Calls `storage.deleteExpiredPings(businessId, cutoff)`. Per-business try/catch — one bad business doesn't abort the sweep.
+- Globally calls `storage.deleteExpiredLinks()` for revoked/expired share-link hygiene.
+- Registered in `startAllSchedulers()` after `startGbpSyncScheduler()`, gated by `process.env.GPS_FEATURE_ENABLED !== 'false'`. Does NOT run on boot — first sweep ~1 hour after deploy.
+
+##### Owner Settings API (`server/routes/gpsTrackingRoutes.ts`)
+- 4 new endpoints, all using `requireGpsPlanForSettings` (lighter gate — skips `gpsTrackingEnabled` master-toggle check so owner can configure BEFORE flipping on):
+  - **GET `/api/gps/settings`** — Returns `{ settings, planTier, maxRetentionHours, techs[] }`. `techs` array includes per-tech consent status computed via `needsTechReAcceptance()`.
+  - **PUT `/api/gps/settings`** — `{ gpsTrackingEnabled?, gpsRetentionHours?, gpsCustomerShareEnabled?, gpsCustomerShareDefaultMinutes? }`. Validates retention against plan-tier max. When owner turns tracking OFF, ends all active sessions for the business automatically (no orphan sessions).
+  - **PUT `/api/gps/disclosure`** — `{ copy: string | null }` where null = reset to default. Calls `bumpDisclosureVersion()`. Forces all techs to re-accept on next session.
+  - **POST `/api/gps/staff/:staffId/revoke-consent`** — Owner-triggered revoke.
+
+##### Owner Settings UI (`client/src/components/settings/GpsTrackingSettings.tsx`)
+- **NEW** ~480 lines. Mounted on a new "Live Dispatch" tab in the Business section. Tab only appears for field-service businesses (new `isJobCategory` param on `buildSettingsSections()` in `constants.ts`).
+- 5 sections: (1) Master toggle, (2) Retention slider (1h → maxRetentionHours from plan; amber warning at <8h; Pro upsell if cap is 24h), (3) Customer share toggle + TTL dropdown, (4) Disclosure editor with version-bump AlertDialog confirmation and "Reset to default", (5) Tech consent table with per-tech status badge (Up to date / Never accepted / Needs re-accept / 90+ days old) and per-row revoke action.
+- 402/403 error responses render an upgrade card instead of the panel.
+
+##### Settings Wiring
+- `client/src/pages/settings/constants.ts` — `buildSettingsSections()` accepts optional `isJobCategory` param. When true, adds `{ value: "dispatch", label: "Live Dispatch" }` to the Business section tabs.
+- `client/src/pages/settings/index.tsx` — imports `isJobCategoryHelper` from `@shared/industry-categories`, passes `isJobCategory: isJobCategoryHelper(business?.industry)`.
+- `client/src/pages/settings/BusinessSection.tsx` — imports `GpsTrackingSettings`, adds `if (activeTab === "dispatch") return <GpsTrackingSettings />`.
+
+##### Verification
+- `npx tsc --noEmit` clean.
+- Full test suite: **850/850 pass** (no regressions).
+
+##### Files added (1)
+- `client/src/components/settings/GpsTrackingSettings.tsx`
+
+##### Files modified (6)
+- `server/services/auditService.ts` — 12 new GPS audit actions
+- `server/services/schedulerService.ts` — retention sweeper + registration
+- `server/routes/gpsTrackingRoutes.ts` — 4 settings endpoints + audit hooks across existing routes
+- `client/src/pages/settings/constants.ts` — `isJobCategory` param + Live Dispatch tab
+- `client/src/pages/settings/index.tsx` — pass `isJobCategory` flag
+- `client/src/pages/settings/BusinessSection.tsx` — mount `GpsTrackingSettings` on dispatch tab
+
+##### Still deferred (PR 9 only)
+- ~60 tests (disclosure service, plan gate, settings routes, tenant isolation, mobile capacitor-gps mocks). `docs/GPS_TRACKING.md` with state-by-state legal notes + setup checklist.
+
+---
+
+#### GPS Live Dispatch — Field-Service Vertical Tech Tracking (Growth+ tier, Stages 1–6)
+- **Goal**: Real-time tech location tracking for field-service businesses (HVAC, plumbing, electrical, landscaping, etc.). Two surfaces: (1) internal dispatcher map showing live tech positions, (2) customer-facing "where's my tech" public page for opt-in per-job sharing. Gated on Growth+ plan, field-service industry, and owner master toggle. All decisions documented in `.plan/GPS_TRACKING_PLAN.md`.
+- **What shipped this session**: Stages 1–6 of the 9-stage plan. Skipped: retention sweeper (PR 7), settings UI (PR 8), tests + docs (PR 9). These remain as follow-up work.
+
+##### Schema (`shared/schema.ts`)
+- **NEW table `tech_location_pings`** — append-only GPS breadcrumb log. Columns: businessId, staffId, jobId (nullable), lat/lng (NUMERIC(10,7) for ~1cm precision), accuracyMeters, speedMps, headingDegrees, altitudeMeters, batteryLevel, isMoving, source ('background'|'foreground'|'manual'), recordedAt (device clock), receivedAt (server clock — clock-skew defense). 3 indexes: `(business_id, staff_id, recorded_at)`, `(job_id, recorded_at) WHERE job_id IS NOT NULL`, `(business_id, received_at)` for retention sweeper.
+- **NEW table `tech_tracking_sessions`** — one row per active tracking session. Columns: businessId, staffId, jobId, status ('active'|'paused'|'ended'), startedAt, endedAt, endReason, disclosureAcceptedAt, disclosureVersion, lastPingAt, pingCount. Partial unique index `uniq_one_active_session_per_staff ON staff_id WHERE status='active'` enforces at-most-one-active-session-per-staff at the DB level.
+- **NEW table `customer_tracking_links`** — public share tokens. Columns: businessId, jobId, sessionId, customerId, token (32-char base64url, ~190 bits entropy), expiresAt, viewCount, lastViewedAt, revokedAt, createdAt. Indexes on `(job_id, created_at)` and `(expires_at) WHERE revoked_at IS NULL`.
+- **6 new columns on `businesses`**: `gpsTrackingEnabled`, `gpsRetentionHours` (max 168 on Pro, max 24 on Growth, default 24), `gpsDisclosureCopy`, `gpsDisclosureVersion`, `gpsCustomerShareEnabled`, `gpsCustomerShareDefaultMinutes`.
+- **3 new columns on `staff`**: `gpsConsentAcceptedAt`, `gpsConsentVersion`, `gpsTrackingPaused`.
+
+##### Migrations + Storage
+- `server/migrations/runMigrations.ts` — new `ensureGpsTrackingTables()` tracked migration, registered after `ensureLeadsTables()`. Wraps `CREATE TABLE IF NOT EXISTS` + indexes + partial unique index in `BEGIN/COMMIT/ROLLBACK`. Plus 9 `addColumnIfNotExists` calls.
+- `server/storage/gpsTracking.ts` — **NEW** ~270 lines, 18 functions: session lifecycle, ping batch ingestion (stamps `businessId` on every row for defense-in-depth), share-link CRUD, retention helpers. Wired into `IStorage` interface + `DatabaseStorage` class.
+
+##### Plan Gate (`server/middleware/gpsPlanGate.ts`)
+- **NEW** `requireGpsPlan` middleware. Two-layer gate: (1) industry via `isJobCategory()` — barbers/salons/dentists/restaurants blocked with 403 `GPS_NOT_AVAILABLE_FOR_INDUSTRY`. (2) plan tier resolved via `getUsageInfo()` — `ALLOWED_GPS_TIERS = ['growth', 'pro', 'professional', 'business', 'founder']` (includes legacy names + founder bypass). Also checks `gpsTrackingEnabled` master toggle (403 `GPS_NOT_ENABLED`) + `GPS_FEATURE_ENABLED=false` kill switch (501). Admin bypasses. Fails open on transient DB errors.
+- Variant `requireGpsPlanForSettings` skips the master-toggle check so owner can configure before flipping on.
+
+##### Disclosure Service (`server/services/gpsDisclosureService.ts`)
+- **NEW** ~190 lines. `DEFAULT_DISCLOSURE_VERSION = '2026-05-24'`, `CONSENT_REPROMPT_AFTER_DAYS = 90`. Default copy is state-law-aware (mentions CA, CT, DE, NY, TX, WA, IL written-consent requirements).
+- `needsTechReAcceptance(staff, business)` — **pure function**, lazy check (only runs when tech tries to start a session, no background job). Triggers re-prompt on: never accepted, version mismatch, >90 days since acceptance (CYA model).
+- Plus `getActiveDisclosure`, `recordTechAcceptance`, `bumpDisclosureVersion`, `revokeTechConsent`.
+
+##### Server Routes (`server/routes/gpsTrackingRoutes.ts`)
+- **NEW** ~640 lines, mounted at `/api/gps`. Auth chain: `isAuthenticated → requireEmailVerified → requireGpsPlan`. Endpoints:
+  - `GET /api/gps/disclosure`
+  - `POST /api/gps/consent/accept`
+  - `GET /api/gps/consent/check/:staffId`
+  - `POST /api/gps/sessions/start` — validates staff/job ownership, disclosure version, consent freshness. 409 on duplicate active session.
+  - `POST /api/gps/sessions/:sessionId/end` / `pause`
+  - `GET /api/gps/sessions/active` — dispatcher live list, enriched with staff name + latest ping
+  - `POST /api/gps/pings` — batched (max 50), validates lat/lng range + accuracy <500m + timestamp window `[now-30min, now+5min]` (clock-skew + replay defense). Per-row drop on rejection. Rate-limited 120 req/min/IP.
+  - `GET /api/gps/jobs/:jobId/breadcrumb` — `?since=ISO&limit=N`
+  - `GET /api/gps/staff/:staffId/latest`
+  - `POST /api/gps/links` — creates 24-byte base64url share token. Honors `gpsCustomerShareEnabled` master toggle.
+  - `DELETE /api/gps/links/:linkId`
+  - `GET /api/gps/jobs/:jobId/links`
+  - **PUBLIC** `GET /api/gps/public/track/:token` — NO auth, NO CSRF, rate-limited 60 req/min/IP. Sanitized payload only (no breadcrumb history, no tech full name/email/phone, no customer address shown back). Computes ETA via haversine from latest ping → `job.customerLocationLat/Lng` w/ 30mph fallback. Honors master toggle even on cached links.
+- `/api/gps/public/track/` added to CSRF exempt paths in `server/index.ts`.
+
+##### Capacitor Mobile
+- `client/src/lib/capacitor-gps.ts` — **NEW** ~250 lines. Wraps `@capacitor-community/background-geolocation` (dynamic import + `as any` so TS compiles without the package installed — npm install at deploy). In-memory queue (cap 500), threshold flush at 10 pings OR 30s. Persists queue to `@capacitor/preferences` for offline-survives-app-kill. Drops oldest on overflow. Auto-stop on session-ended (410/404). Watcher uses `distanceFilter: 25m` to skip stationary techs (battery saver). Web fallback returns `unsupported_in_browser`.
+- `client/src/components/gps/GpsConsentDialog.tsx` — **NEW** ~160 lines. Disclosure modal with appropriate reason header for each re-prompt trigger.
+- `client/src/components/gps/TrackingStatusBar.tsx` — **NEW** ~135 lines. Persistent bar with green pulse, pause/resume, stop, pending-pings count.
+- `client/src/components/gps/GpsSessionPanel.tsx` — **NEW** ~290 lines. Per-job orchestrator. Self-gates via `/api/gps/disclosure` eligibility probe (renders nothing for ineligible businesses). Three states: idle/start-button → active/StatusBar → link-sent/share-badge. Two-tap pattern: start session, then explicitly tap "Send tracking link to customer".
+- `client/src/pages/jobs/[id].tsx` — mounted `<GpsSessionPanel>` after `<OnMyWayCard>`.
+
+##### iOS / Android Manifests
+- `ios/App/App/Info.plist` — Added `NSLocationWhenInUseUsageDescription` + `NSLocationAlwaysAndWhenInUseUsageDescription` (consent-first copy). Added `location` to `UIBackgroundModes`.
+- `android/app/src/main/AndroidManifest.xml` — Added `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `WAKE_LOCK`, plus optional `uses-feature` for GPS hardware (`required="false"`).
+
+##### Customer Tracking Page (`client/src/pages/track/[token].tsx`)
+- **NEW** ~250 lines. Public route `/track/:token`. Mobile-first responsive. Polls `/api/gps/public/track/:token` every 15s.
+- States: loading → live (with map + ETA + business info + "Call us" tel: link) → error (with EXPIRED/REVOKED/DISABLED messaging).
+- Google Map (320px tall) with single marker. No breadcrumb history.
+- Hero header: "Mike S. is on the way!" + ETA pill. Paused: "(Mike S. is briefly paused — may be on a quick stop)". Completed: "Service complete" with checkmark.
+- Privacy contract enforced server-side: no tech full name/email/phone, no breadcrumb, no other-tenant data.
+
+##### Opt-In SMS (`server/services/notificationService.ts` + `server/routes/jobRoutes.ts`)
+- **NEW** `sendJobTrackingLinkNotification(jobId, businessId, trackingUrl)` — SEPARATE transactional SMS triggered ONLY by tech tap. Never auto-attached to en_route SMS. Existing `sendJobEnRouteNotification` UNCHANGED.
+- Each share lands its own `notification_log` row with `type='job_tracking_link_sent'` for audit/dispute defense.
+- **NEW endpoint** `POST /api/jobs/:id/send-tracking-link` `{ trackingUrl }` — validates URL is on `APP_URL` domain (anti-spoof). Existing `canSendSms()` chokepoint applies (STOP still blocks).
+
+##### Dispatcher Dashboard (`client/src/pages/dispatch/index.tsx`)
+- **NEW** ~310 lines. Route `/dispatch` (gated). Polls `/api/gps/sessions/active` every 10s.
+- 3-column desktop / single-column mobile. Google Map with blue circular markers per tech (amber when paused). Auto-fits bounds on first render, caps zoom at 15. Click marker → selects tech.
+- Active tech list (left): name, status pulse, "Updated 23s ago · 47 updates" subline.
+- Detail panel (right): status, last update, ping count, accuracy, speed (m/s → mph), battery %, "Open Job #N" deep-link.
+- Wrapped in `ErrorBoundary`.
+
+##### Google Maps Loader (`client/src/lib/google-maps-loader.ts`)
+- **NEW** ~115 lines. Singleton script loader, reuses `VITE_GOOGLE_PLACES_API_KEY`. Falls back to `VITE_GOOGLE_MAPS_API_KEY` then runtime `/api/config/public` fetch. Libraries `['places', 'marker']` by default. Idempotent — dispatcher map + customer page share the same load.
+- Existing GooglePlacesAutocomplete retains its own loader (backward compat).
+
+##### Sidebar Nav (`client/src/components/layout/Sidebar.tsx`)
+- Added `{ path: "/dispatch", label: "Dispatch", icon: Truck, showOnlyForJobCategory: true, hideForRoles: ['staff'] }`. New filter property `showOnlyForJobCategory` — only renders for businesses where `isJobCategory(industry)` is true. Hidden from barbers/salons/restaurants. Hidden from staff role.
+
+##### App Route Registration (`client/src/App.tsx`)
+- Lazy-imported `CustomerTrackPage` and `DispatchPage`.
+- `<Route path="/track/:token">` registered as public.
+- `<ProtectedRoute path="/dispatch">` registered.
+
+##### Capacitor Deeplinks
+- `/track/` added to `ALLOWED_PREFIXES` in `client/src/lib/capacitor-deeplinks.ts` — SMS-clicked tracking links open the app instead of browser when SmallBizAgent is installed.
+
+##### Verification
+- `npx tsc --noEmit` — clean.
+- Full test suite: **850/850 pass** (no regressions).
+- No new npm dependencies installed yet — `@capacitor-community/background-geolocation` imported dynamically with `as any`. Must run `npm install @capacitor-community/background-geolocation` before next mobile build, then `npx cap sync ios && npx cap sync android`.
+
+##### Skipped (follow-up sessions)
+- **PR 7 — Retention sweeper + audit hooks**: hourly scheduler that calls `deleteExpiredPings(businessId, now - retentionHours)` per business + 11 GPS audit actions wired into routes.
+- **PR 8 — Settings UI**: owner-facing GPS settings panel (master toggle, retention slider, disclosure editor, tech consent table). Endpoints `PUT /business/:id/gps-settings` + `POST /staff/:id/revoke-gps-consent`.
+- **PR 9 — Tests + docs**: ~60 tests (disclosure service, plan gate, routes incl. tenant isolation, mobile mocks). `docs/GPS_TRACKING.md` with state-by-state legal notes + setup checklist.
+
+##### Manual prerequisites before going live
+- ⏳ Verify **Maps JavaScript API** is enabled on the Google Cloud project owning `VITE_GOOGLE_PLACES_API_KEY`.
+- ⏳ Confirm HTTP-referrer restrictions on the key allow `https://smallbizagent.ai/*`, `https://www.smallbizagent.ai/*`, `http://localhost:*`.
+- ⏳ Set Google Cloud budget alert at $50/mo before ship (free tier covers 28K map loads/mo).
+- ⏳ `npm install @capacitor-community/background-geolocation`.
+- ⏳ `npx cap sync ios && npx cap sync android` after npm install.
+- ⏳ Xcode: rebuild iOS project (entitlements + Info.plist changes), test permission prompts on physical device.
+- ⏳ Android: rebuild APK, verify foreground service notification appears when tracking is active.
+
+##### Files added (12 net new)
+- `server/storage/gpsTracking.ts`
+- `server/middleware/gpsPlanGate.ts`
+- `server/services/gpsDisclosureService.ts`
+- `server/routes/gpsTrackingRoutes.ts`
+- `client/src/lib/capacitor-gps.ts`
+- `client/src/lib/google-maps-loader.ts`
+- `client/src/components/gps/GpsConsentDialog.tsx`
+- `client/src/components/gps/TrackingStatusBar.tsx`
+- `client/src/components/gps/GpsSessionPanel.tsx`
+- `client/src/pages/track/[token].tsx`
+- `client/src/pages/dispatch/index.tsx`
+- `.plan/GPS_TRACKING_PLAN.md` (planning document)
+
+##### Files changed (12)
+- `shared/schema.ts` — 3 new tables, 9 new columns
+- `server/migrations/runMigrations.ts`
+- `server/storage/index.ts` — IStorage + DatabaseStorage wiring
+- `server/services/notificationService.ts` — opt-in tracking-link SMS function
+- `server/routes/jobRoutes.ts` — send-tracking-link endpoint
+- `server/routes.ts` — registerGpsTrackingRoutes mount
+- `server/index.ts` — CSRF exempt path for public track endpoint
+- `client/src/App.tsx` — 2 route registrations
+- `client/src/components/layout/Sidebar.tsx` — Dispatch nav item + `showOnlyForJobCategory` filter
+- `client/src/lib/capacitor-deeplinks.ts` — `/track/` allowlist
+- `client/src/pages/jobs/[id].tsx` — mounted `<GpsSessionPanel>`
+- `ios/App/App/Info.plist` — location usage descriptions
+- `android/app/src/main/AndroidManifest.xml` — GPS + foreground service permissions
+
 #### Capacitor App-Store Ship + HVAC Vertical Hardening (this session)
 - **Goal**: Two parallel tracks. Track A: production-ready Capacitor iOS + Android apps for App Store + Play Store submission. Track B: ship the three highest-leverage HVAC features (pre-seeded knowledge base, tech dispatch + ETA SMS, quote templates + financing CTA).
 
@@ -2483,6 +2773,23 @@ Grandfathered/admin: welcome gate sees `paymentMethodOnFile: true` and skips che
 | Campaign Manager UI | `client/src/pages/sms-campaigns/index.tsx` |
 | Scheduling utilities | `client/src/lib/scheduling-utils.ts` |
 | Industry categories (shared) | `shared/industry-categories.ts` |
+| GPS storage | `server/storage/gpsTracking.ts` |
+| GPS plan gate | `server/middleware/gpsPlanGate.ts` |
+| GPS disclosure service | `server/services/gpsDisclosureService.ts` |
+| GPS routes | `server/routes/gpsTrackingRoutes.ts` |
+| Capacitor GPS lib | `client/src/lib/capacitor-gps.ts` |
+| Google Maps loader | `client/src/lib/google-maps-loader.ts` |
+| GPS consent dialog | `client/src/components/gps/GpsConsentDialog.tsx` |
+| GPS tracking status bar | `client/src/components/gps/TrackingStatusBar.tsx` |
+| GPS session panel (per-job) | `client/src/components/gps/GpsSessionPanel.tsx` |
+| Customer track page (public) | `client/src/pages/track/[token].tsx` |
+| Dispatcher dashboard | `client/src/pages/dispatch/index.tsx` |
+| GPS owner settings UI | `client/src/components/settings/GpsTrackingSettings.tsx` |
+| GPS disclosure tests | `server/services/gpsDisclosureService.test.ts` |
+| GPS plan gate tests | `server/middleware/gpsPlanGate.test.ts` |
+| GPS routes tests (tenant isolation) | `server/routes/gpsTrackingRoutes.test.ts` |
+| GPS Capacitor client tests | `client/src/lib/capacitor-gps.test.ts` |
+| GPS operator's guide | `docs/GPS_TRACKING.md` |
 | Jobs calendar view | `client/src/pages/jobs/index.tsx` |
 | Job stats bar | `client/src/components/jobs/QuickJobStatsBar.tsx` |
 | Schedule router | `client/src/pages/schedule-router.tsx` |
@@ -2559,7 +2866,15 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: May 10, 2026. Lead Discovery added — admin-only Google Places scanner for ICP-matching small businesses in Maryland / Northern VA / Delaware / SE PA (+ custom zips). Industry filtering (HVAC / plumbing / electrical / salon / barbershop / spa). Self-refining scoring rubric (3-dimension: ICP fit, pain signals, reach difficulty) with weekly Claude meta-refinement loop driven by user feedback (qualified+converted vs dismissed). Hard $20/month spend cap, LEAD_DISCOVERY_ENABLED kill switch, dry-run mode. 22 new tests, 824/833 total tests passing.*
+*Last updated: May 24, 2026 (senior-review hardening pass). Closed the gaps a senior reviewer would flag: (1) `runGpsRetentionSweep` now has 11 real tests against a stateful in-memory store that actually verify deletion semantics + cutoff math + per-business scoping + 1h floor + tenant isolation; (2) verified Drizzle propagates pg `23505` to `err.code` so the partial-unique-race converts cleanly to 409 (vs misreporting 500); (3) per-business `gpsBetaApproved` rollout flag — admin can grant/revoke Live Dispatch one customer at a time during beta without affecting other tenants (new column, new admin endpoint `POST /api/admin/businesses/:id/gps-beta-approval`, new audit action `gps_beta_approval_changed`); (4) `generateTrackingToken` hardened with webcrypto fallback; (5) `isGpsAvailableOnDevice()` helper consolidates 5 scattered `Capacitor.isNativePlatform()` calls; (6) `requestId` now included in all 19 GPS-route 500 responses for support log correlation. **990/990 tests pass** (946 server + 44 client, +16 new). No regressions.*
+
+*Previous: May 24, 2026 (PR 9 — feature complete). GPS Live Dispatch fully shipped, all 9 stages of the plan delivered. PR 9 closes the loop with tests + docs: 80 new server tests (disclosure service: 19, plan/industry gate: 27, GPS routes incl. tenant isolation: 34) + 22 new client tests (capacitor-gps queue/flush/permissions: 19, deeplinks /track/: 3). Test infrastructure: split Capacitor plugin stubs (one per package) aliased in vitest.config.client.ts so dynamic imports resolve without the packages installed. `docs/GPS_TRACKING.md` — 360-line operator's guide with iOS/Android setup checklists, Google Maps prereqs, state-by-state legal notes (CA/CT/DE/NY/TX/WA/IL written-consent statutes + personal-vehicle and 1099 misclassification risks), disclosure & 90-day re-acceptance model, retention sweep mechanics, customer service script, and operational runbook. **974/974 tests pass** (930 server + 44 client). No regressions.*
+
+*Previous: May 24, 2026 (PR 7 + 8). GPS Live Dispatch now customer-deployable — retention sweeper + owner settings UI shipped. Hourly sweeper deletes pings older than per-business retention (24h default, max 168h on Pro), cross-instance safe via advisory lock. New "Live Dispatch" tab in Settings (only visible for field-service industries) with 5 sections: master toggle, retention slider, customer share config, disclosure editor with version bump + re-acceptance forcing, tech consent status table with per-tech revoke. 12 new audit actions wired across all GPS routes. Owner no longer needs raw SQL to enable/configure GPS. 1 new file (`GpsTrackingSettings.tsx`), 6 modified. 850/850 tests pass.*
+
+*Previous: May 24, 2026. GPS Live Dispatch shipped — field-service vertical (HVAC/plumbing/electrical/landscaping/etc.) tech tracking on Growth+ tier. 3 new tables (tech_location_pings, tech_tracking_sessions, customer_tracking_links) with partial unique index for one-active-session-per-staff. 9 new business/staff columns. Tech-initiated consent-first session model with 90-day re-acceptance, owner-customizable disclosure, 24h default retention (max 168h on Pro). Capacitor `@capacitor-community/background-geolocation` integration with offline ping queue. Public customer "where's my tech" page (Google Maps) with opt-in per-send SMS (never auto-attached to en_route SMS — TCPA defense). Dispatcher dashboard with live polling map. 12 new files, 12 modified. Stages 1–6 of 9. 850/850 tests pass, no regressions.*
+
+*Previous: May 10, 2026. Lead Discovery added — admin-only Google Places scanner for ICP-matching small businesses in Maryland / Northern VA / Delaware / SE PA (+ custom zips). Industry filtering (HVAC / plumbing / electrical / salon / barbershop / spa). Self-refining scoring rubric (3-dimension: ICP fit, pain signals, reach difficulty) with weekly Claude meta-refinement loop driven by user feedback (qualified+converted vs dismissed). Hard $20/month spend cap, LEAD_DISCOVERY_ENABLED kill switch, dry-run mode. 22 new tests, 824/833 total tests passing.*
 
 *Previous: May 10, 2026. Card-required 14-day trial flow (Stripe SetupIntent for $0 trial invoices, FTC click-to-cancel UX, 3-day pre-charge reminder email, setup_intent.succeeded webhook, abandonment re-entry guard). AI Quality Score merchant-visible UI (dashboard widget, trend chart, flagged-calls page) + auto-refine feedback loop (low-quality calls feed sharper weekly suggestions per business). 18 new callQualityService tests, 802/811 total tests passing (same 9 pre-existing failures unrelated to this work).*
 

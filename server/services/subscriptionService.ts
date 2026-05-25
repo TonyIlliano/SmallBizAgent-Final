@@ -470,6 +470,40 @@ export class SubscriptionService {
 
         console.log(`Business ${businessId} subscribed to ${planRecord.name} (${subscription.status}${trialDays ? `, ${trialDays}-day trial` : ''})`);
 
+        // PostHog: subscription_started event — fires once per business when a
+        // Stripe subscription is first created (covers both trialing and immediate-paid).
+        void (async () => {
+          try {
+            const { capture, groupIdentify } = await import('./posthogService');
+            const { users } = await import('@shared/schema');
+            const [u] = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.businessId, businessId))
+              .limit(1);
+            if (u?.id) {
+              capture(String(u.id), 'subscription_started', {
+                business_id: businessId,
+                plan_id: planId,
+                plan_name: planRecord.name,
+                plan_tier: planRecord.planTier,
+                price_usd: Number(planRecord.price),
+                trial_days: trialDays,
+                is_trial: subscription.status === 'trialing',
+                stripe_subscription_id: subscription.id,
+              }, { business: String(businessId) });
+              groupIdentify(businessId, {
+                plan_name: planRecord.name,
+                plan_tier: planRecord.planTier,
+                subscription_status: subscription.status,
+                subscription_started_at: new Date().toISOString(),
+              });
+            }
+          } catch (err) {
+            console.error('[PostHog] subscription_started capture failed:', err);
+          }
+        })();
+
         // ── Resolve clientSecret for the frontend ───────────────────────
         // Two cases:
         //   1) Trial subscription — first invoice is $0, no PaymentIntent.
@@ -922,6 +956,52 @@ export class SubscriptionService {
           welcomeErr?.message || welcomeErr,
         );
       }
+
+      // PostHog: capture card_saved event. Critical step in the trial funnel
+      // — between this and business_created we'll see if onboarding is leaking.
+      void (async () => {
+        try {
+          const { capture } = await import('./posthogService');
+          const { users } = await import('@shared/schema');
+          // Find the user via two paths:
+          //  1. card-first flow: setup_intent was created before the business
+          //     existed, so we look up the user via users.stripeCustomerId.
+          //  2. legacy / mid-trial flow: business already exists with this customer.
+          const [userByStripeCust] = await db
+            .select({ id: users.id, businessId: users.businessId })
+            .from(users)
+            .where(eq(users.stripeCustomerId, customerId))
+            .limit(1);
+          let userId = userByStripeCust?.id;
+          let businessId = userByStripeCust?.businessId;
+          if (!userId) {
+            const [biz] = await db
+              .select({ id: businesses.id })
+              .from(businesses)
+              .where(eq(businesses.stripeCustomerId, customerId))
+              .limit(1);
+            if (biz?.id) {
+              businessId = biz.id;
+              const [u] = await db
+                .select({ id: users.id })
+                .from(users)
+                .where(eq(users.businessId, biz.id))
+                .limit(1);
+              userId = u?.id;
+            }
+          }
+          if (userId) {
+            capture(String(userId), 'card_saved', {
+              business_id: businessId ?? null,
+              stripe_customer_id: customerId,
+              subscription_id: subscriptionId ?? null,
+              purpose,
+            }, businessId ? { business: String(businessId) } : undefined);
+          }
+        } catch (err) {
+          console.error('[PostHog] card_saved capture failed:', err);
+        }
+      })();
     } catch (error) {
       console.error('Error handling setup_intent.succeeded:', error);
       // Don't throw — Stripe will retry but this is best-effort. The customer
@@ -1004,6 +1084,33 @@ export class SubscriptionService {
           console.error(`Failed to deprovision business ${business[0].id} after subscription cancellation:`, deprovErr);
         }
       }
+
+      // PostHog: subscription_canceled is the top-line churn metric.
+      void (async () => {
+        try {
+          const { capture, groupIdentify } = await import('./posthogService');
+          const { users } = await import('@shared/schema');
+          const [u] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.businessId, business[0].id))
+            .limit(1);
+          if (u?.id) {
+            capture(String(u.id), 'subscription_canceled', {
+              business_id: business[0].id,
+              business_name: business[0].name,
+              stripe_subscription_id: subscription.id,
+              cancellation_reason: subscription.cancellation_details?.reason ?? null,
+            }, { business: String(business[0].id) });
+            groupIdentify(business[0].id, {
+              subscription_status: 'free',
+              canceled_at: new Date().toISOString(),
+            });
+          }
+        } catch (err) {
+          console.error('[PostHog] subscription_canceled capture failed:', err);
+        }
+      })();
     } catch (error) {
       console.error('Error handling subscription canceled:', error);
       throw error;
@@ -1110,6 +1217,49 @@ export class SubscriptionService {
             }
           }
         }
+
+        // PostHog: invoice_paid event. We tag whether this is the first-ever
+        // paid invoice for the business (the key activation milestone — proves
+        // the trial converted to revenue). Subsequent invoices are also tagged
+        // so we can build MRR-style funnels.
+        void (async () => {
+          try {
+            const { capture, groupIdentify } = await import('./posthogService');
+            const { users } = await import('@shared/schema');
+            if (!business) return;
+            const [u] = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.businessId, business.id))
+              .limit(1);
+            if (!u?.id) return;
+            const isFirstInvoice =
+              invoice.amount_paid > 0 && !business.subscriptionStartDate;
+            const amountDollars = (invoice.amount_paid || 0) / 100;
+            capture(String(u.id), 'invoice_paid', {
+              business_id: business.id,
+              business_name: business.name,
+              amount_usd: amountDollars,
+              currency: invoice.currency,
+              stripe_invoice_id: invoice.id,
+              is_first_invoice: isFirstInvoice,
+              previous_status: business.subscriptionStatus,
+            }, { business: String(business.id) });
+            if (isFirstInvoice) {
+              capture(String(u.id), 'first_invoice_paid', {
+                business_id: business.id,
+                amount_usd: amountDollars,
+              }, { business: String(business.id) });
+            }
+            groupIdentify(business.id, {
+              subscription_status: 'active',
+              last_payment_at: new Date().toISOString(),
+              last_payment_usd: amountDollars,
+            });
+          } catch (err) {
+            console.error('[PostHog] invoice_paid capture failed:', err);
+          }
+        })();
       }
     } catch (error) {
       console.error('Error handling invoice payment succeeded:', error);

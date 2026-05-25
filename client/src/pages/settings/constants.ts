@@ -124,10 +124,12 @@ export function buildSettingsSections({
   isRestaurant,
   hasPOS,
   isAdmin,
+  isJobCategory,
 }: {
   isRestaurant: boolean;
   hasPOS: boolean;
   isAdmin: boolean;
+  isJobCategory?: boolean;
 }): SettingsSection[] {
   return [
     {
@@ -138,6 +140,8 @@ export function buildSettingsSections({
         ...(!isRestaurant ? [{ value: "services", label: "Services" }] : []),
         { value: "team", label: "Team" },
         ...(!isRestaurant ? [{ value: "booking", label: "Booking" }] : []),
+        // Live Dispatch — only field-service verticals (HVAC, plumbing, etc.)
+        ...(isJobCategory ? [{ value: "dispatch", label: "Live Dispatch" }] : []),
       ],
     },
     {

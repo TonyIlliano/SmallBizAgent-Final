@@ -798,6 +798,59 @@ export async function sendJobEnRouteNotification(jobId: number, businessId: numb
   }
 }
 
+/**
+ * Send the opt-in customer-facing tracking link SMS.
+ *
+ * This is a SEPARATE transactional message from sendJobEnRouteNotification —
+ * it is ONLY triggered when a tech explicitly taps "Send tracking link to
+ * customer" on the OnMyWayCard. Never auto-attached to the en_route SMS.
+ *
+ * Per-send audit: every share lands its own notification_log row with
+ * type='job_tracking_link_sent', making it trivial to answer "did we share
+ * location with this customer?" in a dispute. Existing canSendSms() chokepoint
+ * applies so customers who texted STOP won't receive it.
+ */
+export async function sendJobTrackingLinkNotification(
+  jobId: number,
+  businessId: number,
+  trackingUrl: string
+) {
+  try {
+    if (await isFreeBusiness(businessId)) return;
+
+    const job = await storage.getJob(jobId);
+    if (!job) return;
+    const customer = await storage.getCustomer(job.customerId);
+    if (!customer || !canSendSms(customer)) return;
+    const business = await storage.getBusiness(businessId);
+    if (!business) return;
+
+    const staff = job.staffId ? await storage.getStaffMember(job.staffId) : null;
+    const techName = staff
+      ? `${staff.firstName}${staff.lastName ? ' ' + staff.lastName[0] + '.' : ''}`
+      : 'your technician';
+
+    const message =
+      `Track ${techName}'s live location: ${trackingUrl} ` +
+      `Link expires in 4 hours. - ${business.name}`;
+
+    await twilioService.sendSms(customer.phone, message, undefined, businessId);
+    await storage.createNotificationLog({
+      businessId,
+      customerId: customer.id,
+      type: 'job_tracking_link_sent',
+      channel: 'sms',
+      recipient: customer.phone,
+      message,
+      status: 'sent',
+      referenceType: 'job',
+      referenceId: jobId,
+    });
+  } catch (error) {
+    console.error(`Error in sendJobTrackingLinkNotification for job ${jobId}:`, error);
+  }
+}
+
 export async function sendJobWaitingPartsNotification(jobId: number, businessId: number) {
   try {
     // Free tier gate — short-circuit all customer-facing notifications
@@ -1339,4 +1392,5 @@ export default {
   sendQuoteFollowUpNotification,
   sendReservationConfirmation,
   sendSmsOptInWelcome,
+  sendJobTrackingLinkNotification,
 };

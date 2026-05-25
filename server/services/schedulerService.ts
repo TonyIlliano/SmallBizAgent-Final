@@ -1762,6 +1762,83 @@ export function startGbpSyncScheduler(): void {
   console.log('[Scheduler] GBP sync scheduler started (24h interval)');
 }
 
+// ── GPS Live Dispatch retention sweeper ───────────────────────────────────
+
+/**
+ * Hourly retention sweeper for GPS data.
+ *
+ * For each business with `gpsTrackingEnabled = true`:
+ *   - Deletes pings where received_at < now - gps_retention_hours
+ *   (24h default, max 168h on Pro tier)
+ *
+ * Plus globally:
+ *   - Deletes revoked tracking links older than 24h
+ *   - Deletes expired tracking links older than 24h (grace period for audit)
+ *
+ * Wrapped in withReentryGuard + withAdvisoryLock (cross-instance safe) +
+ * withTimeout (5 min cap). Per-business loop has try/catch so one bad
+ * business doesn't abort the sweep.
+ */
+export async function runGpsRetentionSweep(): Promise<void> {
+  try {
+    const businesses = await storage.getAllBusinesses();
+    let totalPings = 0;
+    let businessesSwept = 0;
+    let errors = 0;
+
+    for (const biz of businesses) {
+      if (!biz.gpsTrackingEnabled) continue;
+      const retentionHours = biz.gpsRetentionHours ?? 24;
+      // Floor protection — never delete pings less than 1h old even if owner
+      // mis-configures retention to 0 somehow.
+      const safeHours = Math.max(1, retentionHours);
+      const cutoff = new Date(Date.now() - safeHours * 60 * 60 * 1000);
+      try {
+        const deleted = await storage.deleteExpiredPings(biz.id, cutoff);
+        totalPings += deleted;
+        businessesSwept++;
+        if (deleted > 0) {
+          console.log(`[GPS Retention] Business ${biz.id}: deleted ${deleted} pings older than ${cutoff.toISOString()} (${safeHours}h retention)`);
+        }
+      } catch (err) {
+        errors++;
+        console.error(`[GPS Retention] Failed to sweep business ${biz.id}:`, err);
+      }
+    }
+
+    let linksDeleted = 0;
+    try {
+      linksDeleted = await storage.deleteExpiredLinks();
+    } catch (err) {
+      errors++;
+      console.error('[GPS Retention] Failed to delete expired links:', err);
+    }
+
+    console.log(`[GPS Retention] Sweep complete — ${businessesSwept} businesses, ${totalPings} pings, ${linksDeleted} links, ${errors} errors`);
+  } catch (err) {
+    console.error('[GPS Retention] Sweep failed:', err);
+  }
+}
+
+export function startGpsRetentionSweeper(): void {
+  const jobKey = 'gps-retention-sweeper';
+  if (scheduledJobs.has(jobKey)) return;
+
+  // Hourly. Don't run immediately on boot — let first scheduler tick happen
+  // ~1 hour after deploy so we don't compete with boot-time DB pressure.
+  const intervalMs = 60 * 60 * 1000;
+  const intervalId = setInterval(async () => {
+    await withReentryGuard(jobKey, () =>
+      withAdvisoryLock(jobKey, () =>
+        withTimeout(runGpsRetentionSweep, 5 * 60 * 1000, jobKey)
+      )
+    ).catch(err => console.error('[Scheduler] gps-retention-sweeper error:', err));
+  }, intervalMs);
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log('[Scheduler] GPS retention sweeper started (1h interval)');
+}
+
 // ── SMS Intelligence Layer Schedulers ──────────────────────────────────────
 
 /**
@@ -1988,6 +2065,11 @@ export async function startAllSchedulers(): Promise<void> {
 
     // Start GBP sync (syncs business info + reviews from Google Business Profile every 24h)
     startGbpSyncScheduler();
+
+    // Start GPS retention sweeper (hourly; deletes pings older than business.gpsRetentionHours)
+    if (process.env.GPS_FEATURE_ENABLED !== 'false') {
+      startGpsRetentionSweeper();
+    }
 
     // Start SMS Intelligence Layer schedulers
     startMarketingTriggerProcessor();
@@ -2248,6 +2330,8 @@ export default {
   startMorningBriefScheduler,
   startAdminDigestScheduler,
   startGbpSyncScheduler,
+  startGpsRetentionSweeper,
+  runGpsRetentionSweep,
   startWeeklyReportScheduler,
   startWorkflowStepProcessor,
   startAllSchedulers,

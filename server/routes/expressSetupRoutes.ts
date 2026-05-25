@@ -351,6 +351,29 @@ export function registerExpressSetupRoutes(app: Express) {
 
         console.log(`[ExpressSetup] Business created: id=${business.id}`);
 
+        // PostHog: business_created — the activation moment. Every prior funnel
+        // step (signup → verify → plan → card) leads here.
+        void (async () => {
+          try {
+            const { capture, groupIdentify } = await import('../services/posthogService');
+            capture(String(userId), 'business_created', {
+              business_id: business.id,
+              business_name: name,
+              industry,
+              source: 'express_onboarding',
+              has_address: !!(address && city && state && zipCode),
+            }, { business: String(business.id) });
+            groupIdentify(business.id, {
+              name,
+              industry,
+              created_at: new Date().toISOString(),
+              source: 'express_onboarding',
+            });
+          } catch (err) {
+            console.error('[PostHog] business_created capture failed:', err);
+          }
+        })();
+
         // -----------------------------------------------------------------
         // 3. Link user to business
         // -----------------------------------------------------------------
@@ -494,6 +517,27 @@ export function registerExpressSetupRoutes(app: Express) {
             error: provErr?.message || String(provErr),
           };
         }
+
+        // PostHog: business_provisioned — captures both successful AND failed
+        // outcomes so we can spot a rising provisioning failure rate before
+        // customers complain. Distinguishes Twilio vs Retell failures.
+        void (async () => {
+          try {
+            const { capture } = await import('../services/posthogService');
+            capture(String(userId), 'business_provisioned', {
+              business_id: business.id,
+              success: provisioningResult.success === true,
+              twilio_success: !provisioningResult.twilioError,
+              retell_success: !provisioningResult.retellError,
+              twilio_rollback: !!provisioningResult.twilioRolledBack,
+              twilio_rollback_failed: !!provisioningResult.twilioRollbackFailed,
+              error: provisioningResult.error ?? null,
+              area_code: preferredAreaCode,
+            }, { business: String(business.id) });
+          } catch (err) {
+            console.error('[PostHog] business_provisioned capture failed:', err);
+          }
+        })();
 
         // -----------------------------------------------------------------
         // 7.5. Card-required trial flow: if the user picked a plan on the

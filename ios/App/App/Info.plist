@@ -55,9 +55,14 @@
 	<string>SmallBizAgent can save job photos to your library as a backup.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SmallBizAgent uses the microphone for voice-to-notes dictation when completing jobs.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SmallBizAgent uses your location to coordinate dispatch and send accurate ETAs to customers. Tracking only runs when you start a session.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>SmallBizAgent continues tracking your location while you're on a job, even when the app is in the background. You can pause or stop tracking from your device at any time.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>location</string>
 	</array>
 	<key>CFBundleURLTypes</key>
 	<array>

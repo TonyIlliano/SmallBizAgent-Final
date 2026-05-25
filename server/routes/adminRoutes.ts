@@ -1250,6 +1250,53 @@ router.post("/api/admin/businesses/:id/extend-trial", isAdmin, async (req: Reque
   }
 });
 
+/**
+ * POST /api/admin/businesses/:id/gps-beta-approval
+ * Body: { approved: boolean }
+ *
+ * Phased rollout for GPS Live Dispatch. While the feature is in limited beta,
+ * each business must be individually approved by the platform admin before
+ * `requireGpsPlan` lets them through. Flipping back to false yanks access
+ * without affecting other tenants — useful if a customer reports a bug.
+ */
+router.post("/api/admin/businesses/:id/gps-beta-approval", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const businessId = parseInt(req.params.id);
+    if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+
+    const { approved } = req.body as { approved?: unknown };
+    if (typeof approved !== 'boolean') {
+      return res.status(400).json({ error: "Body must include { approved: boolean }" });
+    }
+
+    const business = await storage.getBusiness(businessId);
+    if (!business) return res.status(404).json({ error: "Business not found" });
+
+    const previousValue = (business as any).gpsBetaApproved ?? false;
+    if (previousValue === approved) {
+      // No-op — return current state without writing or logging
+      return res.json({ success: true, business: business.name, gpsBetaApproved: approved, changed: false });
+    }
+
+    await storage.updateBusiness(businessId, { gpsBetaApproved: approved } as any);
+
+    logAudit({
+      userId: (req.user as any).id,
+      businessId,
+      action: 'gps_beta_approval_changed',
+      resource: 'business',
+      resourceId: businessId,
+      details: { businessName: business.name, from: previousValue, to: approved },
+      ...getRequestContext(req),
+    });
+    console.log(`[Admin] GPS beta approval ${approved ? 'GRANTED to' : 'REVOKED from'} business ${businessId} (${business.name})`);
+    res.json({ success: true, business: business.name, gpsBetaApproved: approved, changed: true });
+  } catch (error: any) {
+    console.error("[Admin] GPS beta approval error:", error);
+    res.status(500).json({ error: "Failed to update GPS beta approval", details: error.message });
+  }
+});
+
 // ============================================================
 // MONITORING — Failed payments, provisioning failures, alerts
 // ============================================================

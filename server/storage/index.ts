@@ -55,6 +55,9 @@ import {
   SmsActivityFeedEntry, InsertSmsActivityFeed,
   Workflow, InsertWorkflow,
   WorkflowRun, InsertWorkflowRun,
+  TechLocationPing, InsertTechLocationPing,
+  TechTrackingSession, InsertTechTrackingSession,
+  CustomerTrackingLink, InsertCustomerTrackingLink,
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -71,6 +74,7 @@ import * as businessFns from "./business";
 import * as integrationFns from "./integrations";
 import * as smsFns from "./sms-intelligence";
 import * as workflowFns from "./workflows";
+import * as gpsFns from "./gpsTracking";
 
 /**
  * Normalize a phone number to digits-only for comparison.
@@ -512,6 +516,29 @@ export interface IStorage {
   getActiveRunsForCustomer(customerId: number, businessId: number, workflowId?: number): Promise<WorkflowRun[]>;
   getDueWorkflowRuns(limit?: number): Promise<WorkflowRun[]>;
   cancelWorkflowRunsForCustomer(businessId: number, customerId: number, reason: string): Promise<number>;
+
+  // GPS Live Dispatch — sessions
+  createTrackingSession(data: InsertTechTrackingSession): Promise<TechTrackingSession>;
+  getActiveSessionByStaff(staffId: number, businessId: number): Promise<TechTrackingSession | undefined>;
+  getTrackingSession(sessionId: number, businessId: number): Promise<TechTrackingSession | undefined>;
+  getActiveSessionsByBusiness(businessId: number): Promise<TechTrackingSession[]>;
+  endTrackingSession(sessionId: number, businessId: number, reason: string): Promise<TechTrackingSession | undefined>;
+  pauseTrackingSession(sessionId: number, businessId: number, paused: boolean): Promise<TechTrackingSession | undefined>;
+  updateSessionPingMeta(sessionId: number, businessId: number, lastPingAt: Date, increment: number): Promise<void>;
+  // GPS Live Dispatch — pings
+  createLocationPings(businessId: number, pings: InsertTechLocationPing[]): Promise<number>;
+  getPingsForJob(jobId: number, businessId: number, opts?: { limit?: number; since?: Date }): Promise<TechLocationPing[]>;
+  getPingsForSession(sessionId: number, businessId: number, opts?: { limit?: number; since?: Date }): Promise<TechLocationPing[]>;
+  getLatestPingByStaff(staffId: number, businessId: number): Promise<TechLocationPing | undefined>;
+  // GPS Live Dispatch — customer share links
+  createTrackingLink(data: InsertCustomerTrackingLink): Promise<CustomerTrackingLink>;
+  getTrackingLinkByToken(token: string): Promise<CustomerTrackingLink | undefined>;
+  incrementTrackingLinkViews(linkId: number): Promise<void>;
+  revokeTrackingLink(linkId: number, businessId: number): Promise<void>;
+  getActiveTrackingLinksForJob(jobId: number, businessId: number): Promise<CustomerTrackingLink[]>;
+  // GPS Live Dispatch — retention
+  deleteExpiredPings(businessId: number, cutoff: Date): Promise<number>;
+  deleteExpiredLinks(): Promise<number>;
 }
 
 // Database storage implementation — delegates to domain modules
@@ -879,6 +906,26 @@ export class DatabaseStorage implements IStorage {
   getActiveRunsForCustomer = workflowFns.getActiveRunsForCustomer;
   getDueWorkflowRuns = workflowFns.getDueWorkflowRuns;
   cancelWorkflowRunsForCustomer = workflowFns.cancelWorkflowRunsForCustomer;
+
+  // --- GPS Live Dispatch (gpsTracking.ts) ---
+  createTrackingSession = gpsFns.createTrackingSession;
+  getActiveSessionByStaff = gpsFns.getActiveSessionByStaff;
+  getTrackingSession = gpsFns.getTrackingSession;
+  getActiveSessionsByBusiness = gpsFns.getActiveSessionsByBusiness;
+  endTrackingSession = gpsFns.endTrackingSession;
+  pauseTrackingSession = gpsFns.pauseTrackingSession;
+  updateSessionPingMeta = gpsFns.updateSessionPingMeta;
+  createLocationPings = gpsFns.createLocationPings;
+  getPingsForJob = gpsFns.getPingsForJob;
+  getPingsForSession = gpsFns.getPingsForSession;
+  getLatestPingByStaff = gpsFns.getLatestPingByStaff;
+  createTrackingLink = gpsFns.createTrackingLink;
+  getTrackingLinkByToken = gpsFns.getTrackingLinkByToken;
+  incrementTrackingLinkViews = gpsFns.incrementTrackingLinkViews;
+  revokeTrackingLink = gpsFns.revokeTrackingLink;
+  getActiveTrackingLinksForJob = gpsFns.getActiveTrackingLinksForJob;
+  deleteExpiredPings = gpsFns.deleteExpiredPings;
+  deleteExpiredLinks = gpsFns.deleteExpiredLinks;
 }
 
 // Export an instance of DatabaseStorage for use in the application
