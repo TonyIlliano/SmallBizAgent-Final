@@ -47,6 +47,27 @@ interface ActiveSession {
   } | null;
 }
 
+/**
+ * Eligibility codes returned by requireGpsPlan / requireGpsPlanForSettings.
+ * Render an upgrade card per code instead of the full dispatcher UI when
+ * any of these fires — saves Google Maps quota AND gives the customer
+ * actionable copy.
+ */
+type GateCode =
+  | 'GPS_PLAN_REQUIRED'              // 402 — wrong plan tier
+  | 'GPS_NOT_AVAILABLE_FOR_INDUSTRY' // 403 — barbers/salons/restaurants
+  | 'GPS_BETA_NOT_APPROVED'          // 403 — admin hasn't opted in
+  | 'GPS_NOT_ENABLED'                // 403 — owner hasn't flipped master toggle
+  | 'GPS_FEATURE_DISABLED'           // 501 — env kill switch
+  | 'UNKNOWN';
+
+interface GateInfo {
+  code: GateCode;
+  message: string;
+  upgradeUrl?: string;
+  settingsUrl?: string;
+}
+
 const POLL_INTERVAL_MS = 10_000;
 
 export default function DispatchPage() {
@@ -61,31 +82,81 @@ function DispatchPageInner() {
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState<string | null>(null);
+  const [gate, setGate] = useState<GateInfo | null>(null);
 
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<Map<number, google.maps.Marker>>(new Map());
 
   // ── Active sessions polling ─────────────────────────────────────────
+  // Doubles as our eligibility probe: if the plan/industry/beta gate fires,
+  // the query throws and we surface a structured upgrade card. The map +
+  // rails stay UNRENDERED in that case so we don't waste Google Maps quota.
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['gps-active-sessions'],
     queryFn: async () => {
-      const r = await apiRequest('GET', '/api/gps/sessions/active');
+      let r: Response;
+      try {
+        r = await apiRequest('GET', '/api/gps/sessions/active');
+      } catch (e: any) {
+        // apiRequest throws on non-2xx. Format is typically
+        // "402: { ... json ... }" or just a message. Extract the JSON body
+        // from the first `{` to the last `}` so we can read body.code.
+        const msg = String(e?.message ?? '');
+        const firstBrace = msg.indexOf('{');
+        const lastBrace = msg.lastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+          try {
+            const body = JSON.parse(msg.slice(firstBrace, lastBrace + 1));
+            if (body?.code) {
+              setGate({
+                code: body.code as GateCode,
+                message: body.message || body.error || 'Live Dispatch is not available.',
+                upgradeUrl: body.upgradeUrl,
+                settingsUrl: body.settingsUrl,
+              });
+            } else {
+              setGate({ code: 'UNKNOWN', message: body.error || msg });
+            }
+          } catch {
+            setGate({ code: 'UNKNOWN', message: msg });
+          }
+        } else {
+          setGate({ code: 'UNKNOWN', message: msg });
+        }
+        throw e;
+      }
+
       if (!r.ok) {
+        // Defensive — apiRequest should have thrown already, but handle it.
         const body = await r.json().catch(() => ({}));
+        setGate({
+          code: (body?.code as GateCode) || 'UNKNOWN',
+          message: body?.message || body?.error || `HTTP ${r.status}`,
+          upgradeUrl: body?.upgradeUrl,
+          settingsUrl: body?.settingsUrl,
+        });
         throw new Error(body.message || body.error || `HTTP ${r.status}`);
       }
+
+      setGate(null); // Clear any prior gate on successful response
       return (await r.json()) as { sessions: ActiveSession[] };
     },
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: gate ? false : POLL_INTERVAL_MS, // Stop polling once gated
     staleTime: 5000,
     retry: false,
   });
 
   const sessions = data?.sessions ?? [];
+  const isGated = !!gate;
 
   // ── Load Google Maps ────────────────────────────────────────────────
+  // Skip the script load if we know we're gated — saves Google Maps quota
+  // and avoids a blank gray rectangle on the upgrade screen. Once the gate
+  // clears (e.g., admin approves the business), the page will rerender and
+  // this effect will kick in to load the script.
   useEffect(() => {
+    if (isGated) return;
     let cancelled = false;
     (async () => {
       try {
@@ -101,7 +172,7 @@ function DispatchPageInner() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [isGated]);
 
   // ── Initialize map ───────────────────────────────────────────────────
   useEffect(() => {
@@ -206,6 +277,22 @@ function DispatchPageInner() {
     : null;
 
   // ── Render ──────────────────────────────────────────────────────────
+  // GATED PATH — show only the header + upgrade card. Don't render the
+  // map (saves Google Maps quota) or the rails (no data anyway).
+  if (isGated) {
+    return (
+      <div className="flex flex-col gap-3 p-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Live Dispatch</h1>
+          <p className="text-sm text-muted-foreground">
+            Real-time tech tracking + customer "where's my tech" page
+          </p>
+        </div>
+        <GateCard gate={gate!} onRetry={() => { setGate(null); refetch(); }} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] gap-3 p-4">
       {/* Header */}
@@ -222,7 +309,7 @@ function DispatchPageInner() {
         </Button>
       </div>
 
-      {isError && (
+      {isError && !isGated && (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-3 flex items-center gap-2">
             <AlertCircle className="h-4 w-4 text-amber-600 flex-none" />
@@ -353,6 +440,77 @@ function DispatchPageInner() {
         </Card>
       </div>
     </div>
+  );
+}
+
+/**
+ * Upgrade card shown when the eligibility probe returns a gate code.
+ * Each code gets tailored copy so the customer knows what to do.
+ */
+function GateCard({ gate, onRetry }: { gate: GateInfo; onRetry: () => void }) {
+  const { title, body, cta } = (() => {
+    switch (gate.code) {
+      case 'GPS_PLAN_REQUIRED':
+        return {
+          title: 'Live Dispatch requires a Growth plan or higher',
+          body: 'Real-time GPS tracking + the customer "where\'s my tech" page are available on Growth ($299/mo) and Pro ($449/mo). Both tiers include 24-hour retention; Pro extends it to 7 days.',
+          cta: { label: 'View plans', href: gate.upgradeUrl || '/settings?tab=subscription' },
+        };
+      case 'GPS_NOT_AVAILABLE_FOR_INDUSTRY':
+        return {
+          title: 'Live Dispatch is for field-service businesses',
+          body: 'This feature is built for HVAC, plumbing, electrical, landscaping, construction, pest control, roofing, and painting businesses where techs travel to job sites. It is not available for chair-based or office-visit verticals.',
+          cta: null,
+        };
+      case 'GPS_BETA_NOT_APPROVED':
+        return {
+          title: 'Live Dispatch is in limited beta',
+          body: 'We\'re rolling this feature out one customer at a time during beta. Contact support to request access for your business.',
+          cta: { label: 'Contact support', href: 'mailto:support@smallbizagent.ai?subject=Live%20Dispatch%20beta%20access' },
+        };
+      case 'GPS_NOT_ENABLED':
+        return {
+          title: 'Live Dispatch is not enabled yet',
+          body: 'Turn it on in Settings → Business → Live Dispatch. Once enabled, your techs can start sharing their location on each job.',
+          cta: { label: 'Open Settings', href: gate.settingsUrl || '/settings?tab=dispatch' },
+        };
+      case 'GPS_FEATURE_DISABLED':
+        return {
+          title: 'Live Dispatch is temporarily unavailable',
+          body: 'The feature has been disabled platform-wide for maintenance. Please check back shortly.',
+          cta: null,
+        };
+      default:
+        return {
+          title: 'Could not load Live Dispatch',
+          body: gate.message || 'Something went wrong. Please try again.',
+          cta: { label: 'Try again', onClick: onRetry },
+        };
+    }
+  })();
+
+  return (
+    <Card className="border-blue-200 bg-blue-50/40 max-w-2xl">
+      <CardContent className="p-6 space-y-3">
+        <div className="flex items-start gap-3">
+          <MapPin className="h-5 w-5 text-blue-600 flex-none mt-0.5" />
+          <div className="space-y-2">
+            <h2 className="font-semibold text-lg">{title}</h2>
+            <p className="text-sm text-muted-foreground">{body}</p>
+            {cta && 'href' in cta && (
+              <Button asChild size="sm" className="mt-2">
+                <a href={cta.href}>{cta.label}</a>
+              </Button>
+            )}
+            {cta && 'onClick' in cta && (
+              <Button size="sm" className="mt-2" onClick={cta.onClick}>
+                {cta.label}
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
