@@ -865,6 +865,7 @@ export function registerGpsTrackingRoutes(app: Express) {
           gpsDisclosureVersion: currentVersion,
           gpsDisclosureIsCustom: !!business.gpsDisclosureCopy,
           gpsCustomerShareEnabled: business.gpsCustomerShareEnabled,
+          gpsCustomerShareMode: (business as any).gpsCustomerShareMode || 'auto',
           gpsCustomerShareDefaultMinutes: business.gpsCustomerShareDefaultMinutes ?? 240,
         },
         planTier: usage.planTier || null,
@@ -881,6 +882,7 @@ export function registerGpsTrackingRoutes(app: Express) {
     gpsTrackingEnabled: z.boolean().optional(),
     gpsRetentionHours: z.number().int().min(1).max(168).optional(),
     gpsCustomerShareEnabled: z.boolean().optional(),
+    gpsCustomerShareMode: z.enum(['auto', 'manual', 'off']).optional(),
     gpsCustomerShareDefaultMinutes: z.number().int().min(15).max(1440).optional(),
   });
 
@@ -918,6 +920,7 @@ export function registerGpsTrackingRoutes(app: Express) {
       if (parsed.data.gpsTrackingEnabled !== undefined) updateFields.gpsTrackingEnabled = parsed.data.gpsTrackingEnabled;
       if (parsed.data.gpsRetentionHours !== undefined) updateFields.gpsRetentionHours = parsed.data.gpsRetentionHours;
       if (parsed.data.gpsCustomerShareEnabled !== undefined) updateFields.gpsCustomerShareEnabled = parsed.data.gpsCustomerShareEnabled;
+      if (parsed.data.gpsCustomerShareMode !== undefined) updateFields.gpsCustomerShareMode = parsed.data.gpsCustomerShareMode;
       if (parsed.data.gpsCustomerShareDefaultMinutes !== undefined) updateFields.gpsCustomerShareDefaultMinutes = parsed.data.gpsCustomerShareDefaultMinutes;
 
       await db.update(businesses).set(updateFields).where(eq(businesses.id, businessId));

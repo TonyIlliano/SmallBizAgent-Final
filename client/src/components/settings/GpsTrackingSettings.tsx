@@ -42,6 +42,7 @@ interface GpsSettingsResponse {
     gpsDisclosureVersion: string;
     gpsDisclosureIsCustom: boolean;
     gpsCustomerShareEnabled: boolean;
+    gpsCustomerShareMode: 'auto' | 'manual' | 'off';
     gpsCustomerShareDefaultMinutes: number;
   };
   planTier: string | null;
@@ -282,8 +283,8 @@ export default function GpsTrackingSettings() {
             <CardHeader>
               <CardTitle className="text-base">Customer Sharing</CardTitle>
               <CardDescription>
-                Lets techs send a "track my live location" link to customers. Each share is
-                opt-in per job — never auto-attached to the en-route SMS.
+                Lets customers track your tech's live location during an active job.
+                Matches the "where's my tech" experience customers expect from Uber, Amazon, etc.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -291,7 +292,7 @@ export default function GpsTrackingSettings() {
                 <div className="space-y-0.5">
                   <Label className="text-base">Allow customer tracking links</Label>
                   <p className="text-sm text-muted-foreground">
-                    When off, the "Send tracking link" button is hidden on job pages.
+                    Master switch. When off, NO tracking links are ever sent regardless of mode below.
                   </p>
                 </div>
                 <Switch
@@ -301,23 +302,67 @@ export default function GpsTrackingSettings() {
                   data-testid="gps-share-toggle"
                 />
               </div>
+
               {settings.gpsCustomerShareEnabled && (
-                <div className="flex items-center justify-between">
-                  <Label>Default link expiry</Label>
-                  <Select
-                    value={String(settings.gpsCustomerShareDefaultMinutes)}
-                    onValueChange={(v) => updateSettings.mutate({ gpsCustomerShareDefaultMinutes: parseInt(v, 10) })}
-                  >
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SHARE_TTL_OPTIONS.map(o => (
-                        <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label>How the tracking link reaches the customer</Label>
+                    <Select
+                      value={settings.gpsCustomerShareMode || 'auto'}
+                      onValueChange={(v) => updateSettings.mutate({ gpsCustomerShareMode: v as 'auto' | 'manual' | 'off' })}
+                    >
+                      <SelectTrigger className="w-full" data-testid="gps-share-mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">
+                          Automatic — bundled into the "on my way" SMS (recommended)
+                        </SelectItem>
+                        <SelectItem value="manual">
+                          Manual — tech taps "Send tracking link" per job
+                        </SelectItem>
+                        <SelectItem value="off">
+                          Off — never send tracking links to customers
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {settings.gpsCustomerShareMode === 'auto' && (
+                        <>
+                          Matches Housecall Pro / ServiceTitan default behavior.
+                          Customer gets the link automatically when the tech taps "On My Way".
+                        </>
+                      )}
+                      {settings.gpsCustomerShareMode === 'manual' && (
+                        <>
+                          Tech decides per job. Cleanest privacy story but easy to forget.
+                        </>
+                      )}
+                      {settings.gpsCustomerShareMode === 'off' && (
+                        <>
+                          Customers never receive a tracking link. The dispatcher map still works.
+                        </>
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <Label>Default link expiry</Label>
+                    <Select
+                      value={String(settings.gpsCustomerShareDefaultMinutes)}
+                      onValueChange={(v) => updateSettings.mutate({ gpsCustomerShareDefaultMinutes: parseInt(v, 10) })}
+                    >
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SHARE_TTL_OPTIONS.map(o => (
+                          <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

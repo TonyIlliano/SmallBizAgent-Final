@@ -330,7 +330,9 @@ export function GpsSessionPanel({ jobId, jobStatus, staffId, customerId }: GpsSe
               onStatusChange={(s) => setActiveSession({ ...activeSession, status: s })}
             />
 
-            {/* Opt-in customer share */}
+            {/* Customer share. In 'auto' mode the customer already received
+                the link bundled into the en-route SMS — this button becomes
+                a "resend" for the rare case (lost SMS, customer asks again). */}
             <div className="border-t pt-3">
               {!shareLink ? (
                 <Button

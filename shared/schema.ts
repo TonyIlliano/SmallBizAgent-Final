@@ -193,8 +193,16 @@ export const businesses = pgTable("businesses", {
   gpsDisclosureVersion: text("gps_disclosure_version"),
   // Master toggle for customer-facing tracking share links. When false, the
   // "Send tracking link" button on OnMyWayCard is hidden entirely. Default true
-  // so techs CAN share but must do so per-job (never auto-attached).
+  // so techs CAN share by default. Hard kill switch — when false, NO share
+  // happens regardless of `gpsCustomerShareMode`.
   gpsCustomerShareEnabled: boolean("gps_customer_share_enabled").default(true).notNull(),
+  // How the customer tracking link gets to the customer:
+  //   'auto'   — bundled into the en-route SMS automatically (default, matches
+  //              Housecall Pro / ServiceTitan / Jobber competitor behavior).
+  //   'manual' — tech taps "Send tracking link" on OnMyWayCard for each job.
+  //              Cleanest privacy/audit story but easy for techs to forget.
+  //   'off'    — never send (alternative to flipping `gpsCustomerShareEnabled` off).
+  gpsCustomerShareMode: text("gps_customer_share_mode").default('auto').notNull(),
   // Default TTL (minutes) for new tracking share links. Default 240 = 4 hours.
   gpsCustomerShareDefaultMinutes: integer("gps_customer_share_default_minutes").default(240).notNull(),
   // Phased-rollout gate. Platform admin sets this to true to allow a business

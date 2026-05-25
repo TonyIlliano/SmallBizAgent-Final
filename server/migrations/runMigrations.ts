@@ -2933,6 +2933,10 @@ async function addMonitoringAndBrandingTables() {
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_disclosure_version TEXT`);
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_customer_share_enabled BOOLEAN DEFAULT true NOT NULL`);
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_customer_share_default_minutes INTEGER DEFAULT 240 NOT NULL`);
+    // Customer share mode: 'auto' bundles the tracking link into the en-route SMS
+    // (matches Housecall Pro / ServiceTitan), 'manual' requires the tech to tap
+    // "Send tracking link" per job, 'off' never sends. Default 'auto'.
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_customer_share_mode TEXT DEFAULT 'auto' NOT NULL`);
     // Phased-rollout gate: defaults to false. Admin opt-ins per business.
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS gps_beta_approved BOOLEAN DEFAULT false NOT NULL`);
   } catch (e: any) {

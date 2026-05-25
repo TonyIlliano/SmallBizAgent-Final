@@ -776,9 +776,48 @@ export async function sendJobEnRouteNotification(jobId: number, businessId: numb
       hour12: true,
     });
 
-    const message =
+    // ── Auto-attach customer tracking link when configured ──────────────
+    // Matches Housecall Pro / ServiceTitan default behavior. Three gates:
+    //   1. business.gpsCustomerShareEnabled = true (hard kill switch)
+    //   2. business.gpsCustomerShareMode = 'auto' (default; could be 'manual'/'off')
+    //   3. Tech has an active GPS session for this job (otherwise no live data)
+    // If any gate fails, the SMS goes out without a tracking link — same as today.
+    let trackingUrl: string | null = null;
+    try {
+      const shareEnabled = (business as any).gpsCustomerShareEnabled;
+      const shareMode = (business as any).gpsCustomerShareMode || 'auto';
+      const shareTtlMinutes = (business as any).gpsCustomerShareDefaultMinutes || 240;
+      if (job.staffId && shareEnabled && shareMode === 'auto') {
+        // Find an active tracking session for this tech + this job
+        const activeSession = await storage.getActiveSessionByStaff(job.staffId, businessId);
+        if (activeSession && (activeSession.jobId === jobId || activeSession.jobId == null)) {
+          const { randomBytes } = await import('crypto');
+          const token = randomBytes(24).toString('base64url');
+          const expiresAt = new Date(Date.now() + shareTtlMinutes * 60 * 1000);
+          const link = await storage.createTrackingLink({
+            businessId,
+            jobId,
+            sessionId: activeSession.id,
+            customerId: customer.id,
+            token,
+            expiresAt,
+          });
+          const baseUrl = process.env.APP_URL || 'https://www.smallbizagent.ai';
+          trackingUrl = `${baseUrl}/track/${link.token}`;
+        }
+      }
+    } catch (linkErr) {
+      // Don't let a link-creation failure block the en-route SMS itself.
+      console.error(`[GPS] Auto tracking link creation failed for job ${jobId}:`, linkErr);
+    }
+
+    const baseMessage =
       `Hi ${customer.firstName}! ${staffName} is on the way for your ${job.title}. ` +
-      `Estimated arrival: ${etaTime}. ` +
+      `Estimated arrival: ${etaTime}. `;
+    const trackingLine = trackingUrl ? `Track live: ${trackingUrl} ` : '';
+    const message =
+      baseMessage +
+      trackingLine +
       `Questions? Call ${getContactNumber(business)}. - ${business.name}`;
 
     await twilioService.sendSms(customer.phone, message, undefined, businessId);
