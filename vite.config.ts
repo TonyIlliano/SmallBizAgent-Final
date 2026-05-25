@@ -18,6 +18,13 @@ export default defineConfig({
     emptyOutDir: true,
     // Code splitting for smaller initial bundle
     rollupOptions: {
+      // Native-only Capacitor plugins have no web entry point. The
+      // capacitor-gps.ts module dynamically imports these at runtime and
+      // gates calls behind isGpsAvailableOnDevice() so they're never reached
+      // on web. Marking external tells Rollup not to bundle them.
+      external: [
+        '@capacitor-community/background-geolocation',
+      ],
       output: {
         manualChunks: {
           // Vendor chunks - split large dependencies
