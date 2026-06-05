@@ -168,6 +168,36 @@ async function fixExistingTables() {
   await addColumnIfNotExists('jobs', 'staff_id', 'INTEGER');
   await addColumnIfNotExists('jobs', 'estimated_completion', 'TIMESTAMP');
 
+  // Structured triage (Phase 1) — urgency is a hard Postgres enum; rest are free-form text.
+  // Create the enum type BEFORE the column references it (idempotent).
+  try {
+    await pool.query(`
+      DO $$ BEGIN
+        CREATE TYPE job_urgency AS ENUM ('emergency', 'urgent', 'routine');
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `);
+  } catch (err) {
+    console.error('Failed to create job_urgency enum type:', err);
+  }
+  await addColumnIfNotExists('jobs', 'urgency', 'job_urgency');
+  await addColumnIfNotExists('jobs', 'issue_type', 'TEXT');
+  await addColumnIfNotExists('jobs', 'symptoms', 'TEXT');
+  await addColumnIfNotExists('jobs', 'access_notes', 'TEXT');
+  // If a prior deploy created jobs.urgency as TEXT (schema previously declared it text),
+  // ADD COLUMN IF NOT EXISTS is a no-op and the column stays TEXT — convert it to the enum.
+  // Fresh DBs (column created as enum) skip this harmlessly.
+  try {
+    await pool.query(
+      `ALTER TABLE jobs ALTER COLUMN urgency TYPE job_urgency USING urgency::job_urgency`
+    );
+  } catch (err) {
+    // Expected no-op when the column is already the enum type; log other failures.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/cannot be cast|already|does not exist/i.test(msg)) {
+      console.error('Failed to convert jobs.urgency TEXT->enum:', err);
+    }
+  }
+
   // Fix call_logs table
   await addColumnIfNotExists('call_logs', 'call_duration', 'INTEGER');
   await addColumnIfNotExists('call_logs', 'intent_detected', 'TEXT');
@@ -2918,6 +2948,7 @@ async function addMonitoringAndBrandingTables() {
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_enabled BOOLEAN DEFAULT false`);
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_partner_name TEXT`);
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_apr NUMERIC(5,2)`);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(5,2)`);
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_term_months INTEGER DEFAULT 60`);
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_apply_url TEXT`);
     await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS financing_disclaimer TEXT`);

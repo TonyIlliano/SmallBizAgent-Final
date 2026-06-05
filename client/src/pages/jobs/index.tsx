@@ -42,6 +42,7 @@ interface PopulatedJob {
   customer?: { firstName: string; lastName?: string; phone?: string };
   staff?: { id: number; firstName: string; lastName?: string };
   appointment?: { id: number; startDate: string; endDate: string; status: string; serviceId?: number } | null;
+  urgency?: string | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ const STATUS_LABELS: Record<string, string> = {
 export default function Jobs() {
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [urgencyFilter, setUrgencyFilter] = useState<string>("");
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -104,6 +106,19 @@ export default function Jobs() {
   const { data: jobs = [], isLoading, isError, error: queryError, refetch } = useQuery<PopulatedJob[]>({
     queryKey: ['/api/jobs', queryParams],
   });
+
+  // Client-side urgency filter + emergency-first sort for the list view.
+  const URGENCY_RANK: Record<string, number> = { emergency: 0, urgent: 1, routine: 2 };
+  const displayJobs = useMemo(() => {
+    const filtered = urgencyFilter
+      ? jobs.filter((j) => (j.urgency || "") === urgencyFilter)
+      : jobs;
+    return [...filtered].sort((a, b) => {
+      const ra = URGENCY_RANK[a.urgency || ""] ?? 3;
+      const rb = URGENCY_RANK[b.urgency || ""] ?? 3;
+      return ra - rb;
+    });
+  }, [jobs, urgencyFilter]);
 
   // Fetch staff
   const { data: staffMembers = [] } = useQuery<any[]>({
@@ -253,6 +268,24 @@ export default function Jobs() {
       header: "Status",
       accessorKey: "status",
       cell: (job: PopulatedJob) => getStatusBadge(job.status),
+    },
+    {
+      header: "Urgency",
+      accessorKey: "urgency",
+      cell: (job: PopulatedJob) => {
+        if (!job.urgency) return <span className="text-muted-foreground">—</span>;
+        const styles: Record<string, string> = {
+          emergency: "border-red-500 text-red-600",
+          urgent: "border-amber-500 text-amber-600",
+          routine: "border-slate-400 text-slate-600",
+        };
+        const label = job.urgency.charAt(0).toUpperCase() + job.urgency.slice(1);
+        return (
+          <Badge variant="outline" className={styles[job.urgency] || "border-slate-400 text-slate-600"} data-testid={`job-urgency-${job.id}`}>
+            {label}
+          </Badge>
+        );
+      },
     },
     {
       header: "Actions",
@@ -512,6 +545,17 @@ export default function Jobs() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-64">
+              <Select value={urgencyFilter || "all"} onValueChange={(v) => setUrgencyFilter(v === "all" ? "" : v)}>
+                <SelectTrigger data-testid="job-urgency-filter"><SelectValue placeholder="Filter by urgency" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Urgencies</SelectItem>
+                  <SelectItem value="emergency">Emergency</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                  <SelectItem value="routine">Routine</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {isLoading ? (
@@ -519,7 +563,7 @@ export default function Jobs() {
           ) : jobs && jobs.length > 0 ? (
             <DataTable
               columns={columns}
-              data={jobs}
+              data={displayJobs}
               onRowClick={(job) => navigate(`/jobs/${job.id}`)}
               mobileCard={(job: any) => (
                 <div className="p-4 flex items-center justify-between">

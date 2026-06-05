@@ -55,6 +55,10 @@ const jobSchema = z.object({
   status: z.string().min(1, "Status is required"),
   estimatedCompletion: z.date().optional(),
   notes: z.string().optional(),
+  urgency: z.enum(['emergency', 'urgent', 'routine']).optional(),
+  issueType: z.string().optional(),
+  symptoms: z.string().optional(),
+  accessNotes: z.string().optional(),
 });
 
 type JobFormData = z.infer<typeof jobSchema>;
@@ -98,6 +102,10 @@ export function JobForm({ job, isEdit = false }: JobFormProps) {
         ? new Date(job.estimatedCompletion) 
         : undefined,
       notes: job?.notes || "",
+      urgency: job?.urgency || undefined,
+      issueType: job?.issueType || '',
+      symptoms: job?.symptoms || '',
+      accessNotes: job?.accessNotes || '',
     },
   });
 
@@ -362,6 +370,46 @@ export function JobForm({ job, isEdit = false }: JobFormProps) {
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="urgency"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Urgency</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="job-urgency-select">
+                          <SelectValue placeholder="Set urgency" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="emergency">Emergency</SelectItem>
+                        <SelectItem value="urgent">Urgent</SelectItem>
+                        <SelectItem value="routine">Routine</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="issueType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Issue Type</FormLabel>
+                    <FormControl>
+                      <Input placeholder="AC not cooling" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
             
             <FormField
@@ -402,7 +450,43 @@ export function JobForm({ job, isEdit = false }: JobFormProps) {
                 </FormItem>
               )}
             />
-            
+
+            <FormField
+              control={form.control}
+              name="symptoms"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Symptoms</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="What the customer is experiencing (e.g. grinding noise, blowing warm air)"
+                      className="min-h-[80px]"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="accessNotes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Access Notes</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="How to access the property (e.g. gate code, dog in yard, unit on roof)"
+                      className="min-h-[80px]"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <div className="flex justify-end space-x-4">
               <Button
                 type="button"

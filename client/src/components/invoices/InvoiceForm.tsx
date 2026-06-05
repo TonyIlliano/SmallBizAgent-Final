@@ -73,6 +73,18 @@ interface InvoiceFormProps {
 export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
   // Hooks
   const { toast } = useToast();
+
+  const TAX_RATE = 0.08; // 8% tax rate fallback when business has no configured rate
+
+  // Business profile drives the sales tax rate (stored as a percent, e.g. 8.00).
+  const { data: business } = useQuery<any>({ queryKey: ["/api/business"] });
+  const taxRateFraction = (() => {
+    const raw = business?.taxRate;
+    if (raw === undefined || raw === null || raw === "") return TAX_RATE;
+    const pct = typeof raw === "string" ? parseFloat(raw) : raw;
+    if (!Number.isFinite(pct) || pct < 0) return TAX_RATE;
+    return pct / 100;
+  })();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const { user } = useAuth();
@@ -84,7 +96,6 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
   const [tax, setTax] = useState(0);
   const [total, setTotal] = useState(0);
   const isCalculating = useRef(false);
-  const TAX_RATE = 0.08; // 8% tax rate
   
   // Fetch data
   const { data: customers = [] } = useQuery<any[]>({
@@ -156,7 +167,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
       }, 0);
       
       // Calculate tax and total
-      const calculatedTax = calculatedSubtotal * TAX_RATE;
+      const calculatedTax = calculatedSubtotal * taxRateFraction;
       const calculatedTotal = calculatedSubtotal + calculatedTax;
       
       // Update state (not form values directly)
@@ -587,7 +598,7 @@ export function InvoiceForm({ invoice, isEdit = false }: InvoiceFormProps) {
                   <span>{formatCurrency(subtotal)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Tax ({(TAX_RATE * 100).toFixed(0)}%):</span>
+                  <span>Tax ({(taxRateFraction * 100).toFixed(taxRateFraction * 100 % 1 === 0 ? 0 : 2)}%):</span>
                   <span>{formatCurrency(tax)}</span>
                 </div>
                 <Separator />

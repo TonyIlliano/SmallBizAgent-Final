@@ -1704,6 +1704,10 @@ async function bookAppointment(
     staffName?: string;
     notes?: string;
     estimatedDuration?: number;
+    urgency?: string;
+    issueType?: string;
+    symptoms?: string;
+    accessNotes?: string;
   },
   callerPhone?: string
 ): Promise<FunctionResult> {
@@ -2220,6 +2224,10 @@ async function bookAppointment(
         scheduledDate: scheduledDateStr,
         status: 'pending',
         notes: 'Auto-created from AI receptionist booking',
+        urgency: (params.urgency as 'emergency' | 'urgent' | 'routine' | undefined) || null,
+        issueType: params.issueType || null,
+        symptoms: params.symptoms || null,
+        accessNotes: params.accessNotes || null,
       });
 
 

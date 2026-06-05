@@ -122,6 +122,7 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
       email: "",
       website: "",
       logoUrl: "",
+      taxRate: null,
     },
   });
 
@@ -140,6 +141,7 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
         email: business.email || "",
         website: business.website || "",
         logoUrl: business.logoUrl || "",
+        taxRate: business.taxRate ?? null,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -699,6 +701,32 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
                     <FormItem><FormLabel>ZIP Code</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
                   )} />
                 </div>
+
+                <FormField control={businessForm.control} name="taxRate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Sales Tax Rate (%)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        inputMode="decimal"
+                        placeholder="e.g. 8.00"
+                        data-testid="business-tax-rate"
+                        value={field.value === null || field.value === undefined ? "" : String(field.value)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          field.onChange(v === "" ? null : v);
+                        }}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Applied to invoices and quotes. Leave blank to use the default (8%).
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )} />
 
                 <Button type="submit" className="mt-4" disabled={updateProfileMutation.isPending}>
                   {updateProfileMutation.isPending ? "Saving..." : "Save Changes"}

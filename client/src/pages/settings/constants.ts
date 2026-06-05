@@ -45,6 +45,7 @@ export const businessProfileSchema = z.object({
   email: z.string().email("Invalid email address"),
   website: z.string().url("Invalid website URL").optional().or(z.literal("")),
   logoUrl: z.string().optional().or(z.literal("")),
+  taxRate: z.coerce.number().min(0, "Tax rate can't be negative").max(100, "Tax rate can't exceed 100%").nullable().optional(),
 });
 
 // Business Hours Schema

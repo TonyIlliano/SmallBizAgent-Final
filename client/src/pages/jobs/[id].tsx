@@ -9,6 +9,7 @@ import { JobProgressTimeline } from "@/components/jobs/JobProgressTimeline";
 import { JobPhotoUploader } from "@/components/jobs/JobPhotoUploader";
 import { OnMyWayCard } from "@/components/jobs/OnMyWayCard";
 import { GpsSessionPanel } from "@/components/gps/GpsSessionPanel";
+import TriageCard from "@/components/jobs/TriageCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +38,7 @@ import {
   AlertTriangle,
   Wrench,
   Loader2,
+  Send,
 } from "lucide-react";
 
 // =================== TYPE DEFINITIONS ===================
@@ -656,6 +658,29 @@ export default function JobDetail() {
     },
   });
 
+  // One-tap send invoice: auto-creates invoice from line items if needed
+  // (using business's configured tax rate) and texts the pay link to the customer.
+  const sendInvoiceMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/jobs/${numericJobId}/send-invoice`),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({
+        title: "Invoice Sent",
+        description: data?.notified
+          ? "Pay link texted to customer"
+          : "Invoice created (notification skipped — check customer SMS opt-in)",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Send",
+        description: error?.message || "Could not send invoice",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Send follow-up/review request mutation
   const sendFollowUpMutation = useMutation({
     mutationFn: () =>
@@ -779,14 +804,25 @@ export default function JobDetail() {
               </Button>
               <Button
                 size="sm"
+                onClick={() => sendInvoiceMutation.mutate()}
+                disabled={sendInvoiceMutation.isPending}
+                className="bg-green-600 hover:bg-green-700"
+                data-testid="job-send-invoice"
+              >
+                <Send className="h-4 w-4 mr-1" />
+                {sendInvoiceMutation.isPending ? "Sending..." : "Send Invoice"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
                 onClick={() => generateInvoiceMutation.mutate()}
                 disabled={generateInvoiceMutation.isPending}
-                className="bg-green-600 hover:bg-green-700"
+                data-testid="job-generate-invoice"
               >
                 <FileText className="h-4 w-4 mr-1" />
                 {generateInvoiceMutation.isPending
                   ? "Generating..."
-                  : "Generate Invoice"}
+                  : "Generate"}
               </Button>
             </div>
           ) : undefined
@@ -839,6 +875,14 @@ export default function JobDetail() {
               etaMinutes={job?.etaMinutes}
             />
           )}
+
+          {/* Triage details — self-hides if all fields empty */}
+          <TriageCard
+            urgency={job?.urgency}
+            issueType={job?.issueType}
+            symptoms={job?.symptoms}
+            accessNotes={job?.accessNotes}
+          />
 
           {/* GPS Live Dispatch — only renders if business is field-service + Growth+ + gpsTrackingEnabled */}
           {numericJobId && (

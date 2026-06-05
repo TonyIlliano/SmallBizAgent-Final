@@ -201,7 +201,7 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `staff_invites` | Staff invitation codes | businessId, staffId, email, inviteCode, status |
 | `staff_time_off` | Staff vacation/PTO blocks | staffId, businessId, startDate, endDate, reason, allDay, note |
 | `appointments` | Scheduled appointments | businessId, customerId, staffId, serviceId, startDate, endDate, status, googleCalendarEventId |
-| `jobs` | Service jobs | businessId, customerId, title, status (pending/in_progress/waiting_parts/completed) |
+| `jobs` | Service jobs | businessId, customerId, title, status (pending/in_progress/en_route/waiting_parts/completed), urgency (job_urgency enum: emergency/urgent/routine), issueType, symptoms, accessNotes |
 | `job_line_items` | Job line items | jobId, type, description, quantity, unitPrice |
 | `recurring_schedules` | Recurring templates | businessId, frequency, interval, nextRunDate, autoCreateInvoice |
 
@@ -719,6 +719,69 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 | `329da2e` | Add shared SMS agent utilities (extracted from 5 agent services) |
 
 ### Recent changes (uncommitted):
+
+#### Structured Triage (Phase 1) — Urgency + Issue Capture for Field-Service Jobs
+- **Goal**: Capture and surface structured triage data (urgency, issue type, symptoms, access notes) on jobs so techs walk in knowing what they're dealing with and dispatchers can prioritize emergencies. Urgency is a hard Postgres enum (`emergency`/`urgent`/`routine`); the rest are free-form text. Scope: jobs only for v1 (not appointments).
+- **1.1 Schema** (`shared/schema.ts`): Added `export const jobUrgencyEnum = pgEnum("job_urgency", ["emergency", "urgent", "routine"])`. Added 4 columns to `jobs`: `urgency: jobUrgencyEnum("urgency")` (nullable), `issueType: text("issue_type")`, `symptoms: text("symptoms")`, `accessNotes: text("access_notes")`. `insertJobSchema` does not exclude these, so they flow through `createJob`.
+- **1.2 Migration** (`server/migrations/runMigrations.ts`): Idempotent `CREATE TYPE job_urgency` via raw `pool.query` (`DO $ ... EXCEPTION WHEN duplicate_object THEN null` ) BEFORE the column references it, then 4 `addColumnIfNotExists` calls, then a guarded `ALTER TABLE jobs ALTER COLUMN urgency TYPE job_urgency USING urgency::job_urgency` wrapped in try/catch (tolerates cannot-cast/already/does-not-exist). Inserted after the jobs-column block, before the call_logs migration.
+- **1.3 AI capture**: `bookAppointment` Retell tool now captures triage during voice calls. `server/services/retellService.ts` — added 4 optional properties (`urgency` with `enum`, `issueType`, `symptoms`, `accessNotes`) to the `bookAppointment` tool schema, NOT in `required` (AI only sets them when the caller indicates urgency/issue). `server/services/callToolHandlers.ts` — added the 4 optional fields to the handler `params` type and passes them into the auto-created `storage.createJob({...})` call (`urgency` cast to the enum union or null; rest `|| null`).
+- **1.4 TriageCard** (`client/src/components/jobs/TriageCard.tsx`, NEW): Read-only card, color-coded urgency badge (emergency=red/AlertTriangle, urgent=amber/Clock, routine=slate/Wrench). Self-hides when all 4 fields are empty. Default export. data-testids: `triage-card`, `triage-urgency`, `triage-issue-type`, `triage-symptoms`, `triage-access-notes`. Mounted in `client/src/pages/jobs/[id].tsx` in its own `{numericJobId && (...)}` block between `<OnMyWayCard>` and `<GpsSessionPanel>`.
+- **1.5 Editable triage in JobForm** (`client/src/components/jobs/JobForm.tsx`): Added the 4 fields to `jobSchema` (`urgency: z.enum([...]).optional()`, rest `z.string().optional()`) and `defaultValues` (seeded from `job?.*`). Added form-body FormFields: urgency `Select` (emergency/urgent/routine) + issueType `Input` inside the 2-col grid, symptoms + accessNotes `Textarea`s after the notes field. `prepareDataForSubmission` only parseInt's IDs, so triage strings pass through.
+- **1.6 Urgency sort/filter** (`client/src/pages/jobs/index.tsx`): Added `Select` import + `urgencyFilter` state. `getJobsByStatus()` now applies the urgency filter and sorts emergencies to the top (`URGENCY_RANK` emergency=0/urgent=1/routine=2/unset=3, stable within tier). Added an "All urgencies" `Select` (data-testid `job-urgency-filter`) to the list-view header next to the status tabs.
+- **Verification**: `npx tsc --noEmit` clean.
+- **Deferred (not in this phase)**: triage on appointments, enriching GPS active-sessions with urgency, line-item templates/POS presets.
+
+#### HVAC Vertical-First Roadmap — Step 1: Industry Capability Matrix (FOUNDATION)
+- **Goal**: Lay the wiring for the HVAC vertical-first GTM. Single declarative source of truth for industry-specific behavior (booking flow, service catalog shape, AI receptionist style, membership support, equipment tracking, emergency queue, etc.). **Pure refactor — zero behavior changes.** Every future step in the roadmap (Service Categories, Equipment Tracking, Membership Plans, Quote-from-Job) reads from this matrix instead of `if (industry === 'hvac')` branches. When we turn on plumbing/electrical/landscaping later, it's a config-file edit, not a code project. See "🚀 Active Strategic Roadmap" section above for full plan.
+- **1.1 New file** `shared/industry-config.ts` (~580 lines): Defines `IndustryConfig` TypeScript interface (17 fields covering category, primaryEntity, promptVerticalKey, defaultCallerExpectation, servicePricingDefault, hasServiceCategories, defaultServiceCategories, bookingFlow, diagnosticFeeDefault, tracksCustomerEquipment, equipmentLabel, tracksCustomerAddress, supportsMembershipPlans, emergencyQueueEnabled, defaultJobDuration, slug, label). Three literal-union types: `BookingFlow` (`direct` | `diagnostic_first` | `quote_first`), `ServicePricingType` (`fixed` | `diagnostic_required` | `quote_required`), `CallerExpectation` (`price_quote` | `diagnostic_explanation` | `time_slot`).
+- **1.2 INDUSTRY_CONFIG map** — 20 entries explicitly configured:
+  - **Active wedge / adjacent**: `hvac` (diagnostic_first, $89 diagnostic fee, tracks Equipment, membership ON, emergency queue ON), `plumbing` (similar to HVAC, $79 fee), `electrical` (similar to HVAC, $95 fee, membership disabled v1)
+  - **Other job-category**: `landscaping` (direct, fixed, membership ON), `construction` (quote_first), `pest_control` (direct, fixed, membership ON), `roofing` (quote_first, emergency queue ON), `painting` (quote_first), `automotive` (diagnostic_first, $100 fee, tracks Vehicle, membership disabled v1), `cleaning` (direct, fixed, membership ON)
+  - **Appointment-category** (conservative): `barber`, `salon`, `dental`, `medical`, `veterinary` (tracks Pet), `fitness` (membership ON), `restaurant`, `retail`, `professional`
+  - **Fallback**: `general` (appointment, direct, no extras) — used when industry is null/empty/unknown
+- **1.3 Resolver** `getIndustryConfig(industry: string | null | undefined): IndustryConfig`:
+  - Null/empty/whitespace → `general` fallback
+  - Exact slug match (case-insensitive lowercase trim) wins first
+  - Alias map (~30 entries) catches common synonyms users actually type: `ac` / `heating` / `cooling` / `refrigeration` → hvac; `plumber` → plumbing; `electrician` → electrical; `auto repair` / `mechanic` → automotive; `lawn care` / `landscape` → landscaping; `general contracting` / `contractor` / `handyman` → construction; `exterminator` / `pest` → pest_control; `vet` / `animal` → veterinary; `gym` / `yoga` → fitness; `cafe` / `coffee` / `food` / `bakery` → restaurant; `store` / `boutique` → retail; `lawyer` / `accountant` / `consultant` → professional
+  - Partial-match scan over slugs (longest-first ordering so `pest_control` matches before `pest`, `professional` matches before `general`)
+  - Final alias-substring sweep so multi-word strings like "Heating and Air Conditioning" resolve via the "heating" alias even when no slug appears as a substring
+  - In-process `Map<string, IndustryConfig>` cache (unbounded — distinct industry strings ever seen is small, ~100 even for large multi-tenant deployments)
+  - `_clearIndustryConfigCache()` exported for tests
+- **1.4 Convenience helpers** (so call sites read cleanly): `isJobCategoryConfig`, `supportsMembershipPlans`, `tracksCustomerEquipment`, `getEquipmentLabel`, `getBookingFlow`, `getDiagnosticFeeDefault`, `hasEmergencyQueue`, `getServicePricingDefault`, `hasServiceCategories`, `getDefaultServiceCategories`, `getDefaultJobDuration`.
+- **1.5 Backward compatibility layer** (`shared/industry-categories.ts`): The legacy `isJobCategory()` function intentionally KEEPS its original substring-match implementation against the original `JOB_INDUSTRIES` list (`hvac`, `plumbing`, `electrical`, `landscaping`, `construction`, `pest control`, `roofing`, `painting`, `automotive`, `cleaning`). **Did NOT delegate to the new matrix** — because the new matrix is smarter (recognizes aliases like "Auto Repair Shop" → automotive via the "auto" alias) and that's a behavior change. The roadmap's "no regression" gate is absolute, so the legacy function preserves byte-identical legacy behavior. New code calls `getIndustryConfig()` directly. File header explicitly documents the two-contract relationship.
+- **1.6 Tests** (`shared/industry-config.test.ts`, 108 new tests, all passing):
+  - **Regression suite**: Parameterized test over ~85 real-world industry strings (HVAC variants, plumbing variants, salon variants, edge cases, nulls). For every string, asserts new `isJobCategory()` returns same value as the pre-refactor implementation (inlined into the test file as `originalIsJobCategory()` so future drift is caught).
+  - **Matrix shape invariants**: Every entry has all 17 required fields populated (no undefined leaks); slug matches its key; category/primaryEntity is appointment|job; bookingFlow is one of three valid; servicePricingDefault is one of three valid; defaultCallerExpectation is one of three valid; tracksCustomerAddress is required|optional|none; `equipmentLabel` is null IFF `tracksCustomerEquipment` is false; `defaultServiceCategories` is null IFF `hasServiceCategories` is false; `diagnosticFeeDefault` is null UNLESS `bookingFlow` is `diagnostic_first`; `defaultJobDuration` is a positive integer.
+  - **Resolver behavior**: null/undefined/empty/whitespace → general; exact match wins; case-insensitive; messy real-world strings via partial-match; common aliases route correctly; "Heating and Air Conditioning" → hvac (regression for the multi-word alias path); "Pest Control" (with space) → pest_control slug (regression for the space-to-underscore mapping); never returns null/undefined; cache reuses references.
+  - **Convenience helpers**: each helper agrees with its underlying field for representative industries.
+  - **Documented divergences** (intentional, asserted): `isJobCategoryConfig("Auto Repair Shop")` returns `true` (matrix) while legacy `isJobCategory("Auto Repair Shop")` returns `false`. `isJobCategoryConfig("pest_control")` slug returns `true` (matrix) while legacy `isJobCategory("pest_control")` returns `false`; both agree on `"Pest Control"` (the form real users type).
+  - **HVAC drift detector**: snapshot test on the HVAC config locking in the roadmap values (category, bookingFlow, diagnosticFee $89, all the flags).
+- **Explicit non-goals for Step 1** (per the roadmap — these come in later steps):
+  - ❌ No schema changes (`services.category`, `services.pricingType`, `customer_equipment`, `membership_plans`, etc. all deferred)
+  - ❌ No migration
+  - ❌ No new UI surfaces — Sidebar, Settings, Customer detail, Job detail all unchanged
+  - ❌ No AI receptionist behavior changes
+  - ❌ No removal of existing `if (industry === 'hvac')` branches (refactor those as we touch each surface in Steps 2-5)
+  - ❌ No new behavior anywhere — pure refactor
+- **Verification**: `npx tsc --noEmit` clean. Full test suite **1054/1054 pass** (was 946 — +108 from this step). Zero regressions. Manual smoke gate (load barbershop business → visually identical; load HVAC business → visually identical) is the operator's responsibility before push since the wiring isn't connected to any UI yet.
+- **What this unblocks**: Every later step reads `getIndustryConfig(business.industry)` and conditions behavior on `config.bookingFlow`, `config.supportsMembershipPlans`, `config.tracksCustomerEquipment`, etc. When the time comes to turn on plumbing as a paying-customer vertical, the work is: edit one config entry, ship. No code project across the codebase.
+
+#### Cash-Loop Friction Polish (Phase 2) — Per-Business Tax Rate + One-Tap Send Invoice
+- **Goal**: Eliminate the two friction points around invoicing on field-service jobs: (1) the hardcoded 8% tax rate didn't match every business's locality, and (2) sending an invoice was a two-step process (Generate Invoice → open invoice → send link). Both phases assume Phase 1 triage data is in place but don't depend on it.
+- **2.1 Per-business tax rate**:
+  - **Schema** (`shared/schema.ts`): Added `taxRate: numeric("tax_rate", { precision: 5, scale: 2 })` to `businesses` (nullable, stored as a percent — e.g. "8.00" = 8%).
+  - **Migration** (`server/migrations/runMigrations.ts`): `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(5,2)`.
+  - **Settings UI** (`client/src/pages/settings/constants.ts`): `businessProfileSchema` extended with `taxRate: z.coerce.number().min(0).max(100).nullable().optional()` (Zod coerce so a string from the `<Input type="number">` becomes a number, `.nullable()` so a cleared field round-trips as `null` to clear the column on save).
+  - **Settings UI** (`client/src/pages/settings/BusinessSection.tsx`): `defaultValues` seed `taxRate: null`, `useEffect` resets to `business.taxRate ?? null`. New `FormField` for "Sales Tax Rate (%)" rendered after the city/state/zip row — number input with `step="0.01"`, `min="0"`, `max="100"`, `inputMode="decimal"`, value normalization `"" ⇄ null`, helper text "Applied to invoices and quotes. Leave blank to use the default (8%)." data-testid `business-tax-rate`.
+  - **Server helper** (`server/routes/jobRoutes.ts`): New `DEFAULT_TAX_RATE = 0.08` constant + `resolveTaxRate(business)` helper. Converts the stored percent string ("8.00") to a fraction (0.08) for arithmetic. Falls back to `DEFAULT_TAX_RATE` on null/blank/invalid/negative. Used in all 3 invoice-creation paths (auto-invoice on job completion at line ~252, manual generate-invoice at ~511 — keeps `req.body.taxRate` fraction override path, send-invoice at ~622).
+  - **Invoice form** (`client/src/components/invoices/InvoiceForm.tsx`): `TAX_RATE = 0.08` constant moved ABOVE the `taxRateFraction` IIFE (was used-before-defined and TS caught it). `taxRateFraction` reads `business?.taxRate`, parses to fraction, falls back to `TAX_RATE`. All downstream tax math goes through `taxRateFraction` so portal previews match server-side totals exactly.
+- **2.2 One-tap send invoice**:
+  - **Endpoint** `POST /api/jobs/:jobId/send-invoice` (`server/routes/jobRoutes.ts` ~570-672): Modeled on the existing `POST /api/jobs/:jobId/send-tracking-link` auth chain (isAuthenticated + business-ownership check). Looks up existing invoice for the job (via `storage.getInvoices(businessId)` filtered to `inv.jobId === jobId`). If missing, requires ≥1 line item, computes subtotal/tax/total using `resolveTaxRate(business)`, generates `randomBytes(24).toString('base64url')` access token, creates the invoice + items, sets due 30 days out. If the invoice exists but predates access-token generation, backfills the token so the portal link works. Then constructs the portal URL `${APP_URL}/portal/invoice/${accessToken}` and calls `sendInvoiceSentNotification(invoice.id, businessId, invoiceUrl)` (which respects Free-plan gate + `canSendSms` + customer SMS opt-in). Returns `{ success: true, invoice, notified }`.
+  - **Storage method name**: Plan called for `getInvoicesByBusinessId` — actual method is `storage.getInvoices(businessId)` (caught during TS verify).
+  - **Notification call**: `sendInvoiceSentNotification` takes 3 args (`invoiceId`, `businessId`, `invoiceUrl`) — not 2 (caught during TS verify).
+  - **UI** (`client/src/pages/jobs/[id].tsx`): New `sendInvoiceMutation` (POST to the new endpoint). Added `Send` icon import from lucide-react. On the completed-job page header `actions` cluster, "Send Invoice" (green, primary action, `data-testid="job-send-invoice"`) sits first, "Generate" (outlined, secondary, `data-testid="job-generate-invoice"`) sits second. Existing "Review" + "Thank You" buttons unchanged. Success toast shows "Pay link texted to customer" (when `data.notified === true`) or "Invoice created (notification skipped — check customer SMS opt-in)" (when notification skipped — e.g., Free plan, customer not opted in).
+- **Verification**: `npx tsc --noEmit` clean after fixing 3 pre-existing TS errors in the send-invoice endpoint and InvoiceForm (`TAX_RATE` use-before-declaration, wrong storage method name, wrong notification arity).
+- **Deferred (not in this phase)**: line-item templates/POS presets, pay-link expiry tuning, owner-configurable due-date offset.
 
 #### GPS Live Dispatch — Senior-review hardening pass
 - **Goal**: Address the gaps flagged in a self-review (sweeper not directly tested, partial-unique-race contract unverified, no phased-rollout flag, random-bytes single point of failure, scattered `Capacitor.isNativePlatform()` calls, error responses missing requestId for support log correlation). These are the items that move grade from "B-" to "A+" — every one of them would have been called out in a senior code review.
@@ -2849,6 +2912,375 @@ npm run db:studio
 
 ---
 
+## 🚀 Active Strategic Roadmap — HVAC Vertical-First GTM
+
+> **Read this section before starting any new work.** This is the live execution plan. The owner has committed to a vertical-first GTM (HVAC as the wedge) while keeping SmallBizAgent's architecture horizontal (multi-vertical SaaS underneath). Every feature shipped from this point forward must (a) make HVAC contractors more successful and (b) be expressed as configurable industry behavior so it lights up automatically for other verticals later.
+
+### Strategic decisions (locked-in)
+
+1. **HVAC is the GTM wedge, not a fork.** Same codebase, same product, sharper marketing + onboarding + templates + AI behavior tuned for HVAC. Other verticals (plumbing, electrical, salon, etc.) continue to work and benefit from underlying improvements.
+2. **Architecture is horizontal, behavior is vertical.** Every HVAC-specific behavior is expressed as a config value on an **Industry Capability Matrix**, NOT as `if (industry === 'hvac')` branches in business logic.
+3. **Stripe billing model for membership plans: Connect account (theirs).** Owners collect 100% of membership revenue through their own connected Stripe account. We take the standard platform application fee. Matches existing one-time invoice payment flow.
+4. **v2 features are deferred but not abandoned.** SMS upsell agent, member-only pricing rules engine, family plans, gift memberships, mid-cycle proration UI all wait until v1 has 10+ paying HVAC customers asking for them.
+5. **No premature refactors.** Existing `if (industry === 'hvac')` branches stay until we touch their surface for a different reason. The Capability Matrix lays the wiring; surfaces get refactored to read from the matrix as they're touched.
+6. **Conservative defaults.** Unknown industries fall back to appointment-category, direct booking, no extras (smallest possible surface area).
+7. **Pivot must not regress existing customers.** Every step verified with `npx tsc --noEmit` clean + full test suite green + manual smoke test on a non-HVAC business (barbershop) to confirm zero visible change.
+
+### Why HVAC specifically (the wedge thesis)
+
+- Massive market: ~120K US HVAC businesses, $30B+ industry revenue.
+- High pain density: labor shortage (110K+ tech gap), seasonal cash flow swings, low membership penetration (5-10% common vs 30-50% top quartile), fragmented incumbent tools (ServiceTitan expensive, Housecall Pro shallow, Jobber generic).
+- Our unique moats vs. incumbents: AI voice receptionist with auto-learning loop + structured triage capture during the call + auto-quote-from-job. ServiceTitan, Housecall Pro, and Jobber do NOT have these.
+- Recurring revenue compounding: membership plans are the single biggest revenue lever for HVAC owners, and they map cleanly onto our existing `recurring_schedules` + `notifications` + Stripe Connect + SMS agent infrastructure.
+- Recession-resistant: HVAC repairs are non-discretionary.
+
+### Where we are (audit completed)
+
+**Already shipped and working for HVAC:**
+- AI Dispatch & Scheduling (GPS Live Dispatch, on-my-way SMS, ETA picker, customer tracking page, staff-service skill matching)
+- Smart Quoting & Pricing (8 pre-built HVAC quote templates, per-business tax rate, financing CTA)
+- HVAC-aware AI receptionist (knowledge base auto-seeded, vertical prompt block, customer-lingo dictionary)
+- Analytics (AI ROI card, call quality scores, dashboard widgets, MRR forecasting)
+- Mobile tech app (Capacitor iOS + Android, photo upload, voice-to-notes, AI job briefing, offline GPS queue)
+- Structured Triage (urgency + issue type + symptoms + access notes from voice calls — shipped this week)
+- One-tap Send Invoice from completed job (shipped this week)
+- Per-business sales tax rate (shipped this week)
+
+**What's missing for HVAC to truly win:**
+1. **Industry Capability Matrix** — no declarative source of truth for industry behavior; barbershop assumptions leak into HVAC flow.
+2. **Service Categories + Pricing Type** — `services.price` is a flat number; HVAC repairs/installs need `fixed | diagnostic_required | quote_required` semantics.
+3. **Diagnostic-First Booking Flow** — AI receptionist currently quotes flat prices for "AC Repair $250" which is almost always wrong; needs to route quote-required services through a diagnostic visit instead.
+4. **Customer Equipment Tracking** — no model for the customer's furnace/AC/heat-pump (make/model/year/location). Powers truck stock, technician matching, accurate quoting, warranty lookups.
+5. **Membership Plans v1** — no first-class membership concept (Basic/Premium/Elite tiers, benefit tracking, auto-renewal via Stripe Connect, auto-scheduled tune-ups, AI-receptionist-aware).
+6. **Quote-from-Job + SMS Approval** — tech generates a quote on-site, customer approves via SMS, second job auto-created for the actual repair.
+7. **Emergency Queue / Priority Dispatch** — HVAC summer surge needs an emergency lane in dispatch (referenced in Industry Config but UI not yet built).
+
+### Execution plan (in order)
+
+Each step is independently shippable, reversible, and verified. Each commit must pass `npx tsc --noEmit` and the full test suite. Each step must work for HVAC AND not regress any other industry.
+
+---
+
+#### Step 1 — Industry Capability Matrix (FOUNDATION — START HERE)
+
+**Goal:** Single declarative source of truth for all industry-specific behavior. Pure refactor — zero behavior changes. Every feature built after this hangs off this scaffold.
+
+**Files to create:**
+- `shared/industry-config.ts` — `IndustryConfig` TypeScript interface + `INDUSTRY_CONFIG` Record<slug, IndustryConfig> map covering all 19 current industries + general fallback + `getIndustryConfig(industry)` resolver with cache + partial-match logic.
+- `shared/industry-config.test.ts` (or `server/test/industry-config.test.ts`) — Regression tests proving (1) every industry has all required fields, (2) `isJobCategory()` output is byte-identical for every industry vs. the pre-refactor implementation, (3) unknown/null industries return the general fallback, (4) partial-match resolves correctly for messy real-world strings like "HVAC / Heating & Cooling".
+
+**Files to refactor (delegate-only — no behavior change):**
+- `shared/industry-categories.ts` — `isJobCategory()` becomes a thin wrapper that delegates to `getIndustryConfig(industry).category === 'job'`. All existing call sites (Sidebar, BottomNav, schedule-router, Jobs page, Settings tabs, GPS plan gate) unchanged. Backward-compatible.
+
+**`IndustryConfig` interface (v1):**
+```typescript
+interface IndustryConfig {
+  slug: string;
+  label: string;
+  category: 'appointment' | 'job';
+  primaryEntity: 'appointment' | 'job';
+  promptVerticalKey: string;  // existing key into systemPromptBuilder INDUSTRY_PROMPTS
+  defaultCallerExpectation: 'price_quote' | 'diagnostic_explanation' | 'time_slot';
+  servicePricingDefault: 'fixed' | 'diagnostic_required' | 'quote_required';
+  hasServiceCategories: boolean;
+  defaultServiceCategories: string[] | null;
+  bookingFlow: 'direct' | 'diagnostic_first' | 'quote_first';
+  diagnosticFeeDefault: number | null;
+  tracksCustomerEquipment: boolean;
+  equipmentLabel: string | null;  // "Equipment" | "Vehicle" | "Pet" | null
+  tracksCustomerAddress: 'required' | 'optional' | 'none';
+  supportsMembershipPlans: boolean;
+  emergencyQueueEnabled: boolean;
+  defaultJobDuration: number;  // minutes — fallback when service.duration is null
+}
+```
+
+**Industry config matrix (v1 — full table):**
+
+| slug | category | bookingFlow | tracksEquipment | membership | emergencyQueue |
+|---|---|---|---|---|---|
+| hvac | job | diagnostic_first | Equipment | ✅ | ✅ |
+| plumbing | job | diagnostic_first | Equipment | ✅ | ✅ |
+| electrical | job | diagnostic_first | Equipment | ⚠️ disabled v1 | ✅ |
+| landscaping | job | direct | — | ✅ | — |
+| construction | job | quote_first | — | — | — |
+| pest_control | job | direct | — | ✅ | — |
+| roofing | job | quote_first | — | — | ✅ |
+| painting | job | quote_first | — | — | — |
+| automotive | job | diagnostic_first | Vehicle | ⚠️ disabled v1 | — |
+| cleaning | job | direct | — | ✅ | — |
+| barber | appointment | direct | — | — | — |
+| salon | appointment | direct | — | — | — |
+| dental | appointment | direct | — | — | — |
+| medical | appointment | direct | — | — | — |
+| veterinary | appointment | direct | Pet | — | — |
+| fitness | appointment | direct | — | ✅ | — |
+| restaurant | appointment | direct | — | — | — |
+| retail | appointment | direct | — | — | — |
+| professional | appointment | direct | — | — | — |
+| general (fallback) | appointment | direct | — | — | — |
+
+**Resolver behavior:**
+- Exact slug match wins
+- Partial-string match (case-insensitive substring) for free-form `business.industry` text — picks the first matching slug
+- `null` / `undefined` / `""` → returns `general` fallback
+- Unknown string → returns `general` fallback
+- Result is cached (lookup happens on every request — Sidebar, AI receptionist, settings, etc.)
+
+**Convenience exports (so call sites stay readable):**
+```typescript
+export function isJobCategory(industry): boolean
+export function supportsMembershipPlans(industry): boolean
+export function tracksCustomerEquipment(industry): boolean
+export function getBookingFlow(industry): 'direct' | 'diagnostic_first' | 'quote_first'
+export function getDiagnosticFee(industry): number | null
+// etc.
+```
+
+**Explicit non-goals for Step 1:**
+- ❌ No schema changes
+- ❌ No migration
+- ❌ No new UI surfaces
+- ❌ No AI receptionist behavior changes
+- ❌ No service form changes
+- ❌ No removal of existing `if (industry === 'hvac')` branches (refactor those as we touch their surface in later steps)
+- ❌ No new behavior anywhere — pure refactor
+
+**Verification gates before commit:**
+1. `npx tsc --noEmit` clean
+2. Full test suite passes
+3. New industry-config tests pass
+4. Manual smoke: load a barbershop business in dev — visually identical to before
+5. Manual smoke: load an HVAC business in dev — visually identical to before (we're laying wiring, not flipping switches)
+
+**What Step 1 unblocks:** Every subsequent step reads from `getIndustryConfig()`. When we turn on plumbing in month 6, it's a config-file edit, not a code project.
+
+---
+
+#### Step 2 — Service Categories + Pricing Type
+
+**Goal:** Add the service catalog primitives HVAC needs (categories, fixed vs. diagnostic vs. quote pricing) without breaking the simple flat-list model that barbershops/salons depend on.
+
+**Schema additions** (all nullable — backward compatible):
+- `services.category TEXT` — e.g. "Cooling", "Heating", "IAQ", "Maintenance", "Install", "Diagnostic". Null for industries that don't use categories.
+- `services.pricingType TEXT` — `'fixed' | 'diagnostic_required' | 'quote_required'`. Defaults to `'fixed'` so existing data behaves identically.
+- `services.requiresDiagnostic BOOLEAN DEFAULT false` — if true, AI receptionist books a diagnostic visit instead of the service itself.
+
+**Migration:** Three `addColumnIfNotExists` calls.
+
+**Settings UI (Services section):**
+- Industry-aware: if `config.hasServiceCategories` is true, show Category dropdown (populated from `config.defaultServiceCategories`). Else hide entirely — barbershops never see this field.
+- Industry-aware: if `config.servicePricingDefault !== 'fixed'`, show Pricing Type radio group + diagnostic-required checkbox. Else hide.
+- Express onboarding: when seeding HVAC services, set categories + pricing types intelligently (tune-ups stay `fixed`, repairs become `quote_required + requiresDiagnostic`, installs become `quote_required`).
+
+**AI receptionist behavior:**
+- `systemPromptBuilder` reads `config.bookingFlow` and conditionally injects a "DIAGNOSTIC-FIRST" instruction block: when a caller asks about a `quote_required` service, do NOT quote a price; book a diagnostic visit at the business's default diagnostic fee and explain the fee is waived if they proceed with the repair.
+- `callToolHandlers.bookAppointment` reads `service.requiresDiagnostic` — if true and no override flag set, swaps the booked service for the business's diagnostic service before persisting.
+
+**Verification gates:**
+1. TS clean + tests green
+2. Barbershop business unaffected (no category field visible, no pricing type field, AI books haircuts at flat price)
+3. HVAC business: AI now refuses to quote "AC Repair $250" and books a diagnostic instead; tune-ups still quote at flat price.
+
+---
+
+#### Step 3 — Customer Equipment Tracking
+
+**Goal:** First-class data model for the customer's HVAC equipment (furnace, AC, heat pump, water heater, etc.). Powers truck stock, technician matching, accurate quoting, warranty lookups, AI receptionist context, predictive maintenance later.
+
+**Schema:** New `customer_equipment` table:
+- id, businessId, customerId
+- equipmentType (furnace, ac, heat_pump, mini_split, boiler, water_heater, thermostat, other)
+- make, model, serialNumber, installDate, lastServiceDate
+- location (text — "attic", "basement", "garage", "closet")
+- notes (text — free-form: "low refrigerant noted 2024-06, recommended replacement")
+- warrantyExpiry (date, nullable)
+- createdAt, updatedAt
+- Index on `(business_id, customer_id)`
+
+**Migration:** `CREATE TABLE IF NOT EXISTS customer_equipment` + indexes.
+
+**UI surfaces (all industry-config gated):**
+- Customer detail page: new "Equipment" card (renders only if `config.tracksCustomerEquipment === true`). Lists equipment with add/edit/delete. Uses `config.equipmentLabel` for the card title ("Equipment" for HVAC, "Vehicle" for automotive, "Pet" for veterinary).
+- Job detail page: when a job is opened, show linked equipment in a sidebar so the tech sees context before arriving.
+- AI Job Briefing service: extends the existing briefing to include customer equipment in the context window.
+
+**AI receptionist integration:**
+- New Retell tool `captureEquipment(customerId, equipmentType, make, model, location)` — registered conditionally per `config.tracksCustomerEquipment`. AI calls this naturally during the conversation when the caller mentions equipment ("yeah I have a Trane unit, about 8 years old, in the attic").
+- `recognizeCaller` returns customer's known equipment in its summary narrative when `config.tracksCustomerEquipment` is true. AI uses it: "Hi Sarah, I see we last serviced your Trane unit in May — is that what's having trouble today?"
+- Tech voice-notes processor extracts equipment mentions and persists them to the equipment record automatically.
+
+**Verification gates:** TS clean + tests green + barbershop/salon completely unaffected (no Equipment card visible, AI receptionist makes no equipment tool calls).
+
+---
+
+#### Step 4 — Membership Plans v1
+
+**Goal:** First-class membership/maintenance-agreement support gated to `config.supportsMembershipPlans` industries. Built on Stripe Connect (owner's account). Discount flows through quotes, invoices, AND voice receptionist member-awareness. Auto-scheduled tune-ups via existing scheduler + MIS.
+
+**Schema (4 tables + 1 column on customers):**
+
+```typescript
+// New column
+customers.stripeCustomerConnectId TEXT  // Connect-scoped Stripe Customer ID (only set when enrolled)
+
+// New table: membership plan tier definitions (per business)
+membership_plans {
+  id, businessId,
+  name TEXT,                     // "Premium Comfort Plan"
+  description TEXT,
+  priceMonthly NUMERIC(10,2),    // $24.99
+  billingInterval TEXT,          // 'month' | 'year'
+  includedTuneUps INT,           // 2
+  includedServiceCalls INT,      // 0 or N
+  memberDiscountPercent NUMERIC(5,2),  // 15.00 = 15% off
+  waivesDiagnosticFee BOOLEAN DEFAULT false,
+  priorityDispatch BOOLEAN DEFAULT false,
+  active BOOLEAN DEFAULT true,
+  sortOrder INT,
+  stripeProductId TEXT,          // Connect-account-scoped
+  stripePriceId TEXT,            // Connect-account-scoped
+  createdAt, updatedAt
+}
+
+// New table: customer enrollments
+customer_memberships {
+  id, businessId, customerId, planId,
+  status TEXT,                   // 'active' | 'past_due' | 'canceled' | 'paused'
+  startDate, nextBillingDate, canceledAt,
+  stripeSubscriptionId TEXT,     // on owner's Connect account
+  tuneUpsRemaining INT,
+  serviceCallsRemaining INT,
+  lastRenewedAt,
+  createdAt, updatedAt
+  // Partial unique index: one active membership per customer per business
+}
+
+// New table: benefit usage audit trail
+membership_benefit_usage {
+  id, membershipId, businessId,
+  benefitType TEXT,              // 'tune_up' | 'service_call' | 'discount'
+  jobId INT NULL, appointmentId INT NULL,
+  usedAt, notes TEXT
+}
+```
+
+**Migration:** 1 column add + 3 idempotent `CREATE TABLE IF NOT EXISTS` + indexes.
+
+**Stripe Connect billing flow:**
+- Owner creates a plan → server calls `stripe.products.create({ ... }, { stripeAccount: business.stripeConnectAccountId })` + `stripe.prices.create(...)` ON THEIR CONNECT ACCOUNT. Stores returned IDs.
+- Customer enrolls → server creates Stripe Customer on owner's Connect account (saves `stripeCustomerConnectId` on our row), attaches payment method, creates `Subscription` with `application_fee_percent` for our platform cut.
+- Webhooks (handle ON owner's Connect account via Connect webhook endpoint):
+  - `invoice.paid` → reset `tuneUpsRemaining` to plan default, update `lastRenewedAt`, advance `nextBillingDate`
+  - `invoice.payment_failed` → set status to `past_due`, send owner SMS alert
+  - `customer.subscription.deleted` → set status to `canceled`, keep history rows for analytics
+
+**New services:**
+- `server/services/membershipService.ts` — enroll/cancel/use-benefit/auto-schedule logic
+- `server/services/membershipBillingService.ts` — Stripe Connect product/price/subscription operations
+
+**New routes (all gated to `config.supportsMembershipPlans` business):**
+- `GET/POST/PATCH/DELETE /api/membership-plans` — owner CRUD on tier definitions
+- `GET /api/customer-memberships` — list enrollments for a business
+- `POST /api/customers/:id/enroll` — enroll a customer in a plan
+- `POST /api/memberships/:id/cancel` — cancel an active membership
+- `POST /api/memberships/:id/use-benefit` — record a benefit usage (called by job flow)
+
+**UI surfaces (all industry-config gated):**
+- Settings → new "Memberships" tab (visible only if `config.supportsMembershipPlans === true`). Owner creates/edits plan tiers. Pre-seeded with industry-appropriate defaults on first visit.
+- Customer detail → "Enroll in plan" button + active membership card showing benefits remaining + cancel button
+- Job detail → MEMBER badge when customer has active membership + auto-apply discount toggle + "Use 1 tune-up benefit" checkbox that decrements remaining count + writes `membership_benefit_usage` row
+- Dashboard → membership widget (members count, MRR from memberships, penetration %)
+- Invoice form → if linked job's customer is a member, auto-apply discount on labor/parts lines (still toggleable)
+- Quote form → same auto-apply behavior
+
+**HVAC default plan tiers (seeded only on owner request — no auto-injection):**
+1. **Basic Comfort** — $14.99/mo · 1 tune-up/yr · 10% discount
+2. **Premium Comfort** — $24.99/mo · 2 tune-ups/yr · 15% discount · priority dispatch
+3. **Elite Comfort** — $39.99/mo · 2 tune-ups/yr · 20% discount · priority dispatch · 2 free service calls · diagnostic fee waived
+
+**Auto-schedule tune-ups scheduler:**
+- New scheduler job, daily. For each active member with `tuneUpsRemaining > 0`, check if next tune-up window is approaching (member start date + 6 months for biannual).
+- If yes, create a "pending tune-up" task + send SMS via Message Intelligence Service (new MessageType `MEMBERSHIP_TUNEUP_DUE`): "Hi Sarah, your Premium plan includes your spring tune-up — when works for you?"
+- Reply routes through existing `smsConversationRouter` to book the appointment.
+- Wrapped with `withReentryGuard` + `withAdvisoryLock`.
+
+**AI receptionist member-awareness:**
+- New Retell tool `checkMembership(customerId)` registered conditionally per `config.supportsMembershipPlans`
+- `recognizeCaller` returns membership data in its `summary` narrative when member exists
+- System prompt updated (in the prompt builder) to leverage member context: "Hi Sarah! I see you're an Elite member, you get priority booking and your tune-up is due — want me to get you in this week?"
+- This is the **demo magic moment** — competitors can't replicate it.
+
+**Verification gates:** TS clean + tests green + barbershop unaffected + HVAC end-to-end flow demo (create plan → enroll customer → AI calls them aware of membership → tune-up auto-scheduled → job applies discount → invoice reflects it).
+
+**Deferred to v2 (per owner decision):**
+- SMS upsell agent pitching enrollment after >$X paid repair
+- Member-only pricing rules engine (line-item-specific discounts)
+- Family-plan / multi-property memberships
+- Gift memberships
+- Mid-cycle plan changes with proration UI
+
+---
+
+#### Step 5 — Quote-from-Job + SMS Approval
+
+**Goal:** Close the HVAC service loop. Tech arrives → does diagnostic → builds quote from job line items → texts customer the quote → customer approves via SMS → second job auto-created for the actual repair.
+
+**Existing infrastructure to reuse:** `quotes` table, `quote_items` table, `quote_follow_ups` table, portal `/portal/quote/:token` endpoint, member-discount auto-apply (from Step 4), Stripe Connect billing.
+
+**New endpoint:** `POST /api/jobs/:jobId/send-quote` — mirrors the `send-invoice` pattern. Auto-creates quote from job's line items + member discount, generates access token, texts portal link via notification service.
+
+**SMS approval flow:** Customer texts "APPROVE" or "Y" → portal access token resolves to quote → status moves to `accepted` → new job auto-created with quote's line items, linked back to the original diagnostic job for reporting.
+
+**UI surfaces:**
+- Job detail page (completed status + has line items): new "Send Quote" button alongside "Send Invoice"
+- Portal quote view: existing
+- New SMS keyword handler for APPROVE/DECLINE on quotes
+
+**Verification gates:** TS clean + tests green + works for any industry but defaults flipped by `config.bookingFlow` (HVAC diagnostic-first naturally triggers this flow; barbershops don't see it because flat-price services don't generate quotes).
+
+---
+
+### Sequencing constraints (don't reorder)
+
+- **Step 1 must come first.** Every later step reads from `getIndustryConfig()`.
+- **Step 2 must come before Step 4.** Membership discounts need to flow through the pricing-type model; otherwise the discount is just a badge.
+- **Step 3 can swap with Step 4 if needed.** Equipment tracking is a clean independent unit. Membership plans don't depend on it (but they get better with it).
+- **Step 5 must come after Step 4** if you want member-discount auto-apply in quotes.
+
+### Risk register
+
+| Risk | Mitigation |
+|---|---|
+| Refactor regresses a non-HVAC industry | Regression test in Step 1 proves `isJobCategory()` is byte-identical; manual smoke on a barbershop business after every step |
+| Stripe Connect subscription edge cases (saved PM consent, retries, proration) | Step 4 isolated; spec'd carefully; webhook idempotency reuses existing `processed_webhook_events` table pattern |
+| AI receptionist regression from prompt changes | Auto-refine + call quality score infrastructure already catches drops; manual transcript review on first 10 HVAC calls post-Step-2 |
+| Owners enroll a customer with no payment method on file | Enrollment endpoint requires `stripeCustomerConnectId` + at least one attached PM; UI surfaces clear error if missing |
+| HVAC default plan tiers leak to non-HVAC businesses | Seeding gated to `config.supportsMembershipPlans` AND explicit owner request — never auto-injected |
+
+### Mandatory verification rules per step
+
+1. `npx tsc --noEmit` clean
+2. Full test suite green (currently 946/946)
+3. New tests added for the step's surface
+4. Manual smoke on a barbershop business: zero visible change (unless a flag is intentionally flipped for that industry)
+5. Manual smoke on an HVAC business: feature works end-to-end
+6. CLAUDE.md updated with the step's "Recent changes" entry
+7. Commit per step (owner approves; do not auto-commit)
+
+### What this earns
+
+After Step 5 ships, SmallBizAgent has:
+- The **only** small-business FSM with an AI voice receptionist that's member-aware, equipment-aware, and triage-aware
+- A diagnostic-first booking flow that protects HVAC owners from underquoting on the phone
+- Auto-scheduled tune-ups that hit the 30-50% recurring revenue benchmark
+- A quote-from-job loop that compresses the repair sales cycle from days to hours
+- An architecture where turning on plumbing, electrical, or landscaping is a config-file edit
+
+That's the wedge that takes 20 paying HVAC contractors to 200 to 2,000.
+
+---
+
 ## ⚠️ Maintenance Rule
 
 **Every AI agent working on this project MUST update this file after making changes.** This includes but is not limited to:
@@ -2866,7 +3298,13 @@ Update the relevant section(s) above and bump the "Last updated" date below. If 
 
 ---
 
-*Last updated: May 24, 2026 (senior-review hardening pass). Closed the gaps a senior reviewer would flag: (1) `runGpsRetentionSweep` now has 11 real tests against a stateful in-memory store that actually verify deletion semantics + cutoff math + per-business scoping + 1h floor + tenant isolation; (2) verified Drizzle propagates pg `23505` to `err.code` so the partial-unique-race converts cleanly to 409 (vs misreporting 500); (3) per-business `gpsBetaApproved` rollout flag — admin can grant/revoke Live Dispatch one customer at a time during beta without affecting other tenants (new column, new admin endpoint `POST /api/admin/businesses/:id/gps-beta-approval`, new audit action `gps_beta_approval_changed`); (4) `generateTrackingToken` hardened with webcrypto fallback; (5) `isGpsAvailableOnDevice()` helper consolidates 5 scattered `Capacitor.isNativePlatform()` calls; (6) `requestId` now included in all 19 GPS-route 500 responses for support log correlation. **990/990 tests pass** (946 server + 44 client, +16 new). No regressions.*
+*Last updated: May 30, 2026 (HVAC Vertical-First Roadmap — Step 1: Industry Capability Matrix complete). Pure refactor laying the wiring for the HVAC-first GTM. New `shared/industry-config.ts` (~580 lines) defines a declarative `IndustryConfig` interface (17 fields covering category, booking flow, service catalog shape, AI receptionist style, membership support, equipment tracking, emergency queue, etc.) + `INDUSTRY_CONFIG` map with 20 explicit entries (10 job-category including HVAC/plumbing/electrical/automotive/etc., 9 appointment-category including barber/salon/dental/medical/etc., plus a `general` fallback). Resolver `getIndustryConfig()` handles null/empty/messy-real-world strings via exact match → ~30-entry alias map → longest-first partial scan → alias substring sweep, with in-process cache. Legacy `isJobCategory()` in `shared/industry-categories.ts` intentionally KEEPS its original substring-match implementation (does NOT delegate to the matrix) so existing call sites (Sidebar, BottomNav, schedule-router, Jobs page, Settings tabs, GPS plan gate) get byte-identical behavior — the matrix is more inclusive ("Auto Repair Shop" → automotive via the "auto" alias) and that divergence is documented + asserted. New regression test file (~530 lines, 108 tests, all passing): parameterized regression suite over 85 real-world industry strings against an inlined copy of the pre-refactor implementation; matrix shape invariants (every field populated, valid union values, conditional null relationships); resolver behavior (fallbacks, exact match, aliases, partial-match, multi-word strings); HVAC drift detector locking in roadmap values. Zero schema changes, zero migrations, zero UI changes, zero AI receptionist changes. Every future roadmap step reads `getIndustryConfig(business.industry)` to condition behavior. **Total test suite: 1054/1054 pass** (was 946 — +108 new). `npx tsc --noEmit` clean.*
+
+*Previous: May 30, 2026 (Cash-Loop Friction Polish — Phase 2 complete). Per-business sales tax rate: new `businesses.taxRate` NUMERIC(5,2) column (percent, e.g. "8.00"), settings UI input with helper text, server-side `resolveTaxRate(business)` helper (8% fallback) used in all 3 invoice-creation paths (auto-invoice on job completion, manual generate-invoice, send-invoice). Hardcoded 0.08 removed from `InvoiceForm.tsx` (now reads `business.taxRate`) — also fixed pre-existing TS use-before-declaration on `TAX_RATE`. New one-tap `POST /api/jobs/:jobId/send-invoice` endpoint auto-creates the invoice from line items if missing (using configured tax rate + 24-byte base64url access token + 30-day due date), backfills tokens on legacy invoices, and texts the portal pay link via `sendInvoiceSentNotification` (respects Free-plan gate + SMS opt-in). New "Send Invoice" (primary green) + "Generate" (secondary outline) buttons on the completed-job detail page header. Triage Phase 1 carried over from prior session unchanged. `npx tsc --noEmit` clean.*
+
+*Previous: May 30, 2026 (Structured Triage — Phase 1 complete). Field-service triage shipped end-to-end: new `job_urgency` Postgres enum (emergency/urgent/routine) + `urgency`/`issueType`/`symptoms`/`accessNotes` columns on `jobs` (schema + idempotent migration with CREATE TYPE before column ref + guarded TEXT→enum ALTER). Retell `bookAppointment` tool now captures all four triage fields (optional, not required) and the AI-booking handler in `callToolHandlers.ts` passes them into `storage.createJob()`. New read-only color-coded `TriageCard` mounted on the job detail page (self-hides when empty). Editable triage fields added to `JobForm` (urgency Select + issueType Input + symptoms/accessNotes Textareas). Jobs list page gained an urgency filter Select + urgency Badge column + emergency-first client-side sort. `npx tsc --noEmit` clean.*
+
+*Previous: May 24, 2026 (senior-review hardening pass). Closed the gaps a senior reviewer would flag: (1) `runGpsRetentionSweep` now has 11 real tests against a stateful in-memory store that actually verify deletion semantics + cutoff math + per-business scoping + 1h floor + tenant isolation; (2) verified Drizzle propagates pg `23505` to `err.code` so the partial-unique-race converts cleanly to 409 (vs misreporting 500); (3) per-business `gpsBetaApproved` rollout flag — admin can grant/revoke Live Dispatch one customer at a time during beta without affecting other tenants (new column, new admin endpoint `POST /api/admin/businesses/:id/gps-beta-approval`, new audit action `gps_beta_approval_changed`); (4) `generateTrackingToken` hardened with webcrypto fallback; (5) `isGpsAvailableOnDevice()` helper consolidates 5 scattered `Capacitor.isNativePlatform()` calls; (6) `requestId` now included in all 19 GPS-route 500 responses for support log correlation. **990/990 tests pass** (946 server + 44 client, +16 new). No regressions.*
 
 *Previous: May 24, 2026 (PR 9 — feature complete). GPS Live Dispatch fully shipped, all 9 stages of the plan delivered. PR 9 closes the loop with tests + docs: 80 new server tests (disclosure service: 19, plan/industry gate: 27, GPS routes incl. tenant isolation: 34) + 22 new client tests (capacitor-gps queue/flush/permissions: 19, deeplinks /track/: 3). Test infrastructure: split Capacitor plugin stubs (one per package) aliased in vitest.config.client.ts so dynamic imports resolve without the packages installed. `docs/GPS_TRACKING.md` — 360-line operator's guide with iOS/Android setup checklists, Google Maps prereqs, state-by-state legal notes (CA/CT/DE/NY/TX/WA/IL written-consent statutes + personal-vehicle and 1099 misclassification risks), disclosure & 90-day re-acceptance model, retention sweep mechanics, customer service script, and operational runbook. **974/974 tests pass** (930 server + 44 client). No regressions.*
 

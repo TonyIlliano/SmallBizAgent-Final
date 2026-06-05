@@ -11,6 +11,7 @@ import { uploadBufferToS3, isS3Configured } from "../utils/s3Upload";
 import { toMoney, roundMoney } from "../utils/money";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { randomBytes } from "crypto";
 
 // Multer for job photo uploads (5MB max, images only)
 const photoUpload = multer({
@@ -40,6 +41,22 @@ const verifyBusinessOwnership = (resource: { businessId: number } | null | undef
   if (!resource) return false;
   const userBusinessId = getBusinessId(req);
   return resource.businessId === userBusinessId;
+};
+
+// Default tax rate when a business has not configured one (8%).
+const DEFAULT_TAX_RATE = 0.08;
+
+// Resolve the tax rate fraction for a business. `businesses.taxRate` is stored
+// as a percent string via Drizzle NUMERIC (e.g. "8.00" = 8%). We convert to a
+// fraction (0.08) for arithmetic. Invalid / blank / negative values fall back
+// to DEFAULT_TAX_RATE so callers always get a sane number.
+const resolveTaxRate = (business: { taxRate?: string | number | null } | null | undefined): number => {
+  if (!business) return DEFAULT_TAX_RATE;
+  const raw = (business as any).taxRate;
+  if (raw === null || raw === undefined || raw === "") return DEFAULT_TAX_RATE;
+  const pct = typeof raw === "number" ? raw : parseFloat(String(raw));
+  if (!Number.isFinite(pct) || pct < 0) return DEFAULT_TAX_RATE;
+  return pct / 100;
 };
 
 // =================== JOBS API ===================
@@ -248,7 +265,7 @@ router.put("/:id", isAuthenticated, async (req: Request, res: Response) => {
           if (business?.autoInvoiceOnJobCompletion) {
             const lineItems = await storage.getJobLineItems(job.id);
             if (lineItems.length > 0) {
-              const taxRate = 0.08;
+              const taxRate = resolveTaxRate(business);
               const subtotal = lineItems.reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
               const taxableAmount = lineItems.filter((item: any) => item.taxable).reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
               const tax = roundMoney(taxableAmount * taxRate);
@@ -504,7 +521,10 @@ router.post("/:jobId/generate-invoice", isAuthenticated, async (req: Request, re
       }
 
       // Calculate totals
-      const taxRate = req.body.taxRate || 0.08; // Default 8% tax
+      const business = await storage.getBusiness(job.businessId);
+      // req.body.taxRate, if provided, is a fraction override (e.g. 0.08). Otherwise fall
+      // back to the business's configured rate (stored as a percent, normalized to a fraction).
+      const taxRate = typeof req.body.taxRate === "number" ? req.body.taxRate : resolveTaxRate(business); // Default 8% tax
       const subtotal = lineItems.reduce((sum, item) => sum + toMoney(item.amount), 0);
       const taxableAmount = lineItems
         .filter(item => item.taxable)
@@ -559,6 +579,100 @@ router.post("/:jobId/generate-invoice", isAuthenticated, async (req: Request, re
       res.status(500).json({ message: "Error generating invoice from job" });
     }
   });
+
+// POST /api/jobs/:jobId/send-invoice — one-tap: ensure an invoice exists for the job
+// (auto-create from line items using the business tax rate if needed), then send it to the
+// customer via the standard invoice notification (respects Free-plan gate + SMS opt-out).
+router.post('/:jobId/send-invoice', isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const jobId = parseInt(req.params.jobId);
+    if (isNaN(jobId)) return res.status(400).json({ message: 'Invalid job ID' });
+
+    const job = await storage.getJob(jobId);
+    if (!job) return res.status(404).json({ message: 'Job not found' });
+    if (!verifyBusinessOwnership(job, req)) {
+      return res.status(403).json({ message: 'Not authorized to access this job' });
+    }
+    if (!job.customerId) {
+      return res.status(400).json({ message: 'This job has no customer to send an invoice to' });
+    }
+
+    const business = await storage.getBusiness(job.businessId);
+
+    // Reuse an existing invoice for this job if one was already generated.
+    let invoice: any = null;
+    try {
+      const existingInvoices = await storage.getInvoices(job.businessId);
+      invoice = (existingInvoices || []).find((inv: any) => inv.jobId === jobId) || null;
+    } catch (e: any) {
+      console.error('[send-invoice] lookup existing invoices failed:', e?.message);
+    }
+
+    if (!invoice) {
+      // Auto-create from the job's line items.
+      const lineItems = await storage.getJobLineItems(jobId);
+      if (!lineItems || lineItems.length === 0) {
+        return res.status(400).json({ message: 'Add at least one line item before sending an invoice' });
+      }
+
+      const subtotal = lineItems.reduce(
+        (sum: number, item: any) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0),
+        0,
+      );
+      const taxRate = resolveTaxRate(business);
+      const taxAmount = roundMoney(subtotal * taxRate);
+      const total = roundMoney(subtotal + taxAmount);
+
+      const accessToken = randomBytes(24).toString('base64url');
+      const invoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${jobId}`;
+
+      invoice = await storage.createInvoice({
+        businessId: job.businessId,
+        customerId: job.customerId,
+        jobId: jobId,
+        invoiceNumber,
+        amount: String(subtotal),
+        tax: String(taxAmount),
+        total: String(total),
+        status: 'pending',
+        accessToken,
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      } as any);
+
+      for (const item of lineItems) {
+        await storage.createInvoiceItem({
+          invoiceId: invoice.id,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        } as any);
+      }
+    } else if (!invoice.accessToken) {
+      // Older invoices may predate access-token generation — backfill so the portal link works.
+      const accessToken = randomBytes(24).toString('base64url');
+      await storage.updateInvoice(invoice.id, { accessToken } as any);
+      invoice = { ...invoice, accessToken };
+    }
+
+    // Send via the canonical invoice notification (handles Free-plan gate, SMS opt-out).
+    const APP_URL = process.env.APP_URL || 'http://localhost:5000';
+    const invoiceUrl = `${APP_URL}/portal/invoice/${invoice.accessToken}`;
+    let notified = false;
+    try {
+      const { sendInvoiceSentNotification } = await import('../services/notificationService');
+      await sendInvoiceSentNotification(invoice.id, job.businessId, invoiceUrl);
+      notified = true;
+    } catch (e: any) {
+      console.error('[send-invoice] notification failed:', e?.message);
+    }
+
+    return res.json({ success: true, invoice, notified });
+  } catch (error: any) {
+    console.error('[send-invoice] error:', error?.message);
+    return res.status(500).json({ message: 'Failed to send invoice' });
+  }
+});
+
 
 /**
  * POST /api/jobs/:id/voice-notes — Process transcribed voice notes with AI

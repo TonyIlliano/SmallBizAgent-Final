@@ -1,6 +1,9 @@
-import { pgTable, text, serial, timestamp, integer, boolean, jsonb, real, doublePrecision, numeric, date, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, text, serial, timestamp, integer, boolean, jsonb, real, doublePrecision, numeric, date, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// Job urgency — hard Postgres enum, mirrored by Zod via createInsertSchema
+export const jobUrgencyEnum = pgEnum("job_urgency", ["emergency", "urgent", "routine"]);
 
 // Users
 export const users = pgTable("users", {
@@ -143,6 +146,7 @@ export const businesses = pgTable("businesses", {
   isActive: boolean("is_active").default(true), // Soft-disable a location
   // Job automation settings
   autoInvoiceOnJobCompletion: boolean("auto_invoice_on_job_completion").default(false), // Auto-generate invoice when job is marked complete
+  taxRate: numeric("tax_rate", { precision: 5, scale: 2 }), // Sales tax rate as a percent (e.g. 8.00 = 8%). Null falls back to a sane default.
   // Data retention settings
   dataRetentionDays: integer("data_retention_days").default(365), // How long to keep transcripts (days)
   callRecordingRetentionDays: integer("call_recording_retention_days").default(90), // How long to keep call recordings
@@ -386,6 +390,12 @@ export const jobs = pgTable("jobs", {
   // customer's address; not yet user-facing.
   customerLocationLat: real("customer_location_lat"),
   customerLocationLng: real("customer_location_lng"),
+  // Structured triage — captured by the AI receptionist during intake or edited
+  // by the owner on the job. All nullable; existing jobs default to empty.
+  urgency: jobUrgencyEnum("urgency"), // emergency, urgent, routine
+  issueType: text("issue_type"), // e.g. "no heat", "leaking pipe", "outlet not working"
+  symptoms: text("symptoms"), // free-text description of the problem
+  accessNotes: text("access_notes"), // gate codes, parking, pets, where to find the unit, etc.
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
