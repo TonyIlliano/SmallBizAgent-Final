@@ -65,6 +65,7 @@ export async function generateJobBriefing(
     staff,
     mem0Memories,
     linkedAppointment,
+    equipmentRecords,
   ] = await Promise.all([
     // Customer insights (LTV, preferences, sentiment, risk)
     customer
@@ -98,6 +99,13 @@ export async function generateJobBriefing(
     job.appointmentId
       ? storage.getAppointment(job.appointmentId).catch(() => null)
       : Promise.resolve(null),
+
+    // Step 3 of HVAC roadmap — customer's known equipment so the tech walks
+    // in knowing the make/model/age/location before they even open the door.
+    // Active rows only; storage-side capped.
+    customer
+      ? storage.getCustomerEquipment(customer.id, businessId).catch(() => [] as any[])
+      : Promise.resolve([] as any[]),
   ]);
 
   // Filter out the current job from previous jobs
@@ -136,6 +144,30 @@ export async function generateJobBriefing(
     if (ci.noShowCount > 0) insightParts.push(`No-Shows: ${ci.noShowCount}`);
     if (ci.autoTags && ci.autoTags.length > 0) insightParts.push(`Auto Tags: ${ci.autoTags.join(', ')}`);
     contextParts.push(insightParts.join('\n'));
+  }
+
+  // Customer Equipment (Step 3 of HVAC roadmap)
+  // What's at the property — make, model, install date, location, history.
+  // Powers truck-stock decisions and on-site quoting accuracy.
+  if (Array.isArray(equipmentRecords) && equipmentRecords.length > 0) {
+    const equipParts: string[] = ['--- Customer Equipment ---'];
+    for (const e of equipmentRecords as any[]) {
+      if (e.active === false) continue;
+      const makeModel = [e.make, e.model].filter(Boolean).join(' ');
+      const typeLabel = String(e.equipmentType || 'unit').replace(/_/g, ' ');
+      const lineBits: string[] = [];
+      lineBits.push(makeModel ? `${makeModel} (${typeLabel})` : typeLabel);
+      if (e.location) lineBits.push(`location: ${e.location}`);
+      if (e.installDate) lineBits.push(`installed: ${e.installDate}`);
+      if (e.lastServiceDate) lineBits.push(`last service: ${e.lastServiceDate}`);
+      if (e.warrantyExpiry) lineBits.push(`warranty: ${e.warrantyExpiry}`);
+      if (e.serialNumber) lineBits.push(`S/N: ${e.serialNumber}`);
+      if (e.notes) lineBits.push(`notes: ${e.notes}`);
+      equipParts.push(`• ${lineBits.join(' — ')}`);
+    }
+    if (equipParts.length > 1) {
+      contextParts.push(equipParts.join('\n'));
+    }
   }
 
   // Current job

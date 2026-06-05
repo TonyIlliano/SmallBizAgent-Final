@@ -784,6 +784,18 @@ interface UpdateCustomerInfoParams {
   email?: string;
 }
 
+// Step 3 of HVAC roadmap. The captureEquipment tool persists customer-mentioned
+// equipment (make, model, location, etc.) during natural conversation.
+interface CaptureEquipmentParams {
+  customerId?: number;
+  equipmentType: string;
+  make?: string;
+  model?: string;
+  installDate?: string;
+  location?: string;
+  notes?: string;
+}
+
 interface ConfirmAppointmentParams {
   appointmentId?: number;
   confirmed: boolean;
@@ -988,6 +1000,9 @@ export async function dispatchToolCall(
 
       case 'updateCustomerInfo':
         return await updateCustomerInfo(businessId, parameters as UpdateCustomerInfoParams, callerPhone);
+
+      case 'captureEquipment':
+        return await captureEquipment(businessId, parameters as CaptureEquipmentParams);
 
       case 'getDirections':
         return await getDirections(businessId, callerPhone, parameters?.sendSms);
@@ -4071,13 +4086,18 @@ async function recognizeCaller(
     .catch(() => ''); // Never throws
   const mem0Timeout = new Promise<string>((resolve) => setTimeout(() => resolve(''), 100)); // 100ms max for Mem0
 
-  const [appointments, recogBusiness, allServices, intelligenceResult, insightsResult, conversationalContext] = await Promise.all([
+  const [appointments, recogBusiness, allServices, intelligenceResult, insightsResult, conversationalContext, equipmentRecords] = await Promise.all([
     storage.getAppointmentsByCustomerId(customer.id),
     getCachedBusiness(businessId),
     getCachedServices(businessId),
     getLatestCustomerIntelligence(customer.id, businessId).catch(() => null),
     storage.getCustomerInsights(customer.id, businessId).catch(() => null),
     Promise.race([mem0Promise, mem0Timeout]),
+    // Step 3 of HVAC roadmap — surface known equipment in the summary so
+    // the AI can reference it naturally ("I see we last serviced your Trane
+    // unit in May — is that what's having trouble today?"). Active rows only,
+    // limit-bounded by the storage method.
+    storage.getCustomerEquipment(customer.id, businessId).catch(() => []),
   ]);
 
   const intelligence = intelligenceResult;
@@ -4215,6 +4235,26 @@ async function recognizeCaller(
   // Pending follow-up
   if (intelligence?.pendingFollowUp) {
     summaryParts.push(`Pending follow-up: ${intelligence.pendingFollowUp}`);
+  }
+
+  // Step 3 of HVAC roadmap — surface known equipment so the AI can lead
+  // with it ("I see we last serviced your Trane furnace in May — is that
+  // what's having trouble?"). Cap at 3 most-recently-serviced to keep the
+  // summary inside the 450-char budget.
+  if (Array.isArray(equipmentRecords) && equipmentRecords.length > 0) {
+    const topEquipment = equipmentRecords
+      .filter((e: any) => e.active !== false)
+      .slice(0, 3)
+      .map((e: any) => {
+        const parts = [e.make, e.model].filter(Boolean).join(' ');
+        const typeLabel = String(e.equipmentType || 'unit').replace(/_/g, ' ');
+        const where = e.location ? ` in ${e.location}` : '';
+        const last = e.lastServiceDate ? ` (last serviced ${e.lastServiceDate})` : '';
+        return parts ? `${parts} ${typeLabel}${where}${last}` : `${typeLabel}${where}${last}`;
+      });
+    if (topEquipment.length > 0) {
+      summaryParts.push(`Known equipment: ${topEquipment.join('; ')}`);
+    }
   }
 
   // Risk level (only if at-risk)
@@ -4360,6 +4400,140 @@ async function updateCustomerInfo(
         success: false,
         error: 'There was a technical issue updating the customer information. Please try again.'
       }
+    };
+  }
+}
+
+/**
+ * captureEquipment — Step 3 of HVAC roadmap.
+ *
+ * The AI receptionist calls this whenever a caller naturally mentions their
+ * equipment ("I have a Trane unit, about 8 years old, in the attic"). We
+ * persist the row to customer_equipment so the next tech walks in knowing
+ * what they're working on.
+ *
+ * Tenant-safe: validates the customer belongs to the calling business
+ * before any write. Fail-soft: returns success=false instead of throwing so
+ * a bad capture never breaks the call flow.
+ *
+ * Deduplication: if a row with the same equipmentType + make + model already
+ * exists for this customer, the handler updates that row instead of creating
+ * a duplicate. Mid-conversation re-mentions ("yeah it's a Trane") don't
+ * spam the database.
+ */
+async function captureEquipment(
+  businessId: number,
+  params: CaptureEquipmentParams,
+): Promise<FunctionResult> {
+  try {
+    if (!params.customerId) {
+      return {
+        result: {
+          success: false,
+          error: 'Missing customerId. Call recognizeCaller first to identify the customer.',
+        },
+      };
+    }
+    if (!params.equipmentType) {
+      return {
+        result: {
+          success: false,
+          error: 'Missing equipmentType.',
+        },
+      };
+    }
+
+    const VALID_TYPES = [
+      'furnace', 'ac', 'heat_pump', 'mini_split', 'boiler',
+      'water_heater', 'thermostat', 'vehicle', 'pet', 'other',
+    ];
+    if (!VALID_TYPES.includes(params.equipmentType)) {
+      return {
+        result: {
+          success: false,
+          error: `Invalid equipmentType "${params.equipmentType}". Must be one of: ${VALID_TYPES.join(', ')}.`,
+        },
+      };
+    }
+
+    // Tenant check — customer must belong to the calling business
+    const customer = await storage.getCustomer(params.customerId);
+    if (!customer || customer.businessId !== businessId) {
+      return {
+        result: {
+          success: false,
+          error: 'Customer not found for this business.',
+        },
+      };
+    }
+
+    // Dedup: if an active row already exists for this customer with the same
+    // type + make (case-insensitive), update it rather than creating a
+    // duplicate. Real-world: the caller mentions the unit once, then mentions
+    // it again 30 seconds later; we shouldn't end up with two rows.
+    const existing = await storage.getCustomerEquipment(params.customerId, businessId);
+    const dupe = existing.find(
+      (e) =>
+        e.equipmentType === params.equipmentType &&
+        (e.make || '').toLowerCase() === (params.make || '').toLowerCase() &&
+        e.active === true,
+    );
+
+    if (dupe) {
+      // Merge — only patch fields the caller actually mentioned
+      const patch: Record<string, any> = {};
+      if (params.model && !dupe.model) patch.model = params.model;
+      if (params.installDate && !dupe.installDate) patch.installDate = params.installDate;
+      if (params.location && !dupe.location) patch.location = params.location;
+      if (params.notes) {
+        patch.notes = dupe.notes
+          ? `${dupe.notes}\n${new Date().toISOString().slice(0, 10)}: ${params.notes}`
+          : params.notes;
+      }
+
+      if (Object.keys(patch).length > 0) {
+        await storage.updateCustomerEquipment(dupe.id, businessId, patch);
+      }
+
+      return {
+        result: {
+          success: true,
+          updated: true,
+          equipmentId: dupe.id,
+        },
+      };
+    }
+
+    const created = await storage.createCustomerEquipment({
+      businessId,
+      customerId: params.customerId,
+      equipmentType: params.equipmentType as any,
+      make: params.make || null,
+      model: params.model || null,
+      installDate: params.installDate || null,
+      location: params.location || null,
+      notes: params.notes || null,
+      active: true,
+    } as any);
+
+    console.log(
+      `[captureEquipment] business ${businessId} customer ${params.customerId}: persisted ${params.equipmentType}${params.make ? ` ${params.make}` : ''}${params.model ? ` ${params.model}` : ''} (id=${created.id})`,
+    );
+
+    return {
+      result: {
+        success: true,
+        created: true,
+        equipmentId: created.id,
+      },
+    };
+  } catch (error: any) {
+    console.error('[captureEquipment] error:', error?.message);
+    return {
+      result: {
+        success: false,
+        error: 'There was a technical issue saving the equipment. Please continue the conversation; the customer can add it manually later.',
+      },
     };
   }
 }

@@ -15,6 +15,7 @@ import { storage } from '../storage';
 import { db } from '../db';
 import { sql } from 'drizzle-orm';
 import { Business, Service, ReceptionistConfig, Staff, BusinessKnowledge } from '@shared/schema';
+import { getIndustryConfig } from '@shared/industry-config';
 
 /**
  * Business object augmented with runtime properties injected before
@@ -305,6 +306,15 @@ interface BuildToolsOptions {
   hasReservations?: boolean;
   voicemailEnabled?: boolean;
   transferNumber?: string | null;
+  // Step 3 of HVAC roadmap. When true, register the captureEquipment tool
+  // so the AI can persist customer-mentioned equipment (make/model/location)
+  // during natural conversation. Industry Capability Matrix decides — HVAC,
+  // plumbing, electrical, automotive, vet all get it.
+  tracksEquipment?: boolean;
+  // Label for the equipment, threaded into the tool description so the model
+  // uses the right vocabulary ("Equipment" for HVAC, "Vehicle" for auto,
+  // "Pet" for vet).
+  equipmentLabel?: string;
 }
 
 /**
@@ -385,6 +395,51 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
   ));
 
   // NOTE: getServices removed — services are in the system prompt. Model was calling it unprompted.
+
+  // ── captureEquipment (Step 3 of HVAC roadmap) ──
+  // Only registered for industries where tracksCustomerEquipment is true
+  // (HVAC, plumbing, electrical, automotive, vet). The model calls this
+  // whenever a caller naturally mentions equipment ("I have a Trane unit,
+  // about 8 years old, in the attic"). Server-side, the handler persists
+  // the row to customer_equipment, scoped to the caller's customer record.
+  if (options.tracksEquipment) {
+    const labelLower = (options.equipmentLabel || 'equipment').toLowerCase();
+    tools.push(customTool(
+      'captureEquipment',
+      `Record ${labelLower} the caller mentions during the conversation. Call this whenever they describe make, model, age, or location of a unit you'll be servicing — even if they don't ask you to. Required: customerId (from recognizeCaller) + equipmentType. Everything else optional.`,
+      {
+        type: 'object',
+        properties: {
+          customerId: { type: 'number', description: 'Customer ID from recognizeCaller. Required.' },
+          equipmentType: {
+            type: 'string',
+            enum: [
+              'furnace',
+              'ac',
+              'heat_pump',
+              'mini_split',
+              'boiler',
+              'water_heater',
+              'thermostat',
+              'vehicle',
+              'pet',
+              'other',
+            ],
+            description: 'Type of equipment. Use "other" only if nothing else fits.',
+          },
+          make: { type: 'string', description: 'Brand, e.g. "Trane", "Carrier", "Lennox", "Goodman".' },
+          model: { type: 'string', description: 'Model number or name if mentioned.' },
+          installDate: { type: 'string', description: 'ISO date if known (YYYY-MM-DD). Otherwise compute approximate year from "about 8 years old" → e.g. "2017-01-01" — set day to 01.' },
+          location: { type: 'string', description: 'Where it lives, e.g. "attic", "basement", "garage", "closet", "roof".' },
+          notes: { type: 'string', description: 'Anything the caller mentioned about it — "low refrigerant noted last year", "compressor making noise".' },
+        },
+        required: ['customerId', 'equipmentType'],
+      },
+      // Silent during execution — capturing equipment shouldn't pause the
+      // conversation. Speak after so the model can acknowledge naturally.
+      { speakDuring: false, speakAfter: false }
+    ));
+  }
 
   tools.push(customTool(
     'getStaffMembers',
@@ -772,12 +827,15 @@ export async function createLlmForBusiness(
     console.warn(`[Retell] Skipping transfer_call tool for business ${business.id}: phone "${rawTransferNumber}" can't be normalized to E.164`);
   }
 
+  const industryConfigCreate = getIndustryConfig(business.industry);
   const tools = buildRetellTools(business.id, {
     isRestaurant,
     hasMenu: isRestaurant && !!(business.cloverMerchantId || business.squareAccessToken || business.heartlandApiKey),
     hasReservations: isRestaurant && !!business.reservationEnabled,
     voicemailEnabled,
     transferNumber,
+    tracksEquipment: industryConfigCreate.tracksCustomerEquipment,
+    equipmentLabel: industryConfigCreate.equipmentLabel || undefined,
   });
 
   // Build the begin_message (greeting + optional recording disclosure)
@@ -860,12 +918,15 @@ export async function updateLlm(
     console.warn(`[Retell] updateLlm: skipping transfer tool — phone "${rawTransferNumber}" could not be normalized to E.164 for business ${business.id}`);
   }
 
+  const industryConfigUpdate = getIndustryConfig(business.industry);
   const tools = buildRetellTools(business.id, {
     isRestaurant,
     hasMenu: isRestaurant && !!(business.cloverMerchantId || business.squareAccessToken || business.heartlandApiKey),
     hasReservations: isRestaurant && !!business.reservationEnabled,
     voicemailEnabled,
     transferNumber,
+    tracksEquipment: industryConfigUpdate.tracksCustomerEquipment,
+    equipmentLabel: industryConfigUpdate.equipmentLabel || undefined,
   });
 
   // Build the begin_message (greeting + optional recording disclosure)

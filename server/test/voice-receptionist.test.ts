@@ -41,6 +41,10 @@ const { mockStorage, mockTwilioService, mockFireEvent, mockCanBusinessAcceptCall
     getBusinessKnowledge: vi.fn(),
     getCustomerInsights: vi.fn(),
     getAppointmentsByCustomerId: vi.fn(),
+    // Step 3 of HVAC roadmap — recognizeCaller now fetches customer equipment
+    // in its parallel batch. Default mock returns [] so the existing tests
+    // that don't care about equipment behave as before.
+    getCustomerEquipment: vi.fn().mockResolvedValue([]),
   },
   mockTwilioService: {
     sendSms: vi.fn().mockResolvedValue(undefined),

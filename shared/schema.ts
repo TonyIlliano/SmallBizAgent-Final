@@ -5,6 +5,32 @@ import { z } from "zod";
 // Job urgency — hard Postgres enum, mirrored by Zod via createInsertSchema
 export const jobUrgencyEnum = pgEnum("job_urgency", ["emergency", "urgent", "routine"]);
 
+// Customer equipment type (Step 3 of HVAC roadmap).
+// Hard Postgres enum so DB integrity guarantees only known values. The
+// Industry Capability Matrix gates whether the UI surfaces equipment at all
+// per industry (HVAC: furnace/ac/heat_pump/...; automotive: vehicle; vet: pet).
+// Adding a new value: add it here AND add the matching `ALTER TYPE
+// customer_equipment_type ADD VALUE 'foo'` block to runMigrations.ts so prod
+// DBs pick it up safely. The "other" catch-all means the system never rejects
+// equipment that doesn't fit a known category (commercial chillers, rooftop
+// units, prepaid maintenance contracts attached to specific assets, etc.).
+export const customerEquipmentTypeEnum = pgEnum("customer_equipment_type", [
+  // HVAC + plumbing
+  "furnace",
+  "ac",
+  "heat_pump",
+  "mini_split",
+  "boiler",
+  "water_heater",
+  "thermostat",
+  // Automotive
+  "vehicle",
+  // Veterinary
+  "pet",
+  // Catch-all
+  "other",
+]);
+
 // Users
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -296,6 +322,58 @@ export const customers = pgTable("customers", {
   businessIdIdx: index("customers_business_id_idx").on(table.businessId),
   // Unique phone per business (prevent duplicate customer records)
   businessPhoneUnique: unique("customers_business_phone_unique").on(table.businessId, table.phone),
+}));
+
+// Customer Equipment (Step 3 of HVAC roadmap)
+// First-class data model for customer-owned assets that techs service over
+// time. The Industry Capability Matrix decides whether each industry uses
+// this table — HVAC (furnaces/ACs/heat pumps), plumbing (water heaters),
+// electrical (panels), automotive (vehicles), veterinary (pets). The matrix
+// also picks the user-facing label ("Equipment" / "Vehicle" / "Pet").
+//
+// Powers (per the roadmap):
+//   - Truck stock decisions: tech sees the make/model before arriving so
+//     they know which parts to load
+//   - AI receptionist context: "I see we last serviced your Trane unit in
+//     May — is that what's having trouble?"
+//   - Accurate quoting: Trane parts run 30% higher than Goodman, so the
+//     quote should reflect that
+//   - Equipment-age-based predictive outreach (foundation for Year 2
+//     predictive maintenance feature)
+//   - Warranty lookups
+//   - Automatic capture as a byproduct of normal work (voice notes parsing,
+//     AI receptionist's captureEquipment tool, manual entry in CRM)
+export const customerEquipment = pgTable("customer_equipment", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  // Hard enum — see customerEquipmentTypeEnum above
+  equipmentType: customerEquipmentTypeEnum("equipment_type").notNull(),
+  // Free-form fields — real-world equipment data is messy
+  make: text("make"), // e.g. "Trane", "Carrier", "Lennox"
+  model: text("model"), // e.g. "XR16", "4TTR6024J1000A"
+  serialNumber: text("serial_number"),
+  // ISO 8601 date strings. Stored as date (not timestamp) — install dates
+  // are calendar dates, not points in time.
+  installDate: date("install_date"),
+  lastServiceDate: date("last_service_date"),
+  warrantyExpiry: date("warranty_expiry"),
+  // Where it lives — "attic", "basement", "garage", "closet", "roof"
+  location: text("location"),
+  // Free-form notes — "Low refrigerant noted 2024-06, recommended replacement"
+  notes: text("notes"),
+  // Active = currently in use. False = retired/removed (kept in DB for
+  // history but hidden from the customer detail UI by default).
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Most reads are "all equipment for this customer at this business" —
+  // composite index covers both tenant scope + customer lookup
+  customerScopeIdx: index("customer_equipment_customer_idx").on(table.businessId, table.customerId),
+  // Reverse index for "all equipment in this business" (admin reports,
+  // bulk export, etc.)
+  businessIdx: index("customer_equipment_business_idx").on(table.businessId),
 }));
 
 // Staff/Technicians
@@ -1461,6 +1539,11 @@ export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: tr
 export const insertBusinessHoursSchema = createInsertSchema(businessHours).omit({ id: true });
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true });
+// Customer Equipment (Step 3 of HVAC roadmap). The enum auto-flows from the
+// pgEnum so Zod accepts only the 10 valid equipmentType values. Date fields
+// stay as string|null since they're stored as date columns and we accept ISO
+// date strings from the API.
+export const insertCustomerEquipmentSchema = createInsertSchema(customerEquipment).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStaffHoursSchema = createInsertSchema(staffHours).omit({ id: true });
 export const insertStaffServiceSchema = createInsertSchema(staffServices).omit({ id: true, createdAt: true });
@@ -1572,6 +1655,22 @@ export type InsertService = z.infer<typeof insertServiceSchema>;
 
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+
+export type CustomerEquipment = typeof customerEquipment.$inferSelect;
+export type InsertCustomerEquipment = z.infer<typeof insertCustomerEquipmentSchema>;
+// Equipment type union mirrored from the pgEnum so client code can use it
+// without re-declaring the list.
+export type CustomerEquipmentType =
+  | "furnace"
+  | "ac"
+  | "heat_pump"
+  | "mini_split"
+  | "boiler"
+  | "water_heater"
+  | "thermostat"
+  | "vehicle"
+  | "pet"
+  | "other";
 
 export type Staff = typeof staff.$inferSelect;
 export type InsertStaff = z.infer<typeof insertStaffSchema>;

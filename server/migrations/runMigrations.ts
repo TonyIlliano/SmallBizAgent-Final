@@ -2449,6 +2449,11 @@ async function runMigrations() {
     // GPS Live Dispatch — field-service vertical tech tracking (Growth+ paywall)
     await ensureGpsTrackingTables();
 
+    // Customer equipment tracking — Step 3 of HVAC roadmap. Industry-config
+    // gates the UI but the table is universal so a barbershop that types
+    // "Pet Equipment" in their notes doesn't crash anything.
+    await ensureCustomerEquipmentTable();
+
     // Backfill any missing columns on tables that were created from earlier
     // commits without the latest schema (CREATE TABLE IF NOT EXISTS is a no-op
     // when the table exists, even if columns are missing). Triggered by a live
@@ -3880,6 +3885,101 @@ async function ensureGpsTrackingTables() {
     }
   } catch (error: any) {
     console.error('Error creating GPS tracking tables:', error?.message || error);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Customer Equipment Tracking (Step 3 of HVAC roadmap)
+//
+// Schema is in shared/schema.ts under customerEquipment + customerEquipmentTypeEnum.
+// This migration is idempotent and tracked via the migrations table.
+//
+// Ordering: enum type MUST exist before the column referencing it, so we
+// CREATE TYPE first (DO/EXCEPTION block to ignore duplicate_object), then
+// CREATE TABLE, then indexes. All wrapped in BEGIN/COMMIT.
+//
+// Adding a new enum value later: copy this pattern into a NEW migration
+// function (don't edit this one — already shipped) that runs
+//   ALTER TYPE customer_equipment_type ADD VALUE IF NOT EXISTS 'foo'
+// outside a transaction (Postgres requires that).
+// ──────────────────────────────────────────────────────────────────────────
+async function ensureCustomerEquipmentTable() {
+  const MIGRATION_NAME = 'customer_equipment_v1';
+  try {
+    const exists = await pool.query(`SELECT 1 FROM migrations WHERE name = $1 LIMIT 1`, [MIGRATION_NAME]);
+    if (exists.rows.length > 0) {
+      console.log('Customer equipment table already created');
+      return;
+    }
+    console.log('Creating customer_equipment table...');
+
+    // Step 1 — create the enum type. Must be OUTSIDE the transaction since
+    // ALTER TYPE in PG can't run in a transaction. CREATE TYPE itself is
+    // transactional but we keep it outside for parity with future
+    // ADD VALUE migrations.
+    await pool.query(`
+      DO $$ BEGIN
+        CREATE TYPE customer_equipment_type AS ENUM (
+          'furnace',
+          'ac',
+          'heat_pump',
+          'mini_split',
+          'boiler',
+          'water_heater',
+          'thermostat',
+          'vehicle',
+          'pet',
+          'other'
+        );
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `);
+
+    await pool.query('BEGIN');
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS customer_equipment (
+          id SERIAL PRIMARY KEY,
+          business_id INTEGER NOT NULL,
+          customer_id INTEGER NOT NULL,
+          equipment_type customer_equipment_type NOT NULL,
+          make TEXT,
+          model TEXT,
+          serial_number TEXT,
+          install_date DATE,
+          last_service_date DATE,
+          warranty_expiry DATE,
+          location TEXT,
+          notes TEXT,
+          active BOOLEAN DEFAULT TRUE NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Composite index for the hot read path: "all equipment for this
+      // customer at this business". Covers both tenant scope and customer
+      // lookup in a single B-tree.
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_customer_equipment_customer
+        ON customer_equipment (business_id, customer_id)
+      `);
+
+      // Business-wide index for admin reports / bulk exports / age-based
+      // predictive outreach scans.
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_customer_equipment_business
+        ON customer_equipment (business_id)
+      `);
+
+      await pool.query('INSERT INTO migrations (name) VALUES ($1)', [MIGRATION_NAME]);
+      await pool.query('COMMIT');
+      console.log('Customer equipment table created');
+    } catch (txErr) {
+      await pool.query('ROLLBACK');
+      throw txErr;
+    }
+  } catch (error: any) {
+    console.error('Error creating customer_equipment table:', error?.message || error);
   }
 }
 

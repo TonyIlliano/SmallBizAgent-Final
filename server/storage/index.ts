@@ -58,6 +58,7 @@ import {
   TechLocationPing, InsertTechLocationPing,
   TechTrackingSession, InsertTechTrackingSession,
   CustomerTrackingLink, InsertCustomerTrackingLink,
+  CustomerEquipment, InsertCustomerEquipment,
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -75,6 +76,7 @@ import * as integrationFns from "./integrations";
 import * as smsFns from "./sms-intelligence";
 import * as workflowFns from "./workflows";
 import * as gpsFns from "./gpsTracking";
+import * as equipmentFns from "./equipment";
 
 /**
  * Normalize a phone number to digits-only for comparison.
@@ -136,6 +138,14 @@ export interface IStorage {
   deleteCustomer(id: number, businessId: number): Promise<void>;
   archiveCustomer(id: number, businessId: number): Promise<Customer>;
   restoreCustomer(id: number, businessId: number): Promise<Customer>;
+
+  // Customer Equipment (Step 3 of HVAC roadmap)
+  getCustomerEquipment(customerId: number, businessId: number, params?: { includeInactive?: boolean }): Promise<CustomerEquipment[]>;
+  getCustomerEquipmentById(id: number, businessId: number): Promise<CustomerEquipment | undefined>;
+  getCustomerEquipmentByBusiness(businessId: number, params?: { limit?: number; activeOnly?: boolean }): Promise<CustomerEquipment[]>;
+  createCustomerEquipment(payload: InsertCustomerEquipment): Promise<CustomerEquipment>;
+  updateCustomerEquipment(id: number, businessId: number, patch: Partial<Omit<InsertCustomerEquipment, "id" | "businessId" | "customerId" | "createdAt">>): Promise<CustomerEquipment | undefined>;
+  deleteCustomerEquipment(id: number, businessId: number): Promise<boolean>;
 
   // Staff
   getStaff(businessId: number): Promise<Staff[]>;
@@ -595,6 +605,14 @@ export class DatabaseStorage implements IStorage {
   deleteCustomer = customerFns.deleteCustomer;
   archiveCustomer = customerFns.archiveCustomer;
   restoreCustomer = customerFns.restoreCustomer;
+
+  // --- Customer Equipment (equipment.ts) — Step 3 of HVAC roadmap ---
+  getCustomerEquipment = equipmentFns.getCustomerEquipment;
+  getCustomerEquipmentById = equipmentFns.getCustomerEquipmentById;
+  getCustomerEquipmentByBusiness = equipmentFns.getCustomerEquipmentByBusiness;
+  createCustomerEquipment = equipmentFns.createCustomerEquipment;
+  updateCustomerEquipment = equipmentFns.updateCustomerEquipment;
+  deleteCustomerEquipment = equipmentFns.deleteCustomerEquipment;
 
   // --- Customer Insights (customers.ts) ---
   getCustomerInsights = customerFns.getCustomerInsights;

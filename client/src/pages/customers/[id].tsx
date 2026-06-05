@@ -6,6 +6,11 @@ import { useToast } from "@/hooks/use-toast";
 import { PageLayout } from "@/components/layout/PageLayout";
 import PageTitle from "@/components/PageTitle";
 import { CustomerForm } from "@/components/customers/CustomerForm";
+import EquipmentCard from "@/components/customers/EquipmentCard";
+import {
+  getIndustryConfig,
+  tracksCustomerEquipment,
+} from "@shared/industry-config";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -545,6 +550,17 @@ export default function CustomerDetail() {
     enabled: !isNew && !!customerId,
   });
 
+  // Fetch business profile so we can read the industry — drives whether the
+  // Equipment card renders (Step 3 of HVAC roadmap). Cached query, shared
+  // across other pages that already fetch /api/business.
+  const { data: business } = useQuery<any>({ queryKey: ["/api/business"] });
+  const showEquipmentCard =
+    !!customerId &&
+    !isNew &&
+    tracksCustomerEquipment(business?.industry);
+  const equipmentLabel =
+    getIndustryConfig(business?.industry).equipmentLabel ?? "Equipment";
+
   const [activeTab, setActiveTab] = useState<"activity" | "communications">("activity");
 
   // New customer — just show the form
@@ -816,6 +832,16 @@ export default function CustomerDetail() {
 
           {/* AI Insights */}
           <InsightsCard insights={insights} isError={insightsError} />
+
+          {/* Customer Equipment — only for industries that track it
+              (HVAC: Equipment, automotive: Vehicle, vet: Pet, etc.).
+              Industry Capability Matrix decides. */}
+          {showEquipmentCard && (
+            <EquipmentCard
+              customerId={Number(customerId)}
+              label={equipmentLabel}
+            />
+          )}
         </div>
 
         {/* Right: Activity & Communications Timeline */}

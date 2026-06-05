@@ -988,4 +988,164 @@ router.get("/customers/:id/activity", isAuthenticated, async (req, res) => {
   }
 });
 
+// ============================================================================
+// Customer Equipment (Step 3 of HVAC roadmap)
+// ============================================================================
+// All endpoints are tenant-scoped: businessId is read from the session, then
+// passed to storage methods that AND it into the WHERE clause. The customer's
+// existence + ownership is verified before any equipment operation so a 404
+// from a wrong-tenant request is indistinguishable from a 404 for a real
+// not-found.
+//
+// The Industry Capability Matrix gates whether the UI surfaces these — the
+// server-side endpoints are universal so a misconfigured frontend (or a
+// future industry that turns this on) doesn't 404.
+// ============================================================================
+
+import { insertCustomerEquipmentSchema } from "@shared/schema";
+
+// Zod schema for PATCH — partial of the insert schema minus immutable fields.
+// businessId, customerId, and id can't be changed after creation.
+const patchEquipmentSchema = insertCustomerEquipmentSchema
+  .omit({ businessId: true, customerId: true })
+  .partial();
+
+// Helper: verify the customer exists AND belongs to the requesting business.
+// Returns null and writes the response on failure so the caller can early-return.
+async function verifyCustomerOwnership(
+  req: any,
+  res: any,
+  customerIdRaw: string,
+): Promise<{ businessId: number; customerId: number } | null> {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return null;
+  }
+  const businessId = req.user?.businessId;
+  if (!businessId) {
+    res.status(400).json({ error: "No business associated with user" });
+    return null;
+  }
+  const customerId = parseInt(customerIdRaw, 10);
+  if (isNaN(customerId)) {
+    res.status(400).json({ error: "Invalid customer ID" });
+    return null;
+  }
+  const customer = await storage.getCustomer(customerId);
+  if (!customer || customer.businessId !== businessId) {
+    // Don't leak existence — 404 for both wrong-tenant and not-found
+    res.status(404).json({ error: "Customer not found" });
+    return null;
+  }
+  return { businessId, customerId };
+}
+
+// GET /api/customers/:id/equipment — list all (active) equipment for a customer
+router.get("/customers/:id/equipment", async (req, res) => {
+  try {
+    const ownership = await verifyCustomerOwnership(req, res, req.params.id);
+    if (!ownership) return;
+
+    const includeInactive = req.query.includeInactive === "true";
+    const rows = await storage.getCustomerEquipment(
+      ownership.customerId,
+      ownership.businessId,
+      { includeInactive },
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching customer equipment:", error);
+    res.status(500).json({ error: "Failed to fetch customer equipment" });
+  }
+});
+
+// POST /api/customers/:id/equipment — create a new equipment row
+router.post("/customers/:id/equipment", async (req, res) => {
+  try {
+    const ownership = await verifyCustomerOwnership(req, res, req.params.id);
+    if (!ownership) return;
+
+    // Ignore any businessId/customerId in the payload — the URL is authoritative.
+    const { businessId: _ignoredBusiness, customerId: _ignoredCustomer, ...rest } = req.body || {};
+    const parsed = insertCustomerEquipmentSchema.safeParse({
+      ...rest,
+      businessId: ownership.businessId,
+      customerId: ownership.customerId,
+    });
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid equipment data",
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const row = await storage.createCustomerEquipment(parsed.data);
+    res.status(201).json(row);
+  } catch (error) {
+    console.error("Error creating customer equipment:", error);
+    res.status(500).json({ error: "Failed to create customer equipment" });
+  }
+});
+
+// PATCH /api/customers/:id/equipment/:equipmentId — update an equipment row
+router.patch("/customers/:id/equipment/:equipmentId", async (req, res) => {
+  try {
+    const ownership = await verifyCustomerOwnership(req, res, req.params.id);
+    if (!ownership) return;
+
+    const equipmentId = parseInt(req.params.equipmentId, 10);
+    if (isNaN(equipmentId)) {
+      return res.status(400).json({ error: "Invalid equipment ID" });
+    }
+
+    const parsed = patchEquipmentSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid equipment patch",
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const updated = await storage.updateCustomerEquipment(
+      equipmentId,
+      ownership.businessId,
+      parsed.data,
+    );
+    if (!updated) {
+      return res.status(404).json({ error: "Equipment not found" });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("Error updating customer equipment:", error);
+    res.status(500).json({ error: "Failed to update customer equipment" });
+  }
+});
+
+// DELETE /api/customers/:id/equipment/:equipmentId — hard delete an equipment row.
+// Prefer the PATCH route with `{ active: false }` for retiring equipment while
+// preserving history; this endpoint is for owner-initiated mistake removal.
+router.delete("/customers/:id/equipment/:equipmentId", async (req, res) => {
+  try {
+    const ownership = await verifyCustomerOwnership(req, res, req.params.id);
+    if (!ownership) return;
+
+    const equipmentId = parseInt(req.params.equipmentId, 10);
+    if (isNaN(equipmentId)) {
+      return res.status(400).json({ error: "Invalid equipment ID" });
+    }
+
+    const deleted = await storage.deleteCustomerEquipment(
+      equipmentId,
+      ownership.businessId,
+    );
+    if (!deleted) {
+      return res.status(404).json({ error: "Equipment not found" });
+    }
+    res.status(204).end();
+  } catch (error) {
+    console.error("Error deleting customer equipment:", error);
+    res.status(500).json({ error: "Failed to delete customer equipment" });
+  }
+});
+
 export default router;
