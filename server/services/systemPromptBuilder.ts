@@ -17,6 +17,7 @@ import { Business, Service, ReceptionistConfig, UnansweredQuestion, CallIntellig
 import type { Staff } from '@shared/schema';
 import { storage } from '../storage';
 import { formatMenuForPrompt, type CachedMenu } from './cloverService';
+import { getIndustryConfig } from '@shared/industry-config';
 
 /**
  * Provider-specific hints that customize the system prompt for different
@@ -906,7 +907,58 @@ GENERAL GUIDANCE:
     transferHint = `\nTRANSFER: When caller first asks to speak to a person, do NOT transfer yet. Say something like "I'm the assistant and I'm happy to help with whatever you need! What can I do for you?" If they ask AGAIN to speak to a human after your offer, then transfer: call transferToHuman to log the reason, then call transfer_to_human to do the actual transfer.`;
   }
 
-  return basePrompt + industryPrompt + menuSection + `
+  // ── Booking-flow guidance (Step 2 of HVAC roadmap) ──
+  // For industries configured as `diagnostic_first` (HVAC, plumbing, electrical,
+  // automotive), tell the AI to NEVER quote a price for `quote_required` services.
+  // Instead, book a diagnostic visit and explain the fee structure. This is the
+  // single behavior change that makes the AI demonstrably better at HVAC vs
+  // competitors who quote "AC Repair $250" on the phone and lose trust on-site.
+  let bookingFlowSection = '';
+  try {
+    const industryConfig = getIndustryConfig(business.industry);
+    if (industryConfig.bookingFlow === 'diagnostic_first' && services.length > 0) {
+      // Find services that need the diagnostic swap so the AI knows which
+      // ones to route to a diagnostic instead of booking directly.
+      const requiresDx = services.filter((s) => (s as any).requiresDiagnostic === true);
+      const quoteRequired = services.filter((s) => (s as any).pricingType === 'quote_required');
+      const diagnosticService = services.find(
+        (s) =>
+          (s as any).pricingType === 'fixed' &&
+          /diagnostic/i.test(s.name),
+      );
+      const diagnosticFee =
+        diagnosticService && diagnosticService.price !== null && diagnosticService.price !== undefined
+          ? Number(diagnosticService.price)
+          : industryConfig.diagnosticFeeDefault;
+
+      const dxName = diagnosticService?.name || 'Diagnostic Visit';
+      const requiresDxNames = requiresDx.map((s) => `"${s.name}"`).join(', ');
+      const quoteRequiredNames = quoteRequired
+        .filter((s) => !requiresDx.some((d) => d.id === s.id))
+        .map((s) => `"${s.name}"`)
+        .join(', ');
+
+      bookingFlowSection = `
+
+DIAGNOSTIC-FIRST BOOKING (CRITICAL — follow this exactly):
+
+We do NOT quote repair or install prices over the phone. Every job is different and quoting blind makes us look unprofessional.
+
+${requiresDxNames ? `When a caller asks about ${requiresDxNames}, do NOT book that service directly. Instead, book "${dxName}"${diagnosticFee !== null ? ` ($${diagnosticFee})` : ''}. Explain it naturally: "Our tech will come out, diagnose the issue, and write you a quote on-site${diagnosticFee !== null ? ` — the $${diagnosticFee} diagnostic fee is waived if you go ahead with the repair` : ''}."` : ''}
+
+${quoteRequiredNames ? `Services that need a custom quote (no diagnostic, but no flat price either): ${quoteRequiredNames}. For these, schedule a free estimate visit if available, or have the tech quote during a diagnostic visit. Never give a price over the phone.` : ''}
+
+For tune-ups, maintenance, and other fixed-price services, book them directly as normal — the flat price is real.
+
+If the caller pushes for a price ("just give me a ballpark"), stay firm but friendly: "I really wish I could, but every system is different. Our tech will give you a fair, honest quote on-site — no surprises."`;
+    }
+  } catch (err) {
+    // Fail-soft: if anything goes wrong resolving the industry config, omit
+    // the section entirely. Existing prompt structure is unchanged.
+    console.warn('[systemPromptBuilder] bookingFlowSection failed (industry config resolve):', err);
+  }
+
+  return basePrompt + industryPrompt + menuSection + bookingFlowSection + `
 ${transferHint}
 ${knowledgeSection ? `
 KNOWLEDGE BASE (CRM data above takes priority over this):

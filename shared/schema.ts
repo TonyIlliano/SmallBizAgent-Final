@@ -243,6 +243,24 @@ export const services = pgTable("services", {
   price: numeric("price", { precision: 12, scale: 2 }),
   duration: integer("duration"), // in minutes
   active: boolean("active").default(true),
+  // ── Service taxonomy (Step 2 of HVAC roadmap) ──
+  // category: optional grouping label (e.g. "Cooling", "Heating", "IAQ" for HVAC).
+  // Industries that don't use categories leave this null. The settings UI only
+  // surfaces a category dropdown when getIndustryConfig().hasServiceCategories
+  // is true, so non-HVAC industries see no change.
+  category: text("category"),
+  // pricingType: how the AI receptionist + quote engine treat this service.
+  //   'fixed'                — flat price (default; backward-compatible for every existing row)
+  //   'diagnostic_required'  — service that itself requires diagnosis (informational)
+  //   'quote_required'       — AI should not quote a price; a tech must quote on-site/after-estimate
+  // String column (not pgEnum) so it's trivially backward-compatible: any existing
+  // row without a value behaves as 'fixed' via the resolver in callToolHandlers.
+  pricingType: text("pricing_type").default("fixed"),
+  // requiresDiagnostic: when true, the AI receptionist swaps this service for the
+  // business's diagnostic service before booking. Independent of pricingType so
+  // an owner can mark a 'fixed' tune-up as diagnostic-required if they want a
+  // tech to confirm the equipment first. Defaults false for backward compatibility.
+  requiresDiagnostic: boolean("requires_diagnostic").default(false),
 });
 
 // Customers

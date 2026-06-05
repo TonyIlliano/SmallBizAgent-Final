@@ -24,6 +24,7 @@ import { toMoney } from '../utils/money';
 import { getLatestCustomerIntelligence } from './callIntelligenceService';
 import { searchMemory } from './mem0Service';
 import { logAndSwallow } from '../utils/safeAsync';
+import { getIndustryConfig } from '@shared/industry-config';
 
 
 /**
@@ -1878,6 +1879,70 @@ async function bookAppointment(
     serviceId = services[0].id;
   }
 
+  // ── Diagnostic-first swap (Step 2 of HVAC roadmap) ──
+  // For industries configured as `diagnostic_first` (HVAC, plumbing, electrical,
+  // automotive), if the resolved service is marked `requiresDiagnostic`, swap to
+  // the business's diagnostic service before booking. The AI receptionist's
+  // prompt already tells the model not to quote prices for these, but this is
+  // the server-side safety net — even if the model slips and tries to book the
+  // repair service directly, we route it to a diagnostic visit instead.
+  let diagnosticSwap: {
+    originalServiceId: number;
+    originalServiceName: string;
+    diagnosticServiceId: number;
+    diagnosticServiceName: string;
+    diagnosticFee: number | null;
+  } | null = null;
+  try {
+    const industryConfig = getIndustryConfig(business.industry);
+    if (industryConfig.bookingFlow === 'diagnostic_first' && serviceId) {
+      const requestedService = services.find((s) => s.id === serviceId);
+      if (requestedService && (requestedService as any).requiresDiagnostic === true) {
+        // Find the business's diagnostic service. Match: pricingType='fixed'
+        // AND name contains "diagnostic" (case-insensitive). Falls back to any
+        // service whose name says diagnostic if pricingType is null on a legacy
+        // row.
+        const diagnosticService =
+          services.find(
+            (s) =>
+              s.active !== false &&
+              (s as any).pricingType === 'fixed' &&
+              /diagnostic/i.test(s.name),
+          ) ||
+          services.find(
+            (s) => s.active !== false && /diagnostic/i.test(s.name),
+          );
+
+        if (diagnosticService) {
+          diagnosticSwap = {
+            originalServiceId: requestedService.id,
+            originalServiceName: requestedService.name,
+            diagnosticServiceId: diagnosticService.id,
+            diagnosticServiceName: diagnosticService.name,
+            diagnosticFee:
+              diagnosticService.price !== null && diagnosticService.price !== undefined
+                ? Number(diagnosticService.price)
+                : industryConfig.diagnosticFeeDefault,
+          };
+          serviceId = diagnosticService.id;
+          console.log(
+            `[bookAppointment] Diagnostic-first swap: business ${businessId} caller asked for "${requestedService.name}" (id=${requestedService.id}), routed to "${diagnosticService.name}" (id=${diagnosticService.id}) instead.`,
+          );
+        } else {
+          // No diagnostic service in catalog — leave the original booking
+          // intact but warn so the owner knows their catalog is missing a
+          // Diagnostic Visit entry. The AI prompt should already discourage
+          // quoting; we just don't have a target to swap to.
+          console.warn(
+            `[bookAppointment] Business ${businessId} has diagnostic_first booking but no "Diagnostic" service in catalog. Booking "${requestedService.name}" as-is.`,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[bookAppointment] Diagnostic-first swap check failed:', err);
+  }
+
   // Staff-service compatibility check before booking:
   // Uses batched cached map instead of N sequential queries.
   if (resolvedStaffId && serviceId) {
@@ -2315,7 +2380,21 @@ async function bookAppointment(
         confirmed: true,
         date: dateStr,
         time: timeStr,
-        service: params.serviceName || 'General appointment',
+        // If a diagnostic-first swap happened, report the booked service (the
+        // diagnostic) — not the caller's request — so the AI confirms what was
+        // actually scheduled. Also surface the swap context so the model can
+        // explain it naturally on the call.
+        service: diagnosticSwap
+          ? diagnosticSwap.diagnosticServiceName
+          : (params.serviceName || 'General appointment'),
+        ...(diagnosticSwap && {
+          diagnosticSwap: {
+            requested: diagnosticSwap.originalServiceName,
+            booked: diagnosticSwap.diagnosticServiceName,
+            fee: diagnosticSwap.diagnosticFee,
+            explanation: `The caller asked about "${diagnosticSwap.originalServiceName}" but we booked a diagnostic visit instead. Explain naturally: "Our tech will diagnose the issue on-site and give you a written quote${diagnosticSwap.diagnosticFee !== null ? ` — the $${diagnosticSwap.diagnosticFee} diagnostic fee is waived if you proceed with the repair` : ''}."`,
+          },
+        }),
         ...(bookingTips.length > 0 && { bookingTips }),
       }
     };

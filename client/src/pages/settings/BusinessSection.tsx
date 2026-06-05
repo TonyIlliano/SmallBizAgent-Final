@@ -61,6 +61,7 @@ import {
   serviceSchema,
   type ServiceFormData,
 } from "./constants";
+import { getIndustryConfig } from "@shared/industry-config";
 
 // Lazy-loaded extracted components (self-contained with own data fetching)
 const BookingPageBranding = lazy(() => import("@/components/settings/BookingPageBranding"));
@@ -94,6 +95,16 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
   });
 
   const isRestaurant = (business?.industry?.toLowerCase() || "") === "restaurant";
+
+  // Industry Capability Matrix — drives which taxonomy fields appear on the
+  // service form. Barbershops/salons/etc. see no taxonomy fields (config has
+  // hasServiceCategories=false and servicePricingDefault='fixed'); HVAC and
+  // similar verticals see Category + Pricing Type + Diagnostic-Required.
+  const industryConfig = getIndustryConfig(business?.industry);
+  const showServiceTaxonomy =
+    industryConfig.hasServiceCategories ||
+    industryConfig.servicePricingDefault !== "fixed" ||
+    industryConfig.bookingFlow === "diagnostic_first";
 
   // Fetch business hours
   const { data: businessHours = [], isLoading: isLoadingHours } = useQuery<any[]>({
@@ -188,7 +199,16 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
   // Service Form
   const serviceForm = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
-    defaultValues: { name: "", description: "", price: 0, duration: 60, active: true },
+    defaultValues: {
+      name: "",
+      description: "",
+      price: 0,
+      duration: 60,
+      active: true,
+      category: null,
+      pricingType: "fixed",
+      requiresDiagnostic: false,
+    },
   });
 
   useEffect(() => {
@@ -199,9 +219,21 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
         price: editingService.price || 0,
         duration: editingService.duration || 60,
         active: editingService.active !== false,
+        category: editingService.category ?? null,
+        pricingType: editingService.pricingType ?? "fixed",
+        requiresDiagnostic: editingService.requiresDiagnostic ?? false,
       });
     } else {
-      serviceForm.reset({ name: "", description: "", price: 0, duration: 60, active: true });
+      serviceForm.reset({
+        name: "",
+        description: "",
+        price: 0,
+        duration: 60,
+        active: true,
+        category: null,
+        pricingType: "fixed",
+        requiresDiagnostic: false,
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingService]);
@@ -491,6 +523,89 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
                     </FormItem>
                   )} />
                 </div>
+
+                {/* Service taxonomy fields — only shown for industries that need them.
+                    See shared/industry-config.ts for which industries enable each flag.
+                    Barbershops, salons, restaurants, etc. don't see any of this block. */}
+                {showServiceTaxonomy && (
+                  <div className="space-y-4 rounded-lg border border-dashed p-4">
+                    {industryConfig.hasServiceCategories && industryConfig.defaultServiceCategories && (() => {
+                      // Capture the non-null categories array so the inner render
+                      // callback can use it without re-narrowing.
+                      const categoryOptions = industryConfig.defaultServiceCategories;
+                      return (
+                        <FormField control={serviceForm.control} name="category" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Category</FormLabel>
+                            <Select
+                              onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
+                              value={field.value ?? "__none__"}
+                            >
+                              <FormControl>
+                                <SelectTrigger data-testid="service-category">
+                                  <SelectValue placeholder="Choose a category..." />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="__none__">No category</SelectItem>
+                                {categoryOptions.map((cat) => (
+                                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormDescription>Groups services on the booking page and helps the AI receptionist route requests.</FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      );
+                    })()}
+
+                    {industryConfig.servicePricingDefault !== "fixed" && (
+                      <FormField control={serviceForm.control} name="pricingType" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Pricing Type</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value ?? "fixed"}>
+                            <FormControl>
+                              <SelectTrigger data-testid="service-pricing-type">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="fixed">Fixed price (AI quotes this price over the phone)</SelectItem>
+                              <SelectItem value="diagnostic_required">Diagnostic required (tech must diagnose first)</SelectItem>
+                              <SelectItem value="quote_required">Quote required (tech writes quote on-site or post-visit)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Controls what the AI receptionist tells callers about pricing. "Quote required" means the AI will never quote a price for this service — it'll route the caller to a diagnostic or estimate visit.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    )}
+
+                    {industryConfig.bookingFlow === "diagnostic_first" && (
+                      <FormField control={serviceForm.control} name="requiresDiagnostic" render={({ field }) => (
+                        <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                          <div className="space-y-0.5">
+                            <FormLabel>Requires diagnostic visit first</FormLabel>
+                            <FormDescription>
+                              When a caller asks about this service, the AI will book a {industryConfig.diagnosticFeeDefault !== null ? `$${industryConfig.diagnosticFeeDefault} ` : ""}diagnostic visit instead. The tech writes the real quote on-site.
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value ?? false}
+                              onCheckedChange={field.onChange}
+                              data-testid="service-requires-diagnostic"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )} />
+                    )}
+                  </div>
+                )}
+
                 <FormField control={serviceForm.control} name="active" render={({ field }) => (
                   <FormItem className="flex items-center justify-between rounded-lg border p-3">
                     <div className="space-y-0.5">

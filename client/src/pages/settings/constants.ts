@@ -94,6 +94,15 @@ export const serviceSchema = z.object({
   price: z.coerce.number().min(0, "Price must be 0 or greater"),
   duration: z.coerce.number().min(15, "Duration must be at least 15 minutes"),
   active: z.boolean().default(true),
+  // ── Service taxonomy (Step 2 of HVAC roadmap) ──
+  // All optional. The settings UI gates whether these fields are rendered via
+  // the Industry Capability Matrix — barbershops/salons/etc. never see them, so
+  // they always submit undefined and the server-side defaults apply.
+  category: z.string().nullable().optional(),
+  pricingType: z
+    .enum(["fixed", "diagnostic_required", "quote_required"])
+    .optional(),
+  requiresDiagnostic: z.boolean().optional(),
 });
 
 export type ServiceFormData = z.infer<typeof serviceSchema>;

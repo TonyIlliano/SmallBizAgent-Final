@@ -110,6 +110,13 @@ interface ServiceTemplate {
   price: number;
   duration: number;
   description?: string;
+  // Step 2 — optional taxonomy fields. When provided, they flow through to
+  // services.category / services.pricingType / services.requiresDiagnostic
+  // on seed. Industries without taxonomy semantics (general, consulting, etc.)
+  // omit them; the columns default to NULL / 'fixed' / false.
+  category?: string;
+  pricingType?: "fixed" | "diagnostic_required" | "quote_required";
+  requiresDiagnostic?: boolean;
 }
 
 const SERVICE_TEMPLATES: Record<TemplateId, ServiceTemplate[]> = {
@@ -125,14 +132,20 @@ const SERVICE_TEMPLATES: Record<TemplateId, ServiceTemplate[]> = {
   ],
 
   hvac: [
-    { name: "AC Tune-Up", price: 125, duration: 60, description: "Seasonal air conditioning maintenance" },
-    { name: "Furnace Tune-Up", price: 125, duration: 60, description: "Seasonal heating system maintenance" },
-    { name: "AC Repair", price: 250, duration: 120, description: "Diagnose and repair air conditioning issues" },
-    { name: "Furnace Repair", price: 250, duration: 120, description: "Diagnose and repair heating system issues" },
-    { name: "Thermostat Installation", price: 175, duration: 60, description: "Install smart or programmable thermostat" },
-    { name: "Duct Cleaning", price: 350, duration: 180, description: "Professional air duct cleaning" },
-    { name: "AC Installation", price: 3500, duration: 480, description: "Full air conditioning system installation" },
-    { name: "Indoor Air Quality Assessment", price: 150, duration: 60, description: "Test and assess indoor air quality" },
+    // Diagnostic-first booking flow: when a caller asks about "AC Repair" or
+    // "Furnace Repair", the AI receptionist swaps to "Diagnostic Visit" because
+    // we can't quote a repair price over the phone (Step 2 behavior). The
+    // Diagnostic service MUST be present in the catalog so the swap has a
+    // target — listed first so it has the lowest serviceId and is easy to find.
+    { name: "Diagnostic Visit", price: 89, duration: 60, description: "Tech arrives, diagnoses the issue, gives a written quote on-site. Fee waived if you proceed with the repair.", category: "Diagnostic", pricingType: "fixed", requiresDiagnostic: false },
+    { name: "AC Tune-Up", price: 125, duration: 60, description: "Seasonal air conditioning maintenance", category: "Maintenance", pricingType: "fixed", requiresDiagnostic: false },
+    { name: "Furnace Tune-Up", price: 125, duration: 60, description: "Seasonal heating system maintenance", category: "Maintenance", pricingType: "fixed", requiresDiagnostic: false },
+    { name: "AC Repair", price: 250, duration: 120, description: "Diagnose and repair air conditioning issues", category: "Cooling", pricingType: "quote_required", requiresDiagnostic: true },
+    { name: "Furnace Repair", price: 250, duration: 120, description: "Diagnose and repair heating system issues", category: "Heating", pricingType: "quote_required", requiresDiagnostic: true },
+    { name: "Thermostat Installation", price: 175, duration: 60, description: "Install smart or programmable thermostat", category: "Install", pricingType: "fixed", requiresDiagnostic: false },
+    { name: "Duct Cleaning", price: 350, duration: 180, description: "Professional air duct cleaning", category: "Indoor Air Quality", pricingType: "fixed", requiresDiagnostic: false },
+    { name: "AC Installation", price: 3500, duration: 480, description: "Full air conditioning system installation", category: "Install", pricingType: "quote_required", requiresDiagnostic: false },
+    { name: "Indoor Air Quality Assessment", price: 150, duration: 60, description: "Test and assess indoor air quality", category: "Indoor Air Quality", pricingType: "fixed", requiresDiagnostic: false },
   ],
 
   automotive: [
@@ -422,6 +435,12 @@ export function registerExpressSetupRoutes(app: Express) {
             price: String(tmpl.price),
             duration: tmpl.duration,
             active: true,
+            // Taxonomy fields (Step 2) — undefined for templates that don't
+            // declare them, which Drizzle handles as the column default (null
+            // for category, 'fixed' for pricingType, false for requiresDiagnostic).
+            category: tmpl.category ?? null,
+            pricingType: tmpl.pricingType ?? "fixed",
+            requiresDiagnostic: tmpl.requiresDiagnostic ?? false,
           });
           servicesCreated++;
         }

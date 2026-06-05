@@ -114,6 +114,16 @@ async function fixExistingTables() {
   // Fix services table
   await addColumnIfNotExists('services', 'active', 'BOOLEAN DEFAULT true');
 
+  // ── Service taxonomy (Step 2 of HVAC roadmap) ──
+  // Three nullable / safe-defaulted columns. Backward-compatible: existing rows
+  // get `pricing_type='fixed'` and `requires_diagnostic=false`, which is the
+  // pre-roadmap behavior. `category` stays NULL for industries that don't use
+  // categories. The Industry Capability Matrix decides which industries see
+  // these in the UI; the columns themselves are universal.
+  await addColumnIfNotExists('services', 'category', 'TEXT');
+  await addColumnIfNotExists('services', 'pricing_type', "TEXT DEFAULT 'fixed'");
+  await addColumnIfNotExists('services', 'requires_diagnostic', 'BOOLEAN DEFAULT false');
+
   // Fix customers table - ensure all columns exist
   await addColumnIfNotExists('customers', 'address', 'TEXT');
   await addColumnIfNotExists('customers', 'city', 'TEXT');
