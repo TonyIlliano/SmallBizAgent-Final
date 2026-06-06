@@ -135,11 +135,17 @@ export function buildSettingsSections({
   hasPOS,
   isAdmin,
   isJobCategory,
+  supportsMembershipPlans,
 }: {
   isRestaurant: boolean;
   hasPOS: boolean;
   isAdmin: boolean;
   isJobCategory?: boolean;
+  // Step 4 of HVAC roadmap — drives whether the Memberships tab renders.
+  // True for HVAC/plumbing/landscaping/pest_control/cleaning/fitness via
+  // Industry Capability Matrix. Barbershops/salons/restaurants etc. see
+  // no Memberships tab.
+  supportsMembershipPlans?: boolean;
 }): SettingsSection[] {
   return [
     {
@@ -152,6 +158,9 @@ export function buildSettingsSections({
         ...(!isRestaurant ? [{ value: "booking", label: "Booking" }] : []),
         // Live Dispatch — only field-service verticals (HVAC, plumbing, etc.)
         ...(isJobCategory ? [{ value: "dispatch", label: "Live Dispatch" }] : []),
+        // Memberships — Step 4 of HVAC roadmap. Gated by the Industry
+        // Capability Matrix's supportsMembershipPlans flag.
+        ...(supportsMembershipPlans ? [{ value: "memberships", label: "Memberships" }] : []),
       ],
     },
     {

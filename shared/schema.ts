@@ -5,6 +5,32 @@ import { z } from "zod";
 // Job urgency — hard Postgres enum, mirrored by Zod via createInsertSchema
 export const jobUrgencyEnum = pgEnum("job_urgency", ["emergency", "urgent", "routine"]);
 
+// Membership plan status (Step 4 of HVAC roadmap).
+// Status transitions are driven by Stripe webhook events on the owner's
+// Connect account; see server/services/membershipBillingService.ts.
+export const membershipStatusEnum = pgEnum("membership_status", [
+  "active",     // Paid, in good standing
+  "past_due",   // Last invoice failed; dunning starts
+  "canceled",   // Owner or customer canceled; rows kept for analytics history
+  "paused",     // Owner-initiated soft pause (no billing, no benefits)
+]);
+
+// Membership billing interval. Stored on the plan so the same tier can be
+// offered monthly OR annual via different Stripe Price objects.
+export const membershipIntervalEnum = pgEnum("membership_interval", [
+  "month",
+  "year",
+]);
+
+// Benefit usage type — what kind of perk was redeemed. Powers the audit trail
+// so an owner can prove "yes you used 1 of your 2 tune-ups in May".
+export const membershipBenefitTypeEnum = pgEnum("membership_benefit_type", [
+  "tune_up",            // Decremented tuneUpsRemaining
+  "service_call",       // Decremented serviceCallsRemaining
+  "discount",           // Discount % applied to a line item
+  "diagnostic_waiver",  // Diagnostic fee waived (Elite-tier perk)
+]);
+
 // Customer equipment type (Step 3 of HVAC roadmap).
 // Hard Postgres enum so DB integrity guarantees only known values. The
 // Industry Capability Matrix gates whether the UI surfaces equipment at all
@@ -313,6 +339,12 @@ export const customers = pgTable("customers", {
   // Soft delete & archive
   deletedAt: timestamp("deleted_at"), // Set on soft-delete, null = active
   isArchived: boolean("is_archived").default(false), // Manually archived by business owner
+  // Stripe Customer ID on the business owner's Connect account (Step 4 of
+  // HVAC roadmap). Null until the customer enrolls in a membership plan,
+  // at which point membershipBillingService creates a Stripe Customer on
+  // the owner's connected account and stores the ID here. This is NOT the
+  // platform Stripe customer — that's businesses.stripeCustomerId.
+  stripeCustomerConnectId: text("stripe_customer_connect_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -374,6 +406,135 @@ export const customerEquipment = pgTable("customer_equipment", {
   // Reverse index for "all equipment in this business" (admin reports,
   // bulk export, etc.)
   businessIdx: index("customer_equipment_business_idx").on(table.businessId),
+}));
+
+// ──────────────────────────────────────────────────────────────────────────
+// Membership Plans (Step 4 of HVAC roadmap)
+// ──────────────────────────────────────────────────────────────────────────
+// Recurring-revenue compounder for HVAC contractors. Owners define tiered
+// plans (Basic / Premium / Elite), customers enroll, Stripe Connect bills
+// them monthly/annually on the owner's account, and the AI receptionist +
+// quote engine apply member benefits (priority dispatch, line-item discount,
+// diagnostic fee waiver, free tune-ups) on every interaction.
+//
+// Industry Capability Matrix gates whether the UI surfaces this per business
+// — HVAC, plumbing, landscaping, pest control, cleaning, fitness see it;
+// barbershops/salons/restaurants don't.
+//
+// Three tables:
+//   - membership_plans:  owner's tier definitions (one row per tier per business)
+//   - customer_memberships: per-customer enrollment (status, benefits remaining,
+//                           Stripe subscription ID on Connect)
+//   - membership_benefit_usage: audit trail of every benefit redemption
+// ──────────────────────────────────────────────────────────────────────────
+
+// Tier definition. Per-business — each owner builds their own ladder of
+// plans, but the HVAC-vertical onboarding seeds 3 sensible defaults
+// (Basic Comfort / Premium Comfort / Elite Comfort) on first visit to the
+// Memberships tab.
+export const membershipPlans = pgTable("membership_plans", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  // Display name shown to customers ("Premium Comfort Plan")
+  name: text("name").notNull(),
+  description: text("description"),
+  // Price in dollars (e.g. "24.99" = $24.99/mo). NUMERIC(10,2) for exact
+  // arithmetic — matches the money convention used elsewhere in the schema.
+  priceMonthly: numeric("price_monthly", { precision: 10, scale: 2 }).notNull(),
+  billingInterval: membershipIntervalEnum("billing_interval").default("month").notNull(),
+  // ── Benefit configuration ──
+  // How many tune-ups the plan includes per renewal period
+  includedTuneUps: integer("included_tune_ups").default(0).notNull(),
+  // How many free service calls (waived diagnostic fee + waived trip charge)
+  includedServiceCalls: integer("included_service_calls").default(0).notNull(),
+  // Flat % discount applied to labor + parts on every job. "15.00" = 15% off.
+  memberDiscountPercent: numeric("member_discount_percent", { precision: 5, scale: 2 }).default("0").notNull(),
+  // When true, diagnostic fee is waived on the first visit (Elite-tier perk)
+  waivesDiagnosticFee: boolean("waives_diagnostic_fee").default(false).notNull(),
+  // When true, members jump the emergency queue
+  priorityDispatch: boolean("priority_dispatch").default(false).notNull(),
+  // Plan can be temporarily disabled without deleting
+  active: boolean("active").default(true).notNull(),
+  // Display order in the customer-facing comparison (0 = first)
+  sortOrder: integer("sort_order").default(0).notNull(),
+  // Stripe Product + Price IDs on the owner's Connect account. Created lazily
+  // by membershipBillingService when the first customer enrolls; cached here.
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Fast lookup of all plans for a business
+  businessIdx: index("membership_plans_business_idx").on(table.businessId),
+  // Index for the customer-facing "active plans only" query
+  activeIdx: index("membership_plans_active_idx").on(table.businessId, table.active),
+}));
+
+// Per-customer enrollment in a plan. One active row per customer per business
+// is enforced via the partial unique index in the migration (see
+// idx_one_active_membership_per_customer). Canceled/paused rows stay in the
+// table for analytics + reactivation.
+export const customerMemberships = pgTable("customer_memberships", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  planId: integer("plan_id").notNull(),
+  status: membershipStatusEnum("status").default("active").notNull(),
+  // Lifecycle
+  startDate: timestamp("start_date").defaultNow().notNull(),
+  // Renews on this date. Initially = startDate + billingInterval; advanced
+  // by the Stripe invoice.paid webhook handler.
+  nextBillingDate: timestamp("next_billing_date"),
+  // Set when status moves to 'canceled'
+  canceledAt: timestamp("canceled_at"),
+  // Stripe Subscription ID on the OWNER's Connect account (not platform).
+  // Cancellation API calls require this.
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  // ── Benefit accounting ──
+  // Decremented each time a benefit is used. Reset to plan.includedTuneUps
+  // / plan.includedServiceCalls on each invoice.paid event.
+  tuneUpsRemaining: integer("tune_ups_remaining").default(0).notNull(),
+  serviceCallsRemaining: integer("service_calls_remaining").default(0).notNull(),
+  // Last renewal timestamp (for the AI receptionist's "you renewed in March"
+  // context line + analytics)
+  lastRenewedAt: timestamp("last_renewed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Hot read path: "active membership for this customer" — the AI receptionist
+  // hits this on every call, and the job detail page hits it on every open.
+  customerIdx: index("customer_memberships_customer_idx").on(table.businessId, table.customerId),
+  // Reverse for admin / dashboard widget "all active members in this business"
+  businessIdx: index("customer_memberships_business_idx").on(table.businessId, table.status),
+  // Webhook lookup: find membership by Stripe subscription ID (Connect-scoped
+  // — uniqueness enforced per-account by Stripe, but we just need fast lookup)
+  stripeSubIdx: index("customer_memberships_stripe_sub_idx").on(table.stripeSubscriptionId),
+}));
+
+// Audit trail. Every benefit redemption writes a row so the owner can prove
+// to a disgruntled customer "yes you used 1 of your 2 tune-ups in May".
+// Append-only — never updated, never deleted (defends against shenanigans).
+export const membershipBenefitUsage = pgTable("membership_benefit_usage", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  membershipId: integer("membership_id").notNull(),
+  benefitType: membershipBenefitTypeEnum("benefit_type").notNull(),
+  // Source — either jobId or appointmentId (one or both depending on the
+  // industry flow). Both nullable because some benefits (renewal-time
+  // discount application) aren't tied to a single source.
+  jobId: integer("job_id"),
+  appointmentId: integer("appointment_id"),
+  // For discount usage: the line-item amount that was discounted (so we can
+  // report "Premium plan saved this customer $432 last year").
+  discountAmountSaved: numeric("discount_amount_saved", { precision: 10, scale: 2 }),
+  // Free-form context: "Spring tune-up", "Compressor repair", etc.
+  notes: text("notes"),
+  usedAt: timestamp("used_at").defaultNow().notNull(),
+}, (table) => ({
+  // "Show me everything this membership has used" — owner-facing audit view
+  membershipIdx: index("membership_benefit_usage_membership_idx").on(table.membershipId, table.usedAt),
+  // Business-wide analytics ("total tune-ups used this quarter")
+  businessIdx: index("membership_benefit_usage_business_idx").on(table.businessId, table.usedAt),
 }));
 
 // Staff/Technicians
@@ -1544,6 +1705,25 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
 // stay as string|null since they're stored as date columns and we accept ISO
 // date strings from the API.
 export const insertCustomerEquipmentSchema = createInsertSchema(customerEquipment).omit({ id: true, createdAt: true, updatedAt: true });
+// Membership plans (Step 4 of HVAC roadmap). Stripe IDs are omitted from
+// the insert schema — they're populated by membershipBillingService after
+// the Stripe Product/Price is created, not by the API caller.
+export const insertMembershipPlanSchema = createInsertSchema(membershipPlans).omit({
+  id: true,
+  stripeProductId: true,
+  stripePriceId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertCustomerMembershipSchema = createInsertSchema(customerMemberships).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertMembershipBenefitUsageSchema = createInsertSchema(membershipBenefitUsage).omit({
+  id: true,
+  usedAt: true,
+});
 export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStaffHoursSchema = createInsertSchema(staffHours).omit({ id: true });
 export const insertStaffServiceSchema = createInsertSchema(staffServices).omit({ id: true, createdAt: true });
@@ -1671,6 +1851,19 @@ export type CustomerEquipmentType =
   | "vehicle"
   | "pet"
   | "other";
+
+// Membership plans (Step 4 of HVAC roadmap)
+export type MembershipPlan = typeof membershipPlans.$inferSelect;
+export type InsertMembershipPlan = z.infer<typeof insertMembershipPlanSchema>;
+export type CustomerMembership = typeof customerMemberships.$inferSelect;
+export type InsertCustomerMembership = z.infer<typeof insertCustomerMembershipSchema>;
+export type MembershipBenefitUsage = typeof membershipBenefitUsage.$inferSelect;
+export type InsertMembershipBenefitUsage = z.infer<typeof insertMembershipBenefitUsageSchema>;
+// Enum unions mirrored from pgEnums so client code can use them without
+// re-declaring the lists.
+export type MembershipStatus = "active" | "past_due" | "canceled" | "paused";
+export type MembershipInterval = "month" | "year";
+export type MembershipBenefitType = "tune_up" | "service_call" | "discount" | "diagnostic_waiver";
 
 export type Staff = typeof staff.$inferSelect;
 export type InsertStaff = z.infer<typeof insertStaffSchema>;

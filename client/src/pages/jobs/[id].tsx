@@ -10,6 +10,7 @@ import { JobPhotoUploader } from "@/components/jobs/JobPhotoUploader";
 import { OnMyWayCard } from "@/components/jobs/OnMyWayCard";
 import { GpsSessionPanel } from "@/components/gps/GpsSessionPanel";
 import TriageCard from "@/components/jobs/TriageCard";
+import JobMemberBadge from "@/components/jobs/JobMemberBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -873,6 +874,15 @@ export default function JobDetail() {
               status={job?.status}
               enRouteAt={job?.enRouteAt}
               etaMinutes={job?.etaMinutes}
+            />
+          )}
+
+          {/* Membership badge — self-hides if customer isn't a member.
+              Step 4 of HVAC roadmap. */}
+          {job?.customerId && numericJobId && (
+            <JobMemberBadge
+              customerId={job.customerId}
+              jobId={numericJobId}
             />
           )}
 

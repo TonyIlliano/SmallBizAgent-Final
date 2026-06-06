@@ -66,6 +66,7 @@ import { getIndustryConfig } from "@shared/industry-config";
 // Lazy-loaded extracted components (self-contained with own data fetching)
 const BookingPageBranding = lazy(() => import("@/components/settings/BookingPageBranding"));
 const TeamManagementCard = lazy(() => import("@/components/settings/TeamManagementCard"));
+const MembershipsTab = lazy(() => import("@/components/settings/MembershipsTab"));
 // NOTE: PhoneProvisioningCard now lives on the Receptionist page (/receptionist) — that's
 // the natural home for AI receptionist phone setup. It used to render here, but provisioning
 // from two places caused confusion and bugs.
@@ -646,6 +647,14 @@ export default function BusinessSection({ activeTab }: { activeTab: string }) {
       <div className="space-y-4">
         <GpsTrackingSettings />
       </div>
+    );
+  }
+
+  if (activeTab === "memberships") {
+    return (
+      <Suspense fallback={<LazyFallback />}>
+        <MembershipsTab />
+      </Suspense>
     );
   }
 

@@ -1992,6 +1992,40 @@ export function startSubscriptionDedupScheduler(): void {
   scheduledJobs.set(jobKey, intervalId);
 }
 
+/**
+ * Membership Tune-Up Auto-Scheduler (Step 4 of HVAC roadmap).
+ *
+ * Runs every 24 hours. For each active membership where:
+ *   - The business supports membership plans (industry gate inside the runner)
+ *   - The member has been enrolled >= 150 days
+ *   - tuneUpsRemaining > 0
+ *   - No MEMBERSHIP_TUNEUP_DUE was sent in the past 90 days
+ * Sends one AI-composed SMS via the Message Intelligence Service nudging
+ * them to book.
+ *
+ * No initial run on startup — first run is 1 day post-deploy so reboots
+ * during the day don't double-fire.
+ */
+export function startMembershipTuneUpScheduler(): void {
+  const jobKey = 'membership-tuneup';
+  if (scheduledJobs.has(jobKey)) return;
+  console.log('[Scheduler] Starting membership tune-up scheduler (every 24h)');
+
+  const run = () => withReentryGuard(jobKey, async () => {
+    await withAdvisoryLock(jobKey, async () => {
+      try {
+        const { runMembershipTuneUpCheck } = await import('./membershipTuneUpScheduler.js');
+        await runMembershipTuneUpCheck();
+      } catch (err) {
+        console.error('[MembershipTuneUp] Scheduler error:', err);
+      }
+    });
+  });
+
+  const intervalId = setInterval(run, 24 * 60 * 60 * 1000);
+  scheduledJobs.set(jobKey, intervalId);
+}
+
 export async function startAllSchedulers(): Promise<void> {
   try {
     // Start global reminder scheduler (single timer for all businesses)
@@ -2087,6 +2121,12 @@ export async function startAllSchedulers(): Promise<void> {
     // Hourly sweep that auto-resolves duplicate Stripe subscriptions per
     // business (prevents day-14 double-charges from race conditions).
     startSubscriptionDedupScheduler();
+
+    // Membership tune-up auto-scheduler — Step 4 of HVAC roadmap. Sends
+    // one SMS per due member per quarter reminding them to book the
+    // tune-up included in their plan. Industry-gated per business inside
+    // the runner. Wrapped with reentry guard + advisory lock.
+    startMembershipTuneUpScheduler();
 
     console.log('All schedulers started');
   } catch (error) {

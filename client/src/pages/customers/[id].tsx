@@ -7,9 +7,11 @@ import { PageLayout } from "@/components/layout/PageLayout";
 import PageTitle from "@/components/PageTitle";
 import { CustomerForm } from "@/components/customers/CustomerForm";
 import EquipmentCard from "@/components/customers/EquipmentCard";
+import MembershipCard from "@/components/customers/MembershipCard";
 import {
   getIndustryConfig,
   tracksCustomerEquipment,
+  supportsMembershipPlans as supportsMembershipPlansHelper,
 } from "@shared/industry-config";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -558,6 +560,12 @@ export default function CustomerDetail() {
     !!customerId &&
     !isNew &&
     tracksCustomerEquipment(business?.industry);
+  // Step 4 of HVAC roadmap — Membership card gated by the Industry
+  // Capability Matrix's supportsMembershipPlans flag.
+  const showMembershipCard =
+    !!customerId &&
+    !isNew &&
+    supportsMembershipPlansHelper(business?.industry);
   const equipmentLabel =
     getIndustryConfig(business?.industry).equipmentLabel ?? "Equipment";
 
@@ -841,6 +849,13 @@ export default function CustomerDetail() {
               customerId={Number(customerId)}
               label={equipmentLabel}
             />
+          )}
+
+          {/* Membership — only for industries that support recurring plans
+              (HVAC, plumbing, landscaping, cleaning, etc.). Step 4 of HVAC
+              roadmap. */}
+          {showMembershipCard && (
+            <MembershipCard customerId={Number(customerId)} />
           )}
         </div>
 

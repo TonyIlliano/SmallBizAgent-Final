@@ -54,7 +54,8 @@ export type MessageType =
   | 'JOB_WAITING_PARTS'
   | 'JOB_RESUMED'
   | 'INVOICE_COLLECTION_REMINDER'
-  | 'INVOICE_COLLECTION_FINAL';
+  | 'INVOICE_COLLECTION_FINAL'
+  | 'MEMBERSHIP_TUNEUP_DUE'; // Step 4 of HVAC roadmap — auto-scheduler nudges members to book their included tune-up
 
 export interface MessageContext {
   messageType: MessageType;
@@ -116,6 +117,7 @@ const MESSAGE_TYPE_INSTRUCTIONS: Record<string, string> = {
   ESCALATION_NOTICE: 'Internal: notify the business owner that a customer needs human attention.',
   JOB_WAITING_PARTS: 'Notify the customer their job is on hold waiting for a part to arrive. Be honest, reassuring, and brief. Mention you will follow up when work resumes.',
   JOB_RESUMED: 'Notify the customer their job has resumed after a parts delay. Be positive and brief. Express that the wait is over.',
+  MEMBERSHIP_TUNEUP_DUE: 'Remind the member that their plan includes a tune-up and it is time to schedule it. Reference the plan name if known. Keep it personal — they are paying us monthly, so this is a benefit reminder, not a sales pitch. Brief, warm. Mention they can reply with a day/time and we will book it.',
 };
 
 // ─── Core Function ───────────────────────────────────────────────────────────

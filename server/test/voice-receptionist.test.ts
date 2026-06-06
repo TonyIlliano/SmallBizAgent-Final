@@ -45,6 +45,11 @@ const { mockStorage, mockTwilioService, mockFireEvent, mockCanBusinessAcceptCall
     // in its parallel batch. Default mock returns [] so the existing tests
     // that don't care about equipment behave as before.
     getCustomerEquipment: vi.fn().mockResolvedValue([]),
+    // Step 4 of HVAC roadmap — recognizeCaller now fetches active membership
+    // in its parallel batch. Default mock returns undefined (no membership)
+    // so existing tests behave as before.
+    getActiveMembershipByCustomer: vi.fn().mockResolvedValue(undefined),
+    getMembershipPlanById: vi.fn().mockResolvedValue(undefined),
   },
   mockTwilioService: {
     sendSms: vi.fn().mockResolvedValue(undefined),

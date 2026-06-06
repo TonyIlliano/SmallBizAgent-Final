@@ -143,6 +143,10 @@ async function fixExistingTables() {
   // Soft delete & archive columns
   await addColumnIfNotExists('customers', 'deleted_at', 'TIMESTAMP');
   await addColumnIfNotExists('customers', 'is_archived', 'BOOLEAN DEFAULT false');
+  // Stripe Connect customer ID — populated when the customer enrolls in a
+  // membership plan (Step 4 of HVAC roadmap). The ID lives on the OWNER's
+  // Connect account, NOT on the platform Stripe account.
+  await addColumnIfNotExists('customers', 'stripe_customer_connect_id', 'TEXT');
 
   // Fix appointments - ensure all columns exist
   await addColumnIfNotExists('appointments', 'business_id', 'INTEGER NOT NULL');
@@ -2454,6 +2458,11 @@ async function runMigrations() {
     // "Pet Equipment" in their notes doesn't crash anything.
     await ensureCustomerEquipmentTable();
 
+    // Membership Plans v1 — Step 4 of HVAC roadmap. Three tables + three
+    // enums for the recurring-revenue compounder. Industry-config gates the
+    // UI per business; the tables themselves are universal.
+    await ensureMembershipTables();
+
     // Backfill any missing columns on tables that were created from earlier
     // commits without the latest schema (CREATE TABLE IF NOT EXISTS is a no-op
     // when the table exists, even if columns are missing). Triggered by a live
@@ -3980,6 +3989,148 @@ async function ensureCustomerEquipmentTable() {
     }
   } catch (error: any) {
     console.error('Error creating customer_equipment table:', error?.message || error);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Membership Plans v1 (Step 4 of HVAC roadmap)
+//
+// Schema lives in shared/schema.ts under membershipPlans / customerMemberships
+// / membershipBenefitUsage + 3 pgEnums (membership_status,
+// membership_interval, membership_benefit_type).
+//
+// Industry-config gates whether the UI surfaces this per business, but the
+// tables and enums are universal so the system never crashes on a misconfigured
+// frontend or future industry that turns the feature on.
+//
+// Critical structural piece: partial unique index `idx_one_active_membership_per_customer`
+// enforces at-most-one-active-row-per-customer-per-business at the DB level.
+// Without it, a double-click on Enroll could create two active rows and Stripe
+// would happily bill both subscriptions.
+// ──────────────────────────────────────────────────────────────────────────
+async function ensureMembershipTables() {
+  const MIGRATION_NAME = 'membership_tables_v1';
+  try {
+    const exists = await pool.query(`SELECT 1 FROM migrations WHERE name = $1 LIMIT 1`, [MIGRATION_NAME]);
+    if (exists.rows.length > 0) {
+      console.log('Membership tables already created');
+      return;
+    }
+    console.log('Creating membership tables...');
+
+    // Step 1 — create enum types. Each wrapped in DO/EXCEPTION so re-runs
+    // don't fail. Must be OUTSIDE the transaction (CREATE TYPE is
+    // transactional but the pattern parallels future ALTER TYPE ADD VALUE
+    // migrations which can't run in a transaction).
+    await pool.query(`
+      DO $$ BEGIN
+        CREATE TYPE membership_status AS ENUM ('active', 'past_due', 'canceled', 'paused');
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        CREATE TYPE membership_interval AS ENUM ('month', 'year');
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        CREATE TYPE membership_benefit_type AS ENUM ('tune_up', 'service_call', 'discount', 'diagnostic_waiver');
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `);
+
+    await pool.query('BEGIN');
+    try {
+      // ── membership_plans ──
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS membership_plans (
+          id SERIAL PRIMARY KEY,
+          business_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          price_monthly NUMERIC(10, 2) NOT NULL,
+          billing_interval membership_interval DEFAULT 'month' NOT NULL,
+          included_tune_ups INTEGER DEFAULT 0 NOT NULL,
+          included_service_calls INTEGER DEFAULT 0 NOT NULL,
+          member_discount_percent NUMERIC(5, 2) DEFAULT 0 NOT NULL,
+          waives_diagnostic_fee BOOLEAN DEFAULT FALSE NOT NULL,
+          priority_dispatch BOOLEAN DEFAULT FALSE NOT NULL,
+          active BOOLEAN DEFAULT TRUE NOT NULL,
+          sort_order INTEGER DEFAULT 0 NOT NULL,
+          stripe_product_id TEXT,
+          stripe_price_id TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_membership_plans_business ON membership_plans (business_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_membership_plans_active ON membership_plans (business_id, active)`);
+
+      // ── customer_memberships ──
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS customer_memberships (
+          id SERIAL PRIMARY KEY,
+          business_id INTEGER NOT NULL,
+          customer_id INTEGER NOT NULL,
+          plan_id INTEGER NOT NULL,
+          status membership_status DEFAULT 'active' NOT NULL,
+          start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+          next_billing_date TIMESTAMP,
+          canceled_at TIMESTAMP,
+          stripe_subscription_id TEXT,
+          tune_ups_remaining INTEGER DEFAULT 0 NOT NULL,
+          service_calls_remaining INTEGER DEFAULT 0 NOT NULL,
+          last_renewed_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_customer_memberships_customer ON customer_memberships (business_id, customer_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_customer_memberships_business ON customer_memberships (business_id, status)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_customer_memberships_stripe_sub ON customer_memberships (stripe_subscription_id)`);
+
+      // ── Partial unique index: at-most-one-active-membership-per-customer ──
+      // Critical structural defense. Prevents the "double-click enroll →
+      // two active rows → two Stripe subscriptions → double charge" failure
+      // mode. Postgres lets us scope uniqueness to status='active' so
+      // canceled/paused rows can stack freely (history matters).
+      const indexCheck = await pool.query(`
+        SELECT 1 FROM pg_indexes
+        WHERE indexname = 'idx_one_active_membership_per_customer'
+        LIMIT 1
+      `);
+      if (indexCheck.rows.length === 0) {
+        await pool.query(`
+          CREATE UNIQUE INDEX idx_one_active_membership_per_customer
+          ON customer_memberships (business_id, customer_id) WHERE status = 'active'
+        `);
+      }
+
+      // ── membership_benefit_usage ──
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS membership_benefit_usage (
+          id SERIAL PRIMARY KEY,
+          business_id INTEGER NOT NULL,
+          membership_id INTEGER NOT NULL,
+          benefit_type membership_benefit_type NOT NULL,
+          job_id INTEGER,
+          appointment_id INTEGER,
+          discount_amount_saved NUMERIC(10, 2),
+          notes TEXT,
+          used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_membership_benefit_usage_membership ON membership_benefit_usage (membership_id, used_at)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_membership_benefit_usage_business ON membership_benefit_usage (business_id, used_at)`);
+
+      await pool.query('INSERT INTO migrations (name) VALUES ($1)', [MIGRATION_NAME]);
+      await pool.query('COMMIT');
+      console.log('Membership tables created');
+    } catch (txErr) {
+      await pool.query('ROLLBACK');
+      throw txErr;
+    }
+  } catch (error: any) {
+    console.error('Error creating membership tables:', error?.message || error);
   }
 }
 

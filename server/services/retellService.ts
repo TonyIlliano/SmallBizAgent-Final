@@ -315,6 +315,11 @@ interface BuildToolsOptions {
   // uses the right vocabulary ("Equipment" for HVAC, "Vehicle" for auto,
   // "Pet" for vet).
   equipmentLabel?: string;
+  // Step 4 of HVAC roadmap. When true, register the checkMembership tool so
+  // the AI can look up a customer's active plan + benefits remaining
+  // mid-call. HVAC/plumbing/landscaping/pest_control/cleaning/fitness all
+  // get it.
+  supportsMembershipPlans?: boolean;
 }
 
 /**
@@ -438,6 +443,27 @@ function buildRetellTools(businessId: number, options: BuildToolsOptions = {}): 
       // Silent during execution — capturing equipment shouldn't pause the
       // conversation. Speak after so the model can acknowledge naturally.
       { speakDuring: false, speakAfter: false }
+    ));
+  }
+
+  // ── checkMembership (Step 4 of HVAC roadmap) ──
+  // Only registered for industries where supportsMembershipPlans is true
+  // (HVAC, plumbing, landscaping, pest control, cleaning, fitness). The
+  // model calls this when a caller mentions their membership ("am I a
+  // member?", "do I have anything left on my plan?") or when the AI wants
+  // to upsell during a quote conversation.
+  if (options.supportsMembershipPlans) {
+    tools.push(customTool(
+      'checkMembership',
+      'Look up the caller\'s active membership plan and benefits remaining. Use when the caller asks about their plan or you want to remind them what they qualify for.',
+      {
+        type: 'object',
+        properties: {
+          customerId: { type: 'number', description: 'Customer ID from recognizeCaller. Required.' },
+        },
+        required: ['customerId'],
+      },
+      { speakDuring: false, speakAfter: true }
     ));
   }
 
@@ -836,6 +862,7 @@ export async function createLlmForBusiness(
     transferNumber,
     tracksEquipment: industryConfigCreate.tracksCustomerEquipment,
     equipmentLabel: industryConfigCreate.equipmentLabel || undefined,
+    supportsMembershipPlans: industryConfigCreate.supportsMembershipPlans,
   });
 
   // Build the begin_message (greeting + optional recording disclosure)
@@ -927,6 +954,7 @@ export async function updateLlm(
     transferNumber,
     tracksEquipment: industryConfigUpdate.tracksCustomerEquipment,
     equipmentLabel: industryConfigUpdate.equipmentLabel || undefined,
+    supportsMembershipPlans: industryConfigUpdate.supportsMembershipPlans,
   });
 
   // Build the begin_message (greeting + optional recording disclosure)

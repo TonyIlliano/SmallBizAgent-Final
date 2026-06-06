@@ -796,6 +796,13 @@ interface CaptureEquipmentParams {
   notes?: string;
 }
 
+// Step 4 of HVAC roadmap. The checkMembership tool returns the caller's
+// active plan + benefits remaining so the AI can reference them mid-call
+// ("you've got 1 tune-up left", "your Elite plan waives the diagnostic fee").
+interface CheckMembershipParams {
+  customerId?: number;
+}
+
 interface ConfirmAppointmentParams {
   appointmentId?: number;
   confirmed: boolean;
@@ -1003,6 +1010,9 @@ export async function dispatchToolCall(
 
       case 'captureEquipment':
         return await captureEquipment(businessId, parameters as CaptureEquipmentParams);
+
+      case 'checkMembership':
+        return await checkMembership(businessId, parameters as CheckMembershipParams);
 
       case 'getDirections':
         return await getDirections(businessId, callerPhone, parameters?.sendSms);
@@ -4086,7 +4096,7 @@ async function recognizeCaller(
     .catch(() => ''); // Never throws
   const mem0Timeout = new Promise<string>((resolve) => setTimeout(() => resolve(''), 100)); // 100ms max for Mem0
 
-  const [appointments, recogBusiness, allServices, intelligenceResult, insightsResult, conversationalContext, equipmentRecords] = await Promise.all([
+  const [appointments, recogBusiness, allServices, intelligenceResult, insightsResult, conversationalContext, equipmentRecords, activeMembership] = await Promise.all([
     storage.getAppointmentsByCustomerId(customer.id),
     getCachedBusiness(businessId),
     getCachedServices(businessId),
@@ -4098,6 +4108,10 @@ async function recognizeCaller(
     // unit in May — is that what's having trouble today?"). Active rows only,
     // limit-bounded by the storage method.
     storage.getCustomerEquipment(customer.id, businessId).catch(() => []),
+    // Step 4 of HVAC roadmap — pull the caller's active membership so the
+    // AI can lead with member benefits ("you're an Elite member, so I'll
+    // waive the diagnostic fee").
+    storage.getActiveMembershipByCustomer(customer.id, businessId).catch(() => undefined),
   ]);
 
   const intelligence = intelligenceResult;
@@ -4235,6 +4249,35 @@ async function recognizeCaller(
   // Pending follow-up
   if (intelligence?.pendingFollowUp) {
     summaryParts.push(`Pending follow-up: ${intelligence.pendingFollowUp}`);
+  }
+
+  // Step 4 of HVAC roadmap — surface active membership so the AI leads
+  // with member-aware language. This is the demo magic moment ("you're
+  // an Elite member, so the diagnostic fee is waived"). Prepended HIGH
+  // in the summary because membership is the most actionable context
+  // for the AI to leverage.
+  if (activeMembership) {
+    try {
+      const plan = await storage.getMembershipPlanById(
+        activeMembership.planId,
+        businessId,
+      );
+      if (plan) {
+        const memberBits: string[] = [`${plan.name} member`];
+        if (activeMembership.status === 'past_due') memberBits.push('PAST DUE');
+        if (activeMembership.tuneUpsRemaining > 0) {
+          memberBits.push(`${activeMembership.tuneUpsRemaining} tune-up${activeMembership.tuneUpsRemaining > 1 ? 's' : ''} remaining`);
+        }
+        if (plan.priorityDispatch) memberBits.push('priority dispatch');
+        if (plan.waivesDiagnosticFee) memberBits.push('diagnostic fee waived');
+        if (Number(plan.memberDiscountPercent) > 0) {
+          memberBits.push(`${plan.memberDiscountPercent}% off labor + parts`);
+        }
+        summaryParts.unshift(memberBits.join(', '));
+      }
+    } catch (e) {
+      console.warn('[recognizeCaller] Failed to load plan for active membership:', e);
+    }
   }
 
   // Step 3 of HVAC roadmap — surface known equipment so the AI can lead
@@ -4533,6 +4576,99 @@ async function captureEquipment(
       result: {
         success: false,
         error: 'There was a technical issue saving the equipment. Please continue the conversation; the customer can add it manually later.',
+      },
+    };
+  }
+}
+
+/**
+ * checkMembership — Step 4 of HVAC roadmap.
+ *
+ * Returns the caller's active membership + plan + benefits remaining so
+ * the AI can reference them in conversation:
+ *   - "You're an Elite member, so I'll waive the diagnostic fee."
+ *   - "You've got 1 tune-up left on your plan — want to use it?"
+ *   - "Looks like you're a Premium member — you get priority dispatch."
+ *
+ * Returns { hasMembership: false } when the customer has no active
+ * membership. Fail-soft: never throws, never blocks the call flow.
+ */
+async function checkMembership(
+  businessId: number,
+  params: CheckMembershipParams,
+): Promise<FunctionResult> {
+  try {
+    if (!params.customerId) {
+      return {
+        result: {
+          success: false,
+          hasMembership: false,
+          message: 'I need to recognize the caller first before I can look up their membership.',
+        },
+      };
+    }
+
+    const membership = await storage.getActiveMembershipByCustomer(
+      params.customerId,
+      businessId,
+    );
+    if (!membership) {
+      return {
+        result: {
+          success: true,
+          hasMembership: false,
+          message: 'This caller does not have an active membership plan.',
+        },
+      };
+    }
+
+    const plan = await storage.getMembershipPlanById(
+      membership.planId,
+      businessId,
+    );
+    if (!plan) {
+      return {
+        result: {
+          success: true,
+          hasMembership: false,
+          message: 'Membership exists but the plan is missing — treat as no active membership.',
+        },
+      };
+    }
+
+    return {
+      result: {
+        success: true,
+        hasMembership: true,
+        planName: plan.name,
+        status: membership.status,
+        tuneUpsRemaining: membership.tuneUpsRemaining,
+        serviceCallsRemaining: membership.serviceCallsRemaining,
+        memberDiscountPercent: Number(plan.memberDiscountPercent),
+        waivesDiagnosticFee: plan.waivesDiagnosticFee,
+        priorityDispatch: plan.priorityDispatch,
+        nextBillingDate: membership.nextBillingDate,
+        // Pre-composed sentence the model can use verbatim or paraphrase
+        summary: `${plan.name} member${membership.status === 'past_due' ? ' (past due)' : ''}${
+          membership.tuneUpsRemaining > 0
+            ? `. ${membership.tuneUpsRemaining} tune-up${membership.tuneUpsRemaining > 1 ? 's' : ''} remaining`
+            : ''
+        }${
+          plan.priorityDispatch ? '. Priority dispatch.' : ''
+        }${
+          plan.waivesDiagnosticFee ? ' Diagnostic fee waived.' : ''
+        }${
+          Number(plan.memberDiscountPercent) > 0 ? ` ${plan.memberDiscountPercent}% member discount.` : ''
+        }`,
+      },
+    };
+  } catch (error: any) {
+    console.error('[checkMembership] error:', error?.message);
+    return {
+      result: {
+        success: false,
+        hasMembership: false,
+        error: 'Could not look up membership at this time.',
       },
     };
   }

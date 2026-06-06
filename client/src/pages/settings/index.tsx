@@ -7,6 +7,7 @@ import { SkeletonForm } from "@/components/ui/skeleton-loader";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { buildSettingsSections, type SettingsSection } from "./constants";
 import { isJobCategory as isJobCategoryHelper } from "@shared/industry-categories";
+import { supportsMembershipPlans as supportsMembershipPlansHelper } from "@shared/industry-config";
 
 // Lazy-loaded section components
 const BusinessSection = lazy(() => import("./BusinessSection"));
@@ -251,6 +252,10 @@ export default function Settings() {
     hasPOS,
     isAdmin: !!isAdmin,
     isJobCategory: isJobCategoryHelper(business?.industry),
+    // Step 4 of HVAC roadmap — Memberships tab visibility driven by the
+    // Industry Capability Matrix. Resolves "HVAC" + "Plumbing" + "Landscaping"
+    // + a few others to true; barbershops/salons/restaurants resolve to false.
+    supportsMembershipPlans: supportsMembershipPlansHelper(business?.industry),
   });
 
   // Show skeleton while auth or business data is loading

@@ -59,6 +59,9 @@ import {
   TechTrackingSession, InsertTechTrackingSession,
   CustomerTrackingLink, InsertCustomerTrackingLink,
   CustomerEquipment, InsertCustomerEquipment,
+  MembershipPlan, InsertMembershipPlan,
+  CustomerMembership, InsertCustomerMembership,
+  MembershipBenefitUsage, InsertMembershipBenefitUsage,
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -77,6 +80,7 @@ import * as smsFns from "./sms-intelligence";
 import * as workflowFns from "./workflows";
 import * as gpsFns from "./gpsTracking";
 import * as equipmentFns from "./equipment";
+import * as membershipFns from "./memberships";
 
 /**
  * Normalize a phone number to digits-only for comparison.
@@ -146,6 +150,36 @@ export interface IStorage {
   createCustomerEquipment(payload: InsertCustomerEquipment): Promise<CustomerEquipment>;
   updateCustomerEquipment(id: number, businessId: number, patch: Partial<Omit<InsertCustomerEquipment, "id" | "businessId" | "customerId" | "createdAt">>): Promise<CustomerEquipment | undefined>;
   deleteCustomerEquipment(id: number, businessId: number): Promise<boolean>;
+
+  // Membership Plans (Step 4 of HVAC roadmap)
+  getMembershipPlans(businessId: number, params?: { activeOnly?: boolean }): Promise<MembershipPlan[]>;
+  getMembershipPlanById(id: number, businessId: number): Promise<MembershipPlan | undefined>;
+  createMembershipPlan(payload: InsertMembershipPlan): Promise<MembershipPlan>;
+  updateMembershipPlan(id: number, businessId: number, patch: Partial<Omit<MembershipPlan, "id" | "businessId" | "createdAt">>): Promise<MembershipPlan | undefined>;
+  deactivateMembershipPlan(id: number, businessId: number): Promise<MembershipPlan | undefined>;
+  getActiveMembershipByCustomer(customerId: number, businessId: number): Promise<CustomerMembership | undefined>;
+  getMembershipsByCustomer(customerId: number, businessId: number): Promise<CustomerMembership[]>;
+  getMembershipById(id: number, businessId: number): Promise<CustomerMembership | undefined>;
+  getMembershipByStripeSubId(stripeSubscriptionId: string): Promise<CustomerMembership | undefined>;
+  getActiveMembershipsByBusiness(businessId: number): Promise<CustomerMembership[]>;
+  createMembership(payload: InsertCustomerMembership): Promise<CustomerMembership>;
+  updateMembership(id: number, businessId: number, patch: Partial<Omit<CustomerMembership, "id" | "businessId" | "customerId" | "createdAt">>): Promise<CustomerMembership | undefined>;
+  updateMembershipByStripeSubId(stripeSubscriptionId: string, patch: Partial<Omit<CustomerMembership, "id" | "businessId" | "customerId" | "createdAt">>): Promise<CustomerMembership | undefined>;
+  recordBenefitUsage(params: {
+    businessId: number;
+    membershipId: number;
+    benefitType: "tune_up" | "service_call" | "discount" | "diagnostic_waiver";
+    jobId?: number;
+    appointmentId?: number;
+    discountAmountSaved?: string;
+    notes?: string;
+  }): Promise<
+    | { ok: true; membership: CustomerMembership; usageId: number }
+    | { ok: false; reason: "membership_not_found" | "no_benefit_remaining" | "membership_not_active" }
+  >;
+  getBenefitUsageByMembership(membershipId: number, businessId: number): Promise<MembershipBenefitUsage[]>;
+  getMembershipStatsForBusiness(businessId: number): Promise<{ activeCount: number; pastDueCount: number; mrrCents: number }>;
+  getMembershipsDueForTuneUp(businessId: number, params: { membershipMinAgeDays: number }): Promise<CustomerMembership[]>;
 
   // Staff
   getStaff(businessId: number): Promise<Staff[]>;
@@ -613,6 +647,25 @@ export class DatabaseStorage implements IStorage {
   createCustomerEquipment = equipmentFns.createCustomerEquipment;
   updateCustomerEquipment = equipmentFns.updateCustomerEquipment;
   deleteCustomerEquipment = equipmentFns.deleteCustomerEquipment;
+
+  // --- Membership Plans (memberships.ts) — Step 4 of HVAC roadmap ---
+  getMembershipPlans = membershipFns.getMembershipPlans;
+  getMembershipPlanById = membershipFns.getMembershipPlanById;
+  createMembershipPlan = membershipFns.createMembershipPlan;
+  updateMembershipPlan = membershipFns.updateMembershipPlan;
+  deactivateMembershipPlan = membershipFns.deactivateMembershipPlan;
+  getActiveMembershipByCustomer = membershipFns.getActiveMembershipByCustomer;
+  getMembershipsByCustomer = membershipFns.getMembershipsByCustomer;
+  getMembershipById = membershipFns.getMembershipById;
+  getMembershipByStripeSubId = membershipFns.getMembershipByStripeSubId;
+  getActiveMembershipsByBusiness = membershipFns.getActiveMembershipsByBusiness;
+  createMembership = membershipFns.createMembership;
+  updateMembership = membershipFns.updateMembership;
+  updateMembershipByStripeSubId = membershipFns.updateMembershipByStripeSubId;
+  recordBenefitUsage = membershipFns.recordBenefitUsage;
+  getBenefitUsageByMembership = membershipFns.getBenefitUsageByMembership;
+  getMembershipStatsForBusiness = membershipFns.getMembershipStatsForBusiness;
+  getMembershipsDueForTuneUp = membershipFns.getMembershipsDueForTuneUp;
 
   // --- Customer Insights (customers.ts) ---
   getCustomerInsights = customerFns.getCustomerInsights;

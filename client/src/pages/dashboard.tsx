@@ -18,6 +18,8 @@ import { QueryErrorBanner } from "@/components/ui/query-error-banner";
 import { Progress } from "@/components/ui/progress";
 import { AiRoiCard } from "@/components/dashboard/AiRoiCard";
 import { CallQualityCard } from "@/components/dashboard/CallQualityCard";
+import { MembershipsCard } from "@/components/dashboard/MembershipsCard";
+import { supportsMembershipPlans as supportsMembershipPlansHelper } from "@shared/industry-config";
 import { SectionErrorBoundary } from "@/components/ui/section-error-boundary";
 
 import {
@@ -493,6 +495,15 @@ export default function Dashboard() {
         <SectionErrorBoundary fallbackTitle="AI quality">
         {businessId && <CallQualityCard businessId={businessId} />}
         </SectionErrorBoundary>
+
+        {/* Memberships Card — recurring revenue snapshot. Only renders for
+            industries that support membership plans (HVAC, plumbing,
+            landscaping, etc.). Step 4 of HVAC roadmap. */}
+        {supportsMembershipPlansHelper(business?.industry) && (
+          <SectionErrorBoundary fallbackTitle="Memberships">
+            <MembershipsCard />
+          </SectionErrorBoundary>
+        )}
 
         {/* Needs Attention Section */}
         {attentionItems.length > 0 && (

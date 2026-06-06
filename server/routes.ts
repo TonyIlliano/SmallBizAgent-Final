@@ -28,6 +28,7 @@ import subscriptionRoutes from "./routes/subscriptionRoutes";
 import quoteRoutes from "./routes/quoteRoutes";
 import invoiceRoutes from "./routes/invoiceRoutes";
 import customerRoutes from "./routes/customerRoutes";
+import membershipRoutes from "./routes/membershipRoutes";
 import appointmentRoutes from "./routes/appointmentRoutes";
 import recurringRoutes from "./routes/recurring";
 import bookingRoutes from "./routes/bookingRoutes";
@@ -188,6 +189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Customers API (includes CRUD, enriched, timeline, activity, tags, archive/restore, import) ──
   app.use('/api', customerRoutes);
+  app.use('/api', membershipRoutes);
 
   // ── Staff API ──
   app.use('/api', staffRoutes);

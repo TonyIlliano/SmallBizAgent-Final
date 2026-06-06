@@ -323,6 +323,9 @@ app.use('/api/reset-password', authLimiter);
 // This MUST come BEFORE express.json() so the body isn't parsed
 app.use('/api/stripe-webhook', express.raw({ type: 'application/json' }));
 app.use('/api/subscription/webhook', express.raw({ type: 'application/json' }));
+// Membership Connect webhook (Step 4 of HVAC roadmap) — same raw-body
+// requirement as the platform Stripe webhook for signature verification.
+app.use('/api/membership-connect-webhook', express.raw({ type: 'application/json' }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -400,6 +403,7 @@ app.use((req, res, next) => {
     '/api/booking/',
     '/api/stripe-webhook',
     '/api/subscription/webhook',
+    '/api/membership-connect-webhook',
     '/api/twilio/',
     '/api/retell/',
     '/api/clover-webhook',
