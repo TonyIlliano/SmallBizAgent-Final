@@ -27,6 +27,10 @@ import { users, subscriptionPlans } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { isAuthenticated, requireEmailVerified } from '../middleware/auth';
 import { hasPaymentMethodOnFile } from '../middleware/paymentRequired';
+import {
+  isStripeResourceMissing,
+  clearOrphanedUserStripeCustomer,
+} from '../utils/stripeOrphanCheck';
 
 let stripe: Stripe | null = null;
 function getStripe(): Stripe {
@@ -105,14 +109,37 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
         // 1. Get or create Stripe Customer for this user
         let customerId = user.stripeCustomerId;
         if (customerId) {
+          // Capture for use inside the catch block — TS won't narrow
+          // `customerId` (mutable) across the try boundary.
+          const storedCustomerId = customerId;
           // Verify the customer still exists in Stripe (could have been deleted by admin)
           try {
-            const existing = await getStripe().customers.retrieve(customerId);
+            const existing = await getStripe().customers.retrieve(storedCustomerId);
             if ('deleted' in existing && existing.deleted) {
+              // Persist the heal so future requests don't re-hit Stripe with
+              // the dead ID. The previous version of this block silently
+              // re-created the customer on every request without clearing
+              // the column, generating spam in the Stripe error log.
+              await clearOrphanedUserStripeCustomer(userId, storedCustomerId);
               customerId = null;
             }
-          } catch {
-            customerId = null;
+          } catch (retrieveErr) {
+            if (isStripeResourceMissing(retrieveErr)) {
+              // Orphan auto-heal — clear the dead reference on users so the
+              // next request creates a fresh Customer cleanly instead of
+              // re-throwing 400s indefinitely.
+              await clearOrphanedUserStripeCustomer(userId, storedCustomerId);
+              customerId = null;
+            } else {
+              // Non-orphan error (network, auth, rate limit) — log and treat
+              // as "couldn't verify"; fall through to the create-new path
+              // matching prior behavior.
+              console.warn(
+                `[OnboardingCheckout] Stripe customer ${storedCustomerId} verify failed (non-orphan):`,
+                retrieveErr instanceof Error ? retrieveErr.message : String(retrieveErr),
+              );
+              customerId = null;
+            }
           }
         }
 
@@ -261,6 +288,19 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
               items: s.items.data.map((i) => ({ price: i.price.id })),
             }));
           } catch (err: any) {
+            if (isStripeResourceMissing(err)) {
+              // Orphan auto-heal: clear the dead ID so the next diagnose
+              // call doesn't re-hit Stripe. Return a structured "orphan"
+              // signal instead of the generic error blob so the frontend
+              // can surface a helpful message.
+              await clearOrphanedUserStripeCustomer(userId, user.stripeCustomerId);
+              return res.json({
+                ok: false,
+                reason: 'orphaned_stripe_customer',
+                message:
+                  'The Stripe customer for this user no longer exists. We cleared the dead reference — start a new trial to create a fresh customer.',
+              });
+            }
             stripeSubs = [{ error: err?.message || String(err) }];
           }
         }
@@ -328,12 +368,29 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
         if (!user.businessId) return res.status(400).json({ error: 'No business linked to this user' });
 
         // Need expanded `discounts` to see if a coupon is attached.
-        const list = await getStripe().subscriptions.list({
-          customer: user.stripeCustomerId,
-          status: 'all',
-          limit: 20,
-          expand: ['data.discounts'],
-        });
+        let list;
+        try {
+          list = await getStripe().subscriptions.list({
+            customer: user.stripeCustomerId,
+            status: 'all',
+            limit: 20,
+            expand: ['data.discounts'],
+          });
+        } catch (listErr) {
+          if (isStripeResourceMissing(listErr)) {
+            // Orphan auto-heal: clear the dead reference and tell the
+            // caller what happened so the UI can route them to start a
+            // fresh trial instead of looping on repair attempts.
+            await clearOrphanedUserStripeCustomer(userId, user.stripeCustomerId);
+            return res.json({
+              ok: false,
+              reason: 'orphaned_stripe_customer',
+              message:
+                'The Stripe customer for this user no longer exists. We cleared the dead reference — start a new trial to create a fresh customer.',
+            });
+          }
+          throw listErr;
+        }
         const live = list.data
           .filter((s) => s.status === 'trialing' || s.status === 'active')
           .sort((a, b) => a.created - b.created);

@@ -21,8 +21,13 @@
 import { Request, Response, NextFunction } from 'express';
 import Stripe from 'stripe';
 import { db } from '../db';
-import { users, subscriptionPlans } from '@shared/schema';
+import { users, businesses, subscriptionPlans } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import {
+  isStripeResourceMissing,
+  clearOrphanedBusinessStripeCustomer,
+  clearOrphanedUserStripeCustomer,
+} from '../utils/stripeOrphanCheck';
 
 let stripe: Stripe | null = null;
 function getStripe(): Stripe {
@@ -40,8 +45,19 @@ function getStripe(): Stripe {
 /**
  * Check whether a Stripe Customer has a default payment method attached.
  * Used by both the middleware and the GET /payment-status endpoint.
+ *
+ * @param stripeCustomerId  The Stripe Customer ID stored on `users` or `businesses`.
+ * @param businessId        Optional. When supplied, an orphan (resource_missing
+ *                          400) on the customer lookup will also clear
+ *                          `businesses.stripeCustomerId` for this business so
+ *                          downstream code paths (dedup sweeper, repair
+ *                          endpoint, createSubscription) stop re-hitting the
+ *                          dead ID.
  */
-export async function hasPaymentMethodOnFile(stripeCustomerId: string | null | undefined): Promise<boolean> {
+export async function hasPaymentMethodOnFile(
+  stripeCustomerId: string | null | undefined,
+  businessId?: number,
+): Promise<boolean> {
   if (!stripeCustomerId) return false;
   try {
     const stripe = getStripe();
@@ -66,6 +82,17 @@ export async function hasPaymentMethodOnFile(stripeCustomerId: string | null | u
     });
     return paymentMethods.data.length > 0;
   } catch (err: any) {
+    if (isStripeResourceMissing(err)) {
+      // Orphan auto-heal: the stored Customer ID points at a deleted
+      // Stripe Customer. Clear it from whatever row(s) we have a handle
+      // on, then return false (no payment method on file) so the gate
+      // correctly redirects to /onboarding/checkout where a fresh
+      // Customer will be created.
+      if (businessId !== undefined) {
+        await clearOrphanedBusinessStripeCustomer(businessId, stripeCustomerId);
+      }
+      return false;
+    }
     console.warn(`[paymentRequired] Stripe customer ${stripeCustomerId} lookup failed: ${err?.message || err}`);
     // Fail-open: if Stripe can't be reached, assume the user has a card.
     // The gate's job is to block obvious abuse, not to gate every request
@@ -112,8 +139,11 @@ export async function requirePaymentMethod(req: Request, res: Response, next: Ne
       }
     }
 
-    // 4. Payment-method-on-file check
-    const onFile = await hasPaymentMethodOnFile(user.stripeCustomerId);
+    // 4. Payment-method-on-file check. Pass businessId so an orphan
+    //    detected here also clears the dead reference on businesses.stripeCustomerId,
+    //    stopping downstream code paths (dedup sweeper, repair endpoint)
+    //    from re-hitting Stripe with the same dead ID.
+    const onFile = await hasPaymentMethodOnFile(user.stripeCustomerId, user.businessId ?? undefined);
     if (onFile) return next();
 
     // Gate hit — no path to bypass. Tell the client where to go.

@@ -21,6 +21,10 @@ import Stripe from 'stripe';
 import { db } from '../db';
 import { businesses } from '@shared/schema';
 import { eq, isNotNull, and, ne } from 'drizzle-orm';
+import {
+  isStripeResourceMissing,
+  clearOrphanedBusinessStripeCustomer,
+} from '../utils/stripeOrphanCheck';
 
 let stripe: Stripe | null = null;
 function getStripe(): Stripe {
@@ -94,12 +98,32 @@ export async function runSubscriptionDedupSweep(): Promise<SweepResult> {
       // List ALL subscriptions on this customer (live + cancelled, so we have
       // a complete picture). Expand discounts so we can identify the
       // coupon-attached survivor.
-      const list = await getStripe().subscriptions.list({
-        customer: customerId,
-        status: 'all',
-        limit: 20,
-        expand: ['data.discounts'],
-      });
+      let list;
+      try {
+        list = await getStripe().subscriptions.list({
+          customer: customerId,
+          status: 'all',
+          limit: 20,
+          expand: ['data.discounts'],
+        });
+      } catch (listErr) {
+        // Orphan auto-heal: customer was deleted out from under us. Clear
+        // the dead reference so the next sweep doesn't re-hit Stripe with
+        // the same dead ID (the hourly sweeper is the #1 source of
+        // resource_missing 400s in the Stripe error dashboard).
+        if (isStripeResourceMissing(listErr)) {
+          await clearOrphanedBusinessStripeCustomer(business.id, customerId);
+          result.details.push({
+            businessId: business.id,
+            customerId,
+            survivorId: null,
+            cancelledIds: [],
+            reason: 'orphaned-customer-cleared',
+          });
+          continue;
+        }
+        throw listErr;
+      }
 
       const live = list.data
         .filter((s) => s.status === 'trialing' || s.status === 'active')

@@ -4,6 +4,10 @@ import { eq } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { sendPaymentFailedEmail } from '../emailService';
 import { toMoney } from '../utils/money';
+import {
+  isStripeResourceMissing,
+  clearOrphanedBusinessStripeCustomer,
+} from '../utils/stripeOrphanCheck';
 
 /**
  * Stripe API version 2025-03-31.basil removed some top-level fields from
@@ -216,8 +220,21 @@ export class SubscriptionService {
               stripeCustomer = null;
             }
           } catch (retrieveError: any) {
-            // Customer doesn't exist in Stripe anymore, create a new one
-            console.warn(`Stripe customer ${businessRecord.stripeCustomerId} not found, creating new one`);
+            if (isStripeResourceMissing(retrieveError)) {
+              // Orphan auto-heal: clear the dead reference from the business
+              // row so future code paths (dedup sweeper, repair endpoint,
+              // payment-required gate, etc.) don't re-hit the same dead ID.
+              await clearOrphanedBusinessStripeCustomer(
+                businessRecord.id,
+                businessRecord.stripeCustomerId,
+              );
+            } else {
+              // Non-orphan failure (network, auth, rate limit, etc.) — log
+              // and fall through to create-a-new-customer path. We don't
+              // re-throw because the create path below handles this case
+              // and prior behavior was also to swallow.
+              console.warn(`Stripe customer ${businessRecord.stripeCustomerId} not found, creating new one`);
+            }
             stripeCustomer = null;
           }
         }
@@ -313,13 +330,23 @@ export class SubscriptionService {
           };
         }
       } catch (dedupErr: any) {
-        // If Stripe listing fails, fall through to the legacy guard rather
-        // than blocking subscription creation. The legacy guard + sweep job
-        // will catch any duplicates after the fact.
-        console.warn(
-          `[createSubscription] Stripe dedup lookup failed for customer ${stripeCustomer.id}, falling through:`,
-          dedupErr?.message || dedupErr,
-        );
+        if (isStripeResourceMissing(dedupErr)) {
+          // Orphan auto-heal: the just-created `stripeCustomer.id` lookup
+          // returning resource_missing can only mean we held onto a stale
+          // ID through some other code path. Clear the dead reference on
+          // the business row and treat as { data: [] } — no live subs,
+          // continue to subscription creation.
+          await clearOrphanedBusinessStripeCustomer(businessId, stripeCustomer.id);
+        } else {
+          // If Stripe listing fails for any other reason, fall through to
+          // the legacy guard rather than blocking subscription creation.
+          // The legacy guard + sweep job will catch any duplicates after
+          // the fact.
+          console.warn(
+            `[createSubscription] Stripe dedup lookup failed for customer ${stripeCustomer.id}, falling through:`,
+            dedupErr?.message || dedupErr,
+          );
+        }
       }
 
       if (businessRecord.stripeSubscriptionId) {
@@ -835,7 +862,35 @@ export class SubscriptionService {
       //    success should not depend on email deliverability. Idempotent via
       //    notification_log dedup so Stripe retries don't double-send.
       try {
-        const customer = await stripe.customers.retrieve(customerId);
+        let customer: Stripe.Customer | Stripe.DeletedCustomer | null = null;
+        try {
+          customer = await stripe.customers.retrieve(customerId);
+        } catch (retrieveErr) {
+          if (isStripeResourceMissing(retrieveErr)) {
+            // Orphan auto-heal: the SetupIntent's customer was deleted in
+            // Stripe between SetupIntent creation and webhook delivery.
+            // Find any business row pointing at this dead ID and clear it,
+            // then bail on the welcome email (we have no customer to email).
+            try {
+              const [byCustomer] = await db
+                .select()
+                .from(businesses)
+                .where(eq(businesses.stripeCustomerId, customerId))
+                .limit(1);
+              if (byCustomer?.id) {
+                await clearOrphanedBusinessStripeCustomer(byCustomer.id, customerId);
+              }
+            } catch (bizLookupErr) {
+              console.warn(
+                '[setup_intent.succeeded] Business lookup during orphan heal failed:',
+                bizLookupErr,
+              );
+            }
+            customer = null;
+          } else {
+            throw retrieveErr;
+          }
+        }
         if (customer && !('deleted' in customer && customer.deleted)) {
           const customerObj = customer as Stripe.Customer;
           const customerEmail = customerObj.email;
