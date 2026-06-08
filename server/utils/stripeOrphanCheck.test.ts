@@ -36,6 +36,13 @@ vi.mock('@shared/schema', () => ({
   users: { id: 'user_id_column', stripeCustomerId: 'user_stripe_col' },
 }));
 
+// Mock Sentry so we can assert observability events fire correctly without
+// hitting the real SDK at test time.
+const mockSentryCaptureMessage = vi.fn();
+vi.mock('@sentry/node', () => ({
+  captureMessage: (...args: any[]) => mockSentryCaptureMessage(...args),
+}));
+
 import {
   isStripeResourceMissing,
   clearOrphanedBusinessStripeCustomer,
@@ -47,6 +54,7 @@ beforeEach(() => {
   mockUpdate.mockImplementation(() => buildUpdateChain());
   mockUpdateSet.mockReset();
   mockUpdateWhere.mockReset();
+  mockSentryCaptureMessage.mockReset();
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -218,6 +226,92 @@ describe('clearOrphanedUserStripeCustomer', () => {
     });
     await expect(
       clearOrphanedUserStripeCustomer(7, 'cus_dead'),
+    ).resolves.toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sentry observability — verify orphan heals are reported with structured
+// tags so they can be queried/graphed in the Sentry UI.
+// ─────────────────────────────────────────────────────────────────────────
+describe('Sentry observability', () => {
+  it('reports business heal with entity=business + source tag + cleared outcome', async () => {
+    await clearOrphanedBusinessStripeCustomer(42, 'cus_dead', 'sweeper');
+
+    expect(mockSentryCaptureMessage).toHaveBeenCalledTimes(1);
+    const [message, options] = mockSentryCaptureMessage.mock.calls[0];
+    expect(message).toBe('stripe_orphan_healed');
+    expect(options.level).toBe('warning');
+    expect(options.tags).toEqual({
+      entity: 'business',
+      source: 'sweeper',
+      outcome: 'cleared',
+    });
+    expect(options.extra.entityId).toBe(42);
+    expect(options.extra.orphanedCustomerId).toBe('cus_dead');
+  });
+
+  it('reports user heal with entity=user + source tag', async () => {
+    await clearOrphanedUserStripeCustomer(7, 'cus_dead', 'start-trial');
+
+    expect(mockSentryCaptureMessage).toHaveBeenCalledTimes(1);
+    const [message, options] = mockSentryCaptureMessage.mock.calls[0];
+    expect(message).toBe('stripe_orphan_healed');
+    expect(options.tags).toEqual({
+      entity: 'user',
+      source: 'start-trial',
+      outcome: 'cleared',
+    });
+  });
+
+  it('defaults source to "unknown" when caller does not pass one (backward compat)', async () => {
+    await clearOrphanedBusinessStripeCustomer(42, 'cus_dead');
+
+    expect(mockSentryCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockSentryCaptureMessage.mock.calls[0];
+    expect(options.tags.source).toBe('unknown');
+  });
+
+  it('escalates to level=error + outcome=failed when DB heal write fails', async () => {
+    mockUpdate.mockImplementationOnce(() => ({
+      set: (payload: any) => {
+        mockUpdateSet(payload);
+        return {
+          where: (cond: any) => {
+            mockUpdateWhere(cond);
+            return Promise.reject(new Error('connection pool exhausted'));
+          },
+        };
+      },
+    }));
+
+    await clearOrphanedBusinessStripeCustomer(42, 'cus_dead', 'sweeper');
+
+    expect(mockSentryCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockSentryCaptureMessage.mock.calls[0];
+    expect(options.level).toBe('error');
+    expect(options.tags.outcome).toBe('failed');
+    expect(options.extra.errorMessage).toBe('connection pool exhausted');
+  });
+
+  it('fires Sentry even when DB throws synchronously (failed outcome)', async () => {
+    mockUpdate.mockImplementationOnce(() => {
+      throw new Error('db client not initialized');
+    });
+    await clearOrphanedUserStripeCustomer(7, 'cus_dead', 'repair-subscription');
+
+    expect(mockSentryCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockSentryCaptureMessage.mock.calls[0];
+    expect(options.tags.outcome).toBe('failed');
+    expect(options.extra.errorMessage).toBe('db client not initialized');
+  });
+
+  it('does NOT throw when Sentry itself throws (observability cannot break the heal)', async () => {
+    mockSentryCaptureMessage.mockImplementationOnce(() => {
+      throw new Error('sentry transport down');
+    });
+    await expect(
+      clearOrphanedBusinessStripeCustomer(42, 'cus_dead', 'sweeper'),
     ).resolves.toBeUndefined();
   });
 });

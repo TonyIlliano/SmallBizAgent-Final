@@ -227,6 +227,7 @@ export class SubscriptionService {
               await clearOrphanedBusinessStripeCustomer(
                 businessRecord.id,
                 businessRecord.stripeCustomerId,
+                'create-subscription',
               );
             } else {
               // Non-orphan failure (network, auth, rate limit, etc.) — log
@@ -336,7 +337,7 @@ export class SubscriptionService {
           // ID through some other code path. Clear the dead reference on
           // the business row and treat as { data: [] } — no live subs,
           // continue to subscription creation.
-          await clearOrphanedBusinessStripeCustomer(businessId, stripeCustomer.id);
+          await clearOrphanedBusinessStripeCustomer(businessId, stripeCustomer.id, 'create-subscription');
         } else {
           // If Stripe listing fails for any other reason, fall through to
           // the legacy guard rather than blocking subscription creation.
@@ -878,7 +879,7 @@ export class SubscriptionService {
                 .where(eq(businesses.stripeCustomerId, customerId))
                 .limit(1);
               if (byCustomer?.id) {
-                await clearOrphanedBusinessStripeCustomer(byCustomer.id, customerId);
+                await clearOrphanedBusinessStripeCustomer(byCustomer.id, customerId, 'setup-intent-webhook');
               }
             } catch (bizLookupErr) {
               console.warn(

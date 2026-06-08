@@ -112,7 +112,7 @@ export async function runSubscriptionDedupSweep(): Promise<SweepResult> {
         // the same dead ID (the hourly sweeper is the #1 source of
         // resource_missing 400s in the Stripe error dashboard).
         if (isStripeResourceMissing(listErr)) {
-          await clearOrphanedBusinessStripeCustomer(business.id, customerId);
+          await clearOrphanedBusinessStripeCustomer(business.id, customerId, 'sweeper');
           result.details.push({
             businessId: business.id,
             customerId,

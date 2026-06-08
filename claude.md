@@ -720,6 +720,24 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### Stripe Orphan Auto-Heal — Sentry Observability + Smoke Test Runbook
+- **Goal**: Make the just-shipped orphan auto-heal (commit `08792ea`) measurable in Sentry so the platform owner can graph the `resource_missing` rate over time, AND give the on-call engineer a written runbook to verify the fix end-to-end before / after deploy.
+- **Files added (1)**:
+  - `docs/STRIPE_ORPHAN_SMOKE_TEST.md` — ~10-minute manual runbook for verifying every one of the 8 heal sites in a deployed environment. Step-by-step: create a throwaway business in test mode, delete its Stripe Customer in the Dashboard, then exercise each call site (sweeper, payment-required gate, start-trial, repair, diagnose, createSubscription, setup_intent webhook) one at a time and verify the `[StripeOrphan]` log line + the DB column going `null` + the expected response shape. Includes a post-deploy production verification section (Stripe error dashboard filter, expected curve shape: hour-0 backlog → hour-1 burst → steep decline → steady-state <10/week) and a rollback plan keyed off the fail-soft contract.
+- **Files changed (5)**:
+  - `server/utils/stripeOrphanCheck.ts` — Added Sentry observability layer. New exported `StripeOrphanSource` union type with 8 values matching every call site (`'sweeper'`, `'create-subscription'`, `'setup-intent-webhook'`, `'start-trial'`, `'diagnose-subscription'`, `'repair-subscription'`, `'payment-required-gate'`, `'unknown'` for backward compat). New internal `reportOrphanHealed()` helper fires `Sentry.captureMessage('stripe_orphan_healed', { level, tags: { entity, source, outcome }, extra: { entityId, orphanedCustomerId, errorMessage? } })`. Level is `'warning'` for successful heals, `'error'` for DB heal failures. Both `clearOrphanedBusinessStripeCustomer` and `clearOrphanedUserStripeCustomer` gained an optional `source: StripeOrphanSource = 'unknown'` parameter — fires the Sentry event on both the success path AND the catch path (so heal *failures* are also visible in Sentry, not just successes). The Sentry call itself is wrapped in `try/catch` — if the SDK throws (transport down, etc.), it's swallowed so observability cannot break the heal. Log lines now include `(source=X)` so they're greppable when correlating Sentry events back to server logs.
+  - `server/services/subscriptionDedupService.ts` — Passes `'sweeper'`.
+  - `server/services/subscriptionService.ts` — 3 call sites pass appropriate sources (`'create-subscription'` twice, `'setup-intent-webhook'`).
+  - `server/routes/onboardingCheckoutRoutes.ts` — 3 call sites pass `'start-trial'` / `'diagnose-subscription'` / `'repair-subscription'`.
+  - `server/middleware/paymentRequired.ts` — Passes `'payment-required-gate'`. Also cleaned up two unused imports (`clearOrphanedUserStripeCustomer`, `businesses`) that were stale from the prior commit.
+- **Tests**: `server/utils/stripeOrphanCheck.test.ts` extended with 6 new Sentry observability tests (24 total, all passing). New mock for `@sentry/node` captures the message + options for assertion. Coverage: business heal fires with correct tags/level/extra, user heal fires correctly, `source` defaults to `'unknown'` when omitted (backward compat assertion), DB failure escalates `level` to `'error'` and includes `errorMessage` in extra, synchronous DB throws still fire Sentry with `outcome: 'failed'`, Sentry SDK throwing itself doesn't break the heal.
+- **What the platform owner gets in Sentry after deploy**:
+  - Filter to message `stripe_orphan_healed` → group by tag `source` → see the dominant `sweeper` line drop to near-zero within a day or two as the existing orphan backlog clears
+  - Group by tag `outcome` → `cleared` should dominate; any sustained `failed` rate signals a DB problem worth investigating
+  - Group by tag `entity` → `business` vs `user` ratio tells you which onboarding flow is more orphan-prone
+  - The `extra.entityId` + `extra.orphanedCustomerId` fields let support correlate a customer ticket back to a specific heal event
+- **Verification**: `npx tsc --noEmit` clean. 24/24 orphan-check tests pass.
+
 #### Orphaned Stripe Customer ID Auto-Heal — Stop the 728-errors/week Bleeding
 - **The bug**: production Stripe error dashboard was logging ~728 `resource_missing` 400 errors per week. Root cause: when a Stripe Customer is deleted out from under us (admin action in the Stripe Dashboard, test/live mode mismatch on the ID, abandoned onboarding flow), the dead Customer ID stays cached on `businesses.stripeCustomerId` and `users.stripeCustomerId`. Every subsequent code path that calls a Stripe API with that ID 400s. The **hourly `subscriptionDedupService` scheduler was the worst offender** — same business → same orphan → same 400 every single hour, forever, until someone manually cleared the DB column.
 - **Files added (2)**:

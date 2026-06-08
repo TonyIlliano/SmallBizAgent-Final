@@ -21,12 +21,11 @@
 import { Request, Response, NextFunction } from 'express';
 import Stripe from 'stripe';
 import { db } from '../db';
-import { users, businesses, subscriptionPlans } from '@shared/schema';
+import { users, subscriptionPlans } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import {
   isStripeResourceMissing,
   clearOrphanedBusinessStripeCustomer,
-  clearOrphanedUserStripeCustomer,
 } from '../utils/stripeOrphanCheck';
 
 let stripe: Stripe | null = null;
@@ -89,7 +88,7 @@ export async function hasPaymentMethodOnFile(
       // correctly redirects to /onboarding/checkout where a fresh
       // Customer will be created.
       if (businessId !== undefined) {
-        await clearOrphanedBusinessStripeCustomer(businessId, stripeCustomerId);
+        await clearOrphanedBusinessStripeCustomer(businessId, stripeCustomerId, 'payment-required-gate');
       }
       return false;
     }

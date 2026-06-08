@@ -120,7 +120,7 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
               // the dead ID. The previous version of this block silently
               // re-created the customer on every request without clearing
               // the column, generating spam in the Stripe error log.
-              await clearOrphanedUserStripeCustomer(userId, storedCustomerId);
+              await clearOrphanedUserStripeCustomer(userId, storedCustomerId, 'start-trial');
               customerId = null;
             }
           } catch (retrieveErr) {
@@ -128,7 +128,7 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
               // Orphan auto-heal — clear the dead reference on users so the
               // next request creates a fresh Customer cleanly instead of
               // re-throwing 400s indefinitely.
-              await clearOrphanedUserStripeCustomer(userId, storedCustomerId);
+              await clearOrphanedUserStripeCustomer(userId, storedCustomerId, 'start-trial');
               customerId = null;
             } else {
               // Non-orphan error (network, auth, rate limit) — log and treat
@@ -293,7 +293,7 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
               // call doesn't re-hit Stripe. Return a structured "orphan"
               // signal instead of the generic error blob so the frontend
               // can surface a helpful message.
-              await clearOrphanedUserStripeCustomer(userId, user.stripeCustomerId);
+              await clearOrphanedUserStripeCustomer(userId, user.stripeCustomerId, 'diagnose-subscription');
               return res.json({
                 ok: false,
                 reason: 'orphaned_stripe_customer',
@@ -381,7 +381,7 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
             // Orphan auto-heal: clear the dead reference and tell the
             // caller what happened so the UI can route them to start a
             // fresh trial instead of looping on repair attempts.
-            await clearOrphanedUserStripeCustomer(userId, user.stripeCustomerId);
+            await clearOrphanedUserStripeCustomer(userId, user.stripeCustomerId, 'repair-subscription');
             return res.json({
               ok: false,
               reason: 'orphaned_stripe_customer',
