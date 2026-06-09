@@ -7,6 +7,7 @@ import { toMoney } from '../utils/money';
 import {
   isStripeResourceMissing,
   clearOrphanedBusinessStripeCustomer,
+  clearOrphanedBusinessStripeSubscription,
 } from '../utils/stripeOrphanCheck';
 
 /**
@@ -144,13 +145,13 @@ export class SubscriptionService {
         // Check if subscription is active
         const isActive = subscription.status === 'active' || subscription.status === 'trialing';
         const periodEnd = safeCurrentPeriodEnd(subscription);
-        
+
         // Get plan details
         const plan = await db.select()
           .from(subscriptionPlans)
           .where(eq(subscriptionPlans.id, businessRecord.stripePlanId as number))
           .limit(1);
-        
+
         return {
           status: subscription.status,
           isActive,
@@ -159,6 +160,24 @@ export class SubscriptionService {
           cancelAtPeriodEnd: subscription.cancel_at_period_end
         };
       } catch (stripeError) {
+        if (isStripeResourceMissing(stripeError)) {
+          // Orphan auto-heal: the stored stripeSubscriptionId points at a
+          // subscription that no longer exists. Clear the dead reference so
+          // every subsequent page load (status polling, dashboard, etc.)
+          // doesn't re-hit Stripe with the same dead ID. Fall through to
+          // the trial/none response.
+          await clearOrphanedBusinessStripeSubscription(
+            businessRecord.id,
+            businessRecord.stripeSubscriptionId,
+            'get-subscription-status',
+          );
+          return {
+            status: 'none',
+            message: 'No active subscription',
+            trialEndsAt: businessRecord.trialEndsAt,
+            isTrialActive: businessRecord.trialEndsAt ? new Date(businessRecord.trialEndsAt) > new Date() : false,
+          };
+        }
         console.error('Error retrieving subscription from Stripe:', stripeError);
         return {
           status: 'error',
@@ -405,13 +424,16 @@ export class SubscriptionService {
           // Subscription is canceled / incomplete_expired / etc — fall through
           // to create a new subscription below.
         } catch (retrieveErr: any) {
-          // If Stripe says the sub doesn't exist (deleted), fall through and create fresh.
-          // Any other retrieve error → bubble up.
-          if (retrieveErr?.code !== 'resource_missing') {
+          // If Stripe says the sub doesn't exist (deleted), persist the heal
+          // and fall through to create fresh. Any other retrieve error →
+          // bubble up.
+          if (!isStripeResourceMissing(retrieveErr)) {
             throw retrieveErr;
           }
-          console.warn(
-            `Stripe sub ${businessRecord.stripeSubscriptionId} missing in Stripe, creating fresh`
+          await clearOrphanedBusinessStripeSubscription(
+            businessId,
+            businessRecord.stripeSubscriptionId,
+            'create-subscription',
           );
         }
       }
@@ -613,11 +635,32 @@ export class SubscriptionService {
       }
       
       // Cancel the subscription at period end
-      const subscription = await getStripe().subscriptions.update(
-        businessRecord.stripeSubscriptionId,
-        { cancel_at_period_end: true }
-      );
-      
+      let subscription;
+      try {
+        subscription = await getStripe().subscriptions.update(
+          businessRecord.stripeSubscriptionId,
+          { cancel_at_period_end: true }
+        );
+      } catch (updateErr) {
+        if (isStripeResourceMissing(updateErr)) {
+          // Orphan auto-heal: the sub was deleted out from under us
+          // (admin action, etc.). Clear the dead reference and return a
+          // shape consistent with "subscription is gone" — the user
+          // wanted to cancel, and from their perspective it IS canceled.
+          await clearOrphanedBusinessStripeSubscription(
+            businessId,
+            businessRecord.stripeSubscriptionId,
+            'cancel-subscription',
+          );
+          return {
+            status: 'canceled',
+            message: 'Subscription is already canceled.',
+            periodEnd: null,
+          };
+        }
+        throw updateErr;
+      }
+
       // Update the business record
       await db.update(businesses)
         .set({
@@ -625,7 +668,7 @@ export class SubscriptionService {
           updatedAt: new Date()
         })
         .where(eq(businesses.id, businessId));
-      
+
       return {
         status: 'canceling',
         message: 'Subscription will be canceled at the end of the current billing period',
@@ -657,11 +700,27 @@ export class SubscriptionService {
       }
       
       // Resume the subscription by canceling the cancellation
-      const subscription = await getStripe().subscriptions.update(
-        businessRecord.stripeSubscriptionId,
-        { cancel_at_period_end: false }
-      );
-      
+      let subscription;
+      try {
+        subscription = await getStripe().subscriptions.update(
+          businessRecord.stripeSubscriptionId,
+          { cancel_at_period_end: false }
+        );
+      } catch (updateErr) {
+        if (isStripeResourceMissing(updateErr)) {
+          // Orphan auto-heal: the sub is gone, can't resume what doesn't
+          // exist. Clear the dead reference and tell the caller — UI
+          // should route them to start a fresh subscription.
+          await clearOrphanedBusinessStripeSubscription(
+            businessId,
+            businessRecord.stripeSubscriptionId,
+            'resume-subscription',
+          );
+          throw new Error('Subscription no longer exists — please start a new one.');
+        }
+        throw updateErr;
+      }
+
       // Update the business record
       await db.update(businesses)
         .set({
@@ -1658,9 +1717,24 @@ export class SubscriptionService {
       const coupon = promoCode.coupon;
 
       // Apply the coupon to the existing subscription
-      await getStripe().subscriptions.update(business.stripeSubscriptionId, {
-        discounts: [{ coupon: coupon.id }],
-      });
+      try {
+        await getStripe().subscriptions.update(business.stripeSubscriptionId, {
+          discounts: [{ coupon: coupon.id }],
+        });
+      } catch (updateErr) {
+        if (isStripeResourceMissing(updateErr)) {
+          await clearOrphanedBusinessStripeSubscription(
+            businessId,
+            business.stripeSubscriptionId,
+            'apply-promo',
+          );
+          return {
+            success: false,
+            error: 'Your subscription is no longer active. Please start a new one to apply this promo.',
+          };
+        }
+        throw updateErr;
+      }
 
       // Build description
       let description = '';
@@ -1696,10 +1770,29 @@ export class SubscriptionService {
       if (!business) throw new Error('Business not found');
       if (!business.stripeCustomerId) throw new Error('No Stripe customer found. Please subscribe first.');
 
-      const session = await getStripe().billingPortal.sessions.create({
-        customer: business.stripeCustomerId,
-        return_url: returnUrl,
-      });
+      let session;
+      try {
+        session = await getStripe().billingPortal.sessions.create({
+          customer: business.stripeCustomerId,
+          return_url: returnUrl,
+        });
+      } catch (createErr) {
+        if (isStripeResourceMissing(createErr)) {
+          // Orphan auto-heal: clicking "Manage Billing" against a deleted
+          // Customer would 500 indefinitely. Clear the dead ref and
+          // surface a clean message so the UI can route them through
+          // re-subscribe.
+          await clearOrphanedBusinessStripeCustomer(
+            businessId,
+            business.stripeCustomerId,
+            'billing-portal',
+          );
+          throw new Error(
+            'Your billing profile is no longer available. Please start a new subscription.',
+          );
+        }
+        throw createErr;
+      }
 
       return { url: session.url };
     } catch (error: any) {
@@ -1725,7 +1818,20 @@ export class SubscriptionService {
       if (!newPlan) throw new Error('Plan not found');
 
       // Get current subscription from Stripe
-      const subscription = await getStripe().subscriptions.retrieve(business.stripeSubscriptionId);
+      let subscription;
+      try {
+        subscription = await getStripe().subscriptions.retrieve(business.stripeSubscriptionId);
+      } catch (retrieveErr) {
+        if (isStripeResourceMissing(retrieveErr)) {
+          await clearOrphanedBusinessStripeSubscription(
+            businessId,
+            business.stripeSubscriptionId,
+            'change-plan',
+          );
+          throw new Error('Your subscription is no longer active. Please start a new one to change plans.');
+        }
+        throw retrieveErr;
+      }
       const currentItemId = subscription.items.data[0]?.id;
       if (!currentItemId) throw new Error('No subscription item found');
 

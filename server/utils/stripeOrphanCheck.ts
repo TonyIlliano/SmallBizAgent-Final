@@ -82,6 +82,12 @@ export type StripeOrphanSource =
   | 'diagnose-subscription' // onboardingCheckoutRoutes GET /diagnose
   | 'repair-subscription' // onboardingCheckoutRoutes POST /repair
   | 'payment-required-gate' // middleware/paymentRequired
+  | 'get-subscription-status' // subscriptionService.getSubscriptionStatus
+  | 'cancel-subscription' // subscriptionService.cancelSubscription
+  | 'resume-subscription' // subscriptionService.resumeSubscription
+  | 'change-plan' // subscriptionService.changePlan
+  | 'billing-portal' // subscriptionService.createBillingPortalSession
+  | 'apply-promo' // subscriptionService.applyPromotion
   | 'unknown'; // backward-compatible default
 
 /**
@@ -205,6 +211,102 @@ export async function clearOrphanedBusinessStripeCustomer(
       errorMessage,
     });
     // Intentionally swallowed — heal failures must not break the caller.
+  }
+}
+
+/**
+ * Null out the orphaned `stripeSubscriptionId` on the given business row.
+ *
+ * Distinct from `clearOrphanedBusinessStripeCustomer` because:
+ *  - The Customer can be alive while the Subscription is orphaned
+ *    (admin manually canceled+deleted the sub but kept the Customer)
+ *  - Conversely, the Subscription is implicitly cleared when the Customer
+ *    is deleted, but we don't touch the Customer ID here
+ *  - Failure mode is `resource_missing` on `subscriptions.retrieve` /
+ *    `subscriptions.update` / `subscriptions.cancel`
+ *
+ * Deliberately does NOT flip `subscriptionStatus`. If Stripe deleted the
+ * sub legitimately, the `customer.subscription.deleted` webhook is the
+ * source of truth for that transition (it already runs the full
+ * `handleSubscriptionCanceled` → flip to 'free' → log path). Auto-flipping
+ * status from heal code would race that webhook AND mask legitimate
+ * billing-state bugs.
+ *
+ * Same race-safe WHERE + fail-soft + Sentry-reporting contract as the
+ * Customer variant.
+ */
+export async function clearOrphanedBusinessStripeSubscription(
+  businessId: number,
+  orphanedSubscriptionId: string,
+  source: StripeOrphanSource = 'unknown',
+): Promise<void> {
+  try {
+    await db
+      .update(businesses)
+      .set({
+        stripeSubscriptionId: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(businesses.id, businessId),
+          eq(businesses.stripeSubscriptionId, orphanedSubscriptionId),
+        ),
+      );
+    console.warn(
+      `${LOG_PREFIX} Cleared orphaned Stripe subscription ${orphanedSubscriptionId} from business ${businessId} (source=${source})`,
+    );
+    reportSubscriptionOrphanHealed({
+      businessId,
+      orphanedSubscriptionId,
+      source,
+      outcome: 'cleared',
+    });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error(
+      `${LOG_PREFIX} Failed to clear orphaned subscription ${orphanedSubscriptionId} from business ${businessId} (source=${source}):`,
+      errorMessage,
+    );
+    reportSubscriptionOrphanHealed({
+      businessId,
+      orphanedSubscriptionId,
+      source,
+      outcome: 'failed',
+      errorMessage,
+    });
+    // Intentionally swallowed — heal failures must not break the caller.
+  }
+}
+
+/**
+ * Sentry helper for subscription orphans. Same shape as `reportOrphanHealed`
+ * but with `entity: 'subscription'` so the platform owner can graph the
+ * two failure modes (Customer vs Subscription) separately.
+ */
+function reportSubscriptionOrphanHealed(args: {
+  businessId: number;
+  orphanedSubscriptionId: string;
+  source: StripeOrphanSource;
+  outcome: 'cleared' | 'failed';
+  errorMessage?: string;
+}): void {
+  try {
+    Sentry.captureMessage('stripe_orphan_healed', {
+      level: args.outcome === 'cleared' ? 'warning' : 'error',
+      tags: {
+        entity: 'subscription',
+        source: args.source,
+        outcome: args.outcome,
+      },
+      extra: {
+        entityId: args.businessId,
+        orphanedSubscriptionId: args.orphanedSubscriptionId,
+        ...(args.errorMessage ? { errorMessage: args.errorMessage } : {}),
+      },
+    });
+  } catch {
+    // Sentry unavailable — log path already captured.
   }
 }
 

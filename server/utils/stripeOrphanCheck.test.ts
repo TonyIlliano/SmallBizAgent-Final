@@ -32,7 +32,11 @@ vi.mock('../db', () => ({
 // the test doesn't care about the contents — only that the mockUpdateWhere
 // spy was called.
 vi.mock('@shared/schema', () => ({
-  businesses: { id: 'business_id_column', stripeCustomerId: 'business_stripe_col' },
+  businesses: {
+    id: 'business_id_column',
+    stripeCustomerId: 'business_stripe_col',
+    stripeSubscriptionId: 'business_sub_col',
+  },
   users: { id: 'user_id_column', stripeCustomerId: 'user_stripe_col' },
 }));
 
@@ -46,6 +50,7 @@ vi.mock('@sentry/node', () => ({
 import {
   isStripeResourceMissing,
   clearOrphanedBusinessStripeCustomer,
+  clearOrphanedBusinessStripeSubscription,
   clearOrphanedUserStripeCustomer,
 } from './stripeOrphanCheck';
 
@@ -312,6 +317,82 @@ describe('Sentry observability', () => {
     });
     await expect(
       clearOrphanedBusinessStripeCustomer(42, 'cus_dead', 'sweeper'),
+    ).resolves.toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// clearOrphanedBusinessStripeSubscription
+// ─────────────────────────────────────────────────────────────────────────
+describe('clearOrphanedBusinessStripeSubscription', () => {
+  it('nulls stripeSubscriptionId on the matching business row (no customer-id touch)', async () => {
+    await clearOrphanedBusinessStripeSubscription(42, 'sub_dead', 'cancel-subscription');
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateSet).toHaveBeenCalledTimes(1);
+    const payload = mockUpdateSet.mock.calls[0][0];
+    expect(payload.stripeSubscriptionId).toBeNull();
+    expect(payload.updatedAt).toBeInstanceOf(Date);
+    // Critical: must NOT touch stripeCustomerId — the Customer can be alive
+    // while the Sub is orphaned, and clearing the Customer ID here would
+    // cascade into other orphan-detection paths unnecessarily.
+    expect(payload).not.toHaveProperty('stripeCustomerId');
+  });
+
+  it('reports Sentry with entity=subscription + source + orphanedSubscriptionId extra', async () => {
+    await clearOrphanedBusinessStripeSubscription(42, 'sub_dead', 'cancel-subscription');
+
+    expect(mockSentryCaptureMessage).toHaveBeenCalledTimes(1);
+    const [message, options] = mockSentryCaptureMessage.mock.calls[0];
+    expect(message).toBe('stripe_orphan_healed');
+    expect(options.level).toBe('warning');
+    expect(options.tags).toEqual({
+      entity: 'subscription',
+      source: 'cancel-subscription',
+      outcome: 'cleared',
+    });
+    expect(options.extra.entityId).toBe(42);
+    expect(options.extra.orphanedSubscriptionId).toBe('sub_dead');
+    // Customer-ID-specific extra field should NOT leak here.
+    expect(options.extra).not.toHaveProperty('orphanedCustomerId');
+  });
+
+  it('defaults source to "unknown" for backward compat', async () => {
+    await clearOrphanedBusinessStripeSubscription(42, 'sub_dead');
+    const [, options] = mockSentryCaptureMessage.mock.calls[0];
+    expect(options.tags.source).toBe('unknown');
+  });
+
+  it('is fail-soft — swallows DB errors and reports outcome=failed to Sentry', async () => {
+    mockUpdate.mockImplementationOnce(() => ({
+      set: (payload: any) => {
+        mockUpdateSet(payload);
+        return {
+          where: (cond: any) => {
+            mockUpdateWhere(cond);
+            return Promise.reject(new Error('statement_timeout'));
+          },
+        };
+      },
+    }));
+
+    await expect(
+      clearOrphanedBusinessStripeSubscription(42, 'sub_dead', 'change-plan'),
+    ).resolves.toBeUndefined();
+
+    expect(mockSentryCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockSentryCaptureMessage.mock.calls[0];
+    expect(options.level).toBe('error');
+    expect(options.tags.outcome).toBe('failed');
+    expect(options.extra.errorMessage).toBe('statement_timeout');
+  });
+
+  it('does NOT throw when Sentry itself throws', async () => {
+    mockSentryCaptureMessage.mockImplementationOnce(() => {
+      throw new Error('sentry down');
+    });
+    await expect(
+      clearOrphanedBusinessStripeSubscription(42, 'sub_dead', 'billing-portal'),
     ).resolves.toBeUndefined();
   });
 });
