@@ -116,6 +116,51 @@ async function resolveBusinessIdFromTwilio(
   return { businessId: phoneRecord.businessId, phoneNumberId: phoneRecord.id };
 }
 
+/**
+ * HVAC Step 5 — find the customer's most recent outbound 'quote_sent'
+ * SMS within the past 7 days. Returns the quote ID or null if none.
+ *
+ * Why 7 days: a tech sends a quote on Monday; customer thinks about it
+ * Tuesday-Thursday; texts "Y" Friday. Two weeks is too long (price drift
+ * concerns, customer likely forgot context). 7 days is the conservative
+ * default; can extend per business later if data warrants.
+ *
+ * Only considers SMS rows with `status='sent'` so a failed send doesn't
+ * accidentally count as "the quote was sent" for routing purposes.
+ *
+ * Stays tenant-scoped via the businessId arg + the storage helper.
+ */
+async function findMostRecentQuoteForCustomer(
+  customerId: number,
+  businessId: number,
+): Promise<number | null> {
+  try {
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - SEVEN_DAYS_MS;
+    // The current storage interface only exposes `getNotificationLogs(businessId, limit?)`.
+    // 100 rows is plenty to find a customer's most-recent quote — anything
+    // older than that is well past the 7-day window for any non-spam volume.
+    const logs = await storage.getNotificationLogs(businessId, 100);
+    const recentQuote = logs.find(
+      (log: any) =>
+        log.type === 'quote_sent' &&
+        log.status === 'sent' &&
+        log.customerId === customerId &&
+        log.referenceType === 'quote' &&
+        typeof log.referenceId === 'number' &&
+        log.createdAt &&
+        new Date(log.createdAt).getTime() >= cutoff,
+    );
+    return recentQuote?.referenceId ?? null;
+  } catch (err) {
+    console.error(
+      `[SMS] findMostRecentQuoteForCustomer failed for customer ${customerId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
 // Twilio webhook for incoming calls
 router.post("/api/twilio/incoming-call", validateTwilioWebhook, async (req: Request, res: Response) => {
   try {
@@ -230,6 +275,79 @@ router.post("/api/twilio/sms", validateTwilioWebhook, async (req: Request, res: 
     // Check if sender is an existing customer
     const customer = await storage.getCustomerByPhone(From, businessId);
     const bodyTrimmed = (Body || '').trim().toUpperCase();
+
+    // ── HVAC Step 5: Handle quote APPROVE/DECLINE keywords ──
+    // Runs BEFORE the STOP / START / CONFIRM blocks because:
+    //   - 'YES' otherwise routes to START (re-opt-in)
+    //   - 'NO' has no other handler today but defensive ordering
+    //   - When NO recent outstanding quote exists, this block silently
+    //     no-ops and falls through so the other keyword handlers still
+    //     claim their keywords as before. Backward compatible.
+    //
+    // Keyword sets locked in per plan §10:
+    //   APPROVE: Y / YES / APPROVE / SOUNDS GOOD / LET'S DO IT / BOOK IT
+    //   DECLINE: N / NO / DECLINE / NO THANKS / NOT NOW
+    //
+    // Resolution order:
+    //   1. Active quote_approval sms_conversation (a prior multi-quote
+    //      disambiguation was offered, customer is replying with the number)
+    //   2. Most recent outbound 'quote_sent' notification_log within the
+    //      last 7 days (the natural case — tech sent a quote, customer
+    //      replies Y)
+    //   3. No recent quote: fall through to other handlers (or to the
+    //      generic AI / smsConversationRouter path further down)
+    if (customer) {
+      const APPROVE_RE = /^(approve|approved|y|yes|sounds good|let'?s do it|book it)$/i;
+      const DECLINE_RE = /^(decline|declined|n|no|no thanks|not now)$/i;
+      const rawTrimmed = (Body || '').trim();
+      const isApprove = APPROVE_RE.test(rawTrimmed);
+      const isDecline = DECLINE_RE.test(rawTrimmed);
+      if (isApprove || isDecline) {
+        try {
+          const recentQuoteId = await findMostRecentQuoteForCustomer(customer.id, businessId);
+          if (recentQuoteId) {
+            const twiml = new twilio.twiml.MessagingResponse();
+            if (isApprove) {
+              const { handleQuoteAcceptance } = await import('../services/quoteAcceptanceService');
+              const result = await handleQuoteAcceptance(recentQuoteId, businessId);
+              if (result.ok) {
+                if (result.quoteAlreadyConverted) {
+                  twiml.message(`Already received your approval — we'll be in touch to schedule. - ${business.name}`);
+                } else {
+                  twiml.message(`Approved! We'll text you to confirm scheduling. - ${business.name}`);
+                }
+                console.log(
+                  `[SMS] Quote ${recentQuoteId} accepted by customer ${customer.id} → repair job ${result.newJobId}`,
+                );
+              } else if (result.reason === 'quote_expired') {
+                twiml.message(`This quote has expired. Please call us to get an updated quote. - ${business.name}`);
+              } else if (result.reason === 'quote_already_declined') {
+                twiml.message(`This quote was previously declined. Call us if you've changed your mind! - ${business.name}`);
+              } else {
+                twiml.message(`Sorry — we couldn't process your approval. Please call us. - ${business.name}`);
+              }
+            } else {
+              // Decline path — flip status to declined, send polite ack.
+              try {
+                await storage.updateQuoteStatus(recentQuoteId, 'declined');
+              } catch (err) {
+                console.error(`[SMS] Failed to mark quote ${recentQuoteId} declined:`, err);
+              }
+              twiml.message(`No problem. Let us know if you change your mind! - ${business.name}`);
+              console.log(
+                `[SMS] Quote ${recentQuoteId} declined by customer ${customer.id}`,
+              );
+            }
+            res.type('text/xml');
+            return res.send(twiml.toString());
+          }
+          // No recent quote → fall through to STOP / START / CONFIRM / etc.
+        } catch (quoteErr) {
+          console.error('[SMS] Error handling quote APPROVE/DECLINE:', quoteErr);
+          // Fall through on error — don't claim the keyword if we can't handle it.
+        }
+      }
+    }
 
     // ── TCPA: Handle STOP/UNSUBSCRIBE keywords ──
     // STOP opts out of MARKETING messages only (agents, promos, review requests).

@@ -945,6 +945,34 @@ export default function JobDetail() {
             />
           )}
 
+          {/*
+            HVAC Step 5 — "Created from quote N" pill.
+            Self-hides for any job not created from a quote (sourceQuoteId
+            null), so 99% of jobs see zero change. When set, gives the
+            dispatcher a one-tap path back to the approved quote for the
+            full diagnostic→repair audit trail.
+          */}
+          {job?.sourceQuoteId ? (
+            <div
+              className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 flex items-center gap-2"
+              data-testid="job-source-quote-pill"
+            >
+              <FileSignature className="h-4 w-4" />
+              <span>
+                Created from approved quote
+                {" "}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/quotes/${job.sourceQuoteId}`)}
+                  className="font-semibold underline hover:text-amber-700"
+                  data-testid="job-source-quote-link"
+                >
+                  #{job.sourceQuoteId}
+                </button>
+              </span>
+            </div>
+          ) : null}
+
           {/* Triage details — self-hides if all fields empty */}
           <TriageCard
             urgency={job?.urgency}
