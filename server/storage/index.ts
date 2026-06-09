@@ -329,6 +329,7 @@ export interface IStorage {
   }): Promise<any[]>;
   getQuoteById(id: number, businessId: number): Promise<any>;
   getQuoteByAccessToken(token: string): Promise<Quote | null>;
+  getQuotesByJob(jobId: number, businessId: number): Promise<Quote[]>;
   createQuote(quote: InsertQuote): Promise<Quote>;
   updateQuote(id: number, quote: Partial<Quote>): Promise<Quote>;
   updateQuoteStatus(id: number, status: string): Promise<Quote>;
@@ -755,6 +756,7 @@ export class DatabaseStorage implements IStorage {
   getAllQuotes = invoiceFns.getAllQuotes;
   getQuoteById = invoiceFns.getQuoteById;
   getQuoteByAccessToken = invoiceFns.getQuoteByAccessToken;
+  getQuotesByJob = invoiceFns.getQuotesByJob;
   createQuote = invoiceFns.createQuote;
   updateQuote = invoiceFns.updateQuote;
   updateQuoteStatus = invoiceFns.updateQuoteStatus;

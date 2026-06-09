@@ -197,6 +197,9 @@ async function fixExistingTables() {
   await addColumnIfNotExists('jobs', 'issue_type', 'TEXT');
   await addColumnIfNotExists('jobs', 'symptoms', 'TEXT');
   await addColumnIfNotExists('jobs', 'access_notes', 'TEXT');
+  // HVAC roadmap Step 5: reverse pointer from auto-created repair job back to
+  // the quote whose APPROVE/Y SMS triggered the creation. Nullable.
+  await addColumnIfNotExists('jobs', 'source_quote_id', 'INTEGER');
   // If a prior deploy created jobs.urgency as TEXT (schema previously declared it text),
   // ADD COLUMN IF NOT EXISTS is a no-op and the column stays TEXT — convert it to the enum.
   // Fresh DBs (column created as enum) skip this harmlessly.

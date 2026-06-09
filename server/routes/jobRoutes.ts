@@ -673,6 +673,162 @@ router.post('/:jobId/send-invoice', isAuthenticated, async (req: Request, res: R
   }
 });
 
+// POST /api/jobs/:jobId/send-quote — HVAC Step 5: one-tap quote send from a
+// completed (or in-progress) job. Mirrors /send-invoice in shape but builds a
+// quote instead of an invoice — used when a tech wants to surface a "real
+// estimate" (compressor replacement, full system install, etc.) for the
+// customer to approve via SMS or the portal link.
+//
+// - Auto-applies the customer's active membership discount (snapshot at
+//   send-time; quote = price commitment, so later membership changes do not
+//   re-price the quote).
+// - Idempotent: a second tap returns the existing pending/sent quote on the
+//   same job rather than creating a duplicate with a new access token.
+// - Uses the business tax rate from `resolveTaxRate()` (matches invoice path).
+// - Notification goes through `sendQuoteSentNotification` which already
+//   respects Free-plan gate + SMS opt-out + TCPA footer.
+router.post('/:jobId/send-quote', isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const jobId = parseInt(req.params.jobId);
+    if (isNaN(jobId)) return res.status(400).json({ message: 'Invalid job ID' });
+
+    const job = await storage.getJob(jobId);
+    if (!job) return res.status(404).json({ message: 'Job not found' });
+    if (!verifyBusinessOwnership(job, req)) {
+      return res.status(403).json({ message: 'Not authorized to access this job' });
+    }
+    if (!job.customerId) {
+      return res.status(400).json({ message: 'This job has no customer to send a quote to' });
+    }
+
+    const business = await storage.getBusiness(job.businessId);
+    if (!business) return res.status(404).json({ message: 'Business not found' });
+
+    // Idempotency: if there's already a pending/sent quote linked to this job
+    // (the tech double-tapped, or the prior request raced), reuse it instead
+    // of creating a duplicate with a new access token. Matches the send-invoice
+    // pattern so dispatchers can tap freely without making a mess.
+    let quote: any = null;
+    try {
+      const existing = await storage.getQuotesByJob(jobId, job.businessId);
+      quote = (existing || []).find(
+        (q: any) => q.status === 'pending' || q.status === 'sent',
+      ) || null;
+    } catch (e: any) {
+      console.error('[send-quote] lookup existing quotes failed:', e?.message);
+    }
+
+    if (!quote) {
+      const lineItems = await storage.getJobLineItems(jobId);
+      if (!lineItems || lineItems.length === 0) {
+        return res.status(400).json({ message: 'Add at least one line item before sending a quote' });
+      }
+
+      // Snapshot the customer's active membership discount at send-time. The
+      // quote represents a price commitment — if the customer cancels their
+      // membership tomorrow, the price they were quoted today should still
+      // honor the discount they saw. Symmetric: if they enroll tomorrow, the
+      // already-sent quote does not retroactively become cheaper.
+      let memberDiscountFraction = 0;
+      try {
+        const membership = await storage.getActiveMembershipByCustomer(
+          job.customerId,
+          job.businessId,
+        );
+        if (membership?.planId) {
+          const plan = await storage.getMembershipPlanById(membership.planId, job.businessId);
+          const rawPct = plan?.memberDiscountPercent;
+          if (rawPct !== null && rawPct !== undefined) {
+            const pct = typeof rawPct === 'number' ? rawPct : parseFloat(String(rawPct));
+            if (Number.isFinite(pct) && pct > 0 && pct <= 100) {
+              memberDiscountFraction = pct / 100;
+            }
+          }
+        }
+      } catch (e: any) {
+        // Membership lookup is opportunistic — failure means no discount applied,
+        // but the quote still goes out at the rack-rate price.
+        console.error('[send-quote] membership lookup failed:', e?.message);
+      }
+
+      // Compute subtotal from the discounted unit prices so the quote lines
+      // already reflect the member rate. The quote portal then renders the
+      // discounted prices directly (matches what the customer sees in any
+      // member-aware UI shipped in Step 4).
+      const subtotal = lineItems.reduce((sum: number, item: any) => {
+        const qty = Number(item.quantity || 0);
+        const unit = Number(item.unitPrice || 0);
+        const discountedUnit = unit * (1 - memberDiscountFraction);
+        return sum + qty * discountedUnit;
+      }, 0);
+      const taxRate = resolveTaxRate(business);
+      const taxAmount = roundMoney(subtotal * taxRate);
+      const total = roundMoney(subtotal + taxAmount);
+
+      const accessToken = randomBytes(24).toString('base64url');
+      const accessTokenExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
+      const quoteNumber = `Q-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${jobId}`;
+      const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10); // YYYY-MM-DD per schema column type
+
+      quote = await storage.createQuote({
+        businessId: job.businessId,
+        customerId: job.customerId,
+        jobId: jobId,
+        quoteNumber,
+        amount: String(roundMoney(subtotal)),
+        tax: String(taxAmount),
+        total: String(total),
+        status: 'pending',
+        accessToken,
+        accessTokenExpiresAt,
+        validUntil,
+      } as any);
+
+      // Mirror line items with the discounted unit price so the portal shows
+      // the same numbers we computed the total from. No discount-line trick;
+      // the price field IS the member price.
+      for (const item of lineItems) {
+        const qty = Number(item.quantity || 0);
+        const unit = Number(item.unitPrice || 0);
+        const discountedUnit = roundMoney(unit * (1 - memberDiscountFraction));
+        const amount = roundMoney(qty * discountedUnit);
+        await storage.createQuoteItem({
+          quoteId: quote.id,
+          description: item.description,
+          quantity: qty,
+          unitPrice: String(discountedUnit),
+          amount: String(amount),
+        } as any);
+      }
+    } else if (!quote.accessToken) {
+      // Defensive backfill for quotes predating the access-token field
+      // (mirrors the invoice path).
+      const accessToken = randomBytes(24).toString('base64url');
+      const accessTokenExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+      await storage.updateQuote(quote.id, { accessToken, accessTokenExpiresAt } as any);
+      quote = { ...quote, accessToken, accessTokenExpiresAt };
+    }
+
+    const APP_URL = process.env.APP_URL || 'http://localhost:5000';
+    const quoteUrl = `${APP_URL}/portal/quote/${quote.accessToken}`;
+    let notified = false;
+    try {
+      const { sendQuoteSentNotification } = await import('../services/notificationService');
+      await sendQuoteSentNotification(quote.id, job.businessId, quoteUrl);
+      notified = true;
+    } catch (e: any) {
+      console.error('[send-quote] notification failed:', e?.message);
+    }
+
+    return res.json({ success: true, quote, quoteUrl, notified });
+  } catch (error: any) {
+    console.error('[send-quote] error:', error?.message);
+    return res.status(500).json({ message: 'Failed to send quote' });
+  }
+});
+
 
 /**
  * POST /api/jobs/:id/voice-notes — Process transcribed voice notes with AI

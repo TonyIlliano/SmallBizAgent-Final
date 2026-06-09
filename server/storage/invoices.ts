@@ -266,6 +266,18 @@ export async function createQuote(quote: InsertQuote): Promise<Quote> {
   return newQuote;
 }
 
+/**
+ * Look up every quote attached to a given job, tenant-scoped. Used by the
+ * `/api/jobs/:jobId/send-quote` endpoint for idempotency — second tap on
+ * "Send Quote" must reuse the existing pending/sent quote instead of
+ * creating a duplicate row with a new access token.
+ */
+export async function getQuotesByJob(jobId: number, businessId: number): Promise<Quote[]> {
+  return db.select().from(quotes).where(
+    and(eq(quotes.jobId, jobId), eq(quotes.businessId, businessId))
+  );
+}
+
 export async function updateQuote(id: number, quote: Partial<Quote>): Promise<Quote> {
   // Handle Date object to string conversion for validUntil
   let quoteData = { ...quote };

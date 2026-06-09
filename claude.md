@@ -720,6 +720,31 @@ SmallBizAgent is a **multi-tenant SaaS platform** for small service businesses (
 
 ### Recent changes (uncommitted):
 
+#### HVAC Vertical-First Roadmap — Step 5 (Commit 1 of 2): Quote-from-Job Endpoint + Send Quote Button
+- **Goal**: First half of HVAC Step 5 (per the plan committed at `13f4b45` in `.plan/HVAC_STEP_5_QUOTE_FROM_JOB.md`). Ship the quote-creation infrastructure that lets a tech tap "Send Quote" on a completed diagnostic job and have the customer receive a portal link + SMS notification. The portal already supports approval via existing click flow. The SMS keyword approval + auto-repair-job-creation half ships in commit 2.
+- **Schema** (`shared/schema.ts`): New nullable `sourceQuoteId: integer("source_quote_id")` column on `jobs`. Reverse pointer from an auto-created repair job (commit 2) back to the quote whose APPROVE/Y SMS triggered its creation. Existing jobs and manually-created jobs keep null. Forward pointer `quotes.jobId` already existed.
+- **Migration** (`server/migrations/runMigrations.ts`): Idempotent `addColumnIfNotExists('jobs', 'source_quote_id', 'INTEGER')`. No backfill needed.
+- **Storage** (`server/storage/invoices.ts`): New `getQuotesByJob(jobId, businessId)` helper, tenant-scoped, used by the endpoint for idempotency lookup. Wired into `IStorage` interface + `DatabaseStorage` class in `server/storage/index.ts`.
+- **New endpoint** (`server/routes/jobRoutes.ts`): `POST /api/jobs/:jobId/send-quote`. Mirrors the existing `/send-invoice` pattern exactly:
+  - Auth via `isAuthenticated` + business-ownership verification (returns 403 on cross-tenant).
+  - Validation: 400 when no line items; 400 when no customer on the job.
+  - **Idempotency**: looks up `getQuotesByJob` first. If an existing pending/sent quote is linked, reuses it (re-sends the existing access token via the notification path) instead of creating a duplicate row with a new token. Defends against tech double-taps + retry races.
+  - **Member-discount snapshot at send-time** (per the locked-in decision in §10 of the plan): resolves `getActiveMembershipByCustomer` → `getMembershipPlanById` → snapshots `memberDiscountPercent` into each `quoteItems.unitPrice`. Defended on parse: malformed/null/negative/>100% values silently fall back to 0% discount so a corrupted plan row can't invert the quote. Quote is a price commitment — later membership changes do NOT re-price the quote.
+  - Generates `randomBytes(24).toString('base64url')` access token + `accessTokenExpiresAt` = +90 days. Quote number format `Q-YYYYMMDD-{jobId}` (mirrors the invoice convention). `validUntil` = +30 days as `YYYY-MM-DD` string per the existing column type.
+  - Uses `resolveTaxRate(business)` helper (already shipped in Cash-Loop Polish phase) — same 8% fallback chain.
+  - Notification via `sendQuoteSentNotification(quoteId, businessId, quoteUrl)` (already TCPA-gated + Free-plan-gated + opt-out aware).
+  - Returns `{ success: true, quote, quoteUrl, notified }`. Failures of the notification step are logged but don't fail the response — the quote was created either way.
+- **UI** (`client/src/pages/jobs/[id].tsx`):
+  - New `sendQuoteMutation` next to `sendInvoiceMutation`.
+  - New lightweight `business` query (cached, reused if any sibling widget already fetched it).
+  - "Send Quote" outline button rendered conditionally next to "Send Invoice" using `getBookingFlow(business?.industry) === 'diagnostic_first'` — captures HVAC/plumbing/electrical/automotive contexts cleanly. Barbershops/salons/restaurants/dental/etc. see ZERO change.
+  - `FileSignature` lucide icon, data-testid `job-send-quote`.
+  - Toast on success differentiates `notified` vs `notified: false` (matches the invoice pattern).
+- **Tests** (`server/routes/send-quote-discount.test.ts`, NEW — 20 unit tests, all passing): Pin the discount-snapshot math as pure functions extracted from the endpoint. Coverage: `discountedSubtotal()` across multiple items + 0% + empty list + fractional quantities + null/undefined coercion; `discountedUnit()` simple case + 0% case; `resolveDiscountFraction()` parses NUMERIC string + number, returns 0 for null/undefined/empty/"abc"/negative/>100, accepts 100→1.0 (free-tune-up plan), explicitly treats 0% as no-discount; HVAC demo math integration ($800 part + 4hr × $150 labor = $1,400 rack rate → $1,190 with Premium 15% off).
+- **What customers experience right now**: Tech taps "Send Quote" → quote portal link is texted to the customer. Customer clicks the link → existing portal page renders with member discount + financing CTA already applied. Customer can review and (per the existing portal) accept. The SMS keyword approval path (`Reply Y to approve`) ships in commit 2 — for this commit, approval still requires the portal click.
+- **Verification**: `npx tsc --noEmit` clean. **1206/1206** tests pass (was 1175 before this session — +31 from new send-quote-discount tests). No regressions. Previously-flaky stripe-webhooks test passed cleanly too.
+- **Out of scope for this commit, lands in commit 2**: SMS keyword handler for APPROVE/Y/YES/SOUNDS GOOD/LET'S DO IT/BOOK IT and DECLINE/N/NO/NO THANKS/NOT NOW, multi-quote disambiguation, `quoteAcceptanceService.handleQuoteAcceptance()`, auto-creation of the repair job with `sourceQuoteId` populated, "Created from quote N" pill, end-to-end integration test.
+
 #### Stripe Orphan Auto-Heal — Expand Coverage to `stripeSubscriptionId`
 - **Goal**: After the original heal (commit `08792ea`) and the Sentry observability layer (commit `b3b82f2`), there was still a second category of orphan unhandled: the stored `businesses.stripeSubscriptionId` can be `resource_missing` independently of the Customer ID. Common path: admin manually cancels + deletes a Subscription in the Stripe Dashboard but keeps the Customer alive. Every subsequent "Manage Billing" / "Change Plan" / cancel / resume / apply-promo click then 500s with `resource_missing` on `subscriptions.retrieve` or `subscriptions.update`. Customer-facing surface, so worth healing.
 - **Files changed (2)**:

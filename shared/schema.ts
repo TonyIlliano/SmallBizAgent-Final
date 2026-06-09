@@ -653,6 +653,13 @@ export const jobs = pgTable("jobs", {
   issueType: text("issue_type"), // e.g. "no heat", "leaking pipe", "outlet not working"
   symptoms: text("symptoms"), // free-text description of the problem
   accessNotes: text("access_notes"), // gate codes, parking, pets, where to find the unit, etc.
+  // HVAC roadmap Step 5: reverse pointer from an auto-created repair job back
+  // to the quote whose APPROVE/Y SMS triggered the creation. Nullable —
+  // existing jobs and manually-created jobs both leave this null.
+  // The forward pointer (quote → source diagnostic job) is already on
+  // `quotes.jobId`; the two columns together let the dispatcher trace
+  // "diagnostic job N → quote N → repair job M" without a 3-table join.
+  sourceQuoteId: integer("source_quote_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

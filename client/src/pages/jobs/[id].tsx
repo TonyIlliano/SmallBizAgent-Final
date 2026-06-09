@@ -40,7 +40,9 @@ import {
   Wrench,
   Loader2,
   Send,
+  FileSignature,
 } from "lucide-react";
+import { getBookingFlow } from "@shared/industry-config";
 
 // =================== TYPE DEFINITIONS ===================
 
@@ -638,6 +640,15 @@ export default function JobDetail() {
     enabled: !isNew && !!jobId,
   });
 
+  // Lightweight business lookup — only used to decide whether to show the
+  // diagnostic-first "Send Quote" button (HVAC / plumbing / electrical /
+  // automotive). Cached + reused if any other widget on the page already
+  // fetched it via React Query.
+  const { data: business } = useQuery<any>({
+    queryKey: ["/api/business"],
+    enabled: !isNew,
+  });
+
   // Generate invoice mutation
   const generateInvoiceMutation = useMutation({
     mutationFn: () =>
@@ -677,6 +688,32 @@ export default function JobDetail() {
       toast({
         title: "Failed to Send",
         description: error?.message || "Could not send invoice",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // HVAC Step 5 — one-tap send quote: auto-creates a quote from the job's
+  // line items (snapshotting the customer's member discount at send-time) and
+  // texts the portal link. Customer can approve via portal OR by replying
+  // APPROVE/Y to the SMS (commit 2 wires that path).
+  const sendQuoteMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/jobs/${numericJobId}/send-quote`),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs", numericJobId] });
+      toast({
+        title: "Quote Sent",
+        description: data?.notified
+          ? "Quote link texted to customer — they can approve via SMS or the portal"
+          : "Quote created (notification skipped — check customer SMS opt-in)",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Send Quote",
+        description: error?.message || "Could not send quote",
         variant: "destructive",
       });
     },
@@ -813,6 +850,28 @@ export default function JobDetail() {
                 <Send className="h-4 w-4 mr-1" />
                 {sendInvoiceMutation.isPending ? "Sending..." : "Send Invoice"}
               </Button>
+              {/*
+                HVAC Step 5 — "Send Quote" lives next to "Send Invoice" but
+                only renders for industries that use the diagnostic-first
+                booking flow (HVAC / plumbing / electrical / automotive).
+                Barbershops / salons / restaurants / etc. never see it
+                because their service catalog is flat-priced and quoting from
+                a completed job doesn't apply.
+              */}
+              {getBookingFlow(business?.industry) === "diagnostic_first" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => sendQuoteMutation.mutate()}
+                  disabled={sendQuoteMutation.isPending}
+                  data-testid="job-send-quote"
+                >
+                  <FileSignature className="h-4 w-4 mr-1" />
+                  {sendQuoteMutation.isPending
+                    ? "Sending..."
+                    : "Send Quote"}
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"
