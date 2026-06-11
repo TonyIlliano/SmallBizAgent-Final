@@ -24,6 +24,8 @@ import { db } from '../db';
 import { businesses } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import type { Business } from '@shared/schema';
+import { encryptField } from '../utils/encryption';
+import { decryptBusinessFields } from '../storage/business';
 import type {
   CachedMenu, CachedMenuCategory, CachedMenuItem,
   CachedModifierGroup, CachedModifier,
@@ -203,10 +205,13 @@ export async function connectHeartland(businessId: number, apiKey: string): Prom
     throw new Error(`Invalid Heartland API key: ${validation.error}`);
   }
 
-  // Save to business record
+  // Save to business record. The API key is encrypted at rest — every other
+  // read path goes through storage.getBusiness() which auto-decrypts via
+  // decryptBusinessFields(), so this write MUST encrypt or the key would sit
+  // plaintext until the next deploy's backfill migration re-encrypts it.
   const [updated] = await db.update(businesses)
     .set({
-      heartlandApiKey: apiKey,
+      heartlandApiKey: encryptField(apiKey),
       heartlandLocationName: validation.locationName || null,
       heartlandEnvironment: 'production',
       updatedAt: new Date(),
@@ -223,7 +228,8 @@ export async function connectHeartland(businessId: number, apiKey: string): Prom
     console.error(`Failed to auto-sync Heartland menu for business ${businessId}:`, e.message);
   }
 
-  return updated;
+  // Return the decrypted view — callers expect the same shape storage.getBusiness() returns
+  return decryptBusinessFields(updated);
 }
 
 // ============================================

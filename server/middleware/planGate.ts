@@ -2,6 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { businesses } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import { FailOpenBreaker } from '../utils/failOpenBreaker';
+
+// Bounded fail-open: a transient DB blip (< 5 min) fails open so legit users
+// aren't blocked; a sustained failure fails closed so free-tier businesses
+// don't get unlimited paid features for the duration of an incident.
+// Exported for tests only.
+export const planGateBreaker = new FailOpenBreaker('plan-gate');
 
 /**
  * Plan gate middleware.
@@ -29,6 +36,7 @@ export async function requirePaidPlan(req: Request, res: Response, next: NextFun
 
   try {
     const [business] = await db.select().from(businesses).where(eq(businesses.id, businessId));
+    planGateBreaker.recordSuccess();
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
     }
@@ -45,7 +53,14 @@ export async function requirePaidPlan(req: Request, res: Response, next: NextFun
     next();
   } catch (err) {
     console.error('[planGate] Error checking subscription status:', err);
-    // Fail open — don't block legit users due to a transient DB error
-    next();
+    // Bounded fail-open — a transient DB error (< 5 min of consecutive
+    // failures) doesn't block legit users; a sustained failure fails closed.
+    if (planGateBreaker.recordFailure()) {
+      return next();
+    }
+    return res.status(503).json({
+      error: 'Plan verification temporarily unavailable. Please retry in a few minutes.',
+      code: 'PLAN_CHECK_UNAVAILABLE',
+    });
   }
 }

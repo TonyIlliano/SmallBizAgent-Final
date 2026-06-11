@@ -2161,6 +2161,59 @@ async function createBaseTables() {
 }
 
 /**
+ * AI usage accounting — per-tenant token/cost ledger (one row per business
+ * per day per provider) + per-business monthly budget column. Idempotent.
+ * The UNIQUE index is load-bearing: aiUsageService upserts via
+ * ON CONFLICT (business_id, day, provider).
+ */
+async function ensureAiUsageTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_usage_daily (
+        id SERIAL PRIMARY KEY,
+        business_id INTEGER NOT NULL,
+        day DATE NOT NULL,
+        provider TEXT NOT NULL,
+        call_count INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        estimated_cost NUMERIC(12,6) NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS ai_usage_daily_biz_day_provider
+      ON ai_usage_daily (business_id, day, provider);
+    `);
+    await pool.query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS ai_monthly_budget NUMERIC(10,2)`);
+  } catch (e: any) {
+    console.error('Error creating ai_usage_daily table:', e?.message || e);
+  }
+}
+
+/**
+ * Dead-letter jobs table — background jobs that failed BOTH the pg-boss
+ * enqueue and the direct-execution fallback. Idempotent.
+ */
+async function ensureDeadLetterJobsTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS dead_letter_jobs (
+        id SERIAL PRIMARY KEY,
+        job_type TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        error TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        failed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        resolved_at TIMESTAMP
+      );
+    `);
+  } catch (e: any) {
+    console.error('Error creating dead_letter_jobs table:', e?.message || e);
+  }
+}
+
+/**
  * Create database performance indexes.
  * Uses CREATE INDEX IF NOT EXISTS so it's safe to run multiple times.
  */
@@ -2241,6 +2294,25 @@ async function createPerformanceIndexes() {
 
     // ── Phase 7: SMS suppression list (TCPA compliance) ──
     'CREATE INDEX IF NOT EXISTS idx_sms_suppression_phone_business ON sms_suppression_list (phone_number, business_id)',
+
+    // ── Phase 8: Hot-path dedup + retention-purge indexes ──
+    // Every agent/reminder dedup check filters notification_log on
+    // (business_id, type, reference_type, reference_id) — without this index
+    // each SMS send scans the business's entire notification history.
+    'CREATE INDEX IF NOT EXISTS idx_notification_log_dedup ON notification_log (business_id, type, reference_type, reference_id, sent_at)',
+    // Plain date indexes so the retention purge deletes don't seq-scan
+    'CREATE INDEX IF NOT EXISTS idx_notification_log_sent_at ON notification_log (sent_at)',
+    'CREATE INDEX IF NOT EXISTS idx_agent_activity_log_created_at ON agent_activity_log (created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_created_at ON webhook_deliveries (created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_processed_webhook_events_processed_at ON processed_webhook_events (processed_at)',
+    // Dispatch/jobs-calendar lists filter on status + scheduled date
+    'CREATE INDEX IF NOT EXISTS idx_jobs_biz_status_scheduled ON jobs (business_id, status, scheduled_date)',
+    // Quote list views sort by recency within status
+    'CREATE INDEX IF NOT EXISTS idx_quotes_biz_status_created ON quotes (business_id, status, created_at)',
+    // Webhook delivery history per webhook
+    'CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_created ON webhook_deliveries (webhook_id, created_at)',
+    // Dead-letter admin listing
+    'CREATE INDEX IF NOT EXISTS idx_dead_letter_jobs_status_failed ON dead_letter_jobs (status, failed_at)',
   ];
 
   let created = 0;
@@ -2357,6 +2429,12 @@ async function runMigrations() {
 
     // Encrypt existing plaintext sensitive data (idempotent)
     await encryptExistingPlaintextData();
+
+    // Dead-letter jobs table (must exist before its index in createPerformanceIndexes)
+    await ensureDeadLetterJobsTable();
+
+    // Per-tenant AI cost accounting ledger + budget column
+    await ensureAiUsageTable();
 
     // Create performance indexes
     await createPerformanceIndexes();

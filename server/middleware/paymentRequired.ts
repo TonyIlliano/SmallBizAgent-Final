@@ -27,6 +27,13 @@ import {
   isStripeResourceMissing,
   clearOrphanedBusinessStripeCustomer,
 } from '../utils/stripeOrphanCheck';
+import { FailOpenBreaker } from '../utils/failOpenBreaker';
+
+// Bounded fail-open: Stripe blips < 5 min fail open (paying customers are
+// never locked out by a transient outage); sustained outages fail closed so
+// a 2-hour Stripe incident doesn't hand out unbillable free access.
+// Exported for tests only.
+export const stripeGateBreaker = new FailOpenBreaker('payment-required-gate');
 
 let stripe: Stripe | null = null;
 function getStripe(): Stripe {
@@ -56,11 +63,12 @@ function getStripe(): Stripe {
 export async function hasPaymentMethodOnFile(
   stripeCustomerId: string | null | undefined,
   businessId?: number,
-): Promise<boolean> {
+): Promise<boolean | 'unavailable'> {
   if (!stripeCustomerId) return false;
   try {
     const stripe = getStripe();
     const customer = await stripe.customers.retrieve(stripeCustomerId);
+    stripeGateBreaker.recordSuccess();
     if ('deleted' in customer && customer.deleted) return false;
 
     // Primary check: customer.invoice_settings.default_payment_method.
@@ -87,16 +95,23 @@ export async function hasPaymentMethodOnFile(
       // on, then return false (no payment method on file) so the gate
       // correctly redirects to /onboarding/checkout where a fresh
       // Customer will be created.
+      // A resource_missing 400 is a HEALTHY Stripe response, not an outage.
+      stripeGateBreaker.recordSuccess();
       if (businessId !== undefined) {
         await clearOrphanedBusinessStripeCustomer(businessId, stripeCustomerId, 'payment-required-gate');
       }
       return false;
     }
     console.warn(`[paymentRequired] Stripe customer ${stripeCustomerId} lookup failed: ${err?.message || err}`);
-    // Fail-open: if Stripe can't be reached, assume the user has a card.
-    // The gate's job is to block obvious abuse, not to gate every request
-    // on Stripe availability.
-    return true;
+    // Bounded fail-open: a Stripe blip (< 5 min of consecutive failures)
+    // assumes the user has a card — transient outages must never lock a
+    // paying customer out. A SUSTAINED outage returns 'unavailable' so the
+    // gate fails closed instead of handing out unbillable free access for
+    // the duration of a multi-hour Stripe incident.
+    if (stripeGateBreaker.recordFailure()) {
+      return true;
+    }
+    return 'unavailable';
   }
 }
 
@@ -143,7 +158,17 @@ export async function requirePaymentMethod(req: Request, res: Response, next: Ne
     //    stopping downstream code paths (dedup sweeper, repair endpoint)
     //    from re-hitting Stripe with the same dead ID.
     const onFile = await hasPaymentMethodOnFile(user.stripeCustomerId, user.businessId ?? undefined);
-    if (onFile) return next();
+    if (onFile === true) return next();
+
+    // Sustained Stripe outage past the breaker's grace window — fail closed
+    // with an honest retry message instead of granting unbillable access or
+    // bouncing a paying customer to the "add a card" flow.
+    if (onFile === 'unavailable') {
+      return res.status(402).json({
+        error: 'Billing verification temporarily unavailable. Please retry in a few minutes.',
+        code: 'BILLING_UNAVAILABLE',
+      });
+    }
 
     // Gate hit — no path to bypass. Tell the client where to go.
     return res.status(402).json({

@@ -199,6 +199,10 @@ export const businesses = pgTable("businesses", {
   // Job automation settings
   autoInvoiceOnJobCompletion: boolean("auto_invoice_on_job_completion").default(false), // Auto-generate invoice when job is marked complete
   taxRate: numeric("tax_rate", { precision: 5, scale: 2 }), // Sales tax rate as a percent (e.g. 8.00 = 8%). Null falls back to a sane default.
+  // Per-tenant AI cost ceiling in dollars/month. Null = no budget (unlimited).
+  // When month-to-date estimated AI cost crosses this, an admin alert fires
+  // (soft limit — calls are NOT blocked; see aiUsageService).
+  aiMonthlyBudget: numeric("ai_monthly_budget", { precision: 10, scale: 2 }),
   // Data retention settings
   dataRetentionDays: integer("data_retention_days").default(365), // How long to keep transcripts (days)
   callRecordingRetentionDays: integer("call_recording_retention_days").default(90), // How long to keep call recordings
@@ -2452,6 +2456,47 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
 }, (table) => ({
   eventIdSourceIdx: unique("processed_webhook_events_event_id_source_idx").on(table.eventId, table.source),
 }));
+
+// AI Usage Daily — per-tenant AI cost accounting (one row per business per
+// day per provider). claudeClient increments these counters on every call so
+// the platform owner can see exactly which business is driving Claude/OpenAI
+// spend, and a per-business monthly budget (businesses.ai_monthly_budget)
+// triggers a soft-limit admin alert when month-to-date cost crosses it.
+// businessId 0 = platform-level usage (admin content agents, lead scoring).
+export const aiUsageDaily = pgTable("ai_usage_daily", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull(),
+  day: date("day").notNull(),
+  provider: text("provider").notNull(), // 'claude' | 'openai'
+  callCount: integer("call_count").notNull().default(0),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  // Estimated dollars (rate card in aiUsageService). NUMERIC for exact accumulation.
+  estimatedCost: numeric("estimated_cost", { precision: 12, scale: 6 }).notNull().default('0'),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  bizDayProviderUnique: unique("ai_usage_daily_biz_day_provider").on(table.businessId, table.day, table.provider),
+}));
+
+export type AiUsageDaily = typeof aiUsageDaily.$inferSelect;
+
+// Dead Letter Jobs — jobs that failed BOTH the pg-boss enqueue AND the
+// direct-execution fallback. Without this table those jobs (SMS confirmations,
+// payment notifications, calendar syncs) were silently lost with only a
+// console.error. Admin can inspect + replay via /api/admin/dead-letter-jobs.
+export const deadLetterJobs = pgTable("dead_letter_jobs", {
+  id: serial("id").primaryKey(),
+  jobType: text("job_type").notNull(),
+  payload: jsonb("payload").notNull(),
+  error: text("error"),
+  status: text("status").notNull().default("pending"), // pending | replayed | discarded
+  failedAt: timestamp("failed_at").defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at"), // when replayed or discarded
+});
+
+export const insertDeadLetterJobSchema = createInsertSchema(deadLetterJobs).omit({ id: true, failedAt: true, resolvedAt: true });
+export type DeadLetterJob = typeof deadLetterJobs.$inferSelect;
+export type InsertDeadLetterJob = z.infer<typeof insertDeadLetterJobSchema>;
 
 // Invoice Number Sequences (atomic sequential invoice numbers per business)
 export const invoiceSequences = pgTable("invoice_sequences", {

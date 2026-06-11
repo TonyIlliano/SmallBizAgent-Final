@@ -169,6 +169,58 @@ const JOB_HANDLERS: Record<string, (data: any) => Promise<void>> = {
   },
 };
 
+// ── Dead Letter Queue ──
+
+/**
+ * Record a job that failed BOTH the pg-boss enqueue and the direct-execution
+ * fallback. These are real customer-facing actions (SMS confirmations, payment
+ * notifications, calendar syncs) — losing them silently is a slow churn driver
+ * that's nearly impossible to diagnose after the fact. The row is replayable
+ * via POST /api/admin/dead-letter-jobs/:id/replay.
+ *
+ * Best-effort by design: if the DB is so unhealthy that even this insert
+ * fails, we alert and log — observability must never make the failure worse.
+ */
+async function recordDeadLetter(jobType: string, data: Record<string, any>, err: unknown): Promise<void> {
+  const errorMessage = err instanceof Error ? `${err.message}\n${err.stack ?? ''}`.slice(0, 4000) : String(err).slice(0, 4000);
+  try {
+    const { db } = await import('../db');
+    const { deadLetterJobs } = await import('@shared/schema');
+    await db.insert(deadLetterJobs).values({
+      jobType,
+      payload: data,
+      error: errorMessage,
+      status: 'pending',
+    });
+    console.error(`[JobQueue] Dead-lettered ${jobType} — replay from the admin dashboard`);
+  } catch (dbErr) {
+    console.error(`[JobQueue] CRITICAL: could not dead-letter ${jobType} — job is lost:`, dbErr);
+  }
+  try {
+    const { sendAdminAlert } = await import('./adminAlertService');
+    await sendAdminAlert({
+      type: 'job_dead_lettered',
+      severity: 'high',
+      title: `Background job lost both queue and direct paths: ${jobType}`,
+      details: { jobType, error: errorMessage.slice(0, 500), payload: data },
+    });
+  } catch (alertErr) {
+    console.error('[JobQueue] Failed to send dead-letter admin alert:', alertErr);
+  }
+}
+
+/**
+ * Execute a job handler directly, bypassing the queue. Used by the
+ * dead-letter replay endpoint. Throws on failure so the caller can report it.
+ */
+export async function executeJobDirectly(jobType: string, data: Record<string, any>): Promise<void> {
+  const handler = JOB_HANDLERS[jobType];
+  if (!handler) {
+    throw new Error(`Unknown job type: ${jobType}`);
+  }
+  await handler(data);
+}
+
 // ── Public API ──
 
 /**
@@ -201,14 +253,18 @@ export async function enqueue(
     console.error(`[JobQueue] Failed to enqueue ${jobType}, falling back to direct execution:`, err);
     try {
       const handler = JOB_HANDLERS[jobType];
-      if (handler) {
-        handler(data).catch(e =>
-          console.error(`[JobQueue] Fallback execution of ${jobType} also failed:`, e)
-        );
+      if (!handler) {
+        await recordDeadLetter(jobType, data, new Error(`No handler registered for ${jobType}`));
+        return null;
       }
-    } catch {
-      // Complete failure — job is lost
-      console.error(`[JobQueue] Complete failure for ${jobType} — job lost`);
+      handler(data).catch(async (e) => {
+        console.error(`[JobQueue] Fallback execution of ${jobType} also failed — dead-lettering:`, e);
+        await recordDeadLetter(jobType, data, e);
+      });
+    } catch (syncErr) {
+      // Synchronous throw from the handler — dead-letter instead of losing the job
+      console.error(`[JobQueue] Fallback execution of ${jobType} threw synchronously — dead-lettering:`, syncErr);
+      await recordDeadLetter(jobType, data, syncErr);
     }
     return null;
   }

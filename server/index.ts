@@ -125,9 +125,30 @@ function validateEnvironment() {
     }
   }
 
-  // Encryption key validation (needed for calendar token storage)
-  if (!process.env.ENCRYPTION_KEY && process.env.NODE_ENV === 'production') {
-    console.warn('WARNING: ENCRYPTION_KEY not set. Calendar tokens will not be securely encrypted.');
+  // Encryption key validation — HARD requirement in production. OAuth tokens,
+  // POS API keys, webhook secrets, and 2FA secrets are all encrypted at rest
+  // with this key; without it those operations fail at runtime in confusing
+  // ways. Fail fast at boot instead.
+  if (process.env.NODE_ENV === 'production') {
+    const encKey = process.env.ENCRYPTION_KEY;
+    if (!encKey || !/^[0-9a-fA-F]{64}$/.test(encKey)) {
+      console.error('❌ CRITICAL: ENCRYPTION_KEY is missing or malformed in production.');
+      console.error('   It must be exactly 64 hex characters (32 bytes).');
+      console.error('   Generate one with: openssl rand -hex 32');
+      console.error('   Cannot start: encrypted-at-rest fields (OAuth tokens, POS keys, 2FA secrets) would fail at runtime.');
+      process.exit(1);
+    }
+    // Retell webhooks cannot be signature-verified without the API key, and
+    // the AI receptionist (the core product) cannot operate. The webhook
+    // handler already rejects requests without it — failing boot makes the
+    // misconfiguration visible at deploy time instead of at first call.
+    if (!process.env.RETELL_API_KEY) {
+      console.error('❌ CRITICAL: RETELL_API_KEY is not set in production.');
+      console.error('   Retell webhooks cannot be signature-verified and the AI receptionist cannot answer calls.');
+      process.exit(1);
+    }
+  } else if (!process.env.ENCRYPTION_KEY) {
+    console.warn('WARNING: ENCRYPTION_KEY not set. Encrypted-at-rest fields will use the dev fallback key.');
   }
 
   // Stripe billing validation

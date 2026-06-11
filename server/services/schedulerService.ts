@@ -16,17 +16,27 @@ const scheduledJobs: Map<string, NodeJS.Timeout> = new Map();
 
 // ── Re-entry Guard ──────────────────────────────────────────────────
 // Prevents a job from overlapping itself if a previous run is still in progress.
-// This is an in-process guard — it does NOT protect across multiple server instances.
+// The in-memory Set handles same-instance overlap; EVERY job is additionally
+// wrapped in a Postgres advisory lock (namespaced 'xinstance:') so two server
+// instances can never run the same job concurrently. Without this, scaling to
+// a second Railway instance would send every customer duplicate SMS/emails.
+//
+// The 'xinstance:' namespace matters: some jobs ALSO take an explicit
+// withAdvisoryLock(jobName) inside their callback. Advisory locks are
+// session-scoped, and each withAdvisoryLock call checks out its own pool
+// connection — so nesting the SAME lock name would fail to acquire on the
+// inner call and silently skip the job forever. The namespace hashes to a
+// different lock ID, making the nesting redundant but harmless.
 const runningJobs = new Set<string>();
 
-async function withReentryGuard(jobName: string, fn: () => Promise<void>): Promise<void> {
+export async function withReentryGuard(jobName: string, fn: () => Promise<void>): Promise<void> {
   if (runningJobs.has(jobName)) {
     console.log(`[Scheduler] Skipping ${jobName} — previous run still in progress`);
     return;
   }
   runningJobs.add(jobName);
   try {
-    await fn();
+    await withAdvisoryLock(`xinstance:${jobName}`, fn);
   } finally {
     runningJobs.delete(jobName);
   }
@@ -35,7 +45,7 @@ async function withReentryGuard(jobName: string, fn: () => Promise<void>): Promi
 // ── PostgreSQL Advisory Lock ────────────────────────────────────────
 // Prevents a job from running on multiple server instances simultaneously.
 // Uses non-blocking pg_try_advisory_lock so the second instance skips instead of waiting.
-async function withAdvisoryLock(lockName: string, fn: () => Promise<void>): Promise<void> {
+export async function withAdvisoryLock(lockName: string, fn: () => Promise<void>): Promise<void> {
   // Generate a deterministic lock ID from the name
   let hash = 0;
   for (let i = 0; i < lockName.length; i++) {

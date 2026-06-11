@@ -164,7 +164,7 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
 
         // 2. Already has a payment method? Skip the SetupIntent — they're done.
         const alreadyOnFile = await hasPaymentMethodOnFile(customerId);
-        if (alreadyOnFile) {
+        if (alreadyOnFile === true) {
           return res.json({
             alreadyOnFile: true,
             customerId,
@@ -233,7 +233,9 @@ export function registerOnboardingCheckoutRoutes(app: Express) {
         }
 
         const onFile = await hasPaymentMethodOnFile(user.stripeCustomerId);
-        return res.json({ paymentMethodOnFile: onFile });
+        // 'unavailable' (sustained Stripe outage) reports as not-on-file so the
+        // UI keeps the checkout step visible rather than skipping it.
+        return res.json({ paymentMethodOnFile: onFile === true, billingUnavailable: onFile === 'unavailable' });
       } catch (err: any) {
         console.error('[OnboardingCheckout] payment-status error:', err?.message || err);
         return res.status(500).json({ error: 'Could not check payment status' });

@@ -594,7 +594,7 @@ export function registerExpressSetupRoutes(app: Express) {
             // clientSecret so the frontend lands on the dashboard instead of
             // bouncing to /payment for an already-given card.
             const { hasPaymentMethodOnFile } = await import('../middleware/paymentRequired');
-            const cardAlreadyOnFile = await hasPaymentMethodOnFile(userStripeCustomerId);
+            const cardAlreadyOnFile = (await hasPaymentMethodOnFile(userStripeCustomerId)) === true;
 
             if (subResult.clientSecret && !cardAlreadyOnFile) {
               subscriptionClientSecret = subResult.clientSecret;

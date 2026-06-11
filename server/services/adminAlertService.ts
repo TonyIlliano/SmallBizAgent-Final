@@ -8,7 +8,7 @@
 
 import { sendEmail } from "../emailService";
 
-export type AdminAlertType = 'payment_failed' | 'trial_expired' | 'provisioning_failed' | 'churn_risk_high';
+export type AdminAlertType = 'payment_failed' | 'trial_expired' | 'provisioning_failed' | 'churn_risk_high' | 'job_dead_lettered' | 'ai_budget_exceeded';
 
 interface AdminAlertOptions {
   type: AdminAlertType;
