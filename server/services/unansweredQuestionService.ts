@@ -72,6 +72,7 @@ Return valid JSON array only, no markdown.`;
     let detectedQuestions: Array<{ question: string; context: string }>;
     try {
       detectedQuestions = await claudeJson<Array<{ question: string; context: string }>>({
+        businessId,
         system: systemPrompt,
         prompt: `Analyze this call transcript for unanswered questions:\n\n${truncatedTranscript}`,
         maxTokens: 1500,

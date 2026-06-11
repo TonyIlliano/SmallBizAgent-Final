@@ -349,6 +349,7 @@ async function generateAiMessage(
   const userPrompt = buildUserPrompt(ctx);
 
   let body = await claudeText({
+    businessId: ctx.businessId,
     system: systemPrompt,
     prompt: userPrompt,
     maxTokens: 100,

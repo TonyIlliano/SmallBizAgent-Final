@@ -10,7 +10,7 @@ import { isAdmin } from "../middleware/auth";
 import * as adminService from "../services/adminService";
 import { storage } from "../storage";
 import { db } from "../db";
-import { agentActivityLog, auditLogs, businesses, blogPosts, notificationLog, users } from "../../shared/schema";
+import { agentActivityLog, auditLogs, businesses, blogPosts, deadLetterJobs, notificationLog, users } from "../../shared/schema";
 import { eq, sql, desc, and, gte, lte, inArray, isNull, or, ilike } from "drizzle-orm";
 import { hashPassword } from "../auth";
 import { toMoney } from "../utils/money";
@@ -200,6 +200,143 @@ router.post("/api/admin/intelligence-refresh/run", isAdmin, async (req: Request,
   } catch (error: any) {
     console.error("[Admin] Error running intelligence refresh:", error);
     res.status(500).json({ error: "Failed to run intelligence refresh" });
+  }
+});
+
+/**
+ * GET /api/admin/ai-usage — Per-business AI token/cost ranking for a month.
+ * ?month=YYYY-MM (default: current month). Powers the platform owner's
+ * AI-COGS view: which business is driving Claude/OpenAI spend, against
+ * what budget. businessId 0 = platform-level usage (admin content agents).
+ */
+router.get("/api/admin/ai-usage", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const month = typeof req.query.month === 'string' ? req.query.month : undefined;
+    const { getAiUsageSummary } = await import("../services/aiUsageService");
+    const rows = await getAiUsageSummary(month);
+    const totals = rows.reduce(
+      (acc, r) => ({
+        callCount: acc.callCount + r.callCount,
+        inputTokens: acc.inputTokens + r.inputTokens,
+        outputTokens: acc.outputTokens + r.outputTokens,
+        estimatedCost: acc.estimatedCost + r.estimatedCost,
+      }),
+      { callCount: 0, inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    );
+    res.json({ month: month || new Date().toISOString().slice(0, 7), totals, businesses: rows });
+  } catch (error: any) {
+    console.error("[Admin] Error fetching AI usage:", error);
+    res.status(500).json({ error: "Failed to fetch AI usage" });
+  }
+});
+
+/**
+ * PATCH /api/admin/businesses/:id/ai-budget — Set or clear a business's
+ * monthly AI budget (dollars). Body: { budget: number | null }.
+ * Soft limit only — crossing it alerts the admin, never blocks calls.
+ */
+router.patch("/api/admin/businesses/:id/ai-budget", isAdmin, async (req: Request, res: Response) => {
+  const businessId = parseInt(req.params.id);
+  if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+  try {
+    const { budget } = req.body ?? {};
+    if (budget !== null && (typeof budget !== 'number' || !Number.isFinite(budget) || budget < 0 || budget > 1_000_000)) {
+      return res.status(400).json({ error: "budget must be null or a non-negative number" });
+    }
+    const [updated] = await db.update(businesses)
+      .set({ aiMonthlyBudget: budget === null ? null : budget.toFixed(2), updatedAt: new Date() })
+      .where(eq(businesses.id, businessId))
+      .returning({ id: businesses.id, aiMonthlyBudget: businesses.aiMonthlyBudget });
+    if (!updated) return res.status(404).json({ error: "Business not found" });
+    await logAudit({
+      userId: req.user?.id ?? null,
+      businessId,
+      action: 'admin_change_subscription',
+      resource: 'ai_budget',
+      resourceId: businessId,
+      details: { aiMonthlyBudget: budget },
+      ...getRequestContext(req),
+    });
+    res.json({ success: true, aiMonthlyBudget: updated.aiMonthlyBudget });
+  } catch (error: any) {
+    console.error("[Admin] Error setting AI budget:", error);
+    res.status(500).json({ error: "Failed to set AI budget" });
+  }
+});
+
+/**
+ * GET /api/admin/dead-letter-jobs — Background jobs that failed both the
+ * pg-boss enqueue AND the direct-execution fallback. Supports ?status=
+ * (default 'pending') and ?limit= (default 100, max 500).
+ */
+router.get("/api/admin/dead-letter-jobs", isAdmin, async (req: Request, res: Response) => {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status : 'pending';
+    const limit = Math.min(parseInt(String(req.query.limit)) || 100, 500);
+    const rows = await db.select().from(deadLetterJobs)
+      .where(eq(deadLetterJobs.status, status))
+      .orderBy(desc(deadLetterJobs.failedAt))
+      .limit(limit);
+    res.json({ jobs: rows });
+  } catch (error: any) {
+    console.error("[Admin] Error listing dead-letter jobs:", error);
+    res.status(500).json({ error: "Failed to list dead-letter jobs" });
+  }
+});
+
+/**
+ * POST /api/admin/dead-letter-jobs/:id/replay — Re-run a lost job's handler
+ * directly. On success the row is marked 'replayed'; on failure it stays
+ * 'pending' with the new error recorded so it can be retried again.
+ */
+router.post("/api/admin/dead-letter-jobs/:id/replay", isAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+  try {
+    const [job] = await db.select().from(deadLetterJobs).where(eq(deadLetterJobs.id, id));
+    if (!job) return res.status(404).json({ error: "Dead-letter job not found" });
+    if (job.status !== 'pending') {
+      return res.status(409).json({ error: `Job already ${job.status}` });
+    }
+
+    const { executeJobDirectly } = await import("../services/jobQueue");
+    try {
+      await executeJobDirectly(job.jobType, job.payload as Record<string, any>);
+    } catch (replayErr: any) {
+      const message = replayErr?.message || String(replayErr);
+      await db.update(deadLetterJobs)
+        .set({ error: `Replay failed: ${message}`.slice(0, 4000) })
+        .where(eq(deadLetterJobs.id, id));
+      return res.status(502).json({ error: "Replay failed", detail: message });
+    }
+
+    await db.update(deadLetterJobs)
+      .set({ status: 'replayed', resolvedAt: new Date() })
+      .where(eq(deadLetterJobs.id, id));
+    res.json({ success: true, status: 'replayed' });
+  } catch (error: any) {
+    console.error("[Admin] Error replaying dead-letter job:", error);
+    res.status(500).json({ error: "Failed to replay dead-letter job" });
+  }
+});
+
+/**
+ * POST /api/admin/dead-letter-jobs/:id/discard — Mark a lost job as not worth
+ * replaying (e.g., a stale reminder whose appointment already passed).
+ */
+router.post("/api/admin/dead-letter-jobs/:id/discard", isAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+  try {
+    const [updated] = await db.update(deadLetterJobs)
+      .set({ status: 'discarded', resolvedAt: new Date() })
+      .where(and(eq(deadLetterJobs.id, id), eq(deadLetterJobs.status, 'pending')))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Pending dead-letter job not found" });
+    res.json({ success: true, status: 'discarded' });
+  } catch (error: any) {
+    console.error("[Admin] Error discarding dead-letter job:", error);
+    res.status(500).json({ error: "Failed to discard dead-letter job" });
   }
 });
 

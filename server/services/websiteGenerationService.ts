@@ -229,6 +229,7 @@ export async function generateWebsite(
   const userMessage = await buildUserMessage(businessId, customizations);
 
   let html = await claudeText({
+    businessId,
     system: SYSTEM_PROMPT,
     prompt: userMessage,
     maxTokens: 8000,

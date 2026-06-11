@@ -191,7 +191,8 @@ async function fetchPage(url: string): Promise<string | null> {
 async function summarizeWithAI(
   rawText: string,
   businessName: string,
-  industry: string
+  industry: string,
+  businessId?: number,
 ): Promise<Array<{ question: string; answer: string; category: string }>> {
   console.log(`[WebsiteScraper] Calling summarizeWithAI for "${businessName}" (${industry})`);
   console.log(`[WebsiteScraper] Raw text length: ${rawText.length} chars`);
@@ -229,6 +230,7 @@ If no useful information can be extracted, return: []`;
   console.log(`[WebsiteScraper] Sending ${truncatedText.length} chars to Claude (with OpenAI fallback)...`);
 
   const parsed = await claudeJson<any[]>({
+    businessId,
     system: systemPrompt,
     prompt: `Here is the text extracted from the business website:\n\n${truncatedText}`,
     maxTokens: 3000,
@@ -349,7 +351,7 @@ export async function scrapeWebsite(businessId: number, url: string): Promise<{
 
     // Step 4: Summarize with AI
     console.log(`[WebsiteScraper] Starting AI summarization...`);
-    const knowledgeEntries = await summarizeWithAI(allText, businessName, industry);
+    const knowledgeEntries = await summarizeWithAI(allText, businessName, industry, businessId);
 
     console.log(`[WebsiteScraper] AI extracted ${knowledgeEntries.length} knowledge entries for business ${businessId}`);
 

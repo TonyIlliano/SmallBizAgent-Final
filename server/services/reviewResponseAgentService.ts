@@ -164,6 +164,7 @@ Write a response:`;
 
   try {
     const result = await claudeText({
+      businessId: business.id,
       system: systemPrompt,
       prompt: userPrompt,
       maxTokens: 500,

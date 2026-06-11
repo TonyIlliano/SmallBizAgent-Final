@@ -958,6 +958,7 @@ router.post('/reviews/:reviewId/suggest-reply', isAuthenticated, async (req, res
     const business = await storage.getBusiness(businessId);
 
     const suggestedReply = await claudeText({
+      businessId,
       system: `You are a professional review response writer for ${business?.name || 'a local business'} (${business?.industry || 'service business'}). Write a warm, professional reply to the customer review. Keep it concise (2-3 sentences). If the review is negative, acknowledge concerns and offer to make it right. Never be defensive.`,
       prompt: `Review (${review.rating} stars): "${review.reviewText || '(no text)'}"\nReviewer: ${review.reviewerName || 'Customer'}`,
       maxTokens: 200,
@@ -983,6 +984,7 @@ router.post('/posts/generate/:businessId', isAuthenticated, belongsToBusiness, a
     const services = await storage.getServices(businessId);
 
     const content = await claudeText({
+      businessId,
       system: `You are a social media manager for ${business.name} (${business.industry || 'local business'}). Generate a Google Business Profile post that is engaging, professional, and drives customer action. Keep it under 300 words. Include a clear call-to-action. Do NOT include hashtags (GBP doesn't use them).`,
       prompt: `Business: ${business.name}\nIndustry: ${business.industry || 'general'}\nServices: ${services.map(s => s.name).join(', ') || 'N/A'}\nDescription: ${business.description || 'N/A'}\n\nGenerate a GBP post.`,
       maxTokens: 400,

@@ -264,6 +264,7 @@ that show up in flagged (low-quality) calls. Return a JSON array.`;
 
   // Call Claude
   const content = await claudeText({
+    businessId,
     system: ANALYSIS_SYSTEM_PROMPT,
     prompt: userPrompt,
     maxTokens: 4000,

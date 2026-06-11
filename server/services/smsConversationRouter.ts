@@ -252,6 +252,7 @@ async function handleRescheduleReply(
       time?: string;
       timeOfDay?: 'morning' | 'afternoon' | 'evening';
     }>({
+      businessId,
       system: `You are parsing a customer's SMS reply about rescheduling an appointment. Today is ${today}. The customer's current appointment: ${context?.serviceName || 'appointment'} on ${context?.oldDate || 'unknown'} at ${context?.oldTime || 'unknown'}.
 
 Extract the customer's intent and any date/time they mention.

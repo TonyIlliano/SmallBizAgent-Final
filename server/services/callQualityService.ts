@@ -234,6 +234,7 @@ Score this call.`;
 
   try {
     const result = await claudeJson<unknown>({
+      businessId,
       system: systemPrompt,
       prompt: userPrompt,
       maxTokens: 1500,

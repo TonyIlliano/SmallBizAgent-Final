@@ -264,6 +264,7 @@ async function handleCollectingPreferences(
   existingContext: Record<string, any>,
 ): Promise<{ replyMessage: string }> {
   const intent = await parseBookingIntent(messageBody, bookingFlow, {
+    businessId: business.id,
     name: business.name,
     timezone: business.timezone || 'America/New_York',
     services: activeServices.map(s => ({ id: s.id, name: s.name })),
@@ -532,6 +533,7 @@ async function handleOfferingSlots(
   const offeredSlots = bookingFlow.offeredSlots ?? [];
 
   const intent = await parseBookingIntent(messageBody, bookingFlow, {
+    businessId: business.id,
     name: business.name,
     timezone: business.timezone || 'America/New_York',
     services: activeServices.map(s => ({ id: s.id, name: s.name })),
@@ -758,6 +760,7 @@ async function parseBookingIntent(
   message: string,
   bookingFlow: BookingFlowContext,
   businessInfo: {
+    businessId?: number;
     name: string;
     timezone: string;
     services: Array<{ id: number; name: string }>;
@@ -812,6 +815,7 @@ Rules:
 
   try {
     const parsed = await claudeJson<any>({
+      businessId: businessInfo.businessId,
       system: systemPrompt,
       prompt: message,
       maxTokens: 300,

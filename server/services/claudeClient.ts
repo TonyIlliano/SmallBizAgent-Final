@@ -38,6 +38,29 @@ function stripJsonFences(text: string): string {
     .trim();
 }
 
+/**
+ * Per-tenant AI cost accounting (audit CRIT-10). Every helper records token
+ * usage against the calling business's daily ledger — fire-and-forget via
+ * dynamic import so accounting can never block or fail the AI call, and so
+ * tests that mock this module's consumers don't drag in the DB.
+ * businessId omitted → recorded under 0 (platform-level usage).
+ */
+function recordUsage(
+  businessId: number | undefined,
+  provider: 'claude' | 'openai',
+  inputTokens: number | undefined,
+  outputTokens: number | undefined,
+): void {
+  import('./aiUsageService')
+    .then((m) => m.recordAiUsage({
+      businessId,
+      provider,
+      inputTokens: inputTokens || 0,
+      outputTokens: outputTokens || 0,
+    }))
+    .catch((err) => console.warn('[AI] usage recording failed:', err?.message || err));
+}
+
 export default anthropic;
 
 /**
@@ -48,6 +71,8 @@ export async function claudeJson<T>(opts: {
   system: string;
   prompt: string;
   maxTokens?: number;
+  /** Tenant for AI cost accounting. Omit for platform-level calls. */
+  businessId?: number;
 }): Promise<T> {
   try {
     const response = await anthropic.messages.create({
@@ -56,6 +81,7 @@ export async function claudeJson<T>(opts: {
       system: opts.system,
       messages: [{ role: 'user', content: opts.prompt }],
     });
+    recordUsage(opts.businessId, 'claude', response.usage?.input_tokens, response.usage?.output_tokens);
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
     return JSON.parse(stripJsonFences(text));
   } catch (err) {
@@ -69,6 +95,7 @@ export async function claudeJson<T>(opts: {
         { role: 'user', content: opts.prompt },
       ],
     });
+    recordUsage(opts.businessId, 'openai', response.usage?.prompt_tokens, response.usage?.completion_tokens);
     return JSON.parse(stripJsonFences(response.choices[0]?.message?.content || ''));
   }
 }
@@ -81,6 +108,8 @@ export async function claudeText(opts: {
   system: string;
   prompt: string;
   maxTokens?: number;
+  /** Tenant for AI cost accounting. Omit for platform-level calls. */
+  businessId?: number;
 }): Promise<string> {
   try {
     const response = await anthropic.messages.create({
@@ -89,6 +118,7 @@ export async function claudeText(opts: {
       system: opts.system,
       messages: [{ role: 'user', content: opts.prompt }],
     });
+    recordUsage(opts.businessId, 'claude', response.usage?.input_tokens, response.usage?.output_tokens);
     return response.content[0].type === 'text' ? response.content[0].text : '';
   } catch (err) {
     console.warn('[AI] Claude failed, falling back to OpenAI:', (err as Error).message);
@@ -101,6 +131,7 @@ export async function claudeText(opts: {
         { role: 'user', content: opts.prompt },
       ],
     });
+    recordUsage(opts.businessId, 'openai', response.usage?.prompt_tokens, response.usage?.completion_tokens);
     return response.choices[0]?.message?.content || '';
   }
 }
@@ -116,6 +147,8 @@ export async function claudeWithTools(opts: {
   tools: any[];        // Claude format: { name, description, input_schema }
   openaiTools?: any[]; // OpenAI format: { type: 'function', function: { name, parameters } }
   maxTokens?: number;
+  /** Tenant for AI cost accounting. Omit for platform-level calls. */
+  businessId?: number;
 }): Promise<{ provider: 'claude' | 'openai'; response: any }> {
   try {
     const response = await anthropic.messages.create({
@@ -125,6 +158,7 @@ export async function claudeWithTools(opts: {
       messages: opts.messages,
       tools: opts.tools,
     });
+    recordUsage(opts.businessId, 'claude', response.usage?.input_tokens, response.usage?.output_tokens);
     return { provider: 'claude', response };
   } catch (err) {
     console.warn('[AI] Claude failed, falling back to OpenAI:', (err as Error).message);
@@ -135,6 +169,7 @@ export async function claudeWithTools(opts: {
       messages: [{ role: 'system', content: opts.system }, ...opts.messages],
       tools: opts.openaiTools || opts.tools,
     });
+    recordUsage(opts.businessId, 'openai', response.usage?.prompt_tokens, response.usage?.completion_tokens);
     return { provider: 'openai', response };
   }
 }

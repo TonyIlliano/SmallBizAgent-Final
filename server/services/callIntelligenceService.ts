@@ -112,6 +112,7 @@ Return valid JSON only. No markdown, no code blocks.`;
     let rawParsed: any;
     try {
       rawParsed = await claudeJson<any>({
+        businessId,
         system: systemPrompt,
         prompt: `Analyze this call transcript:\n\n${truncatedTranscript}`,
         maxTokens: 1500,

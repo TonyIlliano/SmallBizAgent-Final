@@ -226,6 +226,7 @@ export async function generateJobBriefing(
   // Try AI generation, fall back to basic briefing on failure
   try {
     const briefing = await claudeJson<JobBriefing>({
+      businessId,
       system: `You are generating a job briefing for a field technician or service professional who is about to visit a customer. Synthesize all the context below into a structured briefing.
 
 Return valid JSON with exactly these fields:

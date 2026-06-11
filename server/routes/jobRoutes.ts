@@ -867,6 +867,7 @@ router.post("/:id/voice-notes", isAuthenticated, async (req: Request, res: Respo
         estimatedFollowUpCost: number | null;
         completionSummary: string;
       }>({
+        businessId: job.businessId,
         system: `You are a field service job notes parser. Parse this technician's voice notes into structured data.
 
 Extract:

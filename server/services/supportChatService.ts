@@ -447,6 +447,7 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
 
     // Initial call (may return tool calls or direct answer)
     let { provider, response } = await claudeWithTools({
+      businessId,
       system: systemPrompt,
       messages,
       tools: SUPPORT_TOOLS_CLAUDE,
@@ -480,6 +481,7 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
         messages.push({ role: 'user', content: toolResults });
 
         const nextResult = await claudeWithTools({
+          businessId,
           system: systemPrompt,
           messages,
           tools: SUPPORT_TOOLS_CLAUDE,
@@ -513,6 +515,7 @@ ${setupGaps.length > 0 ? `\nSETUP GAPS: ${setupGaps.join(', ')}` : '\nAll core s
         // Feed tool results back — OpenAI format
         messages.push(assistantMessage, ...toolResults);
         const nextResult = await claudeWithTools({
+          businessId,
           system: systemPrompt,
           messages,
           tools: SUPPORT_TOOLS_CLAUDE,
