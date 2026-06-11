@@ -10,7 +10,7 @@
  * provisioning triggers, and error handling for all webhook event types.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type Stripe from 'stripe';
 
 // ────────────────────────────────────────────────────────
@@ -131,6 +131,19 @@ vi.mock('../services/twilioService.js', () => ({
 }));
 
 // Admin alert service
+// PostHog capture in handleSubscriptionCanceled runs as a DETACHED async IIFE
+// that performs its own db.select().limit() — mock it so the dynamic import is
+// instant, and see the afterEach flush below for the cross-test race this used
+// to cause.
+vi.mock('../services/posthogService', () => ({
+  capture: vi.fn(),
+  groupIdentify: vi.fn(),
+}));
+vi.mock('../services/posthogService.js', () => ({
+  capture: vi.fn(),
+  groupIdentify: vi.fn(),
+}));
+
 vi.mock('../services/adminAlertService', () => ({
   sendAdminAlert: (...args: any[]) => mockSendAdminAlert(...args),
 }));
@@ -241,6 +254,16 @@ beforeEach(() => {
   mockDbLimit.mockResolvedValue([]);
   mockDbWhere.mockResolvedValue([]);
   mockStripeSubscriptionsRetrieve.mockResolvedValue(buildSubscription());
+});
+
+afterEach(async () => {
+  // Drain detached promises before the next test queues its
+  // mockResolvedValueOnce values. handleSubscriptionCanceled fires a
+  // fire-and-forget PostHog IIFE whose db.select().limit() could otherwise
+  // settle DURING the next test and eat its queued mock value — the
+  // "does not deprovision when business has no phone SID" flake.
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
 });
 
 // ════════════════════════════════════════════════════════

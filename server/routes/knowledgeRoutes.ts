@@ -1,6 +1,31 @@
 import { Router, Request, Response } from "express";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
+import { findInjectionPattern } from "../utils/promptSanitizer";
+
+// Write-time prompt-injection guard for content that flows into the AI
+// receptionist's system prompt. Read-time fencing in knowledgePromptBuilder
+// is the real defense; this gives the owner a clear error instead of a
+// silently neutered entry. Returns an error message or null when clean.
+function validateKnowledgeContent(question?: unknown, answer?: unknown): string | null {
+  if (question !== undefined && question !== null) {
+    if (typeof question !== 'string' || question.length > 500) {
+      return "Question must be a string of at most 500 characters.";
+    }
+    if (findInjectionPattern(question)) {
+      return "Question contains instruction-like phrasing that could interfere with the AI receptionist. Please rephrase it as a plain question.";
+    }
+  }
+  if (answer !== undefined && answer !== null) {
+    if (typeof answer !== 'string' || answer.length > 2000) {
+      return "Answer must be a string of at most 2,000 characters.";
+    }
+    if (findInjectionPattern(answer)) {
+      return "Answer contains instruction-like phrasing that could interfere with the AI receptionist. Please rephrase it as plain information.";
+    }
+  }
+  return null;
+}
 
 const router = Router();
 
@@ -90,6 +115,10 @@ router.post("/knowledge", isAuthenticated, async (req: Request, res: Response) =
     if (!question || !answer) {
       return res.status(400).json({ message: "Question and answer are required" });
     }
+    const validationError = validateKnowledgeContent(question, answer);
+    if (validationError) {
+      return res.status(400).json({ message: validationError, code: "KNOWLEDGE_CONTENT_REJECTED" });
+    }
     const entry = await storage.createBusinessKnowledge({
       businessId,
       question,
@@ -124,6 +153,10 @@ router.put("/knowledge/:id", isAuthenticated, async (req: Request, res: Response
       return res.status(404).json({ message: "Knowledge entry not found" });
     }
     const { question, answer, category, isApproved, priority } = req.body;
+    const validationError = validateKnowledgeContent(question, answer);
+    if (validationError) {
+      return res.status(400).json({ message: validationError, code: "KNOWLEDGE_CONTENT_REJECTED" });
+    }
     const updated = await storage.updateBusinessKnowledge(id, {
       ...(question !== undefined && { question }),
       ...(answer !== undefined && { answer }),
@@ -205,6 +238,10 @@ router.post("/unanswered-questions/:id/answer", isAuthenticated, async (req: Req
     const { answer } = req.body;
     if (!answer) {
       return res.status(400).json({ message: "Answer is required" });
+    }
+    const validationError = validateKnowledgeContent(undefined, answer);
+    if (validationError) {
+      return res.status(400).json({ message: validationError, code: "KNOWLEDGE_CONTENT_REJECTED" });
     }
 
     const question = await storage.getUnansweredQuestion(id);

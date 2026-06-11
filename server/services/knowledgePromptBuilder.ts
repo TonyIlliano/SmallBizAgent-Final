@@ -7,6 +7,7 @@
  */
 
 import { storage } from '../storage';
+import { sanitizeUntrustedText, fenceKnowledgeBlock } from '../utils/promptSanitizer';
 
 // Category display names for the prompt
 const CATEGORY_LABELS: Record<string, string> = {
@@ -64,7 +65,13 @@ export async function buildKnowledgeSection(
       let sectionText = `${label}:\n`;
 
       for (const entry of categoryEntries) {
-        const entryText = `Q: ${entry.question}\nA: ${entry.answer}\n`;
+        // Owner/scraper-supplied content is UNTRUSTED relative to the system
+        // prompt — sanitize (strip fence tags, role markers, control chars,
+        // cap length) before interpolation. See server/utils/promptSanitizer.ts.
+        const q = sanitizeUntrustedText(entry.question, 300);
+        const a = sanitizeUntrustedText(entry.answer, 1500);
+        if (!q || !a) continue;
+        const entryText = `Q: ${q}\nA: ${a}\n`;
 
         // Check if adding this entry would exceed budget
         if (totalChars + sectionText.length + entryText.length > maxCharBudget) {
@@ -74,7 +81,7 @@ export async function buildKnowledgeSection(
             break;
           }
           sections.push(sectionText);
-          return sections.join('\n');
+          return fenceKnowledgeBlock(sections.join('\n'));
         }
 
         sectionText += entryText + '\n';
@@ -96,12 +103,15 @@ export async function buildKnowledgeSection(
       let sectionText = `${label}:\n`;
 
       for (const entry of categoryEntries) {
-        const entryText = `Q: ${entry.question}\nA: ${entry.answer}\n`;
+        const q = sanitizeUntrustedText(entry.question, 300);
+        const a = sanitizeUntrustedText(entry.answer, 1500);
+        if (!q || !a) continue;
+        const entryText = `Q: ${q}\nA: ${a}\n`;
         if (totalChars + sectionText.length + entryText.length > maxCharBudget) {
           if (!sectionText.endsWith(':\n')) {
             sections.push(sectionText);
           }
-          return sections.join('\n');
+          return fenceKnowledgeBlock(sections.join('\n'));
         }
         sectionText += entryText + '\n';
       }
@@ -112,7 +122,7 @@ export async function buildKnowledgeSection(
       }
     }
 
-    return sections.join('\n');
+    return fenceKnowledgeBlock(sections.join('\n'));
   } catch (error) {
     console.error('Error building knowledge section:', error);
     return '';

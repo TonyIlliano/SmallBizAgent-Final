@@ -751,6 +751,100 @@ router.post("/customers/:id/restore", async (req, res) => {
   }
 });
 
+// ── GDPR / CCPA Data Subject Rights ──
+
+/**
+ * POST /customers/:id/erase — GDPR Art. 17 erasure.
+ *
+ * IRREVERSIBLE. Anonymizes the customer record, scrubs PII from retained
+ * transactional records (appointments/jobs/invoices/quotes/call logs), hard-
+ * deletes behavioral data (AI intelligence, insights, SMS threads, equipment,
+ * etc.), and deletes Mem0 AI memories. Requires `{ "confirm": true }` in the
+ * body so a stray client call can't destroy data. Refused (409) while the
+ * customer has an active membership — cancel billing first.
+ */
+router.post("/customers/:id/erase", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = req.user.businessId;
+    const customerId = parseInt(req.params.id);
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+    if (isNaN(customerId)) {
+      return res.status(400).json({ error: "Invalid customer ID" });
+    }
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({
+        error: "Erasure is irreversible. Pass { \"confirm\": true } to proceed.",
+        code: "CONFIRMATION_REQUIRED",
+      });
+    }
+
+    const customer = await storage.getCustomer(customerId);
+    if (!customer || customer.businessId !== businessId) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    const { eraseCustomer } = await import("../services/customerErasureService");
+    const result = await eraseCustomer(customerId, businessId, req.user.id);
+
+    if (!result.ok) {
+      if (result.reason === 'active_membership') {
+        return res.status(409).json({ error: result.message, code: "ACTIVE_MEMBERSHIP" });
+      }
+      if (result.reason === 'customer_not_found') {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      return res.status(500).json({ error: result.message || "Erasure failed" });
+    }
+
+    res.json({ success: true, counts: result.counts, mem0Deleted: result.mem0Deleted });
+  } catch (error) {
+    console.error("Error erasing customer:", error);
+    res.status(500).json({ error: "Failed to erase customer" });
+  }
+});
+
+/**
+ * GET /customers/:id/export — GDPR Art. 20 / CCPA right-to-know.
+ * Returns a JSON bundle of everything held about the customer.
+ */
+router.get("/customers/:id/export", async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const businessId = req.user.businessId;
+    const customerId = parseInt(req.params.id);
+    if (!businessId) {
+      return res.status(400).json({ error: "No business associated with user" });
+    }
+    if (isNaN(customerId)) {
+      return res.status(400).json({ error: "Invalid customer ID" });
+    }
+
+    const customer = await storage.getCustomer(customerId);
+    if (!customer || customer.businessId !== businessId) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    const { exportCustomerData } = await import("../services/customerErasureService");
+    const bundle = await exportCustomerData(customerId, businessId, req.user.id);
+    if (!bundle) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    res.setHeader('Content-Disposition', `attachment; filename="customer-${customerId}-export.json"`);
+    res.json(bundle);
+  } catch (error) {
+    console.error("Error exporting customer data:", error);
+    res.status(500).json({ error: "Failed to export customer data" });
+  }
+});
+
 // ── Customer Tags ──
 
 // Add tags to a customer
