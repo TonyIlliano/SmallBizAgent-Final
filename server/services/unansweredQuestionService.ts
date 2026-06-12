@@ -16,6 +16,7 @@
 import { claudeJson } from './claudeClient';
 import { storage } from '../storage';
 import { debouncedUpdateRetellAgent } from './retellProvisioningService';
+import { fenceTranscriptBlock } from '../utils/promptSanitizer';
 
 /**
  * Analyze a call transcript to detect unanswered questions.
@@ -74,7 +75,7 @@ Return valid JSON array only, no markdown.`;
       detectedQuestions = await claudeJson<Array<{ question: string; context: string }>>({
         businessId,
         system: systemPrompt,
-        prompt: `Analyze this call transcript for unanswered questions:\n\n${truncatedTranscript}`,
+        prompt: `Analyze this call transcript for unanswered questions:\n\n${fenceTranscriptBlock(truncatedTranscript)}`,
         maxTokens: 1500,
       });
     } catch {

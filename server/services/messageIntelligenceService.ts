@@ -21,6 +21,7 @@ import { getVerticalConfig, type VerticalConfig } from '../config/verticals';
 import { fillTemplate } from './agentSettingsService';
 import type { SmsBusinessProfile, CustomerInsightsRow } from '@shared/schema';
 import { logAndSwallow } from '../utils/safeAsync';
+import { sanitizeInlineText, fenceCustomerContextBlock } from '../utils/promptSanitizer';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -440,13 +441,18 @@ function buildSystemPrompt(
       const visitInfo = insights.totalVisits ? `This is visit #${insights.totalVisits}.` : 'New customer.';
       parts.push(visitInfo);
       if (insights.daysSinceLastVisit) parts.push(`Last visit: ${insights.daysSinceLastVisit} days ago.`);
-      if (insights.preferredStaff) parts.push(`Prefers: ${insights.preferredStaff}`);
+      if (insights.preferredStaff) parts.push(`Prefers: ${sanitizeInlineText(insights.preferredStaff, 100)}`);
       if (insights.smsResponseRate !== null && insights.smsResponseRate !== undefined) {
         parts.push(`SMS response rate: ${Math.round((insights.smsResponseRate as number) * 100)}%`);
       }
       if (insights.riskLevel === 'high') parts.push('At risk of churning — be extra warm.');
     }
-    if (mem0Context) parts.push(mem0Context);
+    // Mem0 memory is distilled from the CALLER's own words — fence it so a
+    // hostile caller can't plant instructions that steer future SMS (audit S10).
+    if (mem0Context) {
+      const fenced = fenceCustomerContextBlock(mem0Context);
+      if (fenced) parts.push(fenced);
+    }
   }
 
   // Message-type-specific instruction
@@ -479,7 +485,10 @@ function buildUserPrompt(ctx: MessageContext): string {
   if (ctx.context) {
     for (const [key, value] of Object.entries(ctx.context)) {
       if (value !== undefined && value !== null && value !== '' && key !== 'triggerSource') {
-        parts.push(`${key}: ${value}`);
+        // Context values include caller-supplied text (names, notes) —
+        // flatten to a single sanitized line so they can't smuggle
+        // role markers or multi-line directives into the prompt (audit S10).
+        parts.push(`${key}: ${sanitizeInlineText(String(value), 300)}`);
       }
     }
   }

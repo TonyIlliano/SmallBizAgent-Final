@@ -30,6 +30,7 @@ import { callQualityScores, type InsertCallQualityScore } from '../../shared/sch
 import { eq } from 'drizzle-orm';
 import { isFreePlan } from './usageService';
 import { storage } from '../storage';
+import { fenceTranscriptBlock } from '../utils/promptSanitizer';
 
 const RUBRIC_VERSION = 'v1';
 
@@ -224,7 +225,7 @@ Be honest. The merchant relies on these scores to improve their AI. Inflated sco
 
   const userPrompt = `Call transcript:
 
-${truncatedTranscript}
+${fenceTranscriptBlock(truncatedTranscript)}
 
 Score this call.`;
 

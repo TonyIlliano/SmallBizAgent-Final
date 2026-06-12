@@ -16,6 +16,7 @@ import { debouncedUpdateRetellAgent } from './retellProvisioningService';
 import { db } from '../db';
 import { callQualityScores } from '../../shared/schema';
 import { and, eq, gte, lte } from 'drizzle-orm';
+import { fenceTranscriptBlock } from '../utils/promptSanitizer';
 
 // ── Greeting disclosure check ────────────────────────────────────────
 const DISCLOSURE_KEYWORDS = ['recorded', 'recording', 'monitored', 'monitor'];
@@ -257,7 +258,7 @@ ${qualityByCallId.size === 0
 ${failureModeDigest}`}
 
 THIS WEEK'S CALL TRANSCRIPTS (${callsWithTranscripts.length} calls):
-${transcriptSummaries}
+${fenceTranscriptBlock(transcriptSummaries, 60000)}
 
 Based on all of the above, identify gaps and suggest improvements. Prioritize fixing patterns
 that show up in flagged (low-quality) calls. Return a JSON array.`;

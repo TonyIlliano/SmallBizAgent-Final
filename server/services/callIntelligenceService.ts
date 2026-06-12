@@ -16,6 +16,7 @@
 import { claudeJson } from './claudeClient';
 import { z } from 'zod';
 import { storage } from '../storage';
+import { fenceTranscriptBlock } from '../utils/promptSanitizer';
 
 // Zod schema for validating GPT-extracted intelligence
 const extractedIntelligenceSchema = z.object({
@@ -114,7 +115,7 @@ Return valid JSON only. No markdown, no code blocks.`;
       rawParsed = await claudeJson<any>({
         businessId,
         system: systemPrompt,
-        prompt: `Analyze this call transcript:\n\n${truncatedTranscript}`,
+        prompt: `Analyze this call transcript:\n\n${fenceTranscriptBlock(truncatedTranscript)}`,
         maxTokens: 1500,
       });
     } catch (parseErr) {
