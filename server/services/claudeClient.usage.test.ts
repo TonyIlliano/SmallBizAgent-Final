@@ -40,8 +40,12 @@ function claudeResponse(text: string, inputTokens = 120, outputTokens = 45) {
 }
 
 async function flushRecording() {
-  // recordUsage runs through a dynamic import — give it a macrotask
-  await new Promise(r => setTimeout(r, 10));
+  // recordUsage runs through a dynamic import chain — under full-suite load
+  // a fixed sleep races it, so wait for the mock itself (it's also called
+  // when it rejects, which the failure-tolerance test relies on).
+  await vi.waitFor(() => {
+    if (mockRecordAiUsage.mock.calls.length === 0) throw new Error('not recorded yet');
+  }, { timeout: 2000 });
 }
 
 beforeEach(() => {
