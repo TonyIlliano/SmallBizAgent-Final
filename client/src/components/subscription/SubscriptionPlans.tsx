@@ -10,17 +10,6 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Check, Loader2, Tag, ExternalLink, Phone } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 
 // Define the plan type
 interface Plan {
@@ -123,8 +112,8 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
 
   // Cancel subscription mutation
   const cancelSubscriptionMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest('POST', `/api/subscription/cancel/${businessId}`);
+    mutationFn: async (payload: { reason?: string; feedback?: string }) => {
+      const res = await apiRequest('POST', `/api/subscription/cancel/${businessId}`, payload);
       return await res.json();
     },
     onSuccess: () => {
@@ -133,6 +122,8 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
         description: "You won't be charged again. You'll keep access until the end of the current billing period.",
       });
       queryClient.invalidateQueries({ queryKey: ['/api/subscription/status', businessId] });
+      setCancelOpen(false);
+      setCancelStep(1);
     },
     onError: (error: Error) => {
       toast({
@@ -241,6 +232,24 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
 
   const [changePlanTarget, setChangePlanTarget] = useState<Plan | null>(null);
 
+  // ── Cancellation save-offer flow ──
+  // Step 1 shows what cancelling costs + a cheaper-plan offer + reason capture;
+  // step 2 is the actual confirm. Cancel stays 2 clearly-visible clicks away
+  // (FTC click-to-cancel: as easy as signup, no dark patterns).
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelStep, setCancelStep] = useState<1 | 2>(1);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelFeedback, setCancelFeedback] = useState('');
+
+  const CANCEL_REASONS = [
+    { value: 'too_expensive', label: 'Too expensive' },
+    { value: 'not_enough_calls', label: 'Not getting enough calls to justify it' },
+    { value: 'missing_features', label: 'Missing a feature I need' },
+    { value: 'switching_provider', label: 'Switching to another provider' },
+    { value: 'business_change', label: 'Business closing or changing' },
+    { value: 'other', label: 'Other' },
+  ];
+
   const handleApplyPromo = () => {
     if (!promoCode.trim()) return;
     setPromoError(null);
@@ -275,7 +284,10 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
   };
 
   const handleCancel = () => {
-    cancelSubscriptionMutation.mutate();
+    cancelSubscriptionMutation.mutate({
+      reason: cancelReason || undefined,
+      feedback: cancelFeedback.trim() || undefined,
+    });
   };
 
   const handleResume = () => {
@@ -340,65 +352,134 @@ export function SubscriptionPlans({ businessId }: { businessId: number }) {
               {billingPortalMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
               Manage Billing
             </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  disabled={isPendingAction}
-                  data-testid="cancel-subscription-button"
-                >
-                  {cancelSubscriptionMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Cancel Subscription
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    {subscriptionStatus?.status === 'trialing'
-                      ? 'Cancel before your trial ends?'
-                      : 'Cancel your subscription?'}
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {subscriptionStatus?.status === 'trialing' ? (
-                      <>
-                        <span className="block mb-2 font-medium text-foreground">
-                          You won't be charged.
-                        </span>
-                        Your trial ends on{' '}
-                        <span className="font-medium">
-                          {subscriptionStatus?.trialEndsAt
-                            ? new Date(subscriptionStatus.trialEndsAt).toLocaleDateString()
-                            : new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}
-                        </span>
-                        . You'll keep full access until then. After that, your AI receptionist and
-                        SMS will pause, but your CRM stays free forever.
-                      </>
-                    ) : (
-                      <>
-                        You'll keep access until{' '}
-                        <span className="font-medium">
-                          {new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}
-                        </span>
-                        . After that, your AI receptionist and SMS will pause, but your CRM stays
-                        free forever. You won't be charged again.
-                      </>
-                    )}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel data-testid="cancel-subscription-keep">
-                    Keep subscription
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleCancel}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    data-testid="cancel-subscription-confirm"
-                  >
-                    Yes, cancel
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <Button
+              variant="outline"
+              disabled={isPendingAction}
+              onClick={() => { setCancelStep(1); setCancelOpen(true); }}
+              data-testid="cancel-subscription-button"
+            >
+              {cancelSubscriptionMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Cancel Subscription
+            </Button>
+            {cancelOpen && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setCancelOpen(false)}>
+                <div className="bg-background rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                  {cancelStep === 1 ? (
+                    <>
+                      <h3 className="text-lg font-semibold mb-2">Before you cancel</h3>
+                      <p className="text-sm text-muted-foreground mb-3">Here's what changes when your plan ends:</p>
+                      <ul className="text-sm space-y-1.5 mb-4">
+                        <li className="flex gap-2"><span className="text-destructive">✕</span> Your AI receptionist stops answering calls</li>
+                        <li className="flex gap-2"><span className="text-destructive">✕</span> Your business phone number is released after 30 days</li>
+                        <li className="flex gap-2"><span className="text-destructive">✕</span> SMS reminders, follow-ups, and booking agents stop</li>
+                        <li className="flex gap-2"><span className="text-green-600">✓</span> Your CRM, customers, and invoices stay free forever</li>
+                      </ul>
+                      {(() => {
+                        const currentPrice = num(subscriptionStatus?.plan?.price);
+                        const cheaper = (plans || [])
+                          .filter((pl: Plan) => pl.interval === (subscriptionStatus?.plan?.interval || 'monthly'))
+                          .filter((pl: Plan) => pl.planTier !== 'free' && num(pl.price) > 0 && num(pl.price) < currentPrice)
+                          .sort((a: Plan, b: Plan) => num(b.price) - num(a.price))[0];
+                        if (!cheaper || subscriptionStatus?.status === 'trialing') return null;
+                        return (
+                          <div className="border rounded-md p-3 mb-4 bg-muted/40">
+                            <p className="text-sm font-medium mb-1">Want to keep the AI at a lower cost?</p>
+                            <p className="text-xs text-muted-foreground mb-2">
+                              Switch to {cheaper.name} for ${num(cheaper.price)}/{cheaper.interval === 'yearly' ? 'yr' : 'mo'} — you keep your phone number and receptionist.
+                            </p>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => { setCancelOpen(false); setChangePlanTarget(cheaper); }}
+                              data-testid="cancel-save-offer-downgrade"
+                            >
+                              Switch to {cheaper.name} instead
+                            </Button>
+                          </div>
+                        );
+                      })()}
+                      <label className="text-sm font-medium block mb-1.5">What's the main reason? <span className="text-muted-foreground font-normal">(optional)</span></label>
+                      <select
+                        className="w-full border rounded-md bg-background p-2 text-sm mb-3"
+                        value={cancelReason}
+                        onChange={(e) => setCancelReason(e.target.value)}
+                        data-testid="cancel-reason-select"
+                      >
+                        <option value="">Select a reason…</option>
+                        {CANCEL_REASONS.map(r => (
+                          <option key={r.value} value={r.value}>{r.label}</option>
+                        ))}
+                      </select>
+                      {cancelReason && (
+                        <textarea
+                          className="w-full border rounded-md bg-background p-2 text-sm mb-3"
+                          rows={2}
+                          maxLength={1000}
+                          placeholder="Anything else we should know? (optional)"
+                          value={cancelFeedback}
+                          onChange={(e) => setCancelFeedback(e.target.value)}
+                          data-testid="cancel-feedback-text"
+                        />
+                      )}
+                      <div className="flex justify-end gap-3 mt-2">
+                        <Button variant="outline" onClick={() => setCancelOpen(false)} data-testid="cancel-subscription-keep">
+                          Keep my plan
+                        </Button>
+                        <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setCancelStep(2)} data-testid="cancel-subscription-continue">
+                          Continue to cancel
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-lg font-semibold mb-2">
+                        {subscriptionStatus?.status === 'trialing'
+                          ? 'Cancel before your trial ends?'
+                          : 'Cancel your subscription?'}
+                      </h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        {subscriptionStatus?.status === 'trialing' ? (
+                          <>
+                            <span className="block mb-2 font-medium text-foreground">You won't be charged.</span>
+                            Your trial ends on{' '}
+                            <span className="font-medium">
+                              {subscriptionStatus?.trialEndsAt
+                                ? new Date(subscriptionStatus.trialEndsAt).toLocaleDateString()
+                                : new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}
+                            </span>
+                            . You'll keep full access until then. After that, your AI receptionist and
+                            SMS will pause, but your CRM stays free forever.
+                          </>
+                        ) : (
+                          <>
+                            You'll keep access until{' '}
+                            <span className="font-medium">
+                              {new Date(subscriptionStatus?.currentPeriodEnd).toLocaleDateString()}
+                            </span>
+                            . After that, your AI receptionist and SMS will pause, but your CRM stays
+                            free forever. You won't be charged again.
+                          </>
+                        )}
+                      </p>
+                      <div className="flex justify-end gap-3">
+                        <Button variant="outline" onClick={() => setCancelOpen(false)}>
+                          Keep subscription
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={handleCancel}
+                          disabled={cancelSubscriptionMutation.isPending}
+                          data-testid="cancel-subscription-confirm"
+                        >
+                          {cancelSubscriptionMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Yes, cancel
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
             {!appliedPromo && !showPromoInput && (
               <Button
                 variant="ghost"

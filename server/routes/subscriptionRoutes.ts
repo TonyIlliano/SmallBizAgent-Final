@@ -136,6 +136,28 @@ router.post('/cancel/:businessId', isAuthenticated, requireStripe, async (req: R
     }
 
     const result = await subscriptionService.cancelSubscription(businessId);
+
+    // Cancellation-reason capture (save-offer flow). Optional, never blocks
+    // the cancel itself — this is churn telemetry for the platform owner.
+    try {
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 100) : null;
+      const feedback = typeof req.body?.feedback === 'string' ? req.body.feedback.slice(0, 1000) : null;
+      if (reason || feedback) {
+        const { logAudit, getRequestContext } = await import('../services/auditService');
+        await logAudit({
+          userId: (req.user as any)?.id ?? null,
+          businessId,
+          action: 'subscription_cancelled',
+          resource: 'subscription',
+          resourceId: businessId,
+          details: { reason, feedback, source: 'cancel_flow' },
+          ...getRequestContext(req),
+        });
+      }
+    } catch (telemetryErr) {
+      console.error('[Subscription] Failed to record cancellation reason:', telemetryErr);
+    }
+
     res.json(result);
   } catch (error: any) {
     console.error('Error canceling subscription:', error);
