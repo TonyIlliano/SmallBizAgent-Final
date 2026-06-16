@@ -2125,6 +2125,9 @@ export async function startAllSchedulers(): Promise<void> {
     // Start weekly business report scheduler (Monday 8 AM per business timezone)
     startWeeklyReportScheduler();
 
+    // Start monthly AI-ROI email scheduler (1st of month 9 AM per business timezone)
+    startMonthlyRoiEmailScheduler();
+
     // Start health check monitor (pings Twilio, Retell, Stripe, OpenAI, DB every 5 min)
     startHealthCheckScheduler();
 
@@ -2343,6 +2346,49 @@ export function startWeeklyReportScheduler(): void {
   console.log('Weekly report scheduler started (checks hourly, sends Monday 8 AM per business timezone)');
 }
 
+// ── Monthly AI-ROI Email (checks hourly, sends on the 1st at 9 AM per business timezone) ──
+
+export function startMonthlyRoiEmailScheduler(): void {
+  const jobKey = 'monthly-roi-email';
+  if (scheduledJobs.has(jobKey)) return;
+
+  const intervalId = setInterval(() => {
+    withReentryGuard(jobKey, () =>
+      withAdvisoryLock(jobKey, () =>
+        withTimeout(async () => {
+          try {
+            const now = new Date();
+            if (now.getDate() !== 1) return; // only on the 1st of the month
+
+            const allBusinesses = await storage.getAllBusinesses();
+            const eligibleIds = allBusinesses
+              .filter(b => {
+                const tz = b.timezone || 'America/New_York';
+                // 9 AM local — after morning brief (7) and weekly report (8) so we don't pile up
+                const localHour = getLocalHour(tz);
+                const status = b.subscriptionStatus;
+                return localHour === 9 && (status === 'active' || status === 'trialing');
+              })
+              .map(b => b.id);
+
+            if (eligibleIds.length === 0) return;
+
+            console.log(`[MonthlyRoiEmail] Evaluating ${eligibleIds.length} businesses`);
+            const { processMonthlyRoiEmails } = await import('./monthlyRoiEmailService');
+            const result = await processMonthlyRoiEmails(eligibleIds);
+            console.log(`[MonthlyRoiEmail] Sent ${result.sent}, skipped ${result.skipped}`);
+          } catch (error) {
+            console.error('[MonthlyRoiEmail] Scheduler error:', error);
+          }
+        }, 300_000, jobKey)
+      )
+    ).catch(err => console.error('[Scheduler] monthly-roi-email error:', err));
+  }, 60 * 60 * 1000); // Check every hour
+
+  scheduledJobs.set(jobKey, intervalId);
+  console.log('Monthly AI-ROI email scheduler started (checks hourly, sends 1st of month 9 AM per business timezone)');
+}
+
 export function stopAllSchedulers(): void {
   scheduledJobs.forEach((intervalId, jobKey) => {
     clearInterval(intervalId);
@@ -2383,6 +2429,7 @@ export default {
   startGpsRetentionSweeper,
   runGpsRetentionSweep,
   startWeeklyReportScheduler,
+  startMonthlyRoiEmailScheduler,
   startWorkflowStepProcessor,
   startAllSchedulers,
   stopAllSchedulers

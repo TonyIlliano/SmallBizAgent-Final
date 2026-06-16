@@ -192,6 +192,25 @@ router.post("/api/admin/process-overage-billing", isAdmin, async (req: Request, 
  * this lets the platform owner kick it off on demand for testing or after a
  * meaningful product change. Returns full result summary.
  */
+/**
+ * POST /api/admin/monthly-roi-email/:businessId/send — Send the monthly AI-ROI
+ * email for one business on demand (testing / re-send). Idempotent per month:
+ * if it already went out this cycle the result is { sent: false,
+ * reason: 'already_sent' }. Same content the 1st-of-month scheduler sends.
+ */
+router.post("/api/admin/monthly-roi-email/:businessId/send", isAdmin, async (req: Request, res: Response) => {
+  const businessId = parseInt(req.params.businessId);
+  if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+  try {
+    const { sendMonthlyRoiEmail } = await import("../services/monthlyRoiEmailService");
+    const result = await sendMonthlyRoiEmail(businessId);
+    res.json(result);
+  } catch (error: any) {
+    console.error("[Admin] Error sending monthly ROI email:", error);
+    res.status(500).json({ error: "Failed to send monthly ROI email" });
+  }
+});
+
 router.post("/api/admin/intelligence-refresh/run", isAdmin, async (req: Request, res: Response) => {
   try {
     const { runWeeklyIntelligenceRefresh } = await import("../services/intelligenceRefreshService.js");
