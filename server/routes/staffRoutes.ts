@@ -612,6 +612,12 @@ router.post("/staff-invite/:code/accept", async (req: Request, res: Response) =>
     // Mark invite as accepted
     await storage.updateStaffInvite(invite.id, { status: "accepted" });
 
+    // Per-seat billing: a seat is now consumed. Reconcile the Starter seat
+    // charge (fail-soft, fire-and-forget — must never break the join flow).
+    import("../services/seatBillingService")
+      .then(({ syncSeatBilling }) => syncSeatBilling(invite.businessId))
+      .catch((e) => console.error("[SeatBilling] sync after accept failed:", e));
+
     // Log them in
     req.login(user, (err: Error | null) => {
       if (err) {
@@ -777,6 +783,22 @@ router.get("/team", isAuthenticated, requireRole('owner'), async (req: Request, 
   }
 });
 
+// GET /team/seat-info — Seat usage + per-seat pricing for the team UI.
+// Starter charges per extra seat; Growth/Pro are unlimited (chargeable=false).
+router.get("/team/seat-info", isAuthenticated, requireRole('owner'), async (req: Request, res: Response) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ message: "No business associated with this account" });
+    }
+    const { getSeatInfo } = await import("../services/seatBillingService");
+    res.json(await getSeatInfo(businessId));
+  } catch (error) {
+    console.error("Error fetching seat info:", error);
+    res.status(500).json({ message: "Error fetching seat info" });
+  }
+});
+
 // POST /team/invite — Invite a team member
 router.post("/team/invite", isAuthenticated, requireRole('owner'), async (req: Request, res: Response) => {
   try {
@@ -931,6 +953,12 @@ router.delete("/team/:userId", isAuthenticated, requireRole('owner'), async (req
     if (user && user.businessId === businessId) {
       await storage.updateUser(userId, { businessId: null });
     }
+
+    // Per-seat billing: a seat was freed. Reconcile the Starter seat charge
+    // (fail-soft, fire-and-forget).
+    import("../services/seatBillingService")
+      .then(({ syncSeatBilling }) => syncSeatBilling(businessId))
+      .catch((e) => console.error("[SeatBilling] sync after remove failed:", e));
 
     res.json({ success: true });
   } catch (error) {

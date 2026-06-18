@@ -193,6 +193,24 @@ router.post("/api/admin/process-overage-billing", isAdmin, async (req: Request, 
  * meaningful product change. Returns full result summary.
  */
 /**
+ * POST /api/admin/seat-billing/:businessId/sync — Reconcile the Starter
+ * per-seat charge for one business on demand. Use to backfill existing
+ * businesses whose team predates per-seat billing, or to verify after deploy.
+ * Returns the reconcile result ({ ok, action, extraSeats }).
+ */
+router.post("/api/admin/seat-billing/:businessId/sync", isAdmin, async (req: Request, res: Response) => {
+  const businessId = parseInt(req.params.businessId);
+  if (isNaN(businessId)) return res.status(400).json({ error: "Invalid business ID" });
+  try {
+    const { syncSeatBilling } = await import("../services/seatBillingService");
+    res.json(await syncSeatBilling(businessId));
+  } catch (error: any) {
+    console.error("[Admin] Error syncing seat billing:", error);
+    res.status(500).json({ error: "Failed to sync seat billing" });
+  }
+});
+
+/**
  * POST /api/admin/monthly-roi-email/:businessId/send — Send the monthly AI-ROI
  * email for one business on demand (testing / re-send). Idempotent per month:
  * if it already went out this cycle the result is { sent: false,

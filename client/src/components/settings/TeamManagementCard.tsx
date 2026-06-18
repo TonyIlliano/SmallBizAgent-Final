@@ -46,14 +46,25 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, UserPlus, Users, Mail, Trash2 } from "lucide-react";
+import { Loader2, UserPlus, Users, Mail, Trash2, Info, ArrowUpCircle } from "lucide-react";
 
 interface TeamMember {
   userId: number;
   username: string;
   email: string;
   role: string;
-  status: string;
+  accessRole?: string;
+  status?: string;
+}
+
+interface SeatInfo {
+  usedSeats: number;
+  includedSeats: number | null; // null = unlimited
+  unlimited: boolean;
+  chargeable: boolean; // true only on Starter
+  perSeatPrice: number;
+  extraSeats: number;
+  monthlySeatCharge: number;
 }
 
 export default function TeamManagementCard() {
@@ -69,16 +80,26 @@ export default function TeamManagementCard() {
   const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(null);
 
   const { data: teamMembers = [], isLoading } = useQuery<TeamMember[]>({
-    queryKey: ["/api/staff/team"],
+    queryKey: ["/api/team"],
     enabled: !!businessId,
   });
 
+  const { data: seatInfo } = useQuery<SeatInfo>({
+    queryKey: ["/api/team/seat-info"],
+    enabled: !!businessId,
+  });
+
+  const invalidateTeam = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/team"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/team/seat-info"] });
+  };
+
   const inviteMutation = useMutation({
     mutationFn: async (data: { email: string; role: string }) => {
-      return apiRequest("POST", "/api/staff/team/invite", data);
+      return apiRequest("POST", "/api/team/invite", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff/team"] });
+      invalidateTeam();
       toast({ title: "Invite sent", description: `Invitation sent to ${inviteEmail}` });
       setInviteDialogOpen(false);
       setInviteEmail("");
@@ -95,10 +116,10 @@ export default function TeamManagementCard() {
 
   const changeRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: number; role: string }) => {
-      return apiRequest("PUT", `/api/staff/team/${userId}/role`, { role });
+      return apiRequest("PUT", `/api/team/${userId}/role`, { role });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff/team"] });
+      invalidateTeam();
       toast({ title: "Role updated", description: "Team member role has been changed." });
     },
     onError: (error: any) => {
@@ -112,10 +133,10 @@ export default function TeamManagementCard() {
 
   const removeMutation = useMutation({
     mutationFn: async (userId: number) => {
-      return apiRequest("DELETE", `/api/staff/team/${userId}`);
+      return apiRequest("DELETE", `/api/team/${userId}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff/team"] });
+      invalidateTeam();
       toast({ title: "Member removed", description: "Team member has been removed from this business." });
       setRemoveDialogOpen(false);
       setMemberToRemove(null);
@@ -169,6 +190,32 @@ export default function TeamManagementCard() {
           </div>
         </CardHeader>
         <CardContent>
+          {seatInfo && seatInfo.chargeable && (
+            <div className="mb-4 rounded-lg border bg-muted/40 p-3" data-testid="seat-billing-banner">
+              <div className="flex items-start gap-2">
+                <Info className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium">
+                    {seatInfo.usedSeats} of {seatInfo.includedSeats} included seat
+                    {seatInfo.includedSeats === 1 ? "" : "s"} used
+                    {seatInfo.extraSeats > 0 && (
+                      <span className="text-foreground">
+                        {" "}· {seatInfo.extraSeats} extra (${seatInfo.monthlySeatCharge}/mo)
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    Each seat beyond your plan is ${seatInfo.perSeatPrice}/mo.{" "}
+                    <a href="/settings?tab=subscription" className="inline-flex items-center gap-1 font-medium text-foreground hover:underline">
+                      <ArrowUpCircle className="h-3.5 w-3.5" />
+                      Growth &amp; Pro include unlimited seats
+                    </a>
+                    .
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           {isLoading ? (
             <div className="flex items-center gap-2 text-muted-foreground py-4">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -194,7 +241,9 @@ export default function TeamManagementCard() {
               <TableBody>
                 {teamMembers.map((member) => {
                   const isCurrentUser = member.userId === user?.id;
-                  const isOwner = member.role === "owner";
+                  const teamRole = member.accessRole ?? member.role;
+                  const isOwner = teamRole === "owner";
+                  const status = member.status ?? "active";
                   return (
                     <TableRow key={member.userId}>
                       <TableCell className="font-medium">
@@ -206,12 +255,12 @@ export default function TeamManagementCard() {
                       <TableCell className="text-muted-foreground">{member.email}</TableCell>
                       <TableCell>
                         {isOwner || isCurrentUser ? (
-                          <Badge variant={getRoleBadgeVariant(member.role)}>
-                            {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+                          <Badge variant={getRoleBadgeVariant(teamRole)}>
+                            {teamRole.charAt(0).toUpperCase() + teamRole.slice(1)}
                           </Badge>
                         ) : (
                           <Select
-                            value={member.role}
+                            value={teamRole}
                             onValueChange={(newRole) =>
                               changeRoleMutation.mutate({ userId: member.userId, role: newRole })
                             }
@@ -227,8 +276,8 @@ export default function TeamManagementCard() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={getStatusBadgeVariant(member.status)}>
-                          {member.status.charAt(0).toUpperCase() + member.status.slice(1)}
+                        <Badge variant={getStatusBadgeVariant(status)}>
+                          {status.charAt(0).toUpperCase() + status.slice(1)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -291,6 +340,17 @@ export default function TeamManagementCard() {
                 </SelectContent>
               </Select>
             </div>
+            {seatInfo && seatInfo.chargeable && seatInfo.usedSeats >= (seatInfo.includedSeats ?? 1) && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="seat-charge-notice">
+                Heads up: you've used your {seatInfo.includedSeats} included seat
+                {seatInfo.includedSeats === 1 ? "" : "s"}. When this person joins, your bill
+                increases by <strong>${seatInfo.perSeatPrice}/mo</strong>.{" "}
+                <a href="/settings?tab=subscription" className="font-medium underline">
+                  Growth &amp; Pro include unlimited seats
+                </a>
+                .
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
