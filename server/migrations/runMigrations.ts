@@ -2334,7 +2334,37 @@ async function createPerformanceIndexes() {
 /**
  * Run all SQL migration files in the migrations directory
  */
+// Fixed advisory-lock id for the whole migration run. Serializes migrations
+// across instances: on a multi-instance deploy only one instance runs the
+// (idempotent) body at a time; the others block until it finishes, then run
+// and find everything already applied. Prevents the concurrent-boot race
+// where two Railway instances both execute the migration body simultaneously.
+const MIGRATION_LOCK_ID = 490217;
+
 async function runMigrations() {
+  // Advisory locks are session-scoped, so hold one dedicated connection for
+  // the duration. Disable statement_timeout on it so a long migration on the
+  // leader doesn't time out the waiters' blocking lock acquire.
+  const client = await pool.connect();
+  let locked = false;
+  try {
+    await client.query('SET statement_timeout = 0');
+    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
+    locked = true;
+    await runMigrationsInner();
+  } finally {
+    if (locked) {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]);
+      } catch (e) {
+        console.error('Error releasing migration advisory lock:', e);
+      }
+    }
+    client.release();
+  }
+}
+
+async function runMigrationsInner() {
   try {
     console.log('Running database migrations...');
 

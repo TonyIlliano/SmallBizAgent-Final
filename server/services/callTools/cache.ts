@@ -76,7 +76,18 @@ class BusinessDataCache {
 
   // Invalidate cache for a business (call after writes)
   // Keys are formatted as "type:businessId" or "type:businessId:extra"
-  invalidate(businessId: number, type?: string): void {
+  // Cross-instance invalidation publisher, injected by the cache-invalidation
+  // bus at boot. On multi-instance deploys, invalidating here also NOTIFYs the
+  // other instances so none keep serving stale hours/services to a live caller.
+  private publisher: ((businessId: number, type?: string) => void) | null = null;
+
+  setInvalidationPublisher(fn: (businessId: number, type?: string) => void): void {
+    this.publisher = fn;
+  }
+
+  /** Local-only invalidation. Called directly by the bus on a NOTIFY from
+   *  another instance (must NOT re-publish, or instances would ping-pong). */
+  invalidateLocal(businessId: number, type?: string): void {
     if (type) {
       // Specific type: match "type:businessId" and "type:businessId:*"
       const prefix = `${type}:${businessId}`;
@@ -94,6 +105,16 @@ class BusinessDataCache {
           this.cache.delete(key);
         }
       }
+    }
+  }
+
+  /** Public invalidation: clears this instance AND fans out to the others. */
+  invalidate(businessId: number, type?: string): void {
+    this.invalidateLocal(businessId, type);
+    try {
+      this.publisher?.(businessId, type);
+    } catch (err) {
+      console.error('[BusinessDataCache] invalidation publish failed:', err);
     }
   }
 

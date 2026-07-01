@@ -735,6 +735,17 @@ app.use((req, res, next) => {
         }
       })();
 
+      // Start cross-instance cache invalidation bus (Postgres LISTEN/NOTIFY).
+      // Fail-soft — degrades to per-instance TTL if it can't connect.
+      (async () => {
+        try {
+          const { startCacheInvalidationBus } = await import('./services/cacheInvalidationBus');
+          await startCacheInvalidationBus();
+        } catch (err) {
+          console.error('Failed to start cache invalidation bus (non-fatal):', err);
+        }
+      })();
+
       // Start the reminder scheduler after server is running
       (async () => {
         try {
@@ -769,6 +780,13 @@ app.use((req, res, next) => {
         console.log('Job queue stopped');
       } catch (err) {
         console.error('Error stopping job queue:', err);
+      }
+
+      try {
+        const { stopCacheInvalidationBus } = await import('./services/cacheInvalidationBus');
+        await stopCacheInvalidationBus();
+      } catch (err) {
+        console.error('Error stopping cache invalidation bus:', err);
       }
 
       // Wait for HTTP server to finish in-flight requests
